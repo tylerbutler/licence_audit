@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  Refocus `README.md` on end-user content for the 1.0 release: drop build-from-source and development sections, drop references to the disabled `update` subcommand and its Rust TOML port, and rewrite the CI example to install from a GitHub Release. Move contributor docs to `DEV.md`. Tighten `gleam.toml` description to match the 1.0 scope (locked Hex dependencies in Gleam projects).
+time: 2026-05-24T15:45:00.000000000-07:00

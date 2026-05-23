@@ -1,21 +1,36 @@
-name = "license_audit"
+name = "licence_audit"
 version = "1.0.0"
 
-# Fill out these fields if you intend to generate HTML documentation or publish
-# your project to the Hex package manager.
-#
-# description = ""
-# licences = ["Apache-2.0"]
-# repository = { type = "github", user = "", repo = "" }
-# links = [{ title = "Website", href = "" }]
-#
-# For a full reference of all the available options, you can have a look at
-# https://gleam.run/writing-gleam/gleam-toml/.
+description = "Audit licences of locked Hex dependencies in Gleam projects."
+licences = ["Apache-2.0"]
+repository = { type = "github", user = "tylerbutler", repo = "license_audit" }
 
 [dependencies]
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"
 argv = ">= 1.1.0 and < 2.0.0"
+tom = ">= 2.1.0 and < 3.0.0"
+simplifile = ">= 2.4.0 and < 3.0.0"
+gleam_json = ">= 3.1.0 and < 4.0.0"
+gleam_http = ">= 4.3.0 and < 5.0.0"
+gluegun = { git = "https://github.com/tylerbutler/gluegun", ref = "fa4c8ee919138fc8ffddd2642165a89654e61999" }
+glint = ">= 1.2.1 and < 2.0.0"
+birch = ">= 0.2.1 and < 1.0.0"
+gleam_community_ansi = ">= 1.5.0 and < 2.0.0"
+envoy = ">= 1.2.0 and < 2.0.0"
+slate = ">= 1.0.0 and < 2.0.0"
+etch = ">= 1.3.3 and < 2.0.0"
+youid = ">= 1.4.0 and < 2.0.0"
+gleam_regexp = ">= 1.1.1 and < 2.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
 gleescript = ">= 1.5.2 and < 2.0.0"
+gleam_time = ">= 1.8.0 and < 2.0.0"
+
+[tools]
+
+[tools.licence_audit]
+# any license types not listed here will be treated as unknown and will
+# cause an audit check to fail
+allow = ["Apache-2.0", "ISC", "MIT"]
+deny = []

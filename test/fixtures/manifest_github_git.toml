@@ -1,0 +1,9 @@
+# Fixture for SBOM tests: one hex dep, one github git dep.
+packages = [
+  { name = "gleam_stdlib", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "0C5506589DF4C63DF5D6FFBB834562D6865C6C2AEE0019D7B37886BD6D128141" },
+  { name = "gluegun", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/gluegun", commit = "fa4c8ee919138fc8ffddd2642165a89654e61999" },
+]
+
+[requirements]
+gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
+gluegun = { git = "https://github.com/tylerbutler/gluegun", ref = "fa4c8ee919138fc8ffddd2642165a89654e61999" }

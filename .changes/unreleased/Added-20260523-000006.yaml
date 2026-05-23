@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  Requires Erlang/OTP 28.x or newer so the interactive licence picker (`licence_audit update`) receives keyboard input. Under OTP 27, `shell:start_interactive({noshell, raw})` returns `ok` but does not reattach stdin in raw mode, so `etch`'s event loop silently swallows every keystroke.
+time: 2026-05-23T00:00:06.000000000-07:00

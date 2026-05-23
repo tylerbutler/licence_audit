@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  Report output is rendered as a dependency tree. Transitive packages appear indented under the dep that brought them in, using `├─`/`└─` connectors. A `Kind` column tags each package as `D` (direct dependency from `manifest.toml`'s `[requirements]`) or `T` (transitive). When `--check` flags a transitive package, a `via: a → b → c` line is printed under the row showing the shortest dependency chain from a direct dep to the offending package.
+time: 2026-05-23T00:00:04.000000000-07:00

@@ -1,0 +1,12 @@
+{
+  "name": "example",
+  "repository": "hexpm",
+  "meta": {
+    "description": "Example package",
+    "licenses": ["Apache-2.0", "MIT"],
+    "links": { "HexDocs": "https://hexdocs.pm/example/" }
+  },
+  "releases": [
+    { "version": "1.0.0", "url": "https://hex.pm/api/packages/example/releases/1.0.0" }
+  ]
+}

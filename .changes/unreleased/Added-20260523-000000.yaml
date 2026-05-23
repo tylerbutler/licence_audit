@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  Standalone `licence_audit` licence audit tool for Gleam projects, with CLI support for inventory reports (`licence_audit`) and enforcing audits (`licence_audit --check`).
+time: 2026-05-23T00:00:00.000000000-07:00

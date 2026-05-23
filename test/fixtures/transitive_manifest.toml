@@ -1,0 +1,10 @@
+# Fixture exercising direct / transitive dependency handling.
+# app_a is the project's only direct dep; lib_b and lib_c are transitive.
+packages = [
+  { name = "app_a", version = "1.0.0", build_tools = ["gleam"], requirements = ["lib_b"], otp_app = "app_a", source = "hex", outer_checksum = "AAAA" },
+  { name = "lib_b", version = "2.0.0", build_tools = ["gleam"], requirements = ["lib_c"], otp_app = "lib_b", source = "hex", outer_checksum = "BBBB" },
+  { name = "lib_c", version = "3.0.0", build_tools = ["gleam"], requirements = [], otp_app = "lib_c", source = "hex", outer_checksum = "CCCC" },
+]
+
+[requirements]
+app_a = { version = ">= 1.0.0" }

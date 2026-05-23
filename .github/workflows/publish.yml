@@ -1,0 +1,107 @@
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build-escript:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Build escript archive
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      # Build the Rust port as a compile-only sanity check on the release
+      # commit. The binary is intentionally NOT packaged into the release
+      # artifacts at this time; users build it locally.
+      - name: Compile Rust port (sanity check, not shipped)
+        run: just build-port
+
+      - name: Build escript
+        run: mise exec -- gleam run -m gleescript
+
+      - name: Generate CycloneDX SBOM
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
+
+      - name: Stage release artifacts
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          stage="licence_audit-${REF_NAME}"
+          mkdir -p "$stage"
+          cp licence_audit "$stage/"
+          [ -f licence_audit.ps1 ] && cp licence_audit.ps1 "$stage/" || true
+          [ -f LICENSE ] && cp LICENSE "$stage/" || true
+          [ -f README.md ] && cp README.md "$stage/" || true
+          tar -czf "dist/${stage}.tar.gz" "$stage"
+          (cd "$stage" && zip -qr "../dist/${stage}.zip" .)
+          (cd dist && sha256sum *.tar.gz *.zip *.cdx.json > checksums.txt)
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: licence_audit-release
+          path: dist/
+
+  release:
+    needs: build-escript
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: licence_audit-release
+          path: dist
+
+      - name: Attest build provenance for release archives
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # ratchet:actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+      - name: Attest SBOM for release archives
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # ratchet:actions/attest-sbom@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+          sbom-path: dist/licence_audit-${{ github.ref_name }}.cdx.json
+
+      - name: Attach assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The release is created by auto-tag.yml; retry briefly in case it
+          # hasn't been published by the time this job runs.
+          for i in 1 2 3 4 5; do
+            if gh release view "$REF_NAME" >/dev/null 2>&1; then
+              break
+            fi
+            echo "Release $REF_NAME not yet available, sleeping..."
+            sleep 10
+          done
+          gh release upload "$REF_NAME" dist/* --clobber
