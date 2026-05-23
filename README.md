@@ -8,8 +8,10 @@ help path is available and future tasks will add the real audit implementation.
 ## Development
 
 ```sh
-mise exec gleam@1.16.0 erlang@27.3.4.11 -- gleam test
-mise exec gleam@1.16.0 erlang@27.3.4.11 -- gleam build
-mise exec gleam@1.16.0 erlang@27.3.4.11 -- gleam export erlang-shipment
-mise exec gleam@1.16.0 erlang@27.3.4.11 -- gleam export escript
+mise trust
+mise exec -- gleam test
+mise exec -- gleam build
+mise exec -- gleam export erlang-shipment
+mise exec -- gleam run -m gleescript
+mv ./license_audit ./gleam-audit
 ```

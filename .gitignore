@@ -1,4 +1,6 @@
 *.beam
 *.ez
 /build
+/gleam-audit
+/license_audit
 erl_crash.dump

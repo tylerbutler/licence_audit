@@ -12,12 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28"
-          gleam-version: "1.16.0"
-          rebar3-version: "3"
-          # elixir-version: "1"
-      - run: gleam deps download
-      - run: gleam test
-      - run: gleam format --check src test
+      - uses: jdx/mise-action@v3
+      - run: mise exec -- gleam deps download
+      - run: mise exec -- gleam test
+      - run: mise exec -- gleam format --check src test
+      - run: mise exec -- gleam run -m gleescript

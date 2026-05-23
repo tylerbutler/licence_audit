@@ -14,9 +14,8 @@ version = "1.0.0"
 
 [dependencies]
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"
-
-[escript]
-main = "license_audit.main"
+argv = ">= 1.1.0 and < 2.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
+gleescript = ">= 1.5.2 and < 2.0.0"
