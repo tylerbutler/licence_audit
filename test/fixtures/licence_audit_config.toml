@@ -1,0 +1,3 @@
+[tools.licence_audit]
+allow = ["BSD-3-Clause"]
+deny = ["AGPL-3.0-only"]

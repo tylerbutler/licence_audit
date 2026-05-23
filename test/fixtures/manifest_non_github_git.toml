@@ -1,0 +1,8 @@
+packages = [
+  { name = "gleam_stdlib", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "0C5506589DF4C63DF5D6FFBB834562D6865C6C2AEE0019D7B37886BD6D128141" },
+  { name = "foo", version = "1.0.0", build_tools = ["gleam"], requirements = [], source = "git", repo = "https://gitlab.com/x/foo", commit = "abc123" },
+]
+
+[requirements]
+gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
+foo = { git = "https://gitlab.com/x/foo", ref = "abc123" }

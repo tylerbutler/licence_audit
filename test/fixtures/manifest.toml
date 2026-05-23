@@ -1,0 +1,10 @@
+# Minimal Gleam lockfile fixture for licence audit manifest parsing.
+packages = [
+  { name = "gleam_stdlib", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "AAAA" },
+  { name = "argv", version = "1.1.0", build_tools = ["gleam"], requirements = [], otp_app = "argv", source = "hex", outer_checksum = "BBBB" },
+  { name = "local_dep", version = "0.1.0", build_tools = ["gleam"], requirements = [], source = "path", path = "../local_dep" },
+  { name = "git_dep", version = "2.0.0", build_tools = ["gleam"], requirements = [], source = "git", repo = "https://example.invalid/git_dep" },
+]
+
+[requirements]
+gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }

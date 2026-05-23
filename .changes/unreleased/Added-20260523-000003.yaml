@@ -1,0 +1,10 @@
+kind: Added
+body: |-
+  Policy configuration lives in `gleam.toml` under `[tools.licence_audit]`, with CLI `--allow`/`--deny` overrides:
+
+  ```toml
+  [tools.licence_audit]
+  allow = ["Apache-2.0", "MIT"]
+  deny = ["GPL-3.0-only"]
+  ```
+time: 2026-05-23T00:00:03.000000000-07:00

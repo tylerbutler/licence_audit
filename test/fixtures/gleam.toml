@@ -1,0 +1,9 @@
+name = "fixture_project"
+version = "1.0.0"
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+
+[tools.licence_audit]
+allow = ["MIT", "Apache-2.0"]
+deny = ["GPL-3.0-only"]

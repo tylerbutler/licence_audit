@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  Allow `release: vX.Y.Z` PR titles in commitlint validation and keep the release workflow using the `release: {version}` title format.
+time: 2026-05-25T12:20:00.000000000-07:00

@@ -1,0 +1,311 @@
+import birch as log
+import birch/formatter
+import birch/handler
+import birch/level
+import birch/level_formatter
+import birch/logger.{type Logger}
+import birch/record
+import gleam/bool
+import gleam/int
+import gleam/io
+import gleam/list
+import gleam/string
+import tty
+
+pub type Verbosity {
+  Quiet
+  Normal
+  Verbose
+}
+
+pub type EventKind {
+  Phase
+  Detail
+  PackageCount
+  Success
+  Failure
+  Warning
+  Error
+}
+
+pub type Event {
+  Event(kind: EventKind, message: String)
+}
+
+pub type Reporter {
+  Reporter(
+    enabled: Bool,
+    verbosity: Verbosity,
+    emit: Bool,
+    events: List(Event),
+    deferred: List(Event),
+    command: String,
+  )
+}
+
+pub fn enabled(verbosity: Verbosity, command: String) -> Reporter {
+  Reporter(
+    enabled: True,
+    verbosity: verbosity,
+    emit: True,
+    events: [],
+    deferred: [],
+    command: command,
+  )
+}
+
+pub fn capturing(verbosity: Verbosity, command: String) -> Reporter {
+  Reporter(
+    enabled: True,
+    verbosity: verbosity,
+    emit: False,
+    events: [],
+    deferred: [],
+    command: command,
+  )
+}
+
+pub fn disabled() -> Reporter {
+  Reporter(
+    enabled: False,
+    verbosity: Quiet,
+    emit: False,
+    events: [],
+    deferred: [],
+    command: "",
+  )
+}
+
+pub fn events(reporter: Reporter) -> List(Event) {
+  list.reverse(reporter.events)
+}
+
+pub fn configure(verbosity: Verbosity) -> Nil {
+  let stderr_is_tty = tty.is_tty(tty.Stderr)
+  let use_color = stderr_color_enabled(tty.detect_color_level(tty.Stderr))
+  let format = case stderr_is_tty {
+    True -> tty_record_formatter(use_color)
+    False -> standard_record_formatter(use_color)
+  }
+  let stderr_handler =
+    handler.new(name: "progress", write: io.println_error, format: format)
+  let threshold = case verbosity {
+    Verbose -> level.Debug
+    Quiet | Normal -> level.Info
+  }
+
+  log.configure([
+    log.config_level(threshold),
+    log.config_handlers([stderr_handler]),
+  ])
+}
+
+pub fn minimal_level_formatter() -> level_formatter.LevelFormatter {
+  level_formatter.custom_level_formatter(
+    fn(lvl, _use_color) {
+      let label = level.to_string_lowercase(lvl)
+      case lvl {
+        level.Info -> ""
+        level.Warn -> "⚠ " <> label
+        level.Err | level.Fatal -> "✖ " <> label
+        _ -> label
+      }
+    },
+    0,
+  )
+}
+
+pub fn stderr_color_enabled(level: tty.ColorLevel) -> Bool {
+  level != tty.NoColor
+}
+
+fn tty_record_formatter(use_color: Bool) -> formatter.Formatter {
+  fn(record) { format_tty_record(record, use_color) }
+}
+
+fn standard_record_formatter(use_color: Bool) -> formatter.Formatter {
+  fn(record) { format_standard_record(record, use_color) }
+}
+
+pub fn format_tty_record(record: record.LogRecord, use_color: Bool) -> String {
+  let level =
+    level_formatter.format_level_padded(
+      minimal_level_formatter(),
+      record.level,
+      use_color,
+    )
+
+  let metadata = format_metadata_visible(record.metadata, use_color)
+  let metadata_suffix = case metadata {
+    "" -> ""
+    value -> " " <> value
+  }
+
+  case level {
+    "" -> record.message <> metadata_suffix
+    _ -> level <> " " <> record.message <> metadata_suffix
+  }
+}
+
+pub fn format_standard_record(
+  record: record.LogRecord,
+  use_color: Bool,
+) -> String {
+  let level =
+    level_formatter.format_level_padded(
+      level_formatter.simple_formatter(),
+      record.level,
+      use_color,
+    )
+  let metadata = format_metadata_visible(record.metadata, use_color)
+  let metadata_suffix = case metadata {
+    "" -> ""
+    value -> " | " <> value
+  }
+
+  level
+  <> " | "
+  <> record.logger_name
+  <> " | "
+  <> record.message
+  <> metadata_suffix
+}
+
+fn format_metadata_visible(
+  metadata: record.Metadata,
+  use_color: Bool,
+) -> String {
+  metadata
+  |> list.filter(fn(pair) { !string.starts_with(pair.0, "_") })
+  |> formatter.format_metadata_colored(use_color)
+}
+
+pub fn phase(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  case reporter.emit {
+    True -> log.logger_info(logger_for(reporter), message, [])
+    False -> Nil
+  }
+  record(reporter, Phase, message)
+}
+
+pub fn detail(reporter: Reporter, message: String) -> Reporter {
+  case reporter.enabled, reporter.verbosity {
+    True, Verbose -> {
+      case reporter.emit {
+        True -> log.logger_debug(logger_for(reporter), message, [])
+        False -> Nil
+      }
+      record(reporter, Detail, message)
+    }
+    _, _ -> reporter
+  }
+}
+
+pub fn package_count(reporter: Reporter, count: Int) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  let message = "Checking Hex package metadata"
+  case reporter.emit {
+    True ->
+      log.logger_info(logger_for(reporter), message, [
+        #("packages", int.to_string(count)),
+      ])
+    False -> Nil
+  }
+  record(reporter, PackageCount, message)
+}
+
+pub fn success(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  case reporter.emit {
+    True -> log.logger_info(logger_for(reporter), message, [])
+    False -> Nil
+  }
+  record(reporter, Success, message)
+}
+
+pub fn fail(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  case reporter.emit {
+    True -> log.logger_warn(logger_for(reporter), message, [])
+    False -> Nil
+  }
+  record(reporter, Failure, message)
+}
+
+pub fn warn(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  case reporter.emit {
+    True -> log.logger_warn(logger_for(reporter), message, [])
+    False -> Nil
+  }
+  record(reporter, Warning, message)
+}
+
+fn record(reporter: Reporter, kind: EventKind, message: String) -> Reporter {
+  Reporter(..reporter, events: [Event(kind, message), ..reporter.events])
+}
+
+/// Record a success event and queue its log emission until `flush` is called.
+/// Use this for end-of-run status messages that should appear after report
+/// output has been printed to stdout.
+pub fn defer_success(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  queue(record(reporter, Success, message), Success, message)
+}
+
+/// Record a warning event and queue its log emission until `flush` is called.
+pub fn defer_warn(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !should_log(reporter), return: reporter)
+  queue(record(reporter, Warning, message), Warning, message)
+}
+
+/// Record a fatal audit error and queue its log emission until `flush` is
+/// called. Mirrors `error` in that it records even when verbosity is Quiet.
+pub fn defer_error(reporter: Reporter, message: String) -> Reporter {
+  use <- bool.guard(when: !reporter.enabled, return: reporter)
+  queue(record(reporter, Error, message), Error, message)
+}
+
+/// Emit any deferred log entries (in the order they were deferred) and clear
+/// the deferred queue. Safe to call on capturing or disabled reporters.
+pub fn flush(reporter: Reporter) -> Reporter {
+  case reporter.emit {
+    True -> {
+      let lgr = logger_for(reporter)
+      list.each(list.reverse(reporter.deferred), fn(event) {
+        emit_event(lgr, event)
+      })
+    }
+    False -> Nil
+  }
+  Reporter(..reporter, deferred: [])
+}
+
+fn queue(reporter: Reporter, kind: EventKind, message: String) -> Reporter {
+  Reporter(..reporter, deferred: [Event(kind, message), ..reporter.deferred])
+}
+
+fn logger_for(reporter: Reporter) -> Logger {
+  log.new(reporter.command)
+}
+
+fn emit_event(lgr: Logger, event: Event) -> Nil {
+  case event.kind {
+    Error -> log.logger_error(lgr, event.message, [])
+    Warning -> log.logger_warn(lgr, event.message, [])
+    Failure -> log.logger_warn(lgr, event.message, [])
+    Success -> log.logger_info(lgr, event.message, [])
+    Phase -> log.logger_info(lgr, event.message, [])
+    PackageCount -> log.logger_info(lgr, event.message, [])
+    Detail -> log.logger_debug(lgr, event.message, [])
+  }
+}
+
+fn should_log(reporter: Reporter) -> Bool {
+  case reporter.enabled, reporter.verbosity {
+    True, Quiet -> False
+    True, _ -> True
+    False, _ -> False
+  }
+}

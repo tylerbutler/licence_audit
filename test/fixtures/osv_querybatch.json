@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "vulns": [
+        {"id": "GHSA-aaaa-bbbb-cccc"},
+        {"id": "CVE-2024-0001"}
+      ]
+    },
+    {},
+    {"vulns": []}
+  ]
+}
