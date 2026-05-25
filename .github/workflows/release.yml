@@ -26,6 +26,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           version-files: |
             gleam.toml:version
+          pr-title-template: 'release: v{version}'
 
       - name: Summary
         if: steps.release.outputs.skipped != 'true'
