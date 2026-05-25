@@ -67,30 +67,19 @@ pub type CliAction {
   InvalidUsage(String)
 }
 
-// Feature flag: the `update` subcommand is disabled for the 1.0 release.
-// The implementation (update_command, run_update_options, the
-// licence_audit/update module) is kept intact so we can re-enable it post-1.0
-// by flipping this constant to True. Do NOT delete the supporting code.
-const update_command_enabled = False
-
 pub fn app() -> glint.Glint(CliAction) {
-  let base =
-    glint.new()
-    |> glint.with_name("licence_audit")
-    |> glint.global_help("Audit locked Hex package licences.")
-    |> glint.pretty_help(glint.default_pretty_help())
-    |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
-    |> glint.add(
-      at: ["check"],
-      do: audit_command(check_mode: True, help: check_help),
-    )
-    |> glint.add(at: ["sbom"], do: sbom_command())
-    |> glint.add(at: ["vulns"], do: vulns_command())
-
-  case update_command_enabled {
-    True -> base |> glint.add(at: ["update"], do: update_command())
-    False -> base
-  }
+  glint.new()
+  |> glint.with_name("licence_audit")
+  |> glint.global_help("Audit locked Hex package licences.")
+  |> glint.pretty_help(glint.default_pretty_help())
+  |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
+  |> glint.add(
+    at: ["check"],
+    do: audit_command(check_mode: True, help: check_help),
+  )
+  |> glint.add(at: ["update"], do: update_command())
+  |> glint.add(at: ["sbom"], do: sbom_command())
+  |> glint.add(at: ["vulns"], do: vulns_command())
 }
 
 const root_help = "Report Hex package licence metadata. Use the `check` subcommand to enforce a licence policy."

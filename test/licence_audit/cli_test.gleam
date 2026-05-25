@@ -13,6 +13,12 @@ fn parse_options(args: List(String)) -> cli.Options {
   options
 }
 
+fn parse_update_options(args: List(String)) -> cli.UpdateOptions {
+  let assert Ok(glint.Out(cli.UpdateConfig(options))) =
+    glint.execute(cli.app(), args)
+  options
+}
+
 fn help_text(args: List(String)) -> String {
   let assert Ok(glint.Help(help)) = glint.execute(cli.app(), args)
   help
@@ -175,6 +181,46 @@ pub fn check_subcommand_is_listed_in_help_test() {
   let help = help_text(["--help"])
 
   assert string.contains(help, "check")
+}
+
+pub fn update_subcommand_is_listed_in_help_test() {
+  let help = help_text(["--help"])
+
+  assert string.contains(help, "update")
+}
+
+pub fn update_subcommand_parses_defaults_test() {
+  let options = parse_update_options(["update"])
+
+  should.equal(options.manifest_path, None)
+  should.equal(options.config_path, None)
+  should.equal(options.ignore_config, False)
+  should.equal(options.verbosity, progress.Normal)
+  should.equal(options.color, color.Auto)
+  should.equal(options.no_cache, False)
+  should.equal(options.cache_path, None)
+}
+
+pub fn update_subcommand_parses_supported_flags_test() {
+  let options =
+    parse_update_options([
+      "update",
+      "--config=audit.toml",
+      "--manifest=locked.toml",
+      "--ignore-config",
+      "--verbose",
+      "--color=never",
+      "--no-cache",
+      "--cache-path=/tmp/licence-audit.dets",
+    ])
+
+  should.equal(options.config_path, Some("audit.toml"))
+  should.equal(options.manifest_path, Some("locked.toml"))
+  should.equal(options.ignore_config, True)
+  should.equal(options.verbosity, progress.Verbose)
+  should.equal(options.color, color.Never)
+  should.equal(options.no_cache, True)
+  should.equal(options.cache_path, Some("/tmp/licence-audit.dets"))
 }
 
 pub fn default_color_mode_is_auto_test() {

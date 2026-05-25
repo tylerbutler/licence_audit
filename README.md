@@ -61,6 +61,17 @@ licence_audit --help
 
 `--allow` and `--deny` are also accepted at the root level for symmetry with the help output, but they have no effect outside the `check` subcommand. Run `licence_audit check` if you want policy to be enforced.
 
+### Updating licence policy
+
+Interactively discover licences from the locked manifest and write the selected policy to `[tools.licence_audit]`:
+
+```sh
+licence_audit update
+licence_audit update --config=path/to/gleam.toml
+```
+
+The `update` subcommand fetches package metadata, preselects any existing allow and deny entries from configuration, prompts for the licences to allow or deny, and writes the result back to `gleam.toml` unless `--config` points at another TOML file.
+
 ### Generating an SBOM
 
 Generate a [CycloneDX 1.5](https://cyclonedx.org/) JSON Software Bill of
