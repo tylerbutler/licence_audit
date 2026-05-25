@@ -970,7 +970,13 @@ fn run_vuln_check_for_audit(
               severity_meets_or_exceeds(vuln.severity, threshold)
             })
           let report_text =
-            format_vuln_gate_output(vulns, triggering, threshold, id_to_pkg, palette)
+            format_vuln_gate_output(
+              vulns,
+              triggering,
+              threshold,
+              id_to_pkg,
+              palette,
+            )
           #(report_text, triggering != [], reporter)
         }
       }
@@ -1043,7 +1049,10 @@ fn fetch_vuln_details_flat(
   }
 }
 
-fn severity_meets_or_exceeds(actual: osv.Severity, threshold: osv.Severity) -> Bool {
+fn severity_meets_or_exceeds(
+  actual: osv.Severity,
+  threshold: osv.Severity,
+) -> Bool {
   severity_rank(actual) >= severity_rank(threshold)
   && actual != osv.UnknownSeverity
 }

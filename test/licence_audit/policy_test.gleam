@@ -108,7 +108,11 @@ pub fn dedupe_preserves_stable_order_test() {
 
 pub fn config_policy_can_be_converted_to_policy_test() {
   let config_policy =
-    config.Policy(allow: ["MIT", "MIT"], deny: ["GPL-3.0-only"], vuln_severity: None)
+    config.Policy(
+      allow: ["MIT", "MIT"],
+      deny: ["GPL-3.0-only"],
+      vuln_severity: None,
+    )
 
   let assert Ok(audit_policy) =
     policy.from_config(config_policy, check_mode: True)

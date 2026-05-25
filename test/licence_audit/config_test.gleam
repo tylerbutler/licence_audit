@@ -15,7 +15,11 @@ pub fn parse_tools_licence_audit_section_test() {
 
   should.equal(
     policy,
-    config.Policy(allow: ["MIT", "Apache-2.0"], deny: ["GPL-3.0-only"], vuln_severity: None),
+    config.Policy(
+      allow: ["MIT", "Apache-2.0"],
+      deny: ["GPL-3.0-only"],
+      vuln_severity: None,
+    ),
   )
 }
 
@@ -24,7 +28,11 @@ pub fn parse_gleam_toml_finds_tools_licence_audit_test() {
 
   should.equal(
     policy,
-    config.Policy(allow: ["MIT", "Apache-2.0"], deny: ["GPL-3.0-only"], vuln_severity: None),
+    config.Policy(
+      allow: ["MIT", "Apache-2.0"],
+      deny: ["GPL-3.0-only"],
+      vuln_severity: None,
+    ),
   )
 }
 
@@ -39,12 +47,21 @@ pub fn parse_rejects_bare_licence_audit_section_test() {
 }
 
 pub fn merge_combines_file_and_cli_policy_with_stable_deduplication_test() {
-  let file = config.Policy(allow: ["MIT", "Apache-2.0"], deny: ["GPL-3.0-only"], vuln_severity: None)
+  let file =
+    config.Policy(
+      allow: ["MIT", "Apache-2.0"],
+      deny: ["GPL-3.0-only"],
+      vuln_severity: None,
+    )
   let cli =
-    config.Policy(allow: ["MIT", "BSD-3-Clause"], deny: [
-      "AGPL-3.0-only",
-      "GPL-3.0-only",
-    ], vuln_severity: None)
+    config.Policy(
+      allow: ["MIT", "BSD-3-Clause"],
+      deny: [
+        "AGPL-3.0-only",
+        "GPL-3.0-only",
+      ],
+      vuln_severity: None,
+    )
 
   let assert Ok(policy) = config.merge(file, cli)
 
@@ -87,7 +104,11 @@ pub fn load_uses_explicit_config_before_project_config_test() {
 
   should.equal(
     policy,
-    config.Policy(allow: ["BSD-3-Clause"], deny: ["AGPL-3.0-only"], vuln_severity: None),
+    config.Policy(
+      allow: ["BSD-3-Clause"],
+      deny: ["AGPL-3.0-only"],
+      vuln_severity: None,
+    ),
   )
 }
 
@@ -107,7 +128,11 @@ pub fn load_reads_project_gleam_toml_test() {
 
   should.equal(
     policy,
-    config.Policy(allow: ["MIT", "Apache-2.0"], deny: ["GPL-3.0-only"], vuln_severity: None),
+    config.Policy(
+      allow: ["MIT", "Apache-2.0"],
+      deny: ["GPL-3.0-only"],
+      vuln_severity: None,
+    ),
   )
 }
 
@@ -125,7 +150,10 @@ pub fn load_uses_cli_policy_when_no_file_policy_exists_test() {
 
   let assert Ok(policy) = config.load(options)
 
-  should.equal(policy, config.Policy(allow: ["MIT"], deny: ["GPL-3.0-only"], vuln_severity: None))
+  should.equal(
+    policy,
+    config.Policy(allow: ["MIT"], deny: ["GPL-3.0-only"], vuln_severity: None),
+  )
 }
 
 pub fn load_uses_cli_only_when_ignore_config_is_set_test() {
@@ -142,7 +170,10 @@ pub fn load_uses_cli_only_when_ignore_config_is_set_test() {
 
   let assert Ok(policy) = config.load(options)
 
-  should.equal(policy, config.Policy(allow: ["ISC"], deny: ["Unlicence"], vuln_severity: None))
+  should.equal(
+    policy,
+    config.Policy(allow: ["ISC"], deny: ["Unlicence"], vuln_severity: None),
+  )
 }
 
 pub fn load_allows_missing_policy_in_report_mode_test() {

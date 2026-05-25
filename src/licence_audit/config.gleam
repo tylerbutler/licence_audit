@@ -6,11 +6,7 @@ import simplifile
 import tom.{type Toml}
 
 pub type Policy {
-  Policy(
-    allow: List(String),
-    deny: List(String),
-    vuln_severity: Option(String),
-  )
+  Policy(allow: List(String), deny: List(String), vuln_severity: Option(String))
 }
 
 pub type LoadOptions {
@@ -174,11 +170,7 @@ fn parse_policy_section(section: Dict(String, Toml)) -> Result(Policy, Error) {
           case optional_string(section, "vuln_severity") {
             Error(error) -> Error(error)
             Ok(severity) ->
-              validate(Policy(
-                allow: allow,
-                deny: deny,
-                vuln_severity: severity,
-              ))
+              validate(Policy(allow: allow, deny: deny, vuln_severity: severity))
           }
         }
       }
