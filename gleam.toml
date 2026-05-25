@@ -34,5 +34,8 @@ gleam_time = ">= 1.8.0 and < 2.0.0"
 [tools.licence_audit]
 # any license types not listed here will be treated as unknown and will
 # cause an audit check to fail
-allow = ["Apache-2.0", "ISC", "MIT"]
-deny = []
+allow = ["Apache-2.0", "ISC", "MIT"] # add more here as needed
+
+# license types listed here will cause an audit check to fail if they 
+# are found in the locked dependencies
+deny = ["AGPL-3.0"]
