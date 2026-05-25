@@ -67,8 +67,8 @@ Generate a [CycloneDX 1.5](https://cyclonedx.org/) JSON Software Bill of
 Materials from the project's `manifest.toml`:
 
 ```sh
-licence_audit sbom                       # prints SBOM to stdout
-licence_audit sbom --output=sbom.json    # writes SBOM to a file
+licence_audit sbom                       # prints pretty JSON to stdout
+licence_audit sbom --output=sbom.json    # writes compact JSON to a file
 licence_audit sbom --offline             # skip Hex fetch, omit licence fields
 ```
 

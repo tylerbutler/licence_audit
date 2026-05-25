@@ -18,6 +18,7 @@ import licence_audit/policy
 import licence_audit/progress
 import licence_audit/report
 import licence_audit/sbom
+import licence_audit/sbom_json
 import licence_audit/sbom_uuid
 import licence_audit/update as update_cmd
 import simplifile
@@ -300,7 +301,14 @@ fn write_sbom_output(
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   case output {
-    option.None -> #(RunResult(0, json_str <> "\n"), reporter)
+    option.None ->
+      case sbom_json.pretty_print(json_str) {
+        Ok(pretty_json) -> #(RunResult(0, pretty_json <> "\n"), reporter)
+        Error(reason) -> #(
+          RunResult(2, "Error: failed to format SBOM JSON: " <> reason <> "\n"),
+          reporter,
+        )
+      }
     option.Some(path) ->
       case simplifile.write(to: path, contents: json_str <> "\n") {
         Ok(_) -> #(RunResult(0, ""), reporter)

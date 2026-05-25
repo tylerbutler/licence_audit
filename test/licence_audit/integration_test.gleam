@@ -4,6 +4,7 @@ import gleeunit/should
 import licence_audit
 import licence_audit/hex
 import licence_audit/progress
+import simplifile
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
@@ -308,15 +309,38 @@ pub fn sbom_subcommand_prints_cyclonedx_to_stdout_test() {
     )
   should.equal(result.exit_code, 0)
   let assert True =
-    string.contains(result.output, "\"bomFormat\":\"CycloneDX\"")
+    string.contains(result.output, "\"bomFormat\": \"CycloneDX\"")
+  let assert True = string.contains(result.output, "\n  \"metadata\": {")
+  let assert True = string.contains(result.output, "\n    \"tools\": [")
   let assert True =
-    string.contains(result.output, "\"purl\":\"pkg:hex/gleam_stdlib@1.0.0\"")
+    string.contains(result.output, "\"purl\": \"pkg:hex/gleam_stdlib@1.0.0\"")
   let assert True =
     string.contains(
       result.output,
-      "\"purl\":\"pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999\"",
+      "\"purl\": \"pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999\"",
     )
-  let assert True = string.contains(result.output, "\"id\":\"Apache-2.0\"")
+  let assert True = string.contains(result.output, "\"id\": \"Apache-2.0\"")
+}
+
+pub fn sbom_subcommand_output_file_remains_compact_json_test() {
+  let path = "build/tmp/sbom-output-file.json"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let _ = simplifile.delete(path)
+  let result =
+    licence_audit.run_with(
+      [
+        "sbom",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--output=" <> path,
+      ],
+      sbom_fetcher,
+    )
+  let assert Ok(contents) = simplifile.read(from: path)
+
+  should.equal(result.exit_code, 0)
+  should.equal(result.output, "")
+  let assert True = string.contains(contents, "\"bomFormat\":\"CycloneDX\"")
+  let assert False = string.contains(contents, "\n  \"metadata\": {")
 }
 
 pub fn sbom_subcommand_errors_on_path_dep_test() {

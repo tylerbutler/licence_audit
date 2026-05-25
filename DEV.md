@@ -92,3 +92,6 @@ just changelog          # merge unreleased fragments into CHANGELOG.md
 Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
 workflows; do not edit `CHANGELOG.md` or bump the version in `gleam.toml` by
 hand.
+
+For now, releases are escript-only GitHub release packages. The project is not
+set up to publish the Gleam package to Hex.

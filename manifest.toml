@@ -24,6 +24,7 @@ packages = [
   { name = "glint", version = "1.2.1", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_community_colour", "gleam_stdlib", "snag"], otp_app = "glint", source = "hex", outer_checksum = "2214C7CEFDE457CEE62140C3D4899B964E05236DA74E4243DFADF4AF29C382BB" },
   { name = "gluegun", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib", "gun"], source = "git", repo = "https://github.com/tylerbutler/gluegun", commit = "fa4c8ee919138fc8ffddd2642165a89654e61999" },
   { name = "gun", version = "2.3.0", build_tools = ["make", "rebar3"], requirements = ["cowlib"], otp_app = "gun", source = "hex", outer_checksum = "C3BFBBB8F146A6C5FFB2C487F06A3CA4A57E90220B07A1F97EB69A4E7B176035" },
+  { name = "jsone", version = "1.9.0", build_tools = ["rebar3"], requirements = [], otp_app = "jsone", source = "hex", outer_checksum = "6863DCF95A7FC26094EAAFF0D72522D58FE22719B4758AFB75A21735BC92646D" },
   { name = "simplifile", version = "2.4.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "7C18AFA4FED0B4CE1FA5B0B4BAC1FA1744427054EA993565F6F3F82E5453170D" },
   { name = "slate", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_stdlib"], otp_app = "slate", source = "hex", outer_checksum = "07C509E87A1F7B95903250C1F14FE336F0AAF0CFD6F247A059F08032B4F64A40" },
   { name = "snag", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "snag", source = "hex", outer_checksum = "274F41D6C3ECF99F7686FDCE54183333E41D2C1CA5A3A673F9A8B2C7A4401077" },
@@ -46,6 +47,7 @@ gleescript = { version = ">= 1.5.2 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
 glint = { version = ">= 1.2.1 and < 2.0.0" }
 gluegun = { git = "https://github.com/tylerbutler/gluegun", ref = "fa4c8ee919138fc8ffddd2642165a89654e61999" }
+jsone = { version = ">= 1.9.0 and < 2.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 slate = { version = ">= 1.0.0 and < 2.0.0" }
 tom = { version = ">= 2.1.0 and < 3.0.0" }
