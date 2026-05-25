@@ -29,6 +29,7 @@ packages = [
   { name = "slate", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_stdlib"], otp_app = "slate", source = "hex", outer_checksum = "07C509E87A1F7B95903250C1F14FE336F0AAF0CFD6F247A059F08032B4F64A40" },
   { name = "snag", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "snag", source = "hex", outer_checksum = "274F41D6C3ECF99F7686FDCE54183333E41D2C1CA5A3A673F9A8B2C7A4401077" },
   { name = "tom", version = "2.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "tom", source = "hex", outer_checksum = "DCF04CB7AB35D58CFC598C66EA2E1816D160759802C89B2BA6238780D59BC256" },
+  { name = "tomlet", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/tomlet", commit = "da6828c1c47329dcee9591a99d9aca7771a8e180" },
   { name = "youid", version = "1.6.0", build_tools = ["gleam"], requirements = ["gleam_crypto", "gleam_stdlib", "gleam_time"], otp_app = "youid", source = "hex", outer_checksum = "7A3ABA44B1B38BC2BDCB5474C5317AA372BE58DFBC649815EE08B03526DDA18D" },
 ]
 
@@ -51,4 +52,5 @@ jsone = { version = ">= 1.9.0 and < 2.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 slate = { version = ">= 1.0.0 and < 2.0.0" }
 tom = { version = ">= 2.1.0 and < 3.0.0" }
+tomlet = { git = "https://github.com/tylerbutler/tomlet", ref = "da6828c" }
 youid = { version = ">= 1.4.0 and < 2.0.0" }

@@ -20,34 +20,19 @@ deps:
 
 # === STANDARD RECIPES ===
 
-# Compile the project. Copies the Rust port binary next to the bundled
-# escript so the shipped layout is just `./licence_audit` + the binary
-# (no priv/ subdirectory required at runtime).
-build: build-port
+# Compile the project into the bundled escript at `./licence_audit`.
+build:
     mise exec -- gleam build
     mise exec -- gleam run -m gleescript
-    cp priv/licence_audit_toml ./licence_audit_toml
 
 # Build everything with warnings treated as errors (used in CI).
-build-strict: build-port
+build-strict:
     mise exec -- gleam build --warnings-as-errors
     mise exec -- gleam run -m gleescript
-    cp priv/licence_audit_toml ./licence_audit_toml
-
-# Build the Rust TOML port binary for the current platform
-build-port:
-    cd native/licence_audit_toml && mise exec -- cargo build --release
-    mkdir -p priv
-    cp native/licence_audit_toml/target/release/licence_audit_toml \
-       priv/licence_audit_toml
 
 # Run tests
-test: test-port
+test:
     mise exec -- gleam test
-
-# Run Rust port-binary unit tests
-test-port:
-    cd native/licence_audit_toml && mise exec -- cargo test --release
 
 # Type check without producing artifacts
 check:
@@ -67,10 +52,8 @@ lint: format-check
 # Remove build artifacts
 clean:
     rm -rf build
-    rm -rf native/licence_audit_toml/target
     rm -rf priv
     rm -f licence_audit licence_audit.ps1
-    rm -f licence_audit_toml licence_audit_toml.exe
     rm -rf dist
 
 # === CHANGELOG ===

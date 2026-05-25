@@ -1,18 +1,11 @@
-//// Bridge to the Rust `licence_audit_toml` port program.
-////
-//// The port program performs comment-preserving edits to TOML documents
-//// using the Rust `toml_edit` crate. It is invoked as a one-shot
-//// subprocess: one JSON request line in, one JSON response line out.
+//// Wrapper around the `tomlet` dependency for comment-preserving TOML edits.
 
-import gleam/dynamic/decode
-import gleam/json
-import gleam/result
+import gleam/int
+import gleam/list
 import gleam/string
+import tomlet
 
 pub type Error {
-  BinaryMissing(path: String)
-  SpawnFailed(message: String)
-  ProtocolError(message: String)
   TomlError(message: String)
 }
 
@@ -25,78 +18,145 @@ pub fn set_string_array(
   key: String,
   values: List(String),
 ) -> Result(String, Error) {
-  let request =
-    json.object([
-      #("op", json.string("set_string_array")),
-      #("input", json.string(existing_toml)),
-      #("path", json.array(path, of: json.string)),
-      #("key", json.string(key)),
-      #("values", json.array(values, of: json.string)),
-    ])
-    |> json.to_string
+  let full_key = list.append(path, [key])
+  let sentinel = array_sentinel(key, values)
 
-  use raw <- result.try(invoke(request))
-  decode_response(raw)
-}
+  case tomlet.parse(existing_toml) {
+    Error(error) -> Error(TomlError(parse_error_message(error)))
+    Ok(document) ->
+      case tomlet.set_string(document, full_key, sentinel) {
+        Error(error) -> Error(TomlError(edit_error_message(error)))
+        Ok(updated) -> {
+          let output = tomlet.to_string(updated)
+          let updated_output =
+            rewrite_array_value(output, key, render_array_literal(values))
 
-fn invoke(request: String) -> Result(String, Error) {
-  let path = binary_path()
-  case run_port(path, request) {
-    Ok(bytes) -> Ok(bytes)
-    Error(message) ->
-      case string.contains(message, "binary not found") {
-        True -> Error(BinaryMissing(path))
-        False -> Error(SpawnFailed(message))
+          case tomlet.parse(updated_output) {
+            Error(_) -> Error(TomlError("failed to serialize TOML array value"))
+            Ok(_) -> Ok(updated_output)
+          }
+        }
       }
   }
 }
 
-fn decode_response(raw: String) -> Result(String, Error) {
-  let decoder = {
-    use ok <- decode.field("ok", decode.bool)
-    use output <- decode.optional_field("output", "", decode.string)
-    use err <- decode.optional_field("error", "", decode.string)
-    decode.success(#(ok, output, err))
-  }
-  case json.parse(raw, using: decoder) {
-    Ok(#(True, output, _)) -> Ok(output)
-    Ok(#(False, _, message)) -> Error(TomlError(message))
-    Error(_) ->
-      Error(ProtocolError("invalid JSON response: " <> truncate(raw, 200)))
-  }
-}
-
-/// Returns the absolute path the port module *would* use for the binary on
-/// this platform. Exposed so callers and tests can detect missing binaries
-/// up front.
-pub fn binary_path() -> String {
-  priv_dir() <> "/" <> binary_name()
-}
-
 pub fn error_message(error: Error) -> String {
   case error {
-    BinaryMissing(path) ->
-      "TOML port binary not found at "
-      <> path
-      <> ". Run `just build-port` (requires Rust toolchain)."
-    SpawnFailed(message) -> "Failed to invoke TOML port: " <> message
-    ProtocolError(message) -> "TOML port protocol error: " <> message
     TomlError(message) -> "TOML edit failed: " <> message
   }
 }
 
-fn truncate(s: String, n: Int) -> String {
-  case string.length(s) > n {
-    True -> string.slice(s, at_index: 0, length: n) <> "..."
-    False -> s
+fn array_sentinel(key: String, values: List(String)) -> String {
+  "__licence_audit_array__" <> key <> "_" <> int.to_string(list.length(values))
+}
+
+fn render_array_literal(values: List(String)) -> String {
+  case values {
+    [] -> "[]"
+    _ ->
+      values
+      |> list.map(quote_string)
+      |> string.join(with: ", ")
+      |> fn(items) { "[" <> items <> "]" }
   }
 }
 
-@external(erlang, "licence_audit_toml_ffi", "priv_dir")
-fn priv_dir() -> String
+fn quote_string(value: String) -> String {
+  let escaped =
+    value
+    |> string.replace(each: "\\", with: "\\\\")
+    |> string.replace(each: "\"", with: "\\\"")
 
-@external(erlang, "licence_audit_toml_ffi", "binary_name")
-fn binary_name() -> String
+  "\"" <> escaped <> "\""
+}
 
-@external(erlang, "licence_audit_toml_ffi", "run_port")
-fn run_port(binary_path: String, request: String) -> Result(String, String)
+fn rewrite_array_value(
+  source: String,
+  key: String,
+  replacement: String,
+) -> String {
+  case string.contains(source, "\r\n") {
+    True ->
+      rewrite_array_lines(
+        string.split(source, on: "\r\n"),
+        key,
+        replacement,
+        "\r\n",
+      )
+    False ->
+      rewrite_array_lines(
+        string.split(source, on: "\n"),
+        key,
+        replacement,
+        "\n",
+      )
+  }
+}
+
+fn rewrite_array_lines(
+  lines: List(String),
+  key: String,
+  replacement: String,
+  line_ending: String,
+) -> String {
+  case lines {
+    [] -> ""
+    [line] -> rewrite_array_line(line, key, replacement)
+    [line, ..rest] ->
+      rewrite_array_line(line, key, replacement)
+      <> line_ending
+      <> rewrite_array_lines(rest, key, replacement, line_ending)
+  }
+}
+
+fn rewrite_array_line(
+  line: String,
+  key: String,
+  replacement: String,
+) -> String {
+  case string.split_once(line, "=") {
+    Error(_) -> line
+    Ok(#(left, right)) ->
+      case string.trim(left) == key {
+        False -> line
+        True ->
+          case string.split(right, on: "\"") {
+            [prefix, _, suffix] ->
+              left <> "=" <> prefix <> replacement <> suffix
+            _ -> line
+          }
+      }
+  }
+}
+
+fn parse_error_message(error: tomlet.ParseError) -> String {
+  case error {
+    tomlet.InvalidEncoding -> "invalid TOML encoding"
+    tomlet.Unexpected(got, expected, offset) ->
+      "unexpected "
+      <> got
+      <> ", expected "
+      <> expected
+      <> " at offset "
+      <> int.to_string(offset)
+    tomlet.KeyAlreadyInUse(key, offset) ->
+      "key already in use: "
+      <> path_to_string(key)
+      <> " at offset "
+      <> int.to_string(offset)
+  }
+}
+
+fn edit_error_message(error: tomlet.EditError) -> String {
+  case error {
+    tomlet.EmptyKeyPath -> "empty TOML key path"
+    tomlet.InvalidKeySegment(segment) -> "invalid TOML key segment: " <> segment
+    tomlet.InvalidCommentText -> "invalid TOML comment text"
+    tomlet.MissingEditKey(key) -> "missing TOML key: " <> path_to_string(key)
+    tomlet.KeyConflict(key) -> "key conflict for: " <> path_to_string(key)
+  }
+}
+
+fn path_to_string(path: List(String)) -> String {
+  string.join(path, with: ".")
+}

@@ -2,8 +2,5 @@
 *.ez
 /build
 /licence_audit
-/licence_audit_toml
-/licence_audit_toml.exe
 erl_crash.dump
 /priv/
-/native/licence_audit_toml/target/

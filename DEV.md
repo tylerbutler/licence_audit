@@ -4,8 +4,8 @@ This document is for contributors. End-user docs live in [README.md](./README.md
 
 ## Toolchain
 
-This repository uses [mise](https://mise.jdx.dev/) to pin Gleam, Erlang, and
-Rust versions. Trust the local tool configuration once:
+This repository uses [mise](https://mise.jdx.dev/) to pin Gleam and Erlang
+versions. Trust the local tool configuration once:
 
 ```sh
 mise trust
@@ -24,20 +24,12 @@ just build
 ```
 
 `just build` compiles the Gleam project and produces the escript at
-`./licence_audit`. It also builds a native Rust TOML port helper
-(`licence_audit_toml`) used by the (currently disabled) [`update`
-subcommand](#feature-flags). To rebuild only the Rust helper:
-
-```sh
-just build-port
-```
-
-The Rust toolchain is provisioned automatically by mise.
+`./licence_audit`.
 
 ## Common tasks
 
 ```sh
-just test           # gleam test + cargo test for the Rust port
+just test           # gleam test
 just check          # gleam check (type check only)
 just format         # gleam format src test
 just format-check   # gleam format --check src test
@@ -54,23 +46,16 @@ mise and pass the module name:
 mise exec -- gleam test --target erlang -- <module_name>_test
 ```
 
-For a single Rust port test:
-
-```sh
-cd native/licence_audit_toml && mise exec -- cargo test --release <test_name>
-```
-
 ## Feature flags
 
 The `update` subcommand is disabled for the 1.0 release via a compile-time
 flag (`update_command_enabled` in `src/licence_audit.gleam`). The
-implementation and the supporting Rust TOML port are kept in the tree so the
-feature can be re-enabled post-1.0. As a result:
+implementation stays in the tree so the feature can be re-enabled post-1.0.
+As a result:
 
 - The shipped 1.0 CLI does **not** expose `licence_audit update`.
-- Released escript archives do **not** bundle `licence_audit_toml`.
-- Building locally still produces the Rust port binary so the disabled
-  subcommand can be exercised in tests and during development.
+- The update implementation now depends on the `tomlet` Git dependency instead
+  of a native helper binary.
 
 ## Library entry points
 

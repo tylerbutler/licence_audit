@@ -1,5 +1,5 @@
 name: "Setup licence_audit build environment"
-description: "Install mise-managed toolchain (Erlang, Gleam, Rust, changie) and cache build outputs"
+description: "Install mise-managed toolchain (Erlang, Gleam, changie) and cache build outputs"
 
 runs:
   using: "composite"
@@ -16,17 +16,6 @@ runs:
         key: gleam-${{ runner.os }}-${{ hashFiles('gleam.toml', 'manifest.toml') }}
         restore-keys: |
           gleam-${{ runner.os }}-
-
-    - name: Cache Rust port build
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # ratchet:actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          native/licence_audit_toml/target
-        key: cargo-${{ runner.os }}-${{ hashFiles('native/licence_audit_toml/Cargo.lock', 'native/licence_audit_toml/Cargo.toml') }}
-        restore-keys: |
-          cargo-${{ runner.os }}-
 
     - name: Download Gleam dependencies
       shell: bash

@@ -18,12 +18,6 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
-      # Build the Rust port as a compile-only sanity check on the release
-      # commit. The binary is intentionally NOT packaged into the release
-      # artifacts at this time; users build it locally.
-      - name: Compile Rust port (sanity check, not shipped)
-        run: just build-port
-
       - name: Build escript
         run: mise exec -- gleam run -m gleescript
 
