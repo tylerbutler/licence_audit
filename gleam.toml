@@ -23,6 +23,7 @@ youid = ">= 1.4.0 and < 2.0.0"
 gleam_regexp = ">= 1.1.1 and < 2.0.0"
 jsone = ">= 1.9.0 and < 2.0.0"
 tomlet = { git = "https://github.com/tylerbutler/tomlet", ref = "da6828c" }
+tty = { git = "https://github.com/tylerbutler/tty", ref = "d409cd766cfe3f2733f76d876dd3a480abec01b5" }
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

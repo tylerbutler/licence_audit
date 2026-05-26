@@ -19,6 +19,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import tty
 
 pub type Choice {
   Allow
@@ -36,6 +37,7 @@ pub type Selection {
 
 pub type PickerError {
   Cancelled
+  NotInteractive
 }
 
 type State {
@@ -54,6 +56,37 @@ type State {
 /// (ignored labels are omitted from both lists), or `Cancelled` on
 /// Esc / Ctrl-C / `q`.
 pub fn pick(
+  title: String,
+  labels: List(String),
+  allow: List(String),
+  deny: List(String),
+) -> Result(Selection, PickerError) {
+  pick_with_terminal_check(
+    title,
+    labels,
+    allow,
+    deny,
+    stdin_is_tty: fn() { tty.is_tty(tty.Stdin) },
+    stdout_is_tty: fn() { tty.is_tty(tty.Stdout) },
+  )
+}
+
+@internal
+pub fn pick_with_terminal_check(
+  title: String,
+  labels: List(String),
+  allow: List(String),
+  deny: List(String),
+  stdin_is_tty stdin_is_tty: fn() -> Bool,
+  stdout_is_tty stdout_is_tty: fn() -> Bool,
+) -> Result(Selection, PickerError) {
+  case stdin_is_tty(), stdout_is_tty() {
+    True, True -> pick_interactive(title, labels, allow, deny)
+    _, _ -> Error(NotInteractive)
+  }
+}
+
+fn pick_interactive(
   title: String,
   labels: List(String),
   allow: List(String),

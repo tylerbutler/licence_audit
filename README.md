@@ -166,10 +166,10 @@ dependencies appear under their parent with a `├─`/`└─` tree prefix; the
 is no separate "direct vs transitive" column. The audit always covers the
 full resolved dependency tree.
 
-Color is controlled by `--color` (`auto`, `always`, `never`). `auto` honours
-the `NO_COLOR` environment variable but does **not** auto-detect a TTY —
-pass `--color=never` (or set `NO_COLOR=1`) when redirecting to a file or
-pipe.
+Color is controlled by `--color` (`auto`, `always`, `never`). `auto` detects
+stdout color support and honours standard color environment variables such as
+`NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`. Pass
+`--color=always` to force ANSI codes, or `--color=never` to force plain text.
 
 ## Policy configuration
 
@@ -258,9 +258,9 @@ jobs:
   you only need the structural SBOM without licence fields.
 - **OSV.dev unreachable** — `vulns` and `check --vulns` require network
   access to `api.osv.dev`. There is no on-disk cache for advisories.
-- **No colors in CI logs** — `--color=auto` does not detect a TTY. Pass
-  `--color=always` in CI if you want ANSI codes, or `--color=never` (or set
-  `NO_COLOR=1`) to force plain text.
+- **No colors in CI logs** — `--color=auto` follows terminal/color detection
+  and standard environment variables. Pass `--color=always` in CI if you want
+  ANSI codes, or `--color=never` (or set `NO_COLOR=1`) to force plain text.
 
 ## Limitations
 

@@ -5,6 +5,7 @@ import birch/level
 import birch/logger.{type Logger}
 import gleam/int
 import gleam/list
+import tty
 
 pub type Verbosity {
   Quiet
@@ -81,7 +82,12 @@ pub fn events(reporter: Reporter) -> List(Event) {
 
 pub fn configure(verbosity: Verbosity) -> Nil {
   let config = console.default_fancy_config()
-  let stderr_config = console.ConsoleConfig(..config, target: Stderr)
+  let stderr_config =
+    console.ConsoleConfig(
+      ..config,
+      color: stderr_color_enabled(tty.detect_color_level(tty.Stderr)),
+      target: Stderr,
+    )
   let threshold = case verbosity {
     Verbose -> level.Debug
     Quiet | Normal -> level.Info
@@ -91,6 +97,11 @@ pub fn configure(verbosity: Verbosity) -> Nil {
     log.config_level(threshold),
     log.config_handlers([console.handler_with_config(stderr_config)]),
   ])
+}
+
+@internal
+pub fn stderr_color_enabled(level: tty.ColorLevel) -> Bool {
+  level != tty.NoColor
 }
 
 pub fn phase(reporter: Reporter, message: String) -> Reporter {

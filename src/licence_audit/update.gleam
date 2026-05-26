@@ -94,6 +94,16 @@ pub fn run(
                 reporter,
               )
             }
+            Error(picker.NotInteractive) -> {
+              let message =
+                "The update picker requires an interactive terminal on stdin and stdout"
+              let reporter = progress.fail(reporter, message)
+              let reporter = warn_cache(reporter, cache_warning)
+              #(
+                UpdateResult(exit_code: 1, output: "Error: " <> message <> "\n"),
+                reporter,
+              )
+            }
             Ok(picker.Selection(allow, deny)) -> {
               let target = resolve_output_path(config_path, project_root)
               case write_policy(target, allow, deny) {
