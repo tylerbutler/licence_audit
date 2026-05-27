@@ -38,7 +38,14 @@ type FetchResult {
 }
 
 pub fn main() -> Nil {
-  glint.run_and_handle(cli.app(), argv.load().arguments, handle_action)
+  case glint.execute(cli.app(), cli.normalize_args(argv.load().arguments)) {
+    Error(message) -> {
+      io.println_error(message)
+      halt(1)
+    }
+    Ok(glint.Help(help)) -> io.println(help)
+    Ok(glint.Out(action)) -> handle_action(action)
+  }
 }
 
 fn handle_action(action: cli.CliAction) -> Nil {
@@ -73,7 +80,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
       halt(exit_code)
     }
     cli.InvalidUsage(message) -> {
-      io.print("Error: " <> message <> "\n")
+      io.print_error("Error: " <> message <> "\n")
       halt(1)
     }
     cli.RunSbom(options) -> {
@@ -118,6 +125,26 @@ pub fn run_with(
     run_with_reporter(
       list.append(args, ["--no-cache"]),
       fetcher,
+      osv.query_batch_from_osv,
+      osv.fetch_vulnerability_from_osv,
+      progress.disabled(),
+      color.for_enabled(False),
+    )
+  result
+}
+
+pub fn run_with_clients(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+) -> RunResult {
+  let #(result, _) =
+    run_with_reporter(
+      list.append(args, ["--no-cache"]),
+      fetcher,
+      osv_batch_fetcher,
+      osv_detail_fetcher,
       progress.disabled(),
       color.for_enabled(False),
     )
@@ -133,6 +160,8 @@ pub fn run_with_progress(
     run_with_reporter(
       list.append(args, ["--no-cache"]),
       fetcher,
+      osv.query_batch_from_osv,
+      osv.fetch_vulnerability_from_osv,
       progress.capturing(verbosity, "report"),
       color.for_enabled(False),
     )
@@ -142,13 +171,22 @@ pub fn run_with_progress(
 fn run_with_reporter(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
-  case glint.execute(cli.app(), args) {
+  case glint.execute(cli.app(), cli.normalize_args(args)) {
     Ok(glint.Help(help)) -> #(RunResult(0, help <> "\n"), reporter)
     Ok(glint.Out(cli.RunAudit(options))) ->
-      run_options(options, fetcher, reporter, palette)
+      run_options_with_clients(
+        options,
+        fetcher,
+        osv_batch_fetcher,
+        osv_detail_fetcher,
+        reporter,
+        palette,
+      )
     Ok(glint.Out(cli.UpdateConfig(options))) -> {
       let #(update_cmd.UpdateResult(exit_code, output), reporter) =
         run_update_options(options, fetcher, reporter)
@@ -164,8 +202,8 @@ fn run_with_reporter(
       let #(result, reporter) =
         run_vulns_options(
           options,
-          osv.query_batch_from_osv,
-          osv.fetch_vulnerability_from_osv,
+          osv_batch_fetcher,
+          osv_detail_fetcher,
           reporter,
           palette,
         )
@@ -204,7 +242,7 @@ fn run_sbom_options(
       }
       let _ = cache.close(cache_handle)
 
-      let root = read_root_component(project_root, options.config_path)
+      let root = read_root_component(project_root)
       let input =
         sbom.SbomInput(
           manifest: sbom_manifest,
@@ -255,10 +293,7 @@ fn fetch_license_metadata(
   })
 }
 
-fn read_root_component(
-  project_root: String,
-  _config_path: option.Option(String),
-) -> sbom.RootComponent {
+fn read_root_component(project_root: String) -> sbom.RootComponent {
   let path = project_root <> "/gleam.toml"
   case simplifile.read(from: path) {
     Error(_) -> sbom.RootComponent(name: "project", version: "0.0.0")
@@ -326,6 +361,24 @@ fn write_sbom_output(
 fn run_options(
   options: cli.Options,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  reporter: progress.Reporter,
+  palette: color.Palette,
+) -> #(RunResult, progress.Reporter) {
+  run_options_with_clients(
+    options,
+    fetcher,
+    osv.query_batch_from_osv,
+    osv.fetch_vulnerability_from_osv,
+    reporter,
+    palette,
+  )
+}
+
+fn run_options_with_clients(
+  options: cli.Options,
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
@@ -397,10 +450,10 @@ fn run_options(
 
               // Vulnerability gate: only when running `check` with --vulns.
               // Threshold resolution: CLI flag > config key > "high".
-              let #(vulns_output, vuln_failed, vuln_reporter) = case
+              let #(vulns_output, vuln_failed, vuln_query_failed, vuln_reporter) = case
                 options.check && options.check_vulns
               {
-                False -> #("", False, result.reporter)
+                False -> #("", False, False, result.reporter)
                 True -> {
                   let threshold =
                     resolve_vuln_threshold(
@@ -410,8 +463,8 @@ fn run_options(
                   run_vuln_check_for_audit(
                     locked.packages,
                     threshold,
-                    osv.query_batch_from_osv,
-                    osv.fetch_vulnerability_from_osv,
+                    osv_batch_fetcher,
+                    osv_detail_fetcher,
                     result.reporter,
                     palette,
                   )
@@ -432,45 +485,57 @@ fn run_options(
                   #(RunResult(2, output), reporter)
                 }
                 False -> {
-                  case options.check && result.policy_failed {
+                  case vuln_query_failed {
                     True -> {
                       let reporter =
                         progress.defer_error(
                           vuln_reporter,
-                          "Licence audit failed: policy violations detected",
+                          "Vulnerability check failed: OSV request failed",
                         )
-                      #(
-                        RunResult(
-                          1,
-                          output <> error.message(error.AuditFailed) <> "\n",
-                        ),
-                        reporter,
-                      )
+                      #(RunResult(2, output), reporter)
                     }
                     False -> {
-                      case vuln_failed {
+                      case options.check && result.policy_failed {
                         True -> {
                           let reporter =
                             progress.defer_error(
                               vuln_reporter,
-                              "Vulnerability check failed: advisories at or above threshold",
+                              "Licence audit failed: policy violations detected",
                             )
                           #(
                             RunResult(
                               1,
-                              output
-                                <> "Vulnerability check failed: one or more advisories at or above threshold severity.\n",
+                              output <> error.message(error.AuditFailed) <> "\n",
                             ),
                             reporter,
                           )
                         }
                         False -> {
-                          let reporter =
-                            progress.defer_success(
-                              vuln_reporter,
-                              "Licence audit completed",
-                            )
-                          #(RunResult(0, output), reporter)
+                          case vuln_failed {
+                            True -> {
+                              let reporter =
+                                progress.defer_error(
+                                  vuln_reporter,
+                                  "Vulnerability check failed: advisories at or above threshold",
+                                )
+                              #(
+                                RunResult(
+                                  1,
+                                  output
+                                    <> "Vulnerability check failed: one or more advisories at or above threshold severity.\n",
+                                ),
+                                reporter,
+                              )
+                            }
+                            False -> {
+                              let reporter =
+                                progress.defer_success(
+                                  vuln_reporter,
+                                  "Licence audit completed",
+                                )
+                              #(RunResult(0, output), reporter)
+                            }
+                          }
                         }
                       }
                     }
@@ -930,7 +995,7 @@ fn run_vuln_check_for_audit(
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(String, Bool, progress.Reporter) {
+) -> #(String, Bool, Bool, progress.Reporter) {
   let purl_pairs =
     list.map(packages, fn(pkg) {
       #(pkg, "pkg:hex/" <> pkg.name <> "@" <> pkg.version)
@@ -938,7 +1003,7 @@ fn run_vuln_check_for_audit(
   let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
   case purls {
-    [] -> #("", False, reporter)
+    [] -> #("", False, False, reporter)
     _ -> {
       let reporter =
         progress.detail(
@@ -950,13 +1015,14 @@ fn run_vuln_check_for_audit(
       case batch_fetcher(purls) {
         Error(_) -> {
           let reporter =
-            progress.defer_warn(
+            progress.defer_error(
               reporter,
-              "Vulnerability check skipped: OSV request failed",
+              "Vulnerability check failed: OSV request failed",
             )
           #(
-            "\nVulnerability check skipped: OSV request failed.\n",
+            "\nVulnerability check failed: OSV request failed.\n",
             False,
+            True,
             reporter,
           )
         }
@@ -977,7 +1043,7 @@ fn run_vuln_check_for_audit(
               id_to_pkg,
               palette,
             )
-          #(report_text, triggering != [], reporter)
+          #(report_text, triggering != [], False, reporter)
         }
       }
     }

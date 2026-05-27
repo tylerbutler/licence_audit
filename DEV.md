@@ -46,16 +46,11 @@ mise and pass the module name:
 mise exec -- gleam test --target erlang -- <module_name>_test
 ```
 
-## Feature flags
+## Update subcommand
 
-The `update` subcommand is disabled for the 1.0 release via a compile-time
-flag (`update_command_enabled` in `src/licence_audit.gleam`). The
-implementation stays in the tree so the feature can be re-enabled post-1.0.
-As a result:
-
-- The shipped 1.0 CLI does **not** expose `licence_audit update`.
-- The update implementation now depends on the `tomlet` Git dependency instead
-  of a native helper binary.
+The shipped CLI exposes `licence_audit update`. It interactively reviews
+discovered licences and writes the selected `[tools.licence_audit]` policy
+using the `tomlet` Git dependency; no native helper binary is required.
 
 ## Library entry points
 

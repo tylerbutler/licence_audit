@@ -9,23 +9,24 @@ import licence_audit/progress
 
 fn parse_options(args: List(String)) -> cli.Options {
   let assert Ok(glint.Out(cli.RunAudit(options))) =
-    glint.execute(cli.app(), args)
+    glint.execute(cli.app(), cli.normalize_args(args))
   options
 }
 
 fn parse_update_options(args: List(String)) -> cli.UpdateOptions {
   let assert Ok(glint.Out(cli.UpdateConfig(options))) =
-    glint.execute(cli.app(), args)
+    glint.execute(cli.app(), cli.normalize_args(args))
   options
 }
 
 fn help_text(args: List(String)) -> String {
-  let assert Ok(glint.Help(help)) = glint.execute(cli.app(), args)
+  let assert Ok(glint.Help(help)) =
+    glint.execute(cli.app(), cli.normalize_args(args))
   help
 }
 
 fn usage_error(args: List(String)) -> String {
-  let assert Error(message) = glint.execute(cli.app(), args)
+  let assert Error(message) = glint.execute(cli.app(), cli.normalize_args(args))
   message
 }
 
@@ -36,10 +37,11 @@ pub fn help_long_option_returns_glint_help_test() {
   assert string.contains(help, "USAGE:")
 }
 
-pub fn short_help_option_is_not_supported_test() {
-  let message = usage_error(["-h"])
+pub fn short_help_option_returns_glint_help_test() {
+  let help = help_text(["-h"])
 
-  assert string.contains(message, "invalid number of arguments")
+  assert string.contains(help, "licence_audit")
+  assert string.contains(help, "USAGE:")
 }
 
 pub fn check_subcommand_enables_check_mode_test() {
@@ -189,6 +191,25 @@ pub fn update_subcommand_is_listed_in_help_test() {
   assert string.contains(help, "update")
 }
 
+pub fn root_vulns_option_returns_usage_error_test() {
+  let message = usage_error(["--vulns"])
+
+  assert string.contains(message, "vulns")
+}
+
+pub fn root_vuln_severity_option_returns_usage_error_test() {
+  let message = usage_error(["--vuln-severity=medium"])
+
+  assert string.contains(message, "vuln-severity")
+}
+
+pub fn invalid_check_vuln_severity_returns_usage_error_test() {
+  let message = usage_error(["check", "--vuln-severity=crit"])
+
+  assert string.contains(message, "vuln-severity")
+  assert string.contains(message, "crit")
+}
+
 pub fn update_subcommand_parses_defaults_test() {
   let options = parse_update_options(["update"])
 
@@ -286,4 +307,16 @@ pub fn sbom_subcommand_parses_offline_flag_test() {
   let assert Ok(glint.Out(cli.RunSbom(options))) =
     glint.execute(cli.app(), ["sbom", "--offline"])
   should.equal(options.offline, True)
+}
+
+pub fn sbom_subcommand_rejects_config_flag_test() {
+  let message = usage_error(["sbom", "--config=gleam.toml"])
+
+  assert string.contains(message, "config")
+}
+
+pub fn sbom_subcommand_rejects_ignore_config_flag_test() {
+  let message = usage_error(["sbom", "--ignore-config"])
+
+  assert string.contains(message, "ignore-config")
 }

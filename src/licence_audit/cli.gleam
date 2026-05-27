@@ -1,5 +1,7 @@
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import glint
+import glint/constraint
 import licence_audit/color
 import licence_audit/progress
 
@@ -40,8 +42,6 @@ pub type SbomOptions {
   SbomOptions(
     manifest_path: Option(String),
     project_root: Option(String),
-    config_path: Option(String),
-    ignore_config: Bool,
     verbosity: progress.Verbosity,
     no_cache: Bool,
     cache_path: Option(String),
@@ -73,13 +73,19 @@ pub fn app() -> glint.Glint(CliAction) {
   |> glint.global_help("Audit locked Hex package licences.")
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
-  |> glint.add(
-    at: ["check"],
-    do: audit_command(check_mode: True, help: check_help),
-  )
+  |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
   |> glint.add(at: ["sbom"], do: sbom_command())
   |> glint.add(at: ["vulns"], do: vulns_command())
+}
+
+pub fn normalize_args(args: List(String)) -> List(String) {
+  list.map(args, fn(arg) {
+    case arg {
+      "-h" -> "--help"
+      other -> other
+    }
+  })
 }
 
 const root_help = "Report Hex package licence metadata. Use the `check` subcommand to enforce a licence policy."
@@ -91,6 +97,53 @@ fn audit_command(
   help help: String,
 ) -> glint.Command(CliAction) {
   use <- glint.command_help(help)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use allow <- glint.flag(allow_flag())
+  use deny <- glint.flag(deny_flag())
+  use config <- glint.flag(config_flag())
+  use manifest <- glint.flag(manifest_flag())
+  use ignore_config <- glint.flag(ignore_config_flag())
+  use quiet <- glint.flag(quiet_flag())
+  use verbose <- glint.flag(verbose_flag())
+  use color_flag <- glint.flag(color_flag())
+  use no_cache <- glint.flag(no_cache_flag())
+  use cache_path <- glint.flag(cache_path_flag())
+  use _, _, flags <- glint.command()
+
+  let assert Ok(allow_licences) = allow(flags)
+  let assert Ok(deny_licences) = deny(flags)
+  let assert Ok(config_path) = config(flags)
+  let assert Ok(manifest_path) = manifest(flags)
+  let assert Ok(ignore_config) = ignore_config(flags)
+  let assert Ok(quiet) = quiet(flags)
+  let assert Ok(verbose) = verbose(flags)
+  let assert Ok(color_value) = color_flag(flags)
+  let assert Ok(no_cache) = no_cache(flags)
+  let assert Ok(cache_path_value) = cache_path(flags)
+  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
+    Error(message), _ -> InvalidUsage(message)
+    _, Error(message) -> InvalidUsage(message)
+    Ok(verbosity), Ok(color_mode) ->
+      RunAudit(Options(
+        manifest_path: optional_string(manifest_path),
+        project_root: None,
+        config_path: optional_string(config_path),
+        allow_licences: allow_licences,
+        deny_licences: deny_licences,
+        ignore_config: ignore_config,
+        check: check_mode,
+        verbosity: verbosity,
+        color: color_mode,
+        no_cache: no_cache,
+        cache_path: optional_string(cache_path_value),
+        check_vulns: False,
+        vuln_severity: None,
+      ))
+  }
+}
+
+fn check_command() -> glint.Command(CliAction) {
+  use <- glint.command_help(check_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use allow <- glint.flag(allow_flag())
   use deny <- glint.flag(deny_flag())
@@ -130,7 +183,7 @@ fn audit_command(
         allow_licences: allow_licences,
         deny_licences: deny_licences,
         ignore_config: ignore_config,
-        check: check_mode,
+        check: True,
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
@@ -212,6 +265,12 @@ fn check_vulns_flag() -> glint.Flag(Bool) {
 fn vuln_severity_flag() -> glint.Flag(String) {
   glint.string_flag("vuln-severity")
   |> glint.flag_default(absent_string_flag)
+  |> glint.flag_constraint(fn(value) {
+    case value == absent_string_flag {
+      True -> Ok(value)
+      False -> constraint.one_of(["low", "medium", "high", "critical"])(value)
+    }
+  })
   |> glint.flag_help(
     "Minimum severity that triggers `check --vulns` failure: low|medium|high|critical (default high)",
   )
@@ -291,9 +350,7 @@ const sbom_help = "Generate a CycloneDX 1.5 JSON SBOM from manifest.toml. Does n
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use config <- glint.flag(config_flag())
   use manifest <- glint.flag(manifest_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use no_cache <- glint.flag(no_cache_flag())
@@ -302,9 +359,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   use offline <- glint.flag(offline_flag())
   use _, _, flags <- glint.command()
 
-  let assert Ok(config_path) = config(flags)
   let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(ignore_config_value) = ignore_config(flags)
   let assert Ok(quiet) = quiet(flags)
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(no_cache) = no_cache(flags)
@@ -318,8 +373,6 @@ fn sbom_command() -> glint.Command(CliAction) {
       RunSbom(SbomOptions(
         manifest_path: optional_string(manifest_path),
         project_root: None,
-        config_path: optional_string(config_path),
-        ignore_config: ignore_config_value,
         verbosity: verbosity,
         no_cache: no_cache,
         cache_path: optional_string(cache_path_value),

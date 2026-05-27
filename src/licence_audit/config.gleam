@@ -226,7 +226,23 @@ fn strings_from_toml(
 fn validate(policy: Policy) -> Result(Policy, Error) {
   case has_empty_identifier(policy.allow) || has_empty_identifier(policy.deny) {
     True -> Error(InvalidLicenceIdentifier)
-    False -> Ok(policy)
+    False -> validate_vuln_severity(policy)
+  }
+}
+
+fn validate_vuln_severity(policy: Policy) -> Result(Policy, Error) {
+  case policy.vuln_severity {
+    None -> Ok(policy)
+    Some(value) -> {
+      case list.contains(["low", "medium", "high", "critical"], value) {
+        True -> Ok(policy)
+        False ->
+          Error(InvalidField(
+            field: "vuln_severity",
+            expected: "low|medium|high|critical",
+          ))
+      }
+    }
   }
 }
 

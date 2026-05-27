@@ -88,6 +88,19 @@ pub fn parse_errors_on_invalid_field_type_test() {
   }
 }
 
+pub fn parse_errors_on_invalid_vuln_severity_test() {
+  let assert Error(error) =
+    config.parse("[tools.licence_audit]\nvuln_severity = \"crit\"\n")
+
+  case error {
+    config.InvalidField(
+      field: "vuln_severity",
+      expected: "low|medium|high|critical",
+    ) -> Nil
+    _ -> panic as "expected InvalidField for vuln_severity"
+  }
+}
+
 pub fn load_uses_explicit_config_before_project_config_test() {
   let options =
     config.LoadOptions(
