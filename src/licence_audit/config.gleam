@@ -74,8 +74,8 @@ pub fn merge(file_policy: Policy, cli_policy: Policy) -> Result(Policy, Error) {
   }
 
   Policy(
-    allow: append_unique(file_policy.allow, cli_policy.allow),
-    deny: append_unique(file_policy.deny, cli_policy.deny),
+    allow: list.unique(list.append(file_policy.allow, cli_policy.allow)),
+    deny: list.unique(list.append(file_policy.deny, cli_policy.deny)),
     vuln_severity: resolved_severity,
   )
   |> validate
@@ -248,25 +248,6 @@ fn validate_vuln_severity(policy: Policy) -> Result(Policy, Error) {
 
 fn has_empty_identifier(licences: List(String)) -> Bool {
   list.any(licences, fn(licence) { string.trim(licence) == "" })
-}
-
-fn append_unique(first: List(String), second: List(String)) -> List(String) {
-  append_unique_loop(second, first)
-}
-
-fn append_unique_loop(
-  to_add: List(String),
-  current: List(String),
-) -> List(String) {
-  case to_add {
-    [] -> current
-    [licence, ..rest] -> {
-      case list.contains(current, licence) {
-        True -> append_unique_loop(rest, current)
-        False -> append_unique_loop(rest, list.append(current, [licence]))
-      }
-    }
-  }
 }
 
 fn is_empty(policy: Policy) -> Bool {

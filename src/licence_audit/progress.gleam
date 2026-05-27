@@ -75,11 +75,6 @@ pub fn disabled() -> Reporter {
   )
 }
 
-/// Set the command name used as the logger name in log output.
-pub fn with_command(reporter: Reporter, command: String) -> Reporter {
-  Reporter(..reporter, command: command)
-}
-
 pub fn events(reporter: Reporter) -> List(Event) {
   list.reverse(reporter.events)
 }
@@ -92,11 +87,7 @@ pub fn configure(verbosity: Verbosity) -> Nil {
     False -> standard_record_formatter(use_color)
   }
   let stderr_handler =
-    handler.new(
-      name: "progress",
-      write: io.println_error,
-      format: format,
-    )
+    handler.new(name: "progress", write: io.println_error, format: format)
   let threshold = case verbosity {
     Verbose -> level.Debug
     Quiet | Normal -> level.Info
@@ -159,7 +150,10 @@ pub fn format_tty_record(record: record.LogRecord, use_color: Bool) -> String {
 }
 
 @internal
-pub fn format_standard_record(record: record.LogRecord, use_color: Bool) -> String {
+pub fn format_standard_record(
+  record: record.LogRecord,
+  use_color: Bool,
+) -> String {
   let level =
     level_formatter.format_level_padded(
       level_formatter.simple_formatter(),
@@ -172,10 +166,18 @@ pub fn format_standard_record(record: record.LogRecord, use_color: Bool) -> Stri
     value -> " | " <> value
   }
 
-  level <> " | " <> record.logger_name <> " | " <> record.message <> metadata_suffix
+  level
+  <> " | "
+  <> record.logger_name
+  <> " | "
+  <> record.message
+  <> metadata_suffix
 }
 
-fn format_metadata_visible(metadata: record.Metadata, use_color: Bool) -> String {
+fn format_metadata_visible(
+  metadata: record.Metadata,
+  use_color: Bool,
+) -> String {
   metadata
   |> list.filter(fn(pair) { !string.starts_with(pair.0, "_") })
   |> formatter.format_metadata_colored(use_color)

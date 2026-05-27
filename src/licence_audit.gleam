@@ -847,7 +847,7 @@ fn fetch_vuln_details(
           let reporter =
             progress.detail(reporter, "Fetching OSV details for " <> pkg.name)
           let #(vulns, reporter) =
-            fetch_each_vuln(ids, detail_fetcher, reporter, [])
+            fetch_vulnerabilities(ids, detail_fetcher, reporter, [])
           fetch_vuln_details(rest, detail_fetcher, reporter, [
             VulnRow(package: pkg, vulnerabilities: vulns),
             ..acc
@@ -858,7 +858,7 @@ fn fetch_vuln_details(
   }
 }
 
-fn fetch_each_vuln(
+fn fetch_vulnerabilities(
   ids: List(String),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
@@ -869,27 +869,31 @@ fn fetch_each_vuln(
     [id, ..rest] -> {
       case detail_fetcher(id) {
         Ok(vuln) ->
-          fetch_each_vuln(rest, detail_fetcher, reporter, [vuln, ..acc])
+          fetch_vulnerabilities(rest, detail_fetcher, reporter, [vuln, ..acc])
         Error(_) -> {
-          // Fall back to bare ID with unknown severity so the report still
-          // shows the user something actionable. A network blip on a single
-          // detail fetch should not blank out the whole row.
           let reporter =
             progress.defer_warn(
               reporter,
               "Failed to fetch OSV details for " <> id,
             )
-          let placeholder =
-            osv.Vulnerability(
-              id: id,
-              summary: "(details unavailable)",
-              severity: osv.UnknownSeverity,
-            )
-          fetch_each_vuln(rest, detail_fetcher, reporter, [placeholder, ..acc])
+          fetch_vulnerabilities(rest, detail_fetcher, reporter, [
+            placeholder_vulnerability(id),
+            ..acc
+          ])
         }
       }
     }
   }
+}
+
+fn placeholder_vulnerability(id: String) -> osv.Vulnerability {
+  // Fall back to bare ID with unknown severity so the report still shows the
+  // user something actionable when an individual detail fetch fails.
+  osv.Vulnerability(
+    id: id,
+    summary: "(details unavailable)",
+    severity: osv.UnknownSeverity,
+  )
 }
 
 fn format_vulns_output(
@@ -1048,7 +1052,7 @@ fn run_vuln_check_for_audit(
           let id_to_pkg = build_id_to_package_index(packages, entries)
           let unique_ids = unique_vuln_ids(entries)
           let #(vulns, reporter) =
-            fetch_vuln_details_flat(unique_ids, detail_fetcher, reporter, [])
+            fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
           let triggering =
             list.filter(vulns, fn(vuln) {
               severity_meets_or_exceeds(vuln.severity, threshold)
@@ -1097,40 +1101,6 @@ fn unique_vuln_ids(entries: List(osv.BatchEntry)) -> List(String) {
       })
     })
   dict.keys(seen)
-}
-
-fn fetch_vuln_details_flat(
-  ids: List(String),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  reporter: progress.Reporter,
-  acc: List(osv.Vulnerability),
-) -> #(List(osv.Vulnerability), progress.Reporter) {
-  case ids {
-    [] -> #(list.reverse(acc), reporter)
-    [id, ..rest] -> {
-      case detail_fetcher(id) {
-        Ok(vuln) ->
-          fetch_vuln_details_flat(rest, detail_fetcher, reporter, [vuln, ..acc])
-        Error(_) -> {
-          let reporter =
-            progress.defer_warn(
-              reporter,
-              "Failed to fetch OSV details for " <> id,
-            )
-          let placeholder =
-            osv.Vulnerability(
-              id: id,
-              summary: "(details unavailable)",
-              severity: osv.UnknownSeverity,
-            )
-          fetch_vuln_details_flat(rest, detail_fetcher, reporter, [
-            placeholder,
-            ..acc
-          ])
-        }
-      }
-    }
-  }
 }
 
 fn severity_meets_or_exceeds(
@@ -1182,7 +1152,7 @@ fn format_vuln_gate_output(
           doc.from_string(
             marker
             <> "  "
-            <> color.severity(palette, severity_to_color_label(vuln.severity))
+            <> color.severity(palette, severity_label(vuln.severity))
             <> "  "
             <> vuln.id
             <> "  "
@@ -1229,14 +1199,4 @@ fn horizontal_rule() -> Document {
 
 fn render_document(document: Document) -> String {
   doc.to_string(document, output_line_width)
-}
-
-fn severity_to_color_label(severity: osv.Severity) -> color.SeverityLabel {
-  case severity {
-    osv.Critical -> color.CriticalSeverity
-    osv.High -> color.HighSeverity
-    osv.Medium -> color.MediumSeverity
-    osv.Low -> color.LowSeverity
-    osv.UnknownSeverity -> color.UnknownSeverityLabel
-  }
 }

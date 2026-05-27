@@ -1,8 +1,8 @@
 import birch/level
 import birch/level_formatter
 import birch/record
-import gleeunit/should
 import gleam/string
+import gleeunit/should
 import licence_audit/progress
 import tty
 
@@ -28,9 +28,18 @@ pub fn minimal_level_formatter_is_plain_for_non_error_levels_test() {
 
 pub fn minimal_level_formatter_keeps_icons_for_warn_and_error_test() {
   let formatter = progress.minimal_level_formatter()
-  should.equal(level_formatter.format_level(formatter, level.Warn, False), "⚠ warn")
-  should.equal(level_formatter.format_level(formatter, level.Err, False), "✖ error")
-  should.equal(level_formatter.format_level(formatter, level.Fatal, False), "✖ fatal")
+  should.equal(
+    level_formatter.format_level(formatter, level.Warn, False),
+    "⚠ warn",
+  )
+  should.equal(
+    level_formatter.format_level(formatter, level.Err, False),
+    "✖ error",
+  )
+  should.equal(
+    level_formatter.format_level(formatter, level.Fatal, False),
+    "✖ fatal",
+  )
 }
 
 pub fn format_tty_record_hides_source_and_vertical_bars_test() {

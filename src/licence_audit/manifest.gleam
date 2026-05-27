@@ -1,6 +1,5 @@
 import gleam/dict.{type Dict}
 import gleam/list
-import gleam/order
 import gleam/result
 import gleam/string
 import simplifile
@@ -97,7 +96,9 @@ pub fn sbom_entries(input: String) -> Result(SbomManifest, Error) {
         Ok(packages) -> {
           let direct_names = decode_direct_names(document)
           use entries <- result.try(
-            decode_sbom_entries(packages, direct_names, []),
+            list.try_map(packages, fn(package) {
+              decode_sbom_entry(package, direct_names)
+            }),
           )
           Ok(SbomManifest(entries: entries, root_requirements: direct_names))
         }
@@ -110,22 +111,6 @@ pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
   case simplifile.read(from: path) {
     Ok(contents) -> sbom_entries(contents)
     Error(_) -> Error(FileReadError(path))
-  }
-}
-
-fn decode_sbom_entries(
-  packages: List(Toml),
-  direct_names: List(String),
-  acc: List(SbomEntry),
-) -> Result(List(SbomEntry), Error) {
-  case packages {
-    [] -> Ok(list.reverse(acc))
-    [package, ..rest] -> {
-      case decode_sbom_entry(package, direct_names) {
-        Error(error) -> Error(error)
-        Ok(entry) -> decode_sbom_entries(rest, direct_names, [entry, ..acc])
-      }
-    }
   }
 }
 
@@ -223,7 +208,7 @@ pub fn parse(input: String) -> Result(LockedPackages, Error) {
         Error(_) ->
           Error(InvalidPackageField("<manifest>", "packages", "Array"))
         Ok(packages) -> {
-          use raw_packages <- result.try(decode_packages(packages, []))
+          use raw_packages <- result.try(list.try_map(packages, decode_package))
           let direct_names = decode_direct_names(document)
           Ok(build_locked(raw_packages, direct_names))
         }
@@ -376,27 +361,8 @@ fn decode_direct_names(document: Dict(String, Toml)) -> List(String) {
     Ok(value) ->
       case tom.as_table(value) {
         Error(_) -> []
-        Ok(table) -> dict.keys(table) |> list.sort(by: string_compare)
+        Ok(table) -> dict.keys(table) |> list.sort(by: string.compare)
       }
-  }
-}
-
-fn string_compare(a: String, b: String) -> order.Order {
-  string.compare(a, b)
-}
-
-fn decode_packages(
-  packages: List(Toml),
-  decoded: List(RawPackage),
-) -> Result(List(RawPackage), Error) {
-  case packages {
-    [] -> Ok(list.reverse(decoded))
-    [package, ..rest] -> {
-      case decode_package(package) {
-        Error(error) -> Error(error)
-        Ok(raw) -> decode_packages(rest, [raw, ..decoded])
-      }
-    }
   }
 }
 

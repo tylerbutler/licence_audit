@@ -91,7 +91,7 @@ pub fn format(
   palette: color.Palette,
 ) -> String {
   let tree = build_tree(rows)
-  let widths = widths(rows, mode)
+  let widths = widths(rows)
   let body = tree_text(tree, widths, mode, palette)
   let summary_line =
     doc.from_string(
@@ -343,28 +343,19 @@ fn glyph(status: Status, mode: Mode, palette: color.Palette) -> String {
 }
 
 type Widths {
-  Widths(package: Int, version: Int, licences: Int, status: Int)
+  Widths(package: Int, version: Int, licences: Int)
 }
 
-fn widths(rows: List(Row), mode: Mode) -> Widths {
-  widths_loop(
-    rows,
-    Widths(package: 7, version: 7, licences: 8, status: 6),
-    mode,
-  )
+fn widths(rows: List(Row)) -> Widths {
+  widths_loop(rows, Widths(package: 7, version: 7, licences: 8))
 }
 
-fn widths_loop(rows: List(Row), current: Widths, mode: Mode) -> Widths {
+fn widths_loop(rows: List(Row), current: Widths) -> Widths {
   case rows {
     [] -> current
     [row, ..rest] -> {
       let licences_width =
-        max(current.licences, string.length(licences_text(row)))
-      let status_width = case mode {
-        Default -> current.status
-        Audit -> max(current.status, string.length(status_text(row.status)))
-      }
-
+        int.max(current.licences, string.length(licences_text(row)))
       // Package column must fit every row's (tree prefix + name). Roots have
       // an empty prefix, so deep transitive children dominate this width.
       let row_prefix_len = case row.path {
@@ -372,17 +363,15 @@ fn widths_loop(rows: List(Row), current: Widths, mode: Mode) -> Widths {
         path -> { list.length(path) - 1 } * 3
       }
       let package_width =
-        max(current.package, row_prefix_len + string.length(row.package))
+        int.max(current.package, row_prefix_len + string.length(row.package))
 
       widths_loop(
         rest,
         Widths(
           package: package_width,
-          version: max(current.version, string.length(row.version)),
+          version: int.max(current.version, string.length(row.version)),
           licences: licences_width,
-          status: status_width,
         ),
-        mode,
       )
     }
   }
@@ -416,28 +405,9 @@ fn status_text(status: Status) -> String {
 fn sort_dedupe(licences: List(String)) -> List(String) {
   licences
   |> list.sort(by: string.compare)
-  |> dedupe([])
-}
-
-fn dedupe(licences: List(String), current: List(String)) -> List(String) {
-  case licences {
-    [] -> list.reverse(current)
-    [licence, ..rest] -> {
-      case list.contains(current, licence) {
-        True -> dedupe(rest, current)
-        False -> dedupe(rest, [licence, ..current])
-      }
-    }
-  }
+  |> list.unique
 }
 
 fn pad(text: String, width: Int) -> String {
   text <> string.repeat(" ", times: width - string.length(text))
-}
-
-fn max(first: Int, second: Int) -> Int {
-  case first > second {
-    True -> first
-    False -> second
-  }
 }

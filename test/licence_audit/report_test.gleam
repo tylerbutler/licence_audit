@@ -191,7 +191,7 @@ pub fn enabled_palette_emits_ansi_for_default_question_test() {
   assert string.contains(output, "?")
 }
 
-pub fn emoji_column_renders_per_licence_test() {
+pub fn report_omits_legacy_emoji_column_test() {
   let output =
     report.format(
       [
@@ -212,7 +212,7 @@ pub fn emoji_column_renders_per_licence_test() {
   assert !string.contains(output, "🪶")
 }
 
-pub fn emoji_column_joins_multiple_licences_test() {
+pub fn report_omits_legacy_joined_emoji_column_test() {
   let output =
     report.format(
       [
