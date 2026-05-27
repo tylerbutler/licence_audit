@@ -1,11 +1,14 @@
 import birch as log
-import birch/handler.{Stderr}
-import birch/handler/console
+import birch/formatter
+import birch/handler
 import birch/level
 import birch/level_formatter
 import birch/logger.{type Logger}
+import birch/record
 import gleam/int
+import gleam/io
 import gleam/list
+import gleam/string
 import tty
 
 pub type Verbosity {
@@ -82,14 +85,17 @@ pub fn events(reporter: Reporter) -> List(Event) {
 }
 
 pub fn configure(verbosity: Verbosity) -> Nil {
-  let config = console.default_config()
-  let stderr_config =
-    console.ConsoleConfig(
-      ..config,
-      color: stderr_color_enabled(tty.detect_color_level(tty.Stderr)),
-      timestamps: False,
-      target: Stderr,
-      level_formatter: minimal_level_formatter(),
+  let stderr_is_tty = tty.is_tty(tty.Stderr)
+  let use_color = stderr_color_enabled(tty.detect_color_level(tty.Stderr))
+  let format = case stderr_is_tty {
+    True -> tty_record_formatter(use_color)
+    False -> standard_record_formatter(use_color)
+  }
+  let stderr_handler =
+    handler.new(
+      name: "progress",
+      write: io.println_error,
+      format: format,
     )
   let threshold = case verbosity {
     Verbose -> level.Debug
@@ -98,21 +104,17 @@ pub fn configure(verbosity: Verbosity) -> Nil {
 
   log.configure([
     log.config_level(threshold),
-    log.config_handlers([console.handler_with_config(stderr_config)]),
+    log.config_handlers([stderr_handler]),
   ])
 }
 
 @internal
 pub fn minimal_level_formatter() -> level_formatter.LevelFormatter {
   level_formatter.custom_level_formatter(
-    fn(lvl, use_color) {
+    fn(lvl, _use_color) {
       let label = level.to_string_lowercase(lvl)
       case lvl {
-        level.Info ->
-          case use_color {
-            True -> ""
-            False -> label
-          }
+        level.Info -> ""
         level.Warn -> "⚠ " <> label
         level.Err | level.Fatal -> "✖ " <> label
         _ -> label
@@ -125,6 +127,58 @@ pub fn minimal_level_formatter() -> level_formatter.LevelFormatter {
 @internal
 pub fn stderr_color_enabled(level: tty.ColorLevel) -> Bool {
   level != tty.NoColor
+}
+
+fn tty_record_formatter(use_color: Bool) -> formatter.Formatter {
+  fn(record) { format_tty_record(record, use_color) }
+}
+
+fn standard_record_formatter(use_color: Bool) -> formatter.Formatter {
+  fn(record) { format_standard_record(record, use_color) }
+}
+
+@internal
+pub fn format_tty_record(record: record.LogRecord, use_color: Bool) -> String {
+  let level =
+    level_formatter.format_level_padded(
+      minimal_level_formatter(),
+      record.level,
+      use_color,
+    )
+
+  let metadata = format_metadata_visible(record.metadata, use_color)
+  let metadata_suffix = case metadata {
+    "" -> ""
+    value -> " " <> value
+  }
+
+  case level {
+    "" -> record.message <> metadata_suffix
+    _ -> level <> " " <> record.message <> metadata_suffix
+  }
+}
+
+@internal
+pub fn format_standard_record(record: record.LogRecord, use_color: Bool) -> String {
+  let level =
+    level_formatter.format_level_padded(
+      level_formatter.simple_formatter(),
+      record.level,
+      use_color,
+    )
+  let metadata = format_metadata_visible(record.metadata, use_color)
+  let metadata_suffix = case metadata {
+    "" -> ""
+    value -> " | " <> value
+  }
+
+  level <> " | " <> record.logger_name <> " | " <> record.message <> metadata_suffix
+}
+
+fn format_metadata_visible(metadata: record.Metadata, use_color: Bool) -> String {
+  metadata
+  |> list.filter(fn(pair) { !string.starts_with(pair.0, "_") })
+  |> formatter.format_metadata_colored(use_color)
 }
 
 pub fn phase(reporter: Reporter, message: String) -> Reporter {
