@@ -1,4 +1,5 @@
 import argv
+import glam/doc.{type Document}
 import gleam/dict
 import gleam/int
 import gleam/io
@@ -36,6 +37,8 @@ type FetchResult {
     reporter: progress.Reporter,
   )
 }
+
+const output_line_width = 100
 
 pub fn main() -> Nil {
   case glint.execute(cli.app(), cli.normalize_args(argv.load().arguments)) {
@@ -897,21 +900,6 @@ fn format_vulns_output(
   let affected = list.filter(rows, fn(row) { row.vulnerabilities != [] })
   let clean_count = list.length(rows) - list.length(affected)
 
-  let header = case affected {
-    [] -> "No known vulnerabilities reported by OSV.dev.\n"
-    _ ->
-      "Vulnerabilities reported by OSV.dev:\n" <> string.repeat("─", 72) <> "\n"
-  }
-
-  let body =
-    list.map(affected, fn(row) { format_vuln_row(row, palette) })
-    |> string.join(with: "\n")
-
-  let body_with_break = case body {
-    "" -> ""
-    _ -> body <> "\n" <> string.repeat("─", 72) <> "\n"
-  }
-
   let summary =
     "Checked "
     <> int.to_string(list.length(rows))
@@ -928,27 +916,57 @@ fn format_vulns_output(
         <> " unsupported source(s): "
         <> string.join(pkgs, with: ", ")
     }
-    <> "\n"
 
-  header <> body_with_break <> summary
+  let summary_doc = doc.from_string(summary)
+
+  let document = case affected {
+    [] ->
+      doc.join(
+        [
+          doc.from_string("No known vulnerabilities reported by OSV.dev."),
+          summary_doc,
+        ],
+        with: doc.line,
+      )
+    _ -> {
+      let body_doc =
+        list.map(affected, fn(row) { format_vuln_row(row, palette) })
+        |> doc.join(with: doc.line)
+      doc.join(
+        [
+          doc.from_string("Vulnerabilities reported by OSV.dev:"),
+          horizontal_rule(),
+          body_doc,
+          horizontal_rule(),
+          summary_doc,
+        ],
+        with: doc.line,
+      )
+    }
+  }
+
+  render_document(doc.append(to: document, doc: doc.line))
 }
 
-fn format_vuln_row(row: VulnRow, palette: color.Palette) -> String {
-  let pkg_line = "● " <> row.package.name <> " " <> row.package.version
+fn format_vuln_row(row: VulnRow, palette: color.Palette) -> Document {
+  let pkg_line =
+    doc.from_string("● " <> row.package.name <> " " <> row.package.version)
   let vuln_lines =
     list.map(row.vulnerabilities, fn(vuln) {
       let severity_text = color.severity(palette, severity_label(vuln.severity))
-      "    "
-      <> severity_text
-      <> "  "
-      <> vuln.id
-      <> case vuln.summary {
-        "" -> ""
-        s -> "  " <> truncate(s, 80)
-      }
+      doc.from_string(
+        "    "
+        <> severity_text
+        <> "  "
+        <> vuln.id
+        <> case vuln.summary {
+          "" -> ""
+          s -> "  " <> truncate(s, 80)
+        },
+      )
     })
-    |> string.join(with: "\n")
-  pkg_line <> "\n" <> vuln_lines
+    |> doc.join(with: doc.line)
+  doc.concat([pkg_line, doc.line, vuln_lines])
 }
 
 fn severity_label(severity: osv.Severity) -> color.SeverityLabel {
@@ -1141,15 +1159,15 @@ fn format_vuln_gate_output(
   palette: color.Palette,
 ) -> String {
   case all_vulns {
-    [] -> "\nNo known vulnerabilities reported by OSV.dev.\n"
+    [] ->
+      doc.concat([
+        doc.line,
+        doc.from_string("No known vulnerabilities reported by OSV.dev."),
+        doc.line,
+      ])
+      |> render_document
     _ -> {
-      let header =
-        "\nVulnerability check (threshold: "
-        <> osv.severity_to_string(threshold)
-        <> ")\n"
-        <> string.repeat("─", 72)
-        <> "\n"
-      let lines =
+      let lines_doc =
         list.map(all_vulns, fn(vuln) {
           let label = case dict.get(id_to_pkg, vuln.id) {
             Ok(pkgs) -> string.join(pkgs, with: ", ")
@@ -1161,28 +1179,56 @@ fn format_vuln_gate_output(
             True -> "✗"
             False -> "·"
           }
-          marker
-          <> "  "
-          <> color.severity(palette, severity_to_color_label(vuln.severity))
-          <> "  "
-          <> vuln.id
-          <> "  "
-          <> label
+          doc.from_string(
+            marker
+            <> "  "
+            <> color.severity(palette, severity_to_color_label(vuln.severity))
+            <> "  "
+            <> vuln.id
+            <> "  "
+            <> label,
+          )
         })
-        |> string.join(with: "\n")
-      let summary =
-        "\n"
-        <> string.repeat("─", 72)
-        <> "\n"
-        <> int.to_string(list.length(triggering))
-        <> " advisory/advisories at or above "
-        <> osv.severity_to_string(threshold)
-        <> " (of "
-        <> int.to_string(list.length(all_vulns))
-        <> " total reported).\n"
-      header <> lines <> summary
+        |> doc.join(with: doc.line)
+      let summary_doc =
+        doc.from_string(
+          int.to_string(list.length(triggering))
+          <> " advisory/advisories at or above "
+          <> osv.severity_to_string(threshold)
+          <> " (of "
+          <> int.to_string(list.length(all_vulns))
+          <> " total reported).",
+        )
+
+      doc.concat([
+        doc.line,
+        doc.join(
+          [
+            doc.from_string(
+              "Vulnerability check (threshold: "
+              <> osv.severity_to_string(threshold)
+              <> ")",
+            ),
+            horizontal_rule(),
+            lines_doc,
+            horizontal_rule(),
+            summary_doc,
+          ],
+          with: doc.line,
+        ),
+        doc.line,
+      ])
+      |> render_document
     }
   }
+}
+
+fn horizontal_rule() -> Document {
+  doc.from_string(string.repeat("─", 72))
+}
+
+fn render_document(document: Document) -> String {
+  doc.to_string(document, output_line_width)
 }
 
 fn severity_to_color_label(severity: osv.Severity) -> color.SeverityLabel {

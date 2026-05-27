@@ -1,3 +1,4 @@
+import glam/doc.{type Document}
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -34,6 +35,8 @@ pub type Row {
 pub type Summary {
   Summary(skipped_non_hex: Int)
 }
+
+const glam_line_width = 100
 
 /// Keep only rows that belong to a dependency tree containing at least one
 /// policy failure. Used by `check` to focus output on offending trees.
@@ -90,18 +93,25 @@ pub fn format(
   let tree = build_tree(rows)
   let widths = widths(rows, mode)
   let body = tree_text(tree, widths, mode, palette)
+  let summary_line =
+    doc.from_string(
+      "Skipped non-Hex packages: " <> int.to_string(summary.skipped_non_hex),
+    )
 
-  header(widths, mode)
-  <> "\n"
-  <> body
-  <> "\nSkipped non-Hex packages: "
-  <> int.to_string(summary.skipped_non_hex)
-  <> "\n"
+  doc.concat([
+    header(widths, mode),
+    doc.line,
+    body,
+    doc.line,
+    summary_line,
+    doc.line,
+  ])
+  |> doc.to_string(glam_line_width)
 }
 
-fn header(widths: Widths, mode: Mode) -> String {
+fn header(widths: Widths, mode: Mode) -> Document {
   let prefix = "  "
-  case mode {
+  let line = case mode {
     Default ->
       prefix
       <> pad("Package", widths.package)
@@ -118,6 +128,7 @@ fn header(widths: Widths, mode: Mode) -> String {
       <> pad("Licences", widths.licences)
       <> "  Status"
   }
+  doc.from_string(line)
 }
 
 type Tree {
@@ -191,10 +202,10 @@ fn tree_text(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> String {
+) -> Document {
   render_nodes(tree.roots, tree.children, "", True, widths, mode, palette, [])
   |> list.reverse
-  |> string.join("\n")
+  |> doc.join(with: doc.line)
 }
 
 fn render_nodes(
@@ -205,8 +216,8 @@ fn render_nodes(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-  acc: List(String),
-) -> List(String) {
+  acc: List(Document),
+) -> List(Document) {
   let count = list.length(nodes)
   indexed_fold(nodes, 0, acc, fn(acc, node, i) {
     let is_last = i == count - 1
@@ -249,7 +260,7 @@ fn row_text(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> String {
+) -> Document {
   let licences_raw = licences_text(row)
   let licences_padded = pad(licences_raw, widths.licences)
   let glyph = glyph(row.status, mode, palette)
@@ -257,7 +268,7 @@ fn row_text(
     colorize_for_status(row.status, mode, palette, licences_padded)
   let name_padded = pad_name(prefix, row.package, widths.package)
 
-  case mode {
+  let line = case mode {
     Default ->
       prefix
       <> glyph
@@ -280,6 +291,7 @@ fn row_text(
       <> "  "
       <> status_text(row.status)
   }
+  doc.from_string(line)
 }
 
 // Pads `prefix + name` such that the column ending the package field aligns
