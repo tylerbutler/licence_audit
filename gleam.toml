@@ -3,7 +3,7 @@ version = "1.0.0"
 
 description = "Audit licences of locked Hex dependencies in Gleam projects."
 licences = ["Apache-2.0"]
-repository = { type = "github", user = "tylerbutler", repo = "license_audit" }
+repository = { type = "github", user = "tylerbutler", repo = "licence_audit" }
 
 [dependencies]
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"

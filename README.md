@@ -1,18 +1,45 @@
 # licence_audit
 
-[![CI](https://github.com/tylerbutler/license_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/license_audit/actions/workflows/ci.yml)
-[![Publish](https://github.com/tylerbutler/license_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/license_audit/actions/workflows/publish.yml)
+[![CI](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml)
+[![Publish](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml)
 
 `licence_audit` is a standalone Gleam command-line tool for auditing locked Hex package licences.
 
 It reads `manifest.toml`, fetches package licence metadata from Hex, and reports the licences declared by locked Hex dependencies. Non-Hex dependencies are skipped and counted in the summary.
 
-> The repository is named `license_audit` (American spelling), but the binary, crate, and CLI flags use `licence_audit` (British spelling). The British spelling is used throughout the rest of this document.
+> The repository, binary, crate, and CLI flags use `licence_audit` (British spelling).
 
 ## Installation
 
+### GitHub Actions
+
+Use the shared setup action to install the released escript in a workflow. If
+your workflow only needs to run an existing `manifest.toml`, the action can set
+up Erlang/OTP 28 before downloading `licence_audit`.
+
+```yaml
+- uses: tylerbutler/actions/setup-licence-audit@v1
+  with:
+    version: v1.0.0
+- run: licence_audit check
+```
+
+For a Gleam project workflow, set up Gleam first so `manifest.toml` exists, then
+disable the duplicate Beam setup:
+
+```yaml
+- uses: tylerbutler/actions/setup-gleam@v1
+- uses: tylerbutler/actions/setup-licence-audit@v1
+  with:
+    version: v1.0.0
+    setup-beam: "false"
+- run: licence_audit check
+```
+
+### Manual installation
+
 Prebuilt escript archives are attached to each
-[GitHub Release](https://github.com/tylerbutler/license_audit/releases). The
+[GitHub Release](https://github.com/tylerbutler/licence_audit/releases). The
 archive contains the `licence_audit` escript (and a `.ps1` companion for
 Windows) and runs on any platform with a compatible Erlang/OTP runtime.
 
@@ -254,10 +281,8 @@ not cached.
 
 ## CI example
 
-Download the `licence_audit` escript from a GitHub Release in your workflow,
-then run the audit. Bump `VERSION` to the release you want to pin to, or
-replace the URL with `releases/latest/download/...` to track the most recent
-release automatically.
+Set up Gleam, install `licence_audit`, then run the audit. Pin `version` to the
+release you want to run in CI.
 
 ```yaml
 name: licence audit
@@ -272,20 +297,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: erlef/setup-beam@v1
+      - uses: tylerbutler/actions/setup-gleam@v1
+      - uses: tylerbutler/actions/setup-licence-audit@v1
         with:
-          otp-version: "27"
-          gleam-version: "1.x"
-      - name: Download licence_audit
-        env:
-          VERSION: v1.0.0
-        run: |
-          curl -fsSL -o licence_audit.tar.gz \
-            "https://github.com/tylerbutler/license_audit/releases/download/${VERSION}/licence_audit-${VERSION}.tar.gz"
-          tar -xzf licence_audit.tar.gz --strip-components=1
-          chmod +x licence_audit
-          echo "$PWD" >> "$GITHUB_PATH"
-      - run: gleam deps download
+          version: v1.0.0
+          setup-beam: "false"
       - run: licence_audit check
 ```
 
