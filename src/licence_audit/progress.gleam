@@ -2,6 +2,7 @@ import birch as log
 import birch/handler.{Stderr}
 import birch/handler/console
 import birch/level
+import birch/level_formatter
 import birch/logger.{type Logger}
 import gleam/int
 import gleam/list
@@ -81,12 +82,14 @@ pub fn events(reporter: Reporter) -> List(Event) {
 }
 
 pub fn configure(verbosity: Verbosity) -> Nil {
-  let config = console.default_fancy_config()
+  let config = console.default_config()
   let stderr_config =
     console.ConsoleConfig(
       ..config,
       color: stderr_color_enabled(tty.detect_color_level(tty.Stderr)),
+      timestamps: False,
       target: Stderr,
+      level_formatter: minimal_level_formatter(),
     )
   let threshold = case verbosity {
     Verbose -> level.Debug
@@ -97,6 +100,26 @@ pub fn configure(verbosity: Verbosity) -> Nil {
     log.config_level(threshold),
     log.config_handlers([console.handler_with_config(stderr_config)]),
   ])
+}
+
+@internal
+pub fn minimal_level_formatter() -> level_formatter.LevelFormatter {
+  level_formatter.custom_level_formatter(
+    fn(lvl, use_color) {
+      let label = level.to_string_lowercase(lvl)
+      case lvl {
+        level.Info ->
+          case use_color {
+            True -> ""
+            False -> label
+          }
+        level.Warn -> "⚠ " <> label
+        level.Err | level.Fatal -> "✖ " <> label
+        _ -> label
+      }
+    },
+    0,
+  )
 }
 
 @internal
