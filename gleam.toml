@@ -30,8 +30,29 @@ glam = ">= 2.0.4 and < 3.0.0"
 gleeunit = ">= 1.0.0 and < 2.0.0"
 gleescript = ">= 1.5.2 and < 2.0.0"
 gleam_time = ">= 1.8.0 and < 2.0.0"
+glinter = ">= 2.19.0 and < 3.0.0"
 
 [tools]
+
+[tools.glinter]
+include = ["src/", "test/"]
+
+[tools.glinter.rules]
+# Disabled: heavily stylistic and overwhelmingly noisy on this codebase.
+label_possible = "off"
+# Disabled: `let assert` is an accepted pattern in tests and known-safe spots.
+assert_ok_pattern = "off"
+# Disabled: this codebase deliberately falls back to defaults on `Error`
+# (e.g. `dict.get` absent -> default, missing config -> sensible default).
+thrown_away_error = "off"
+# Disabled: the only discards are best-effort resource cleanup (connection /
+# cache `close`, reporter `flush`) right before returning or halting.
+discarded_result = "off"
+
+[tools.glinter.ignore]
+# gleeunit discovers `pub` test functions by reflection, type annotations add
+# little in tests, and panicking is the idiomatic way for a test to fail.
+"test/**/*.gleam" = ["unused_exports", "missing_type_annotation", "avoid_panic"]
 
 [tools.licence_audit]
 # any license types not listed here will be treated as unknown and will

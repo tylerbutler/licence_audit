@@ -9,7 +9,8 @@
 - Type-check: `just check`
 - Run full tests: `just test`
 - Format: `just format`
-- Format check (lint equivalent in this repo): `just format-check` (or `just lint`)
+- Format check: `just format-check`
+- Lint: `just glint` (glinter; configured under `[tools.glinter]` in `gleam.toml`, fails only on error-level rules). `just lint` runs format-check + glint.
 - Full local CI pass: `just ci`
 - Run a single test module: `mise exec -- gleam test --target erlang -- <module_name>_test`
 

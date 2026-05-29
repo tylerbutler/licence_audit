@@ -33,7 +33,9 @@ just test           # gleam test
 just check          # gleam check (type check only)
 just format         # gleam format src test
 just format-check   # gleam format --check src test
-just ci             # full validation (format-check + check + test + strict build)
+just glint          # gleam run -m glinter (linter; fails only on error-level rules)
+just lint           # format-check + glint
+just ci             # full validation (format-check + glint + check + test + strict build)
 just clean          # remove build artifacts
 ```
 
