@@ -21,13 +21,13 @@ import gleam/option.{None, Some}
 import gleam/string
 import tty
 
-pub type Choice {
+type Choice {
   Allow
   Deny
   Ignore
 }
 
-pub type Item {
+type Item {
   Item(label: String, choice: Choice)
 }
 
@@ -71,7 +71,6 @@ pub fn pick(
   )
 }
 
-@internal
 pub fn pick_with_terminal_check(
   title: String,
   labels: List(String),
@@ -177,10 +176,10 @@ fn wrap(i: Int, count: Int) -> Int {
   case count {
     0 -> 0
     _ -> {
-      let m = i % count
-      case m < 0 {
-        True -> m + count
-        False -> m
+      let remainder = i % count
+      case remainder < 0 {
+        True -> remainder + count
+        False -> remainder
       }
     }
   }

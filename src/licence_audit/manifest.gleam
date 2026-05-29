@@ -88,21 +88,24 @@ pub type SbomManifest {
 pub fn sbom_entries(input: String) -> Result(SbomManifest, Error) {
   case tom.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
-    Ok(document) -> {
-      case tom.get_array(document, ["packages"]) {
-        Error(tom.NotFound(_)) -> Error(MissingPackages)
-        Error(_) ->
-          Error(InvalidPackageField("<manifest>", "packages", "Array"))
-        Ok(packages) -> {
-          let direct_names = decode_direct_names(document)
-          use entries <- result.try(
-            list.try_map(packages, fn(package) {
-              decode_sbom_entry(package, direct_names)
-            }),
-          )
-          Ok(SbomManifest(entries: entries, root_requirements: direct_names))
-        }
-      }
+    Ok(document) -> sbom_entries_from_document(document)
+  }
+}
+
+fn sbom_entries_from_document(
+  document: Dict(String, Toml),
+) -> Result(SbomManifest, Error) {
+  case tom.get_array(document, ["packages"]) {
+    Error(tom.NotFound(_)) -> Error(MissingPackages)
+    Error(_) -> Error(InvalidPackageField("<manifest>", "packages", "Array"))
+    Ok(packages) -> {
+      let direct_names = decode_direct_names(document)
+      use entries <- result.try(
+        list.try_map(packages, fn(package) {
+          decode_sbom_entry(package, direct_names)
+        }),
+      )
+      Ok(SbomManifest(entries: entries, root_requirements: direct_names))
     }
   }
 }
@@ -327,21 +330,31 @@ fn bfs_loop(
             Ok(reqs) -> reqs
             Error(_) -> []
           }
-          list.fold(children, #(next, visited, parents), fn(inner, child) {
-            let #(next, visited, parents) = inner
-            case dict.has_key(visited, child) {
-              True -> #(next, visited, parents)
-              False -> #(
-                [child, ..next],
-                dict.insert(visited, child, Nil),
-                dict.insert(parents, child, node),
-              )
-            }
-          })
+          visit_children(node, children, #(next, visited, parents))
         })
       bfs_loop(list.reverse(next_rev), edges, visited, parents)
     }
   }
+}
+
+/// Visit each child of `node`, queueing and recording any not yet seen.
+/// Threads the BFS accumulator `#(next_frontier, visited, parents)`.
+fn visit_children(
+  node: String,
+  children: List(String),
+  acc: #(List(String), Dict(String, Nil), Dict(String, String)),
+) -> #(List(String), Dict(String, Nil), Dict(String, String)) {
+  list.fold(children, acc, fn(inner, child) {
+    let #(next, visited, parents) = inner
+    case dict.has_key(visited, child) {
+      True -> #(next, visited, parents)
+      False -> #(
+        [child, ..next],
+        dict.insert(visited, child, Nil),
+        dict.insert(parents, child, node),
+      )
+    }
+  })
 }
 
 fn reconstruct_path(

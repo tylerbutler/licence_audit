@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import glint
@@ -121,8 +122,9 @@ fn audit_command(
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(message), _ -> InvalidUsage(message)
-    _, Error(message) -> InvalidUsage(message)
+    Error(verbosity_error), _ ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
         manifest_path: optional_string(manifest_path),
@@ -173,8 +175,9 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
 
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(message), _ -> InvalidUsage(message)
-    _, Error(message) -> InvalidUsage(message)
+    Error(verbosity_error), _ ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
         manifest_path: optional_string(manifest_path),
@@ -276,20 +279,30 @@ fn vuln_severity_flag() -> glint.Flag(String) {
   )
 }
 
-fn verbosity(quiet: Bool, verbose: Bool) -> Result(progress.Verbosity, String) {
+type VerbosityError {
+  ConflictingVerbosity
+}
+
+fn verbosity(
+  quiet: Bool,
+  verbose: Bool,
+) -> Result(progress.Verbosity, VerbosityError) {
   case quiet, verbose {
-    True, True -> Error("--quiet and --verbose cannot be used together")
+    True, True -> Error(ConflictingVerbosity)
     True, False -> Ok(progress.Quiet)
     False, True -> Ok(progress.Verbose)
     False, False -> Ok(progress.Normal)
   }
 }
 
+fn verbosity_error_message(error: VerbosityError) -> String {
+  let ConflictingVerbosity = error
+  "--quiet and --verbose cannot be used together"
+}
+
 fn optional_string(value: String) -> Option(String) {
-  case value == absent_string_flag {
-    True -> None
-    False -> Some(value)
-  }
+  use <- bool.guard(when: value == absent_string_flag, return: None)
+  Some(value)
 }
 
 fn update_command() -> glint.Command(CliAction) {
@@ -317,8 +330,9 @@ fn update_command() -> glint.Command(CliAction) {
   let assert Ok(cache_path_value) = cache_path(flags)
 
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(message), _ -> InvalidUsage(message)
-    _, Error(message) -> InvalidUsage(message)
+    Error(verbosity_error), _ ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       UpdateConfig(UpdateOptions(
         manifest_path: optional_string(manifest_path),
@@ -368,7 +382,8 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(offline_value) = offline(flags)
 
   case verbosity(quiet, verbose) {
-    Error(message) -> InvalidUsage(message)
+    Error(verbosity_error) ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
     Ok(verbosity) ->
       RunSbom(SbomOptions(
         manifest_path: optional_string(manifest_path),
@@ -399,8 +414,9 @@ fn vulns_command() -> glint.Command(CliAction) {
   let assert Ok(color_value) = color_flag(flags)
 
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(message), _ -> InvalidUsage(message)
-    _, Error(message) -> InvalidUsage(message)
+    Error(verbosity_error), _ ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunVulns(VulnsOptions(
         manifest_path: optional_string(manifest_path),

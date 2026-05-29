@@ -10,10 +10,12 @@
 //// `licence_audit/hex`) so callers can drive the decoder/dispatch logic
 //// from tests without performing real network I/O.
 
+import gleam/bool
 import gleam/dynamic/decode
 import gleam/http.{Get, Https, Post}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response, Response}
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None}
@@ -77,7 +79,7 @@ pub fn query_batch(
 }
 
 /// Fetch the full advisory record for a single OSV vulnerability ID.
-pub fn fetch_vulnerability(
+fn fetch_vulnerability(
   id: String,
   client: fn(Request(String)) -> Result(Response(String), Error),
 ) -> Result(Vulnerability, Error) {
@@ -211,7 +213,7 @@ pub fn encode_batch_body(purls: List(String)) -> String {
 
 // --- Response decoding ---------------------------------------------------
 
-pub fn decode_batch_response(
+fn decode_batch_response(
   response: Response(String),
   purls: List(String),
 ) -> Result(List(BatchEntry), Error) {
@@ -224,7 +226,7 @@ pub fn decode_batch_response(
   }
 }
 
-pub fn decode_batch_body(
+fn decode_batch_body(
   body: String,
   purls: List(String),
 ) -> Result(List(BatchEntry), Error) {
@@ -240,22 +242,21 @@ fn zip_batch(
   purls: List(String),
   results: List(List(String)),
 ) -> Result(List(BatchEntry), Error) {
-  case list.length(purls) == list.length(results) {
-    False ->
-      Error(InvalidResponse(
-        "OSV batch response length ("
-        <> string.inspect(list.length(results))
-        <> ") does not match input purls ("
-        <> string.inspect(list.length(purls))
-        <> ")",
-      ))
-    True ->
-      Ok(
-        list.map2(purls, results, fn(purl, ids) {
-          BatchEntry(purl: purl, vuln_ids: ids)
-        }),
-      )
-  }
+  use <- bool.guard(
+    when: list.length(purls) != list.length(results),
+    return: Error(InvalidResponse(
+      "OSV batch response length ("
+      <> int.to_string(list.length(results))
+      <> ") does not match input purls ("
+      <> int.to_string(list.length(purls))
+      <> ")",
+    )),
+  )
+  Ok(
+    list.map2(purls, results, fn(purl, ids) {
+      BatchEntry(purl: purl, vuln_ids: ids)
+    }),
+  )
 }
 
 fn batch_results_decoder() -> decode.Decoder(List(List(String))) {
@@ -281,7 +282,7 @@ fn vuln_id_decoder() -> decode.Decoder(String) {
   decode.success(id)
 }
 
-pub fn decode_vuln_response(
+fn decode_vuln_response(
   response: Response(String),
   id: String,
 ) -> Result(Vulnerability, Error) {

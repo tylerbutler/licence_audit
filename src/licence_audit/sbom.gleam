@@ -188,42 +188,47 @@ fn build_dependencies(
         Error(_) -> acc
       }
     })
-  let root_deps =
-    manifest_value.root_requirements
-    |> list.filter_map(fn(name) {
-      case dict.get(purl_index, name) {
-        Ok(purl) -> Ok(purl)
-        Error(_) -> Error(Nil)
-      }
-    })
   let root_entry =
-    json.object([
-      #("ref", json.string("root")),
-      #("dependsOn", json.array(root_deps, of: json.string)),
-    ])
+    component_refs(
+      "root",
+      resolve_purls(manifest_value.root_requirements, purl_index),
+    )
   let other_entries =
     list.filter_map(manifest_value.entries, fn(entry) {
-      case purl_for(entry) {
-        Ok(self_purl) -> {
-          let deps =
-            entry.requirements
-            |> list.filter_map(fn(name) {
-              case dict.get(purl_index, name) {
-                Ok(p) -> Ok(p)
-                Error(_) -> Error(Nil)
-              }
-            })
-          Ok(
-            json.object([
-              #("ref", json.string(self_purl)),
-              #("dependsOn", json.array(deps, of: json.string)),
-            ]),
-          )
-        }
-        Error(_) -> Error(Nil)
-      }
+      component_entry(entry, purl_index)
     })
   [root_entry, ..other_entries]
+}
+
+/// Map dependency names to their purls, dropping any not present in the index.
+fn resolve_purls(
+  names: List(String),
+  purl_index: Dict(String, String),
+) -> List(String) {
+  list.filter_map(names, fn(name) { dict.get(purl_index, name) })
+}
+
+/// Build the `dependencies` entry for a single component, or `Error(Nil)` if
+/// the entry has no purl (e.g. a non-Hex package).
+fn component_entry(
+  entry: manifest.SbomEntry,
+  purl_index: Dict(String, String),
+) -> Result(json.Json, Nil) {
+  case purl_for(entry) {
+    Error(_) -> Error(Nil)
+    Ok(self_purl) ->
+      Ok(component_refs(
+        self_purl,
+        resolve_purls(entry.requirements, purl_index),
+      ))
+  }
+}
+
+fn component_refs(ref: String, deps: List(String)) -> json.Json {
+  json.object([
+    #("ref", json.string(ref)),
+    #("dependsOn", json.array(deps, of: json.string)),
+  ])
 }
 
 fn build_document(

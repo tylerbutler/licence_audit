@@ -49,10 +49,12 @@ pub fn open(mode: Mode) -> Cache {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
       case resolve_path(path) {
-        Error(message) -> Cache(table: None, warning: Some(message))
+        Error(error) ->
+          Cache(table: None, warning: Some(describe_path_error(error)))
         Ok(resolved) ->
           case ensure_parent_dir(resolved) {
-            Error(message) -> Cache(table: None, warning: Some(message))
+            Error(error) ->
+              Cache(table: None, warning: Some(describe_path_error(error)))
             Ok(_) -> open_table(resolved)
           }
       }
@@ -108,41 +110,61 @@ pub fn wrap(
                 reporter,
                 "Cache miss for " <> key <> "; fetching from Hex",
               )
-            case fetcher(package.name) {
-              Error(error) -> #(Error(error), reporter)
-              Ok(metadata) -> {
-                let reporter = case
-                  dets_set.insert(
-                    into: table,
-                    key: key,
-                    value: metadata.licences,
-                  )
-                {
-                  Ok(_) ->
-                    progress.detail(
-                      reporter,
-                      "Cached licence metadata for " <> key,
-                    )
-                  Error(error) ->
-                    progress.detail(
-                      reporter,
-                      "Failed to write cache entry for "
-                        <> key
-                        <> ": "
-                        <> slate.error_message(error),
-                    )
-                }
-                #(Ok(metadata), reporter)
-              }
-            }
+            fetch_and_store(table, key, fetcher(package.name), reporter)
           }
         }
     }
   }
 }
 
+/// Handle a cache miss: record the fetch result and, on success, best-effort
+/// write it back to `table`. Write failures are surfaced as a verbose detail
+/// event but never fail the fetch.
+fn fetch_and_store(
+  table: dets_set.Set(String, List(String)),
+  key: String,
+  fetched: Result(hex.PackageMetadata, hex.Error),
+  reporter: progress.Reporter,
+) -> #(Result(hex.PackageMetadata, hex.Error), progress.Reporter) {
+  case fetched {
+    Error(error) -> #(Error(error), reporter)
+    Ok(metadata) -> {
+      let reporter = case
+        dets_set.insert(into: table, key: key, value: metadata.licences)
+      {
+        Ok(_) ->
+          progress.detail(reporter, "Cached licence metadata for " <> key)
+        Error(error) ->
+          progress.detail(
+            reporter,
+            "Failed to write cache entry for "
+              <> key
+              <> ": "
+              <> slate.error_message(error),
+          )
+      }
+      #(Ok(metadata), reporter)
+    }
+  }
+}
+
+/// Why a cache file path could not be resolved or prepared.
+type PathError {
+  CacheDirUnknown
+  CacheDirCreateFailed(dir: String, reason: String)
+}
+
+fn describe_path_error(error: PathError) -> String {
+  case error {
+    CacheDirUnknown ->
+      "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set"
+    CacheDirCreateFailed(dir, reason) ->
+      "Unable to create licence cache directory " <> dir <> ": " <> reason
+  }
+}
+
 /// Resolve the cache file path, honouring an explicit override.
-pub fn resolve_path(override: Option(String)) -> Result(String, String) {
+fn resolve_path(override: Option(String)) -> Result(String, PathError) {
   case override {
     Some(path) -> Ok(path)
     None -> default_path()
@@ -150,16 +172,13 @@ pub fn resolve_path(override: Option(String)) -> Result(String, String) {
 }
 
 /// Default cache path: `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex.dets`.
-pub fn default_path() -> Result(String, String) {
+fn default_path() -> Result(String, PathError) {
   case envoy.get("XDG_CACHE_HOME") {
     Ok(dir) if dir != "" -> Ok(join_path(dir))
     _ ->
       case envoy.get("HOME") {
         Ok(home) if home != "" -> Ok(join_path(home <> "/.cache"))
-        _ ->
-          Error(
-            "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set",
-          )
+        _ -> Error(CacheDirUnknown)
       }
   }
 }
@@ -168,14 +187,14 @@ fn join_path(base: String) -> String {
   base <> "/" <> cache_subdir <> "/" <> cache_filename
 }
 
-fn ensure_parent_dir(path: String) -> Result(Nil, String) {
+fn ensure_parent_dir(path: String) -> Result(Nil, PathError) {
   let parent = parent_directory(path)
   case parent {
     "" -> Ok(Nil)
     dir ->
       simplifile.create_directory_all(dir)
-      |> result.map_error(fn(_) {
-        "Unable to create licence cache directory: " <> dir
+      |> result.map_error(fn(err) {
+        CacheDirCreateFailed(dir: dir, reason: simplifile.describe_error(err))
       })
   }
 }

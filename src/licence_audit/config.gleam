@@ -1,6 +1,8 @@
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import simplifile
 import tom.{type Toml}
@@ -37,20 +39,16 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
       vuln_severity: options.vuln_severity,
     )
 
-  case options.ignore_config {
-    True -> validate(cli_policy)
-    False -> {
-      case load_file_policy(options) {
-        Error(error) -> Error(error)
-        Ok(Some(file_policy)) -> merge(file_policy, cli_policy)
-        Ok(None) -> {
-          case options.check && is_empty(cli_policy) {
-            True -> Error(MissingPolicy)
-            False -> validate(cli_policy)
-          }
-        }
+  use <- bool.guard(when: options.ignore_config, return: validate(cli_policy))
+
+  case load_file_policy(options) {
+    Error(error) -> Error(error)
+    Ok(Some(file_policy)) -> merge(file_policy, cli_policy)
+    Ok(None) ->
+      case options.check && is_empty(cli_policy) {
+        True -> Error(MissingPolicy)
+        False -> validate(cli_policy)
       }
-    }
   }
 }
 
@@ -83,20 +81,15 @@ pub fn merge(file_policy: Policy, cli_policy: Policy) -> Result(Policy, Error) {
 
 fn load_file_policy(options: LoadOptions) -> Result(Option(Policy), Error) {
   case options.config_path {
+    None -> load_project_policy(options.project_root)
     Some(path) -> {
-      case read_required(path) {
+      use contents <- result.try(read_required(path))
+      case parse(contents) {
+        Ok(policy) -> Ok(Some(policy))
+        Error(MissingPolicy) -> Ok(None)
         Error(error) -> Error(error)
-        Ok(contents) -> {
-          case parse(contents) {
-            Ok(policy) -> Ok(Some(policy))
-            Error(MissingPolicy) -> Ok(None)
-            Error(error) -> Error(error)
-          }
-        }
       }
     }
-
-    None -> load_project_policy(options.project_root)
   }
 }
 
@@ -161,21 +154,10 @@ fn find_section(
 }
 
 fn parse_policy_section(section: Dict(String, Toml)) -> Result(Policy, Error) {
-  case optional_string_list(section, "allow") {
-    Error(error) -> Error(error)
-    Ok(allow) -> {
-      case optional_string_list(section, "deny") {
-        Error(error) -> Error(error)
-        Ok(deny) -> {
-          case optional_string(section, "vuln_severity") {
-            Error(error) -> Error(error)
-            Ok(severity) ->
-              validate(Policy(allow: allow, deny: deny, vuln_severity: severity))
-          }
-        }
-      }
-    }
-  }
+  use allow <- result.try(optional_string_list(section, "allow"))
+  use deny <- result.try(optional_string_list(section, "deny"))
+  use severity <- result.try(optional_string(section, "vuln_severity"))
+  validate(Policy(allow: allow, deny: deny, vuln_severity: severity))
 }
 
 fn optional_string(
@@ -224,10 +206,12 @@ fn strings_from_toml(
 }
 
 fn validate(policy: Policy) -> Result(Policy, Error) {
-  case has_empty_identifier(policy.allow) || has_empty_identifier(policy.deny) {
-    True -> Error(InvalidLicenceIdentifier)
-    False -> validate_vuln_severity(policy)
-  }
+  use <- bool.guard(
+    when: has_empty_identifier(policy.allow)
+      || has_empty_identifier(policy.deny),
+    return: Error(InvalidLicenceIdentifier),
+  )
+  validate_vuln_severity(policy)
 }
 
 fn validate_vuln_severity(policy: Policy) -> Result(Policy, Error) {

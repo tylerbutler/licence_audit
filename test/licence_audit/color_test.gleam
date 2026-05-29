@@ -20,7 +20,7 @@ pub fn mode_from_string_parses_known_values_test() {
 
 pub fn mode_from_string_rejects_invalid_test() {
   let assert Error(message) = color.mode_from_string("rainbow")
-  assert string.contains(message, "rainbow")
+  assert string.contains(color.mode_error_message(message), "rainbow")
 }
 
 pub fn resolve_always_is_enabled_test() {

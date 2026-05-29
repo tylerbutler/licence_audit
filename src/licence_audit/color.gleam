@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/string
 import gleam_community/ansi
 import tty
@@ -24,7 +25,6 @@ pub fn resolve(mode: Mode) -> Palette {
   }
 }
 
-@internal
 pub fn resolve_with_color_level(mode: Mode, level: tty.ColorLevel) -> Palette {
   case mode {
     Always -> Palette(enabled: True)
@@ -33,34 +33,38 @@ pub fn resolve_with_color_level(mode: Mode, level: tty.ColorLevel) -> Palette {
   }
 }
 
-pub fn mode_from_string(value: String) -> Result(Mode, String) {
+pub type ColorModeError {
+  InvalidColorValue(String)
+}
+
+pub fn mode_from_string(value: String) -> Result(Mode, ColorModeError) {
   case string.lowercase(value) {
     "auto" -> Ok(Auto)
     "always" -> Ok(Always)
     "never" -> Ok(Never)
-    other -> Error("invalid --color value: " <> other)
+    other -> Error(InvalidColorValue(other))
   }
+}
+
+/// Human-readable description of an invalid `--color` value.
+pub fn mode_error_message(error: ColorModeError) -> String {
+  let InvalidColorValue(value) = error
+  "invalid --color value: " <> value
 }
 
 pub fn green(palette: Palette, text: String) -> String {
-  case palette.enabled {
-    True -> ansi.green(text)
-    False -> text
-  }
+  use <- bool.guard(when: !palette.enabled, return: text)
+  ansi.green(text)
 }
 
 pub fn red(palette: Palette, text: String) -> String {
-  case palette.enabled {
-    True -> ansi.red(text)
-    False -> text
-  }
+  use <- bool.guard(when: !palette.enabled, return: text)
+  ansi.red(text)
 }
 
 pub fn yellow(palette: Palette, text: String) -> String {
-  case palette.enabled {
-    True -> ansi.yellow(text)
-    False -> text
-  }
+  use <- bool.guard(when: !palette.enabled, return: text)
+  ansi.yellow(text)
 }
 
 pub type SeverityLabel {

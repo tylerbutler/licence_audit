@@ -158,8 +158,9 @@ fn build_tree(rows: List(Row)) -> Tree {
   let children =
     dict.keys(children_rev)
     |> list.fold(dict.new(), fn(acc, k) {
-      let v = dict.get(children_rev, k) |> result.unwrap([]) |> list.reverse
-      dict.insert(acc, k, v)
+      let ordered =
+        dict.get(children_rev, k) |> result.unwrap([]) |> list.reverse
+      dict.insert(acc, k, ordered)
     })
 
   Tree(roots: roots, children: children)

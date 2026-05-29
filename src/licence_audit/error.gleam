@@ -66,9 +66,8 @@ pub fn from_osv_error(error: osv.Error) -> Error {
 }
 
 pub fn from_policy_error(error: policy.Error) -> Error {
-  case error {
-    policy.MissingPolicy -> MissingPolicy
-  }
+  let policy.MissingPolicy = error
+  MissingPolicy
 }
 
 pub fn from_config_error(error: config.Error) -> Error {

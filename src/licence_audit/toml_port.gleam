@@ -41,9 +41,8 @@ pub fn set_string_array(
 }
 
 pub fn error_message(error: Error) -> String {
-  case error {
-    TomlError(message) -> "TOML edit failed: " <> message
-  }
+  let TomlError(message) = error
+  "TOML edit failed: " <> message
 }
 
 fn array_sentinel(key: String, values: List(String)) -> String {

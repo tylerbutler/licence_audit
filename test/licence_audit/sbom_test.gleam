@@ -13,9 +13,9 @@ pub fn generate_serial_number_returns_urn_v4_test() {
 }
 
 pub fn serial_number_two_calls_differ_test() {
-  let a = sbom_uuid.serial_number()
-  let b = sbom_uuid.serial_number()
-  let assert False = a == b
+  let first = sbom_uuid.serial_number()
+  let second = sbom_uuid.serial_number()
+  let assert False = first == second
 }
 
 pub fn timestamp_rfc3339_z_suffix_test() {

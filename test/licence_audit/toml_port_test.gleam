@@ -60,9 +60,8 @@ pub fn creates_subtable_under_existing_parent_test() {
 pub fn invalid_toml_returns_toml_error_test() {
   let assert Error(err) =
     toml_port.set_string_array("not = = valid", ["x"], "y", [])
-  case err {
-    toml_port.TomlError(_) -> Nil
-  }
+  let toml_port.TomlError(_) = err
+  Nil
 }
 
 pub fn end_to_end_round_trip_preserves_everything_test() {
