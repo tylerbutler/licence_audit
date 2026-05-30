@@ -160,3 +160,53 @@ pub fn sbom_entries_exposes_root_requirements_test() {
 
   should.equal(parsed.root_requirements, ["gleam_stdlib", "gluegun"])
 }
+
+const scope_fixture = "packages = [
+  { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
+  { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [\"shared\"] },
+  { name = \"test_helper\", version = \"1.0.0\", source = \"hex\", requirements = [\"shared\"] },
+  { name = \"shared\", version = \"3.0.0\", source = \"hex\", requirements = [] },
+]
+
+[requirements]
+app_a = { version = \">= 1.0.0\" }
+test_helper = { version = \">= 1.0.0\" }
+"
+
+pub fn prod_direct_names_reads_dependencies_table_test() {
+  let input =
+    "[dependencies]\napp_a = \">= 1.0.0\"\n\n[dev_dependencies]\ntest_helper = \">= 1.0.0\"\n"
+  should.equal(manifest.prod_direct_names(input), Ok(["app_a"]))
+}
+
+pub fn prod_direct_names_missing_table_is_error_test() {
+  should.equal(manifest.prod_direct_names("name = \"x\"\n"), Error(Nil))
+}
+
+pub fn prod_direct_names_malformed_is_error_test() {
+  should.equal(manifest.prod_direct_names("packages = ["), Error(Nil))
+}
+
+pub fn dep_scopes_classifies_prod_wins_test() {
+  let assert Ok(locked) = manifest.parse(scope_fixture)
+  let scopes = manifest.dep_scopes(locked, ["app_a"])
+
+  should.equal(dict.get(scopes, "app_a"), Ok(manifest.Prod))
+  should.equal(dict.get(scopes, "lib_b"), Ok(manifest.Prod))
+  should.equal(dict.get(scopes, "shared"), Ok(manifest.Prod))
+  should.equal(dict.get(scopes, "test_helper"), Ok(manifest.Dev))
+}
+
+pub fn dep_scopes_all_prod_fallback_test() {
+  let assert Ok(locked) = manifest.parse(scope_fixture)
+  let scopes = manifest.dep_scopes(locked, locked.direct_names)
+
+  should.equal(dict.get(scopes, "app_a"), Ok(manifest.Prod))
+  should.equal(dict.get(scopes, "test_helper"), Ok(manifest.Prod))
+  should.equal(dict.get(scopes, "shared"), Ok(manifest.Prod))
+}
+
+pub fn scope_label_test() {
+  should.equal(manifest.scope_label(manifest.Prod), "prod")
+  should.equal(manifest.scope_label(manifest.Dev), "dev")
+}

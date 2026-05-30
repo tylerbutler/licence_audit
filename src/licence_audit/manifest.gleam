@@ -18,6 +18,14 @@ pub type Kind {
   Transitive
 }
 
+/// Whether a package is part of the production dependency tree (`Prod`) or only
+/// reachable through development dependencies (`Dev`). Prod wins: a package
+/// reachable from any production direct dependency is `Prod`.
+pub type Scope {
+  Prod
+  Dev
+}
+
 pub type Package {
   Package(
     name: String,
@@ -313,6 +321,74 @@ pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
   dict.keys(visited)
   |> list.fold(dict.new(), fn(acc, name) {
     dict.insert(acc, name, reconstruct_path(name, parents, []))
+  })
+}
+
+/// Parse the names of direct production dependencies from `gleam.toml` source:
+/// the keys of the `[dependencies]` table. `Error(Nil)` when the TOML cannot be
+/// parsed or has no `[dependencies]` table — callers treat that as "cannot
+/// determine" and fall back to classifying everything as production.
+pub fn prod_direct_names(gleam_toml: String) -> Result(List(String), Nil) {
+  case toml.parse(gleam_toml) {
+    Error(_) -> Error(Nil)
+    Ok(document) -> toml.table_keys(document, ["dependencies"])
+  }
+}
+
+/// Classify every package in the locked graph as `Prod` or `Dev`, seeded from
+/// the production direct dependency names.
+pub fn dep_scopes(
+  locked: LockedPackages,
+  prod_direct_names: List(String),
+) -> Dict(String, Scope) {
+  scope_map(graph_pairs(locked.graph), prod_direct_names)
+}
+
+/// Classify every entry in an SBOM manifest graph (used by `sbom` and `vulns`).
+pub fn sbom_scopes(
+  manifest: SbomManifest,
+  prod_direct_names: List(String),
+) -> Dict(String, Scope) {
+  let pairs =
+    list.map(manifest.entries, fn(entry) { #(entry.name, entry.requirements) })
+  scope_map(pairs, prod_direct_names)
+}
+
+/// String label for a scope, used in SBOM properties and CLI output.
+pub fn scope_label(scope: Scope) -> String {
+  case scope {
+    Prod -> "prod"
+    Dev -> "dev"
+  }
+}
+
+fn graph_pairs(graph: List(GraphNode)) -> List(#(String, List(String))) {
+  list.map(graph, fn(node) { #(node.name, node.requirements) })
+}
+
+/// Multi-source BFS over `pairs` from the production sources; every reachable
+/// node is `Prod`, every other node is `Dev`.
+fn scope_map(
+  pairs: List(#(String, List(String))),
+  prod_direct_names: List(String),
+) -> Dict(String, Scope) {
+  let edges =
+    list.fold(pairs, dict.new(), fn(acc, pair) {
+      dict.insert(acc, pair.0, pair.1)
+    })
+  let nodes =
+    list.fold(pairs, dict.new(), fn(acc, pair) { dict.insert(acc, pair.0, Nil) })
+  let sources =
+    list.filter(prod_direct_names, fn(name) { dict.has_key(nodes, name) })
+  let visited =
+    list.fold(sources, dict.new(), fn(acc, name) { dict.insert(acc, name, Nil) })
+  let #(prod_set, _parents) = bfs_loop(sources, edges, visited, dict.new())
+  list.fold(pairs, dict.new(), fn(acc, pair) {
+    let scope = case dict.has_key(prod_set, pair.0) {
+      True -> Prod
+      False -> Dev
+    }
+    dict.insert(acc, pair.0, scope)
   })
 }
 
