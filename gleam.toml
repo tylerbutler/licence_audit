@@ -22,7 +22,7 @@ etch = ">= 1.3.3 and < 2.0.0"
 youid = ">= 1.4.0 and < 2.0.0"
 gleam_regexp = ">= 1.1.1 and < 2.0.0"
 jsone = ">= 1.9.0 and < 2.0.0"
-tomlet = { git = "https://github.com/tylerbutler/tomlet", ref = "da6828c" }
+tomlet = ">= 1.0.0 and < 2.0.0"
 tty = ">= 1.0.0 and < 2.0.0"
 glam = ">= 2.0.4 and < 3.0.0"
 
