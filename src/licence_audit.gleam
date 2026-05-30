@@ -488,9 +488,20 @@ fn audit_locked(
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
   let dep_paths = manifest.dep_paths(locked)
+  let #(active_packages, active_skipped) = case options.prod_only {
+    False -> #(locked.packages, locked.skipped_packages)
+    True -> #(
+      list.filter(locked.packages, fn(p) {
+        scope_for(scopes, p.name) == manifest.Prod
+      }),
+      list.filter(locked.skipped_packages, fn(p) {
+        scope_for(scopes, p.name) == manifest.Prod
+      }),
+    )
+  }
   let result =
     fetch_packages(
-      locked.packages,
+      active_packages,
       cached_fetcher,
       audit_policy,
       evaluate_policy,
@@ -502,8 +513,7 @@ fn audit_locked(
       False,
     )
   let cache_warning = cache.close(cache_handle)
-  let skipped_rows =
-    build_skipped_rows(locked.skipped_packages, dep_paths, scopes)
+  let skipped_rows = build_skipped_rows(active_skipped, dep_paths, scopes)
   let all_rows = list.append(result.rows, skipped_rows)
   let display_rows = case options.check && result.policy_failed {
     True -> report.filter_failing_trees(all_rows)

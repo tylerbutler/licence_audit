@@ -436,3 +436,47 @@ pub fn vulns_report_labels_scope_test() {
   assert string.contains(output, "gleam_stdlib")
   assert string.contains(output, "[prod]")
 }
+
+fn prod_dev_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
+  case name {
+    "gleam_stdlib" -> Ok(hex.PackageMetadata(licences: ["MIT"]))
+    // A denied licence on the dev dependency.
+    "gleeunit" -> Ok(hex.PackageMetadata(licences: ["AGPL-3.0"]))
+    _ -> Error(hex.NotFound)
+  }
+}
+
+pub fn check_fails_on_dev_dependency_violation_by_default_test() {
+  let licence_audit.RunResult(exit_code, _output) =
+    licence_audit.run_with(
+      [
+        "--manifest=test/fixtures/prod_dev_manifest.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--deny=AGPL-3.0",
+      ],
+      prod_dev_fetcher,
+    )
+
+  should.equal(exit_code, 1)
+}
+
+pub fn check_prod_only_ignores_dev_dependency_violation_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with(
+      [
+        "--manifest=test/fixtures/prod_dev_manifest.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--deny=AGPL-3.0",
+        "--prod-only",
+      ],
+      prod_dev_fetcher,
+    )
+
+  should.equal(exit_code, 0)
+  assert string.contains(output, "gleam_stdlib")
+  assert !string.contains(output, "gleeunit")
+}

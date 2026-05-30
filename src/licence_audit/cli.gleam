@@ -23,6 +23,7 @@ pub type Options {
     cache_path: Option(String),
     check_vulns: Bool,
     vuln_severity: Option(String),
+    prod_only: Bool,
   )
 }
 
@@ -109,6 +110,7 @@ fn audit_command(
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.flag(cache_path_flag())
+  use prod_only <- glint.flag(prod_only_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -121,6 +123,7 @@ fn audit_command(
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(prod_only_value) = prod_only(flags)
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
@@ -140,6 +143,7 @@ fn audit_command(
         cache_path: optional_string(cache_path_value),
         check_vulns: False,
         vuln_severity: None,
+        prod_only: prod_only_value,
       ))
   }
 }
@@ -157,6 +161,7 @@ fn check_command() -> glint.Command(CliAction) {
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.flag(cache_path_flag())
+  use prod_only <- glint.flag(prod_only_flag())
   use check_vulns <- glint.flag(check_vulns_flag())
   use vuln_severity <- glint.flag(vuln_severity_flag())
   use _, _, flags <- glint.command()
@@ -171,6 +176,7 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(prod_only_value) = prod_only(flags)
   let assert Ok(check_vulns_value) = check_vulns(flags)
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
 
@@ -193,6 +199,7 @@ fn check_command() -> glint.Command(CliAction) {
         cache_path: optional_string(cache_path_value),
         check_vulns: check_vulns_value,
         vuln_severity: optional_string(vuln_severity_value),
+        prod_only: prod_only_value,
       ))
   }
 }
@@ -249,6 +256,14 @@ fn no_cache_flag() -> glint.Flag(Bool) {
   glint.bool_flag("no-cache")
   |> glint.flag_default(False)
   |> glint.flag_help("Bypass the on-disk licence metadata cache")
+}
+
+fn prod_only_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("prod-only")
+  |> glint.flag_default(False)
+  |> glint.flag_help(
+    "Only audit production dependencies; ignore dev-dependency violations",
+  )
 }
 
 fn cache_path_flag() -> glint.Flag(String) {
@@ -328,7 +343,6 @@ fn update_command() -> glint.Command(CliAction) {
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
-
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
