@@ -1,4 +1,12 @@
-//// Wrapper around the `tomlet` dependency for comment-preserving TOML edits.
+//// Shared TOML access layer for licence_audit, built on the `tomlet`
+//// dependency: comment-preserving edits (`set_string_array`) plus the read
+//// accessors used by manifest/config parsing.
+////
+//// The read accessors below walk tomlet's raw `Value` assoc lists by hand
+//// because tomlet has no value-level accessors and no table-key enumeration.
+//// Tracked upstream — if these land, the helpers become thin pass-throughs:
+////   - value-level accessors: https://github.com/tylerbutler/tomlet/issues/22
+////   - table key enumeration:  https://github.com/tylerbutler/tomlet/issues/23
 
 import gleam/int
 import gleam/list

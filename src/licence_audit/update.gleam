@@ -14,7 +14,7 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/picker
 import licence_audit/progress
-import licence_audit/toml_port
+import licence_audit/toml
 import simplifile
 
 pub type UpdateResult {
@@ -253,13 +253,13 @@ fn resolve_output_path(
 }
 
 type WriteError {
-  TomlEditFailed(toml_port.Error)
+  TomlEditFailed(toml.Error)
   FileWriteFailed(path: String)
 }
 
 fn write_error_message(error: WriteError) -> String {
   case error {
-    TomlEditFailed(e) -> toml_port.error_message(e)
+    TomlEditFailed(e) -> toml.error_message(e)
     FileWriteFailed(path) -> "Failed to write " <> path
   }
 }
@@ -274,10 +274,10 @@ fn write_policy(
     Error(_) -> ""
   }
   let section = ["tools", "licence_audit"]
-  case toml_port.set_string_array(existing, section, "allow", allow) {
+  case toml.set_string_array(existing, section, "allow", allow) {
     Error(e) -> Error(TomlEditFailed(e))
     Ok(after_allow) ->
-      case toml_port.set_string_array(after_allow, section, "deny", deny) {
+      case toml.set_string_array(after_allow, section, "deny", deny) {
         Error(e) -> Error(TomlEditFailed(e))
         Ok(after_both) ->
           case simplifile.write(to: path, contents: after_both) {
