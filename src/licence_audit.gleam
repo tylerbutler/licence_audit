@@ -248,6 +248,11 @@ fn run_sbom_options(
       let _ = cache.close(cache_handle)
 
       let root = read_root_component(project_root)
+      let scopes =
+        manifest.sbom_scopes(
+          sbom_manifest,
+          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+        )
       let input =
         sbom.SbomInput(
           manifest: sbom_manifest,
@@ -256,6 +261,7 @@ fn run_sbom_options(
           serial_number: sbom_uuid.serial_number(),
           timestamp: sbom_uuid.timestamp_now(),
           license_metadata: license_metadata,
+          scopes: scopes,
         )
 
       case sbom.try_render(input) {

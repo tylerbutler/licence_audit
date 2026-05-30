@@ -225,5 +225,18 @@ fn minimal_input() -> sbom.SbomInput {
     serial_number: "urn:uuid:00000000-0000-4000-8000-000000000001",
     timestamp: "2026-05-24T22:51:00Z",
     license_metadata: licenses,
+    scopes: dict.new(),
   )
+}
+
+pub fn render_emits_scope_property_test() {
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      scopes: dict.from_list([#("birch", manifest.Dev)]),
+    )
+  let output = sbom.render(input)
+
+  assert string.contains(output, "licence_audit:scope")
+  assert string.contains(output, "\"value\":\"dev\"")
 }

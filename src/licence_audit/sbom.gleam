@@ -98,6 +98,7 @@ pub type SbomInput {
     serial_number: String,
     timestamp: String,
     license_metadata: Dict(String, List(String)),
+    scopes: Dict(String, manifest.Scope),
   )
 }
 
@@ -106,7 +107,7 @@ pub type SbomInput {
 pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
   use components <- result.try(
     list.try_map(input.manifest.entries, fn(entry) {
-      build_component(entry, input.license_metadata)
+      build_component(entry, input.license_metadata, input.scopes)
     }),
   )
   let dependencies = build_dependencies(input.manifest)
@@ -124,6 +125,7 @@ pub fn render(input: SbomInput) -> String {
 fn build_component(
   entry: manifest.SbomEntry,
   license_metadata: Dict(String, List(String)),
+  scopes: Dict(String, manifest.Scope),
 ) -> Result(json.Json, error.Error) {
   use purl <- result.try(purl_for(entry))
   let base_fields = [
@@ -162,7 +164,23 @@ fn build_component(
       }
     Error(_) -> with_hashes
   }
-  Ok(json.object(final_fields))
+  let scope = case dict.get(scopes, entry.name) {
+    Ok(scope) -> scope
+    Error(_) -> manifest.Prod
+  }
+  let with_properties =
+    list.append(final_fields, [
+      #(
+        "properties",
+        json.preprocessed_array([
+          json.object([
+            #("name", json.string("licence_audit:scope")),
+            #("value", json.string(manifest.scope_label(scope))),
+          ]),
+        ]),
+      ),
+    ])
+  Ok(json.object(with_properties))
 }
 
 fn license_to_json(entry: LicenseEntry) -> json.Json {
