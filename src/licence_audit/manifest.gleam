@@ -2,8 +2,9 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/result
 import gleam/string
+import licence_audit/toml
 import simplifile
-import tom.{type Toml}
+import tomlet.{type Document, type Value}
 
 pub type Source {
   Hex
@@ -86,18 +87,19 @@ pub type SbomManifest {
 }
 
 pub fn sbom_entries(input: String) -> Result(SbomManifest, Error) {
-  case tom.parse(input) {
+  case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
     Ok(document) -> sbom_entries_from_document(document)
   }
 }
 
 fn sbom_entries_from_document(
-  document: Dict(String, Toml),
+  document: Document,
 ) -> Result(SbomManifest, Error) {
-  case tom.get_array(document, ["packages"]) {
-    Error(tom.NotFound(_)) -> Error(MissingPackages)
-    Error(_) -> Error(InvalidPackageField("<manifest>", "packages", "Array"))
+  case toml.get_array(document, ["packages"]) {
+    Error(toml.ArrayMissing) -> Error(MissingPackages)
+    Error(toml.ArrayNotArray) ->
+      Error(InvalidPackageField("<manifest>", "packages", "Array"))
     Ok(packages) -> {
       let direct_names = decode_direct_names(document)
       use entries <- result.try(
@@ -118,10 +120,10 @@ pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
 }
 
 fn decode_sbom_entry(
-  package: Toml,
+  package: Value,
   direct_names: List(String),
 ) -> Result(SbomEntry, Error) {
-  case tom.as_table(package) {
+  case toml.as_table(package) {
     Error(_) ->
       Error(InvalidPackageField(
         package: "<unknown>",
@@ -155,7 +157,7 @@ fn decode_sbom_entry(
 
 fn decode_provenance(
   source: String,
-  table: Dict(String, Toml),
+  table: toml.Entry,
   package_name: String,
 ) -> Result(Provenance, Error) {
   case source {
@@ -203,12 +205,12 @@ pub fn load(path: String) -> Result(LockedPackages, Error) {
 }
 
 pub fn parse(input: String) -> Result(LockedPackages, Error) {
-  case tom.parse(input) {
+  case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
     Ok(document) -> {
-      case tom.get_array(document, ["packages"]) {
-        Error(tom.NotFound(_)) -> Error(MissingPackages)
-        Error(_) ->
+      case toml.get_array(document, ["packages"]) {
+        Error(toml.ArrayMissing) -> Error(MissingPackages)
+        Error(toml.ArrayNotArray) ->
           Error(InvalidPackageField("<manifest>", "packages", "Array"))
         Ok(packages) -> {
           use raw_packages <- result.try(list.try_map(packages, decode_package))
@@ -368,19 +370,15 @@ fn reconstruct_path(
   }
 }
 
-fn decode_direct_names(document: Dict(String, Toml)) -> List(String) {
-  case dict.get(document, "requirements") {
+fn decode_direct_names(document: Document) -> List(String) {
+  case toml.table_keys(document, ["requirements"]) {
+    Ok(keys) -> list.sort(keys, by: string.compare)
     Error(_) -> []
-    Ok(value) ->
-      case tom.as_table(value) {
-        Error(_) -> []
-        Ok(table) -> dict.keys(table) |> list.sort(by: string.compare)
-      }
   }
 }
 
-fn decode_package(package: Toml) -> Result(RawPackage, Error) {
-  case tom.as_table(package) {
+fn decode_package(package: Value) -> Result(RawPackage, Error) {
+  case toml.as_table(package) {
     Error(_) ->
       Error(InvalidPackageField(
         package: "<unknown>",
@@ -413,14 +411,14 @@ fn decode_package(package: Toml) -> Result(RawPackage, Error) {
 }
 
 fn optional_string_list(
-  package: Dict(String, Toml),
+  package: toml.Entry,
   field: String,
   package_name: String,
 ) -> Result(List(String), Error) {
-  case dict.get(package, field) {
+  case toml.field(package, field) {
     Error(_) -> Ok([])
     Ok(value) ->
-      case tom.as_array(value) {
+      case toml.as_array(value) {
         Error(_) ->
           Error(InvalidPackageField(
             package: package_name,
@@ -433,7 +431,7 @@ fn optional_string_list(
 }
 
 fn decode_string_list(
-  items: List(Toml),
+  items: List(Value),
   package_name: String,
   field: String,
   acc: List(String),
@@ -441,7 +439,7 @@ fn decode_string_list(
   case items {
     [] -> Ok(list.reverse(acc))
     [item, ..rest] ->
-      case tom.as_string(item) {
+      case toml.as_string(item) {
         Error(_) ->
           Error(InvalidPackageField(
             package: package_name,
@@ -455,11 +453,11 @@ fn decode_string_list(
 }
 
 fn required_string(
-  package: Dict(String, Toml),
+  package: toml.Entry,
   field: String,
   package_name: String,
 ) -> Result(String, Error) {
-  case dict.get(package, field) {
+  case toml.field(package, field) {
     Error(_) ->
       Error(InvalidPackageField(
         package: package_name,
@@ -468,7 +466,7 @@ fn required_string(
       ))
 
     Ok(value) -> {
-      case tom.as_string(value) {
+      case toml.as_string(value) {
         Ok(value) -> Ok(value)
         Error(_) ->
           Error(InvalidPackageField(
