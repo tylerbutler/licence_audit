@@ -1,0 +1,31 @@
+<!-- install-instructions -->
+## Installation
+
+Download the archive for your platform, extract it, and place `licence_audit`
+somewhere on your `PATH`. The escript runs on any platform with a compatible
+Erlang/OTP runtime.
+
+### Linux / macOS
+
+```sh
+curl -fsSL -o licence_audit.tar.gz \
+  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}.tar.gz"
+tar -xzf licence_audit.tar.gz --strip-components=1
+chmod +x licence_audit
+./licence_audit --help
+```
+
+### Windows (PowerShell)
+
+Download `licence_audit-${REF_NAME}.zip`, extract it, and run the bundled
+`licence_audit.ps1`.
+
+### Verify the download
+
+```sh
+# Checksums (run from the directory containing the archives)
+sha256sum -c checksums.txt
+
+# Build provenance + SBOM attestations
+gh attestation verify licence_audit-${REF_NAME}.tar.gz --repo ${REPO}
+```

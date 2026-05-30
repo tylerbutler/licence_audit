@@ -99,3 +99,27 @@ jobs:
             sleep 10
           done
           gh release upload "$REF_NAME" dist/* --clobber
+
+      - name: Add install instructions to release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          marker='<!-- install-instructions -->'
+
+          # Idempotent: skip if a previous run already appended the section
+          # (e.g. when the publish workflow is re-run for the same tag).
+          body="$(gh release view "$REF_NAME" --json body --jq .body)"
+          if printf '%s' "$body" | grep -qF "$marker"; then
+            echo "Install instructions already present; nothing to do."
+            exit 0
+          fi
+
+          # Render the template, substituting only the two known variables.
+          install_md="$(envsubst '$REPO $REF_NAME' < .github/release-install.md.tmpl)"
+
+          # Append the install section to the existing (changelog) body.
+          printf '%s\n\n%s\n' "$body" "$install_md" > release-body.md
+          gh release edit "$REF_NAME" --notes-file release-body.md
