@@ -23,9 +23,9 @@ import licence_audit/report
 import licence_audit/sbom
 import licence_audit/sbom_json
 import licence_audit/sbom_uuid
+import licence_audit/toml
 import licence_audit/update as update_cmd
 import simplifile
-import tom
 
 pub type RunResult {
   RunResult(exit_code: Int, output: String)
@@ -303,14 +303,14 @@ fn read_root_component(project_root: String) -> sbom.RootComponent {
   case simplifile.read(from: path) {
     Error(_) -> sbom.RootComponent(name: "project", version: "0.0.0")
     Ok(contents) ->
-      case tom.parse(contents) {
+      case toml.parse(contents) {
         Error(_) -> sbom.RootComponent(name: "project", version: "0.0.0")
         Ok(doc) -> {
-          let name = case tom.get_string(doc, ["name"]) {
+          let name = case toml.get_string(doc, ["name"]) {
             Ok(v) -> v
             Error(_) -> "project"
           }
-          let version = case tom.get_string(doc, ["version"]) {
+          let version = case toml.get_string(doc, ["version"]) {
             Ok(v) -> v
             Error(_) -> "0.0.0"
           }
@@ -324,10 +324,10 @@ fn tool_version() -> String {
   case simplifile.read(from: "gleam.toml") {
     Error(_) -> "unknown"
     Ok(contents) ->
-      case tom.parse(contents) {
+      case toml.parse(contents) {
         Error(_) -> "unknown"
         Ok(doc) ->
-          case tom.get_string(doc, ["version"]) {
+          case toml.get_string(doc, ["version"]) {
             Ok(v) -> v
             Error(_) -> "unknown"
           }
