@@ -11,10 +11,129 @@
 import gleam/int
 import gleam/list
 import gleam/string
-import tomlet
+import tomlet.{type Document, type Value}
 
 pub type Error {
   TomlError(message: String)
+}
+
+/// A table's entries as tomlet exposes them: an ordered assoc list of
+/// `#(dotted_key_path, value)`. See tylerbutler/tomlet#22.
+pub type Entry =
+  List(#(List(String), Value))
+
+pub type ArrayError {
+  ArrayMissing
+  ArrayNotArray
+}
+
+pub type TableLookupError {
+  TableLookupMissing
+  TableLookupNotTable
+}
+
+/// Parse TOML source, collapsing tomlet's rich parse error to `Error(Nil)`.
+pub fn parse(input: String) -> Result(Document, Nil) {
+  case tomlet.parse(input) {
+    Ok(doc) -> Ok(doc)
+    Error(_) -> Error(Nil)
+  }
+}
+
+/// Read a top-level (or path-addressed) string scalar.
+pub fn get_string(doc: Document, path: List(String)) -> Result(String, Nil) {
+  case tomlet.get_string(doc, path) {
+    Ok(value) -> Ok(value)
+    Error(_) -> Error(Nil)
+  }
+}
+
+/// Read the array at `path` as its item values.
+/// Workaround for tylerbutler/tomlet#22 (no value-level array accessor).
+pub fn get_array(
+  doc: Document,
+  path: List(String),
+) -> Result(List(Value), ArrayError) {
+  case tomlet.get(doc, path) {
+    Error(_) -> Error(ArrayMissing)
+    Ok(tomlet.ArrayValue(items)) -> Ok(items)
+    Ok(_) -> Error(ArrayNotArray)
+  }
+}
+
+/// Read the table at `path` as its entry assoc list.
+pub fn get_table(
+  doc: Document,
+  path: List(String),
+) -> Result(Entry, TableLookupError) {
+  case tomlet.get(doc, path) {
+    Error(_) -> Error(TableLookupMissing)
+    Ok(value) ->
+      case as_table(value) {
+        Ok(entries) -> Ok(entries)
+        Error(_) -> Error(TableLookupNotTable)
+      }
+  }
+}
+
+/// Top-level keys of the table at `path`, in source order. `Error(Nil)` when
+/// the path is absent or is not a table.
+/// Workaround for tylerbutler/tomlet#23 (no table-key enumeration).
+pub fn table_keys(
+  doc: Document,
+  path: List(String),
+) -> Result(List(String), Nil) {
+  case tomlet.get(doc, path) {
+    Ok(value) ->
+      case as_table(value) {
+        Ok(entries) -> Ok(entry_keys(entries))
+        Error(_) -> Error(Nil)
+      }
+    Error(_) -> Error(Nil)
+  }
+}
+
+/// Look up a simple (single-segment) field within a table's entries.
+/// Workaround for tylerbutler/tomlet#22.
+pub fn field(entry: Entry, name: String) -> Result(Value, Nil) {
+  case list.find(entry, fn(pair) { pair.0 == [name] }) {
+    Ok(pair) -> Ok(pair.1)
+    Error(_) -> Error(Nil)
+  }
+}
+
+/// Value -> String.
+pub fn as_string(value: Value) -> Result(String, Nil) {
+  case value {
+    tomlet.StringValue(s) -> Ok(s)
+    _ -> Error(Nil)
+  }
+}
+
+/// Value -> array item list.
+pub fn as_array(value: Value) -> Result(List(Value), Nil) {
+  case value {
+    tomlet.ArrayValue(items) -> Ok(items)
+    _ -> Error(Nil)
+  }
+}
+
+/// Value -> table entries (standard or inline table).
+pub fn as_table(value: Value) -> Result(Entry, Nil) {
+  case value {
+    tomlet.StandardTableValue(entries) -> Ok(entries)
+    tomlet.InlineTableValue(entries) -> Ok(entries)
+    _ -> Error(Nil)
+  }
+}
+
+fn entry_keys(entries: Entry) -> List(String) {
+  list.filter_map(entries, fn(pair) {
+    case pair.0 {
+      [name, ..] -> Ok(name)
+      [] -> Error(Nil)
+    }
+  })
 }
 
 /// Replace (or create) a string array at the table named by `path` (a list of

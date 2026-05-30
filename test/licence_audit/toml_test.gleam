@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/string
 import gleeunit/should
 import licence_audit/toml
@@ -58,8 +59,7 @@ pub fn creates_subtable_under_existing_parent_test() {
 }
 
 pub fn invalid_toml_returns_toml_error_test() {
-  let assert Error(err) =
-    toml.set_string_array("not = = valid", ["x"], "y", [])
+  let assert Error(err) = toml.set_string_array("not = = valid", ["x"], "y", [])
   let toml.TomlError(_) = err
   Nil
 }
@@ -95,4 +95,100 @@ note = \"leave me alone\"
   should.be_true(string.contains(after_both, "note = \"leave me alone\""))
   should.be_true(string.contains(after_both, "\"Apache-2.0\""))
   should.be_true(string.contains(after_both, "\"GPL-3.0\""))
+}
+
+const packages_doc = "packages = [
+  { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
+  { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [] },
+]
+
+[requirements]
+app_a = { version = \">= 1.0.0\" }
+gleam_stdlib = { version = \">= 1.0.0\" }
+"
+
+pub fn parse_ok_test() {
+  let assert Ok(_) = toml.parse(packages_doc)
+}
+
+pub fn parse_error_on_malformed_test() {
+  let assert Error(Nil) = toml.parse("packages = [")
+}
+
+pub fn get_array_returns_items_test() {
+  let assert Ok(doc) = toml.parse(packages_doc)
+  let assert Ok(items) = toml.get_array(doc, ["packages"])
+  should.equal(list.length(items), 2)
+}
+
+pub fn get_array_missing_test() {
+  let assert Ok(doc) = toml.parse("[requirements]\n")
+  should.equal(toml.get_array(doc, ["packages"]), Error(toml.ArrayMissing))
+}
+
+pub fn get_array_not_array_test() {
+  let assert Ok(doc) = toml.parse("packages = 42\n")
+  should.equal(toml.get_array(doc, ["packages"]), Error(toml.ArrayNotArray))
+}
+
+pub fn as_table_and_field_string_test() {
+  let assert Ok(doc) = toml.parse(packages_doc)
+  let assert Ok([first, ..]) = toml.get_array(doc, ["packages"])
+  let assert Ok(entry) = toml.as_table(first)
+  let assert Ok(value) = toml.field(entry, "name")
+  should.equal(toml.as_string(value), Ok("app_a"))
+}
+
+pub fn field_missing_test() {
+  let assert Ok(doc) = toml.parse(packages_doc)
+  let assert Ok([first, ..]) = toml.get_array(doc, ["packages"])
+  let assert Ok(entry) = toml.as_table(first)
+  should.equal(toml.field(entry, "nope"), Error(Nil))
+}
+
+pub fn as_array_of_requirements_test() {
+  let assert Ok(doc) = toml.parse(packages_doc)
+  let assert Ok([first, ..]) = toml.get_array(doc, ["packages"])
+  let assert Ok(entry) = toml.as_table(first)
+  let assert Ok(value) = toml.field(entry, "requirements")
+  let assert Ok(items) = toml.as_array(value)
+  should.equal(list.length(items), 1)
+}
+
+pub fn table_keys_returns_keys_test() {
+  let assert Ok(doc) = toml.parse(packages_doc)
+  let assert Ok(keys) = toml.table_keys(doc, ["requirements"])
+  should.equal(list.sort(keys, string.compare), ["app_a", "gleam_stdlib"])
+}
+
+pub fn table_keys_missing_test() {
+  let assert Ok(doc) = toml.parse("packages = []\n")
+  should.equal(toml.table_keys(doc, ["requirements"]), Error(Nil))
+}
+
+pub fn get_table_returns_entries_test() {
+  let assert Ok(doc) = toml.parse("[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  let assert Ok(entry) = toml.get_table(doc, ["tools", "licence_audit"])
+  let assert Ok(value) = toml.field(entry, "allow")
+  let assert Ok(items) = toml.as_array(value)
+  should.equal(list.length(items), 1)
+}
+
+pub fn get_table_missing_test() {
+  let assert Ok(doc) = toml.parse("name = \"x\"\n")
+  should.equal(
+    toml.get_table(doc, ["tools", "licence_audit"]),
+    Error(toml.TableLookupMissing),
+  )
+}
+
+pub fn get_table_not_table_test() {
+  let assert Ok(doc) = toml.parse("tools = 7\n")
+  should.equal(toml.get_table(doc, ["tools"]), Error(toml.TableLookupNotTable))
+}
+
+pub fn get_string_test() {
+  let assert Ok(doc) = toml.parse("name = \"hello\"\nversion = \"1.2.3\"\n")
+  should.equal(toml.get_string(doc, ["name"]), Ok("hello"))
+  should.equal(toml.get_string(doc, ["missing"]), Error(Nil))
 }
