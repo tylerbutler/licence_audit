@@ -28,6 +28,7 @@ pub type Row {
     licences: List(String),
     status: Status,
     kind: manifest.Kind,
+    scope: manifest.Scope,
     path: List(String),
   )
 }
@@ -90,9 +91,18 @@ pub fn format(
   mode: Mode,
   palette: color.Palette,
 ) -> String {
-  let tree = build_tree(rows)
   let widths = widths(rows)
-  let body = tree_text(tree, widths, mode, palette)
+  let #(prod_rows, dev_rows) =
+    list.partition(rows, fn(r) { r.scope == manifest.Prod })
+  let sections =
+    [
+      #("Production dependencies", prod_rows),
+      #("Development dependencies", dev_rows),
+    ]
+    |> list.filter(fn(section) { section.1 != [] })
+    |> list.map(fn(section) {
+      section_doc(section.0, section.1, widths, mode, palette)
+    })
   let summary_line =
     doc.from_string(
       "Skipped non-Hex packages: " <> int.to_string(summary.skipped_non_hex),
@@ -101,12 +111,24 @@ pub fn format(
   doc.concat([
     header(widths, mode),
     doc.line,
-    body,
+    doc.join(sections, with: doc.line),
     doc.line,
     summary_line,
     doc.line,
   ])
   |> doc.to_string(glam_line_width)
+}
+
+fn section_doc(
+  title: String,
+  rows: List(Row),
+  widths: Widths,
+  mode: Mode,
+  palette: color.Palette,
+) -> Document {
+  let tree = build_tree(rows)
+  let body = tree_text(tree, widths, mode, palette)
+  doc.concat([doc.from_string(title), doc.line, body])
 }
 
 fn header(widths: Widths, mode: Mode) -> Document {

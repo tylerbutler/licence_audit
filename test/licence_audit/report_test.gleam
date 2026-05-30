@@ -18,6 +18,7 @@ pub fn audit_report_includes_status_column_test() {
           licences: ["MIT"],
           status: report.Checked(policy.Allowed),
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -40,6 +41,7 @@ pub fn default_report_omits_status_column_test() {
           licences: ["MIT"],
           status: report.NotChecked,
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -63,6 +65,7 @@ pub fn licences_are_sorted_and_deduplicated_test() {
           licences: ["MIT", "Apache-2.0", "MIT", "BSD-3-Clause"],
           status: report.NotChecked,
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -84,6 +87,7 @@ pub fn empty_licences_render_as_dash_test() {
           licences: [],
           status: report.NotChecked,
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -105,6 +109,7 @@ pub fn fetch_or_read_failures_appear_in_report_test() {
           licences: [],
           status: report.Failed("Hex package metadata fetch failed"),
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -135,6 +140,7 @@ pub fn denied_row_has_red_cross_glyph_test() {
           licences: ["GPL-3.0"],
           status: report.Checked(policy.DeniedLicence("GPL-3.0")),
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -156,6 +162,7 @@ pub fn enabled_palette_emits_ansi_for_allowed_test() {
           licences: ["MIT"],
           status: report.Checked(policy.Allowed),
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -179,6 +186,7 @@ pub fn enabled_palette_emits_ansi_for_default_question_test() {
           licences: ["MIT"],
           status: report.NotChecked,
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -201,6 +209,7 @@ pub fn report_omits_legacy_emoji_column_test() {
           licences: ["Apache-2.0"],
           status: report.NotChecked,
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -222,6 +231,7 @@ pub fn report_omits_legacy_joined_emoji_column_test() {
           licences: ["MIT", "Apache-2.0"],
           status: report.NotChecked,
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -243,6 +253,7 @@ pub fn allowed_licences_text_is_green_test() {
           licences: ["MIT"],
           status: report.Checked(policy.Allowed),
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -267,6 +278,7 @@ pub fn denied_licences_text_is_red_test() {
           licences: ["GPL-3.0"],
           status: report.Checked(policy.DeniedLicence("GPL-3.0")),
           kind: manifest.Direct,
+          scope: manifest.Prod,
           path: [],
         ),
       ],
@@ -296,4 +308,61 @@ fn count_rest(parts: List(String), acc: Int) -> Int {
     [] -> acc
     [_, ..rest] -> count_rest(rest, acc + 1)
   }
+}
+
+pub fn report_groups_prod_and_dev_sections_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "prod_pkg",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+        report.Row(
+          package: "dev_pkg",
+          version: "2.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Dev,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_non_hex: 0),
+      report.Default,
+      off,
+    )
+
+  assert string.contains(output, "Production dependencies")
+  assert string.contains(output, "Development dependencies")
+  assert string.contains(output, "prod_pkg")
+  assert string.contains(output, "dev_pkg")
+}
+
+pub fn report_omits_empty_dev_section_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "prod_pkg",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_non_hex: 0),
+      report.Default,
+      off,
+    )
+
+  assert string.contains(output, "Production dependencies")
+  assert !string.contains(output, "Development dependencies")
 }

@@ -399,12 +399,13 @@ fn run_options_with_clients(
 
   case prepare_audit(options, manifest_path, project_root, reporter) {
     Error(failure) -> failure
-    Ok(#(config_policy, audit_policy, locked, reporter)) ->
+    Ok(#(config_policy, audit_policy, locked, scopes, reporter)) ->
       audit_locked(
         options,
         config_policy,
         audit_policy,
         locked,
+        scopes,
         fetcher,
         osv_batch_fetcher,
         osv_detail_fetcher,
@@ -422,7 +423,13 @@ fn prepare_audit(
   project_root: String,
   reporter: progress.Reporter,
 ) -> Result(
-  #(config.Policy, policy.Policy, manifest.LockedPackages, progress.Reporter),
+  #(
+    config.Policy,
+    policy.Policy,
+    manifest.LockedPackages,
+    dict.Dict(String, manifest.Scope),
+    progress.Reporter,
+  ),
   #(RunResult, progress.Reporter),
 ) {
   use config_policy <- result.try(
@@ -444,7 +451,8 @@ fn prepare_audit(
       #(diagnostic(error.from_manifest_error(e)), reporter)
     }),
   )
-  Ok(#(config_policy, audit_policy, locked, reporter))
+  let scopes = compute_scopes(project_root, locked)
+  Ok(#(config_policy, audit_policy, locked, scopes, reporter))
 }
 
 /// Run the audit over a loaded manifest: fetch licences, render the report,
@@ -454,6 +462,7 @@ fn audit_locked(
   config_policy: config.Policy,
   audit_policy: policy.Policy,
   locked: manifest.LockedPackages,
+  scopes: dict.Dict(String, manifest.Scope),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
@@ -480,13 +489,15 @@ fn audit_locked(
       audit_policy,
       evaluate_policy,
       dep_paths,
+      scopes,
       reporter,
       [],
       False,
       False,
     )
   let cache_warning = cache.close(cache_handle)
-  let skipped_rows = build_skipped_rows(locked.skipped_packages, dep_paths)
+  let skipped_rows =
+    build_skipped_rows(locked.skipped_packages, dep_paths, scopes)
   let all_rows = list.append(result.rows, skipped_rows)
   let display_rows = case options.check && result.policy_failed {
     True -> report.filter_failing_trees(all_rows)
@@ -599,6 +610,7 @@ fn fetch_packages(
   audit_policy: policy.Policy,
   check_mode: Bool,
   paths: dict.Dict(String, List(String)),
+  scopes: dict.Dict(String, manifest.Scope),
   reporter: progress.Reporter,
   rows: List(report.Row),
   fetch_failed: Bool,
@@ -632,6 +644,7 @@ fn fetch_packages(
             audit_policy,
             check_mode,
             paths,
+            scopes,
             reporter,
             [
               report.Row(
@@ -640,6 +653,7 @@ fn fetch_packages(
                 licences: [],
                 status: report.Failed(message),
                 kind: package.kind,
+                scope: scope_for(scopes, package.name),
                 path: path,
               ),
               ..rows
@@ -661,6 +675,7 @@ fn fetch_packages(
             audit_policy,
             check_mode,
             paths,
+            scopes,
             reporter,
             [
               report.Row(
@@ -669,6 +684,7 @@ fn fetch_packages(
                 licences: metadata.licences,
                 status: status,
                 kind: package.kind,
+                scope: scope_for(scopes, package.name),
                 path: path,
               ),
               ..rows
@@ -712,6 +728,7 @@ fn load_policy(
 fn build_skipped_rows(
   skipped: List(manifest.SkippedPackage),
   paths: dict.Dict(String, List(String)),
+  scopes: dict.Dict(String, manifest.Scope),
 ) -> List(report.Row) {
   list.map(skipped, fn(pkg) {
     let path = case dict.get(paths, pkg.name) {
@@ -724,9 +741,47 @@ fn build_skipped_rows(
       licences: [],
       status: report.Skipped(pkg.source),
       kind: pkg.kind,
+      scope: scope_for(scopes, pkg.name),
       path: path,
     )
   })
+}
+
+fn compute_scopes(
+  project_root: String,
+  locked: manifest.LockedPackages,
+) -> dict.Dict(String, manifest.Scope) {
+  manifest.dep_scopes(
+    locked,
+    resolve_prod_seed(project_root, locked.direct_names),
+  )
+}
+
+/// Production direct dependency names from `<project_root>/gleam.toml`, or
+/// `all_direct` (so everything classifies as prod) when it is missing,
+/// unreadable, or has no `[dependencies]` table.
+fn resolve_prod_seed(
+  project_root: String,
+  all_direct: List(String),
+) -> List(String) {
+  case simplifile.read(from: project_root <> "/gleam.toml") {
+    Ok(contents) ->
+      case manifest.prod_direct_names(contents) {
+        Ok(names) -> names
+        Error(_) -> all_direct
+      }
+    Error(_) -> all_direct
+  }
+}
+
+fn scope_for(
+  scopes: dict.Dict(String, manifest.Scope),
+  name: String,
+) -> manifest.Scope {
+  case dict.get(scopes, name) {
+    Ok(scope) -> scope
+    Error(_) -> manifest.Prod
+  }
 }
 
 fn is_policy_failure(status: report.Status) -> Bool {
