@@ -12,7 +12,6 @@ tom = ">= 2.1.0 and < 3.0.0"
 simplifile = ">= 2.4.0 and < 3.0.0"
 gleam_json = ">= 3.1.0 and < 4.0.0"
 gleam_http = ">= 4.3.0 and < 5.0.0"
-gluegun = { git = "https://github.com/tylerbutler/gluegun", ref = "fa4c8ee919138fc8ffddd2642165a89654e61999" }
 glint = ">= 1.2.1 and < 2.0.0"
 birch = ">= 0.2.1 and < 1.0.0"
 gleam_community_ansi = ">= 1.5.0 and < 2.0.0"
@@ -25,6 +24,7 @@ jsone = ">= 1.9.0 and < 2.0.0"
 tomlet = ">= 1.0.0 and < 2.0.0"
 tty = ">= 1.0.0 and < 2.0.0"
 glam = ">= 2.0.4 and < 3.0.0"
+gleam_httpc = ">= 5.0.0 and < 6.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

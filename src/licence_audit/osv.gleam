@@ -14,17 +14,13 @@ import gleam/bool
 import gleam/dynamic/decode
 import gleam/http.{Get, Https, Post}
 import gleam/http/request.{type Request, Request}
-import gleam/http/response.{type Response, Response}
+import gleam/http/response.{type Response}
+import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None}
 import gleam/string
-import gluegun/client
-import gluegun/connection
-import gluegun/error as gluegun_error
-import gluegun/request as glue_request
-import gluegun/response as glue_response
 
 pub type Severity {
   Low
@@ -90,82 +86,40 @@ fn fetch_vulnerability(
   }
 }
 
-// --- Default HTTP client (gluegun, mirrors hex.gleam) --------------------
+// --- Default HTTP client (httpc, mirrors hex.gleam) ----------------------
 
-/// Default OSV client that opens a TLS connection per call. Suitable for
-/// the small number of requests a single `licence_audit vulns` run makes.
+/// Default OSV client. Suitable for the small number of requests a single
+/// `licence_audit vulns` run makes.
 pub fn query_batch_from_osv(
   purls: List(String),
 ) -> Result(List(BatchEntry), Error) {
-  query_batch(purls, send_with_open_connection)
+  query_batch(purls, send)
 }
 
 pub fn fetch_vulnerability_from_osv(
   id: String,
 ) -> Result(Vulnerability, Error) {
-  fetch_vulnerability(id, send_with_open_connection)
+  fetch_vulnerability(id, send)
 }
 
-fn send_with_open_connection(
-  req: Request(String),
-) -> Result(Response(String), Error) {
-  let timeout = connection.Milliseconds(osv_timeout_ms)
-  let options =
-    connection.options()
-    |> connection.with_transport(connection.Tls)
-
-  case connection.open(options, host: osv_host, port: 443) {
-    Error(_) -> Error(NetworkFailure)
-    Ok(conn) -> {
-      let result = case connection.await_up(conn, timeout) {
-        Error(_) -> Error(NetworkFailure)
-        Ok(_) -> send_request(conn, req, timeout)
-      }
-      let _ = connection.close(conn)
-      result
-    }
+/// Dispatches the request synchronously via Erlang's built-in `httpc`
+/// (TLS verified by default).
+fn send(req: Request(String)) -> Result(Response(String), Error) {
+  let req =
+    req
+    |> request.set_header("user-agent", "licence_audit")
+    |> request.set_header("accept", "application/json")
+  let req = case req.method {
+    Post -> request.set_header(req, "content-type", "application/json")
+    _ -> req
   }
-}
-
-fn send_request(
-  conn: connection.Connection,
-  req: Request(String),
-  timeout: connection.Timeout,
-) -> Result(Response(String), Error) {
-  let response = case req.method {
-    Post ->
-      client.new(glue_request.Post, req.path)
-      |> client.with_header(name: "user-agent", value: "licence_audit")
-      |> client.with_header(name: "content-type", value: "application/json")
-      |> client.with_header(name: "accept", value: "application/json")
-      |> client.with_body(<<req.body:utf8>>)
-      |> client.with_timeout(timeout: timeout)
-      |> client.send(conn)
-    _ ->
-      client.new(glue_request.Get, req.path)
-      |> client.with_header(name: "user-agent", value: "licence_audit")
-      |> client.with_header(name: "accept", value: "application/json")
-      |> client.with_timeout(timeout: timeout)
-      |> client.send(conn)
-  }
-  decode_gluegun_response(response)
-}
-
-fn decode_gluegun_response(
-  response: Result(glue_response.Response, gluegun_error.GluegunError),
-) -> Result(Response(String), Error) {
-  case response {
+  case
+    httpc.configure()
+    |> httpc.timeout(osv_timeout_ms)
+    |> httpc.dispatch(req)
+  {
+    Ok(response) -> Ok(response)
     Error(_) -> Error(NetworkFailure)
-    Ok(response) ->
-      case glue_response.body_text(response) {
-        Error(_) -> Error(NetworkFailure)
-        Ok(body) ->
-          Ok(Response(
-            status: glue_response.status(response),
-            headers: [],
-            body: body,
-          ))
-      }
   }
 }
 
