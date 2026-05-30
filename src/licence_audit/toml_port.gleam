@@ -131,18 +131,25 @@ fn rewrite_array_line(
 fn parse_error_message(error: tomlet.ParseError) -> String {
   case error {
     tomlet.InvalidEncoding -> "invalid TOML encoding"
-    tomlet.Unexpected(got, expected, offset) ->
-      "unexpected "
-      <> got
-      <> ", expected "
-      <> expected
-      <> " at offset "
+    tomlet.InvalidSyntax(kind, offset) ->
+      "invalid TOML syntax ("
+      <> syntax_error_kind_message(kind)
+      <> ") at offset "
       <> int.to_string(offset)
-    tomlet.KeyAlreadyInUse(key, offset) ->
-      "key already in use: "
+    tomlet.DuplicateKey(key, offset) ->
+      "duplicate key: "
       <> path_to_string(key)
       <> " at offset "
       <> int.to_string(offset)
+  }
+}
+
+fn syntax_error_kind_message(kind: tomlet.SyntaxErrorKind) -> String {
+  case kind {
+    tomlet.ExpectedValue -> "expected a value"
+    tomlet.ExpectedKey -> "expected a key"
+    tomlet.ExpectedTableHeader -> "expected a table header"
+    tomlet.InvalidToml -> "invalid TOML"
   }
 }
 
@@ -153,6 +160,9 @@ fn edit_error_message(error: tomlet.EditError) -> String {
     tomlet.InvalidCommentText -> "invalid TOML comment text"
     tomlet.MissingEditKey(key) -> "missing TOML key: " <> path_to_string(key)
     tomlet.KeyConflict(key) -> "key conflict for: " <> path_to_string(key)
+    tomlet.InlineTableInsertUnsupported(key) ->
+      "cannot insert into inline table: " <> path_to_string(key)
+    tomlet.InvalidValue -> "value cannot be represented in this edit context"
   }
 }
 
