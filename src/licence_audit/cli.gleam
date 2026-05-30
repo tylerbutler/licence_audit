@@ -406,6 +406,9 @@ fn vulns_command() -> glint.Command(CliAction) {
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
+  // Accepted and ignored: `vulns` queries OSV and uses no licence cache, but
+  // accepting --no-cache keeps it consistent with the other subcommands.
+  use _no_cache <- glint.flag(no_cache_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)

@@ -404,3 +404,35 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
   should.equal(result.exit_code, 0)
   let assert False = string.contains(result.output, "\"licenses\":")
 }
+
+fn one_vuln_batch(
+  purls: List(String),
+) -> Result(List(osv.BatchEntry), osv.Error) {
+  Ok(
+    list.map(purls, fn(purl) {
+      osv.BatchEntry(purl: purl, vuln_ids: ["CVE-2024-0001"])
+    }),
+  )
+}
+
+fn one_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
+  Ok(osv.Vulnerability(
+    id: "CVE-2024-0001",
+    summary: "example",
+    severity: osv.High,
+  ))
+}
+
+pub fn vulns_report_labels_scope_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with_clients(
+      ["vulns", "--manifest=test/fixtures/manifest_github_git.toml"],
+      fake_fetcher,
+      one_vuln_batch,
+      one_vuln_detail,
+    )
+
+  should.equal(exit_code, 0)
+  assert string.contains(output, "gleam_stdlib")
+  assert string.contains(output, "[prod]")
+}

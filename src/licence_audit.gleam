@@ -844,6 +844,7 @@ fn run_vulns_options(
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let project_root = option_value(options.project_root, ".")
   let reporter = progress.phase(reporter, "Checking for vulnerabilities")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
@@ -853,12 +854,17 @@ fn run_vulns_options(
       reporter,
     )
     Ok(sbom_manifest) -> {
+      let scopes =
+        manifest.sbom_scopes(
+          sbom_manifest,
+          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+        )
       let #(purl_pairs, purl_errors) = build_purl_pairs(sbom_manifest)
       let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
       case purls {
         [] -> {
-          let output = format_vulns_output([], purl_errors, palette)
+          let output = format_vulns_output([], purl_errors, scopes, palette)
           #(RunResult(0, output), reporter)
         }
         _ ->
@@ -866,6 +872,7 @@ fn run_vulns_options(
             purls,
             purl_pairs,
             purl_errors,
+            scopes,
             batch_fetcher,
             detail_fetcher,
             reporter,
@@ -882,6 +889,7 @@ fn query_and_report_vulns(
   purls: List(String),
   purl_pairs: List(PurlPair),
   purl_errors: List(String),
+  scopes: dict.Dict(String, manifest.Scope),
   batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
@@ -900,7 +908,7 @@ fn query_and_report_vulns(
       let with_packages = merge_entries_with_packages(entries, purl_pairs)
       let #(rows, reporter) =
         fetch_vuln_details(with_packages, detail_fetcher, reporter, [])
-      let output = format_vulns_output(rows, purl_errors, palette)
+      let output = format_vulns_output(rows, purl_errors, scopes, palette)
       #(RunResult(0, output), reporter)
     }
   }
@@ -1018,6 +1026,7 @@ fn placeholder_vulnerability(id: String) -> osv.Vulnerability {
 fn format_vulns_output(
   rows: List(VulnRow),
   unsupported_packages: List(String),
+  scopes: dict.Dict(String, manifest.Scope),
   palette: color.Palette,
 ) -> String {
   let affected = list.filter(rows, fn(row) { row.vulnerabilities != [] })
@@ -1053,7 +1062,7 @@ fn format_vulns_output(
       )
     _ -> {
       let body_doc =
-        list.map(affected, fn(row) { format_vuln_row(row, palette) })
+        list.map(affected, fn(row) { format_vuln_row(row, scopes, palette) })
         |> doc.join(with: doc.line)
       doc.join(
         [
@@ -1071,9 +1080,25 @@ fn format_vulns_output(
   render_document(doc.append(to: document, doc: doc.line))
 }
 
-fn format_vuln_row(row: VulnRow, palette: color.Palette) -> Document {
+fn format_vuln_row(
+  row: VulnRow,
+  scopes: dict.Dict(String, manifest.Scope),
+  palette: color.Palette,
+) -> Document {
+  let scope = case dict.get(scopes, row.package.name) {
+    Ok(scope) -> scope
+    Error(_) -> manifest.Prod
+  }
   let pkg_line =
-    doc.from_string("● " <> row.package.name <> " " <> row.package.version)
+    doc.from_string(
+      "● "
+      <> row.package.name
+      <> " "
+      <> row.package.version
+      <> "  ["
+      <> manifest.scope_label(scope)
+      <> "]",
+    )
   let vuln_lines =
     list.map(row.vulnerabilities, fn(vuln) {
       let severity_text = color.severity(palette, severity_label(vuln.severity))
