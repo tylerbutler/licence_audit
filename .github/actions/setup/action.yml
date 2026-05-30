@@ -7,12 +7,17 @@ runs:
     - name: Setup mise
       uses: jdx/mise-action@5083fe46898c414b2475087cc79da59e7da859e8 # ratchet:jdx/mise-action@v3
 
-    - name: Cache Gleam dependencies
+    # Cache only the Hex tarball download cache, not `build/packages`.
+    # `build/packages` holds materialised deps including git checkouts, and
+    # `gleam deps download` will NOT refresh an already-present git dependency
+    # when its ref changes. A `restore-keys` prefix hit could therefore
+    # resurrect a stale git dep and compile against the wrong source. The Hex
+    # cache is keyed by immutable package versions, so it is always safe to
+    # restore; git deps (pinned by commit) are re-materialised fresh each run.
+    - name: Cache Gleam Hex downloads
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # ratchet:actions/cache@v4
       with:
-        path: |
-          build/packages
-          ~/.cache/gleam
+        path: ~/.cache/gleam
         key: gleam-${{ runner.os }}-${{ hashFiles('gleam.toml', 'manifest.toml') }}
         restore-keys: |
           gleam-${{ runner.os }}-
