@@ -1,11 +1,11 @@
 import gleam/bool
-import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import licence_audit/toml
 import simplifile
-import tom.{type Toml}
+import tomlet.{type Value}
 
 pub type Policy {
   Policy(allow: List(String), deny: List(String), vuln_severity: Option(String))
@@ -53,14 +53,15 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
 }
 
 pub fn parse(input: String) -> Result(Policy, Error) {
-  case parse_document(input) {
-    Error(error) -> Error(error)
-    Ok(document) -> {
-      case find_section(document, [["tools", "licence_audit"]]) {
-        Error(error) -> Error(error)
+  case toml.parse(input) {
+    Error(_) -> Error(InvalidToml("Invalid TOML"))
+    Ok(document) ->
+      case toml.get_table(document, ["tools", "licence_audit"]) {
+        Error(toml.TableLookupMissing) -> Error(MissingPolicy)
+        Error(toml.TableLookupNotTable) ->
+          Error(InvalidField(field: "tools.licence_audit", expected: "Table"))
         Ok(section) -> parse_policy_section(section)
       }
-    }
   }
 }
 
@@ -129,31 +130,7 @@ fn read_optional(path: String) -> Result(Option(String), Error) {
   }
 }
 
-fn parse_document(input: String) -> Result(Dict(String, Toml), Error) {
-  case tom.parse(input) {
-    Ok(document) -> Ok(document)
-    Error(_) -> Error(InvalidToml("Invalid TOML"))
-  }
-}
-
-fn find_section(
-  document: Dict(String, Toml),
-  candidates: List(List(String)),
-) -> Result(Dict(String, Toml), Error) {
-  case candidates {
-    [] -> Error(MissingPolicy)
-    [candidate, ..rest] -> {
-      case tom.get_table(document, candidate) {
-        Ok(section) -> Ok(section)
-        Error(tom.NotFound(_)) -> find_section(document, rest)
-        Error(_) ->
-          Error(InvalidField(field: key_name(candidate), expected: "Table"))
-      }
-    }
-  }
-}
-
-fn parse_policy_section(section: Dict(String, Toml)) -> Result(Policy, Error) {
+fn parse_policy_section(section: toml.Entry) -> Result(Policy, Error) {
   use allow <- result.try(optional_string_list(section, "allow"))
   use deny <- result.try(optional_string_list(section, "deny"))
   use severity <- result.try(optional_string(section, "vuln_severity"))
@@ -161,13 +138,13 @@ fn parse_policy_section(section: Dict(String, Toml)) -> Result(Policy, Error) {
 }
 
 fn optional_string(
-  section: Dict(String, Toml),
+  section: toml.Entry,
   field: String,
 ) -> Result(Option(String), Error) {
-  case dict.get(section, field) {
+  case toml.field(section, field) {
     Error(_) -> Ok(None)
     Ok(value) ->
-      case tom.as_string(value) {
+      case toml.as_string(value) {
         Error(_) -> Error(InvalidField(field: field, expected: "String"))
         Ok(s) -> Ok(Some(s))
       }
@@ -175,13 +152,13 @@ fn optional_string(
 }
 
 fn optional_string_list(
-  section: Dict(String, Toml),
+  section: toml.Entry,
   field: String,
 ) -> Result(List(String), Error) {
-  case dict.get(section, field) {
+  case toml.field(section, field) {
     Error(_) -> Ok([])
     Ok(value) -> {
-      case tom.as_array(value) {
+      case toml.as_array(value) {
         Error(_) -> Error(InvalidField(field: field, expected: "List(String)"))
         Ok(values) -> strings_from_toml(values, field, [])
       }
@@ -190,14 +167,14 @@ fn optional_string_list(
 }
 
 fn strings_from_toml(
-  values: List(Toml),
+  values: List(Value),
   field: String,
   decoded: List(String),
 ) -> Result(List(String), Error) {
   case values {
     [] -> Ok(list.reverse(decoded))
     [value, ..rest] -> {
-      case tom.as_string(value) {
+      case toml.as_string(value) {
         Ok(value) -> strings_from_toml(rest, field, [value, ..decoded])
         Error(_) -> Error(InvalidField(field: field, expected: "List(String)"))
       }
@@ -236,8 +213,4 @@ fn has_empty_identifier(licences: List(String)) -> Bool {
 
 fn is_empty(policy: Policy) -> Bool {
   policy.allow == [] && policy.deny == [] && policy.vuln_severity == None
-}
-
-fn key_name(key: List(String)) -> String {
-  string.join(key, ".")
 }
