@@ -3,7 +3,14 @@
 [![CI](https://github.com/tylerbutler/license_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/license_audit/actions/workflows/ci.yml)
 [![Publish](https://github.com/tylerbutler/license_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/license_audit/actions/workflows/publish.yml)
 
-`licence_audit` is a standalone Gleam command-line tool for auditing locked Hex package licences.
+`licence_audit` is a simple CLI for checking the licences used by your Gleam project's locked dependencies.
+
+It helps you:
+
+- review the licences declared by your locked Hex packages
+- enforce a licence allow/deny policy in CI
+- generate an SBOM for your dependency tree
+- check for known vulnerabilities in your locked dependencies
 
 It reads `manifest.toml`, fetches package licence metadata from Hex, and reports the licences declared by locked Hex dependencies. Non-Hex dependencies are skipped and counted in the summary.
 
@@ -20,6 +27,24 @@ Download the archive for your platform, extract it, and place `licence_audit`
 somewhere on your `PATH`.
 
 To build from source, see [DEV.md](./DEV.md).
+
+## Quick start
+
+If you just want the default report for your project:
+
+```sh
+gleam deps download
+licence_audit
+```
+
+If you want to fail CI when a licence violates your policy:
+
+```sh
+gleam deps download
+licence_audit check
+```
+
+This is the most common workflow for end users: inspect your dependency licences first, then add policy checks to your CI pipeline when you are ready.
 
 ## Usage
 
