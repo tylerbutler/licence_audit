@@ -57,7 +57,6 @@ glinter = { version = ">= 2.19.0 and < 3.0.0" }
 jsone = { version = ">= 1.9.0 and < 2.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 slate = { version = ">= 1.0.0 and < 2.0.0" }
-tom = { version = ">= 2.1.0 and < 3.0.0" }
 tomlet = { version = ">= 1.0.0 and < 2.0.0" }
 tty = { version = ">= 1.0.0 and < 2.0.0" }
 youid = { version = ">= 1.4.0 and < 2.0.0" }
