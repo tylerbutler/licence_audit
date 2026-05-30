@@ -25,13 +25,16 @@ The repo currently uses **two** TOML libraries:
 - `tomlet` (v1.0.0) — comment-preserving edits. Wrapped by `toml_port.gleam`,
   used only by `update.gleam` to write policy back to `gleam.toml`.
 
-`tom` usage to migrate:
+`tom` usage to migrate (three consumers):
 
 - **`manifest.gleam`**: `tom.parse`, `tom.get_array(doc, ["packages"])`,
   `tom.NotFound`, `tom.as_table`, `tom.as_string`, `tom.as_array`,
   `type Toml`, and `decode_direct_names` (reads `[requirements]` table keys).
 - **`config.gleam`**: `tom.parse`, `tom.get_table(doc, candidate)`,
   `tom.NotFound`, `tom.as_string`, `tom.as_array`, `type Toml`.
+- **`licence_audit.gleam`**: `read_root_component` and `tool_version` use
+  `tom.parse` + `tom.get_string(doc, ["name"])` / `["version"]` to read the
+  project's own `gleam.toml` name/version.
 
 ## The crux: read-model difference
 
@@ -47,10 +50,12 @@ ArrayValue(List(Value))
 StringValue(String)
 ```
 
-The lockfile's `[[packages]]` is an array-of-tables, so each package arrives as
-an assoc list (`List(#(List(String), Value))`) that we walk directly — `tomlet.get`
-operates on the `Document`, not on a sub-table `Value`. This is the main shape
-the migration has to bridge.
+The lockfile expresses packages as an **array of inline tables**
+(`packages = [ { name = ..., ... }, ... ]`), not `[[packages]]` array-of-tables.
+So `tomlet.get(doc, ["packages"])` returns `ArrayValue([InlineTableValue(...), ...])`,
+and each package is an inline-table entry assoc list (`List(#(List(String), Value))`)
+that we walk directly — `tomlet.get` operates on the `Document`, not on a
+sub-table `Value`. This is the main shape the migration has to bridge.
 
 ## Components
 
@@ -61,31 +66,38 @@ the migration has to bridge.
 shared TOML facade for the whole project. Update the import in `update.gleam`
 (currently the only consumer).
 
-New read accessors (added alongside the existing `set_string_array` edit helper):
+New read accessors (added alongside the existing `set_string_array` edit helper).
+These deliberately mirror the old `tom` primitives so the three consumers swap
+`tom.*` → `toml.*` with minimal change. `Entry = List(#(List(String), Value))`.
 
-- `parse(input: String) -> Result(Document, Error)`
-- `get_table_keys(doc, path: List(String)) -> Result(List(String), Error)` —
-  for `[requirements]` and (Project B) `[dependencies]`. Returns the first
-  segment of each entry key.
-- `array_of_tables(doc, path: List(String)) -> Result(List(Entry), Error)`
-  where `Entry = List(#(List(String), Value))` — for `[[packages]]`.
-- `field_string(entry, name) -> Result(String, Error)` — required string field.
-- `optional_string_array(entry, name) -> Result(List(String), Error)` — optional
-  `[...]` of strings, defaulting to `[]` when absent.
+- `parse(input: String) -> Result(Document, Nil)`
+- `get_string(doc, path) -> Result(String, Nil)` — top-level scalar (for
+  `licence_audit.gleam` name/version).
+- `get_array(doc, path) -> Result(List(Value), ArrayError)` where
+  `ArrayError = ArrayMissing | ArrayNotArray` — for `packages = [...]`.
+- `get_table(doc, path) -> Result(Entry, TableLookupError)` where
+  `TableLookupError = TableLookupMissing | TableLookupNotTable` — for
+  `[tools.licence_audit]`.
+- `table_keys(doc, path) -> Result(List(String), Nil)` — top-level keys of a
+  table, for `[requirements]` and (Project B) `[dependencies]`.
+- value/entry accessors mirroring `tom`: `as_string(value)`, `as_array(value)`,
+  `as_table(value)`, and `field(entry, name)` (single-segment lookup).
 
-The facade owns the assoc-list walking so `manifest.gleam`/`config.gleam` stay
-declarative. The facade's `Error` type is internal; each caller maps facade
-errors to its own existing `Error` variants (below).
+The facade owns the assoc-list walking so the consumers stay declarative. Each
+caller maps facade errors to its own existing `Error` variants (below). The
+assoc-list-walking accessors are the workaround for tomlet#22/#23; the source
+carries comments linking those issues.
 
 ### 2. `manifest.gleam`
 
 Replace all `tom.*` calls with the new `toml` facade accessors:
 
-- `parse` / `sbom_entries`: `toml.parse`, then `toml.array_of_tables(doc, ["packages"])`.
-- `decode_package` / `decode_sbom_entry`: read `name`/`version`/`source`/
-  `outer_checksum`/`repo`/`commit`/`path` via `field_string`, and `requirements`
-  via `optional_string_array`, operating on each package entry assoc list.
-- `decode_direct_names`: `toml.get_table_keys(doc, ["requirements"])`, then keep
+- `parse` / `sbom_entries`: `toml.parse`, then `toml.get_array(doc, ["packages"])`.
+- `decode_package` / `decode_sbom_entry`: each package item becomes an `Entry`
+  via `toml.as_table`; fields read via `toml.field` + `toml.as_string` /
+  `toml.as_array`. `required_string` / `optional_string_list` are reimplemented
+  over `Entry` instead of `Dict(String, Toml)`, preserving decode order.
+- `decode_direct_names`: `toml.table_keys(doc, ["requirements"])`, then keep
   the existing `list.sort(by: string.compare)`.
 
 **Error mapping (variants unchanged):**
@@ -103,7 +115,13 @@ becomes a `get` on the candidate path returning a `StandardTableValue`; the
 `Error` variants (`InvalidToml`, `MissingPolicy`, `InvalidField`,
 `InvalidLicenceIdentifier`, `FileReadError`) are **unchanged**.
 
-### 4. `gleam.toml`
+### 4. `licence_audit.gleam`
+
+`read_root_component` and `tool_version` swap `tom.parse` → `toml.parse` and
+`tom.get_string(doc, [..])` → `toml.get_string(doc, [..])`. Both already fall
+back to defaults on any error, so behavior is unchanged.
+
+### 5. `gleam.toml`
 
 Remove `tom = ">= 2.1.0 and < 3.0.0"`. Keep `tomlet`.
 
