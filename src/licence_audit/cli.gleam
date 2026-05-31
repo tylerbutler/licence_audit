@@ -49,6 +49,7 @@ pub type SbomOptions {
     cache_path: Option(String),
     output: Option(String),
     offline: Bool,
+    reproducible: Bool,
   )
 }
 
@@ -373,6 +374,14 @@ fn offline_flag() -> glint.Flag(Bool) {
   |> glint.flag_help("Skip Hex metadata fetch; omit license fields")
 }
 
+fn reproducible_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("reproducible")
+  |> glint.flag_default(False)
+  |> glint.flag_help(
+    "Deterministic output: serialNumber is a hash of the content and the timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
+  )
+}
+
 const sbom_help = "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy."
 
 fn sbom_command() -> glint.Command(CliAction) {
@@ -385,6 +394,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   use cache_path <- glint.flag(cache_path_flag())
   use output <- glint.flag(output_flag())
   use offline <- glint.flag(offline_flag())
+  use reproducible <- glint.flag(reproducible_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -394,6 +404,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(cache_path_value) = cache_path(flags)
   let assert Ok(output_value) = output(flags)
   let assert Ok(offline_value) = offline(flags)
+  let assert Ok(reproducible_value) = reproducible(flags)
 
   case verbosity(quiet, verbose) {
     Error(verbosity_error) ->
@@ -407,6 +418,7 @@ fn sbom_command() -> glint.Command(CliAction) {
         cache_path: optional_string(cache_path_value),
         output: optional_string(output_value),
         offline: offline_value,
+        reproducible: reproducible_value,
       ))
   }
 }

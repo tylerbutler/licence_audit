@@ -281,6 +281,77 @@ pub fn render_errors_on_unsupported_source_test() {
   let assert error.UnsupportedSourceForSbom(_, _, _) = err
 }
 
+pub fn reproducible_serial_is_byte_stable_test() {
+  // Same input + content-derived serial => byte-identical output (issue #9).
+  let input =
+    sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
+  sbom.render(input) |> should.equal(sbom.render(input))
+}
+
+pub fn reproducible_serial_is_a_content_derived_urn_uuid_test() {
+  let input =
+    sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
+  let serial = serial_of(sbom.render(input))
+  string.starts_with(serial, "urn:uuid:") |> should.equal(True)
+  string.length(serial) |> should.equal(45)
+}
+
+pub fn reproducible_serial_changes_with_dependency_set_test() {
+  let one =
+    sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
+  let extra =
+    manifest.SbomEntry(
+      name: "gleam_stdlib",
+      version: "1.0.0",
+      kind: manifest.Direct,
+      requirements: [],
+      provenance: manifest.HexProvenance(outer_checksum: "ABCD"),
+    )
+  let two =
+    sbom.SbomInput(
+      ..one,
+      manifest: manifest.SbomManifest(
+        entries: [hex_entry("birch", "0.2.1"), extra],
+        root_requirements: ["birch"],
+      ),
+    )
+  { serial_of(sbom.render(one)) == serial_of(sbom.render(two)) }
+  |> should.equal(False)
+}
+
+pub fn components_are_emitted_sorted_by_purl_test() {
+  // Entries supplied out of order are emitted sorted by purl.
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      manifest: manifest.SbomManifest(
+        entries: [hex_entry("zeta", "1.0.0"), hex_entry("alpha", "1.0.0")],
+        root_requirements: [],
+      ),
+    )
+  let rendered = sbom.render(input)
+  let assert Ok(#(before, _)) =
+    string.split_once(rendered, on: "pkg:hex/zeta@1.0.0")
+  string.contains(before, "pkg:hex/alpha@1.0.0") |> should.equal(True)
+}
+
+fn serial_of(rendered: String) -> String {
+  let assert Ok(#(_, after)) =
+    string.split_once(rendered, on: "\"serialNumber\":\"")
+  let assert Ok(#(serial, _)) = string.split_once(after, on: "\"")
+  serial
+}
+
+fn hex_entry(name: String, version: String) -> manifest.SbomEntry {
+  manifest.SbomEntry(
+    name: name,
+    version: version,
+    kind: manifest.Direct,
+    requirements: [],
+    provenance: manifest.HexProvenance(outer_checksum: "DEADBEEF"),
+  )
+}
+
 fn minimal_input() -> sbom.SbomInput {
   let entry =
     manifest.SbomEntry(
@@ -312,7 +383,9 @@ fn minimal_input() -> sbom.SbomInput {
       repository: Some("https://github.com/tylerbutler/licence_audit"),
     ),
     tool_version: "0.1.0",
-    serial_number: "urn:uuid:00000000-0000-4000-8000-000000000001",
+    serial_number: sbom.FixedSerial(
+      "urn:uuid:00000000-0000-4000-8000-000000000001",
+    ),
     timestamp: "2026-05-24T22:51:00Z",
     package_metadata: package_metadata,
     scopes: dict.new(),

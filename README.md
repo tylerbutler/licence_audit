@@ -132,7 +132,7 @@ All commands accept `--help` and `-h`.
 | `licence_audit` | Report locked Hex package licences. Exits 0 even when policy statuses show denials. | `--allow`, `--deny`, `--config`, `--manifest`, `--ignore-config`, `--quiet`, `--verbose`, `--color`, `--no-cache`, `--cache-path` |
 | `licence_audit check` | Enforce the configured licence policy. | root flags, plus `--vulns`, `--vuln-severity` |
 | `licence_audit update` | Interactively write `[tools.licence_audit]` policy. | `--config`, `--manifest`, `--ignore-config`, `--quiet`, `--verbose`, `--color`, `--no-cache`, `--cache-path` |
-| `licence_audit sbom` | Generate a CycloneDX 1.6 JSON SBOM. | `--manifest`, `--quiet`, `--verbose`, `--no-cache`, `--cache-path`, `--output`, `--offline` |
+| `licence_audit sbom` | Generate a CycloneDX 1.6 JSON SBOM. | `--manifest`, `--quiet`, `--verbose`, `--no-cache`, `--cache-path`, `--output`, `--offline`, `--reproducible` |
 | `licence_audit vulns` | Report known vulnerabilities from OSV.dev without enforcing them. | `--manifest`, `--quiet`, `--verbose`, `--color` |
 
 Common defaults:
@@ -205,6 +205,29 @@ with a clear error naming the offending package. `--offline` skips Hex licence
 metadata fetches only; unsupported dependency sources still fail because the
 SBOM would not have valid purls. (Contrast with `vulns`, which silently skips
 unsupported sources.)
+
+#### Reproducible output
+
+By default each run emits a random `serialNumber` and a wall-clock `timestamp`,
+so two SBOMs generated from the same dependency set never byte-compare equal.
+Pass `--reproducible` to make the output deterministic:
+
+```sh
+licence_audit sbom --reproducible > bom.json
+```
+
+In this mode:
+
+- the `serialNumber` is a `urn:uuid` derived from a SHA-256 hash of the BOM
+  content — stable for a given dependency set, and changing only when the
+  dependencies change;
+- the `timestamp` comes from
+  [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
+  when set, otherwise `1970-01-01T00:00:00Z`.
+
+Components and `dependsOn` lists are always emitted in a stable sorted order
+(independent of the flag). Deterministic output makes it practical to commit the
+SBOM to source control and diff it in CI to catch dependency or licence drift.
 
 ### Validating the SBOM
 

@@ -1,0 +1,3 @@
+kind: Changed
+body: SBOM components and `dependsOn` lists are now emitted in a stable sorted order.
+time: 2026-05-31T00:00:01Z
