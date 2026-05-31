@@ -35,14 +35,22 @@ gleam deps download
 licence_audit
 ```
 
-If you want to fail CI when a licence violates your policy:
+Once you know which licences appear in your tree, capture your policy by
+running the interactive updater. It writes `allow` / `deny` lists to
+`[tools.licence_audit]` in `gleam.toml`:
+
+```sh
+licence_audit update
+```
+
+If you want to fail CI when a licence violates that policy:
 
 ```sh
 gleam deps download
 licence_audit check
 ```
 
-This is the most common workflow for end users: inspect your dependency licences first, then add policy checks to your CI pipeline when you are ready.
+This is the most common workflow for end users: inspect your dependency licences, capture an allow/deny policy with `update`, then add `check` to your CI pipeline to enforce it.
 
 ## Usage
 
