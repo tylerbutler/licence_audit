@@ -1,6 +1,8 @@
 *.beam
 *.ez
 /build
+/dist
+/.hex-cache
 /licence_audit
 erl_crash.dump
 /priv/

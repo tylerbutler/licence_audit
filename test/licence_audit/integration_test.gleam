@@ -9,8 +9,8 @@ import simplifile
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
-    "gleam_stdlib" -> Ok(hex.PackageMetadata(licences: ["MIT"]))
-    "argv" -> Ok(hex.PackageMetadata(licences: ["Apache-2.0"]))
+    "gleam_stdlib" -> Ok(hex.licences_only(["MIT"]))
+    "argv" -> Ok(hex.licences_only(["Apache-2.0"]))
     _ -> Error(hex.NotFound)
   }
 }
@@ -206,9 +206,9 @@ pub fn hex_fetch_failure_in_check_mode_exits_two_test() {
 
 fn transitive_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
-    "app_a" -> Ok(hex.PackageMetadata(licences: ["MIT"]))
-    "lib_b" -> Ok(hex.PackageMetadata(licences: ["MIT"]))
-    "lib_c" -> Ok(hex.PackageMetadata(licences: ["GPL-3.0"]))
+    "app_a" -> Ok(hex.licences_only(["MIT"]))
+    "lib_b" -> Ok(hex.licences_only(["MIT"]))
+    "lib_c" -> Ok(hex.licences_only(["GPL-3.0"]))
     _ -> Error(hex.NotFound)
   }
 }
@@ -323,7 +323,7 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
 
 fn sbom_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
-    "gleam_stdlib" -> Ok(hex.PackageMetadata(licences: ["Apache-2.0"]))
+    "gleam_stdlib" -> Ok(hex.licences_only(["Apache-2.0"]))
     _ -> Error(hex.NotFound)
   }
 }
@@ -402,7 +402,11 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
       sbom_fetcher,
     )
   should.equal(result.exit_code, 0)
-  let assert False = string.contains(result.output, "\"licenses\":")
+  // Offline mode skips the Hex fetch, so dependency components carry no
+  // licences. The root component still declares its own licence from the
+  // local gleam.toml, so allow that single block but no more.
+  let license_blocks = list.length(string.split(result.output, "\"licenses\":"))
+  let assert True = license_blocks <= 2
 }
 
 fn one_vuln_batch(
@@ -439,9 +443,9 @@ pub fn vulns_report_labels_scope_test() {
 
 fn prod_dev_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
-    "gleam_stdlib" -> Ok(hex.PackageMetadata(licences: ["MIT"]))
+    "gleam_stdlib" -> Ok(hex.licences_only(["MIT"]))
     // A denied licence on the dev dependency.
-    "gleeunit" -> Ok(hex.PackageMetadata(licences: ["AGPL-3.0"]))
+    "gleeunit" -> Ok(hex.licences_only(["AGPL-3.0"]))
     _ -> Error(hex.NotFound)
   }
 }

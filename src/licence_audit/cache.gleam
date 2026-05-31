@@ -7,6 +7,7 @@
 
 import envoy
 import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -29,15 +30,23 @@ pub type Mode {
 
 /// Opaque cache handle. May or may not hold an open DETS table.
 pub opaque type Cache {
-  Cache(
-    table: Option(dets_set.Set(String, List(String))),
-    warning: Option(String),
-  )
+  Cache(table: Option(dets_set.Set(String, String)), warning: Option(String))
 }
 
 const cache_subdir = "licence_audit"
 
-const cache_filename = "hex.dets"
+/// On-disk cache format version. Bump on any incompatible change to the cached
+/// value shape (see `hex.encode_cache_entry`). The version is encoded into the
+/// cache filename so a file written by an older format is simply ignored rather
+/// than read back with the wrong decoder. `hex.decode_cache_entry` also treats
+/// any unparseable entry as a miss, so minor/forward-compatible drift self-heals
+/// without a bump — reserve bumps for changes that would mis-decode old data
+/// (v1 was a bare `List(String)` of licences; v2 is a JSON metadata object).
+const cache_format_version = 2
+
+fn cache_filename() -> String {
+  "hex-v" <> int.to_string(cache_format_version) <> ".dets"
+}
 
 /// Open a cache according to `mode`.
 ///
@@ -99,10 +108,10 @@ pub fn wrap(
         #(fetcher(package.name), reporter)
       }
       Some(table) ->
-        case dets_set.lookup(from: table, key: key) {
-          Ok(licences) -> {
+        case lookup_entry(table, key) {
+          Ok(metadata) -> {
             let reporter = progress.detail(reporter, "Cache hit for " <> key)
-            #(Ok(hex.PackageMetadata(licences: licences)), reporter)
+            #(Ok(metadata), reporter)
           }
           Error(_) -> {
             let reporter =
@@ -120,8 +129,20 @@ pub fn wrap(
 /// Handle a cache miss: record the fetch result and, on success, best-effort
 /// write it back to `table`. Write failures are surfaced as a verbose detail
 /// event but never fail the fetch.
+fn lookup_entry(
+  table: dets_set.Set(String, String),
+  key: String,
+) -> Result(hex.PackageMetadata, Nil) {
+  // A stored value that no longer parses (e.g. partial format drift) is
+  // reported as a miss so the caller refetches rather than failing.
+  case dets_set.lookup(from: table, key: key) {
+    Ok(encoded) -> hex.decode_cache_entry(encoded)
+    Error(_) -> Error(Nil)
+  }
+}
+
 fn fetch_and_store(
-  table: dets_set.Set(String, List(String)),
+  table: dets_set.Set(String, String),
   key: String,
   fetched: Result(hex.PackageMetadata, hex.Error),
   reporter: progress.Reporter,
@@ -130,7 +151,11 @@ fn fetch_and_store(
     Error(error) -> #(Error(error), reporter)
     Ok(metadata) -> {
       let reporter = case
-        dets_set.insert(into: table, key: key, value: metadata.licences)
+        dets_set.insert(
+          into: table,
+          key: key,
+          value: hex.encode_cache_entry(metadata),
+        )
       {
         Ok(_) ->
           progress.detail(reporter, "Cached licence metadata for " <> key)
@@ -184,7 +209,7 @@ fn default_path() -> Result(String, PathError) {
 }
 
 fn join_path(base: String) -> String {
-  base <> "/" <> cache_subdir <> "/" <> cache_filename
+  base <> "/" <> cache_subdir <> "/" <> cache_filename()
 }
 
 fn ensure_parent_dir(path: String) -> Result(Nil, PathError) {
@@ -211,7 +236,7 @@ fn parent_directory(path: String) -> String {
 
 fn open_table(path: String) -> Cache {
   let key_decoder = decode.string
-  let value_decoder = decode.list(of: decode.string)
+  let value_decoder = decode.string
   case
     dets_set.open(path, key_decoder: key_decoder, value_decoder: value_decoder)
   {

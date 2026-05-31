@@ -54,7 +54,7 @@ pub fn disabled_cache_bypasses_storage_test() {
 
 pub fn disabled_cache_logs_passthrough_test() {
   let handle = cache.open(cache.Disabled)
-  let fetcher = fn(_name) { Ok(hex.PackageMetadata(licences: ["MIT"])) }
+  let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
   let #(result, rep) =
     cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
   let assert Ok(metadata) = result
@@ -68,7 +68,7 @@ pub fn cache_round_trip_persists_metadata_test() {
 
   // First run: cache miss writes through to disk.
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let fetcher = fn(_name) { Ok(hex.PackageMetadata(licences: ["MIT"])) }
+  let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
   let #(result, rep1) =
     cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
   let assert Ok(metadata) = result
@@ -95,13 +95,13 @@ pub fn cache_key_includes_version_test() {
   let path = fresh_path("version_key")
 
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let v1 = fn(_name) { Ok(hex.PackageMetadata(licences: ["MIT"])) }
+  let v1 = fn(_name) { Ok(hex.licences_only(["MIT"])) }
   let _ = cache.wrap(handle, v1)(pkg("foo", "1.0.0"), reporter())
   let assert None = cache.close(handle)
 
   // Different version → different key → fetcher must be re-invoked.
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let v2 = fn(_name) { Ok(hex.PackageMetadata(licences: ["Apache-2.0"])) }
+  let v2 = fn(_name) { Ok(hex.licences_only(["Apache-2.0"])) }
   let #(result, _) = cache.wrap(handle, v2)(pkg("foo", "2.0.0"), reporter())
   let assert Ok(metadata) = result
   should.equal(metadata.licences, ["Apache-2.0"])
@@ -119,7 +119,7 @@ pub fn fetcher_errors_are_not_cached_test() {
   let assert None = cache.close(handle)
 
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let succeeding = fn(_name) { Ok(hex.PackageMetadata(licences: ["MIT"])) }
+  let succeeding = fn(_name) { Ok(hex.licences_only(["MIT"])) }
   let #(result, _) =
     cache.wrap(handle, succeeding)(pkg("missing", "1.0.0"), reporter())
   let assert Ok(metadata) = result
@@ -134,7 +134,7 @@ pub fn unwritable_path_returns_warning_test() {
   let bad_path = blocker <> "/nested/hex.dets"
 
   let handle = cache.open(cache.Enabled(path: Some(bad_path)))
-  let fetcher = fn(_name) { Ok(hex.PackageMetadata(licences: ["MIT"])) }
+  let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
   let #(result, _) =
     cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
   let assert Ok(metadata) = result
