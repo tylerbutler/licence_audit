@@ -95,6 +95,15 @@ Library callers select the mode via the `SerialNumber` variant on
 `SbomInput` (`FixedSerial(String)` for the default random-v4 path and
 `ContentDerivedSerial` for the reproducible path).
 
+The release workflow (`.github/workflows/publish.yml`) intentionally
+does **not** pass `--reproducible`. A release SBOM is a one-shot
+artifact attached to a specific tag and signed by `actions/attest-sbom`,
+so it should carry a unique `serialNumber` and a real `metadata.timestamp`
+— that is what downstream SBOM registries and vuln scanners expect, and
+the Sigstore attestation already provides a verifiable creation time.
+Reproducibility is for the "commit the SBOM and diff it in CI" workflow,
+not for signed per-release artifacts.
+
 ## Changelog
 
 Changelog fragments are managed with
