@@ -218,25 +218,29 @@ just sbom-score      # quality/completeness score (local only, informational)
 just sbom-check      # both of the above
 ```
 
-`sbom-validate` runs both [`cyclonedx-cli`](https://github.com/CycloneDX/cyclonedx-cli)
-and [`sbom-utility`](https://github.com/CycloneDX/sbom-utility); `sbom-score`
-runs [`sbomqs`](https://github.com/interlynk-io/sbomqs). Only schema validation
-runs in CI — scoring is a local-only convenience because part of its rubric
-(component-level malware/EOL analysis) needs an external service.
+`sbom-validate` runs three independent validators —
+[`cyclonedx-cli`](https://github.com/CycloneDX/cyclonedx-cli),
+[`sbom-utility`](https://github.com/CycloneDX/sbom-utility), and cdxgen's
+[`cdx-validate`](https://github.com/cdxgen/cdxgen) (schema + deep purl/reference
+checks). `sbom-score` runs [`sbom-tools`](https://github.com/sbom-tool/sbom-tools)
+and [`sbomqs`](https://github.com/interlynk-io/sbomqs). Only validation runs in
+CI — scoring is a local-only convenience.
 
-As of the latest run the SBOM scores **7.4 / 10 (grade C)** on `sbomqs`, with a
-perfect structural/schema score. Two rubric items account for most of the gap,
-and neither reflects an actual defect:
+For `cdx-validate`, `--fail-severity critical` keeps its compliance scorecards
+(OWASP SCVS, CRA) from gating CI on non-structural gaps such as "BOM is not
+signed"; only a broken schema or failed deep check fails the build.
 
-- the component-analysis category (malware / EOL checks) needs a third-party
+As of the latest run the SBOM scores **86.3 / 100 (grade B)** on `sbom-tools`
+(licences 91.8/100), confirming the output is high quality. `sbomqs` reports a
+lower **7.4 / 10 (grade C)** for two reasons, neither a real defect:
+
+- its component-analysis category (malware / EOL checks) needs a third-party
   service and is always zero here; and
 - `sbomqs` does not currently count component licences on CycloneDX **1.6**, nor
   when the `acknowledgement` field is present, so it reports "0 licences" even
-  though every dependency carries a declared licence. Both
-  [`cyclonedx-cli`](https://github.com/CycloneDX/cyclonedx-cli) and
-  [`sbom-utility`](https://github.com/CycloneDX/sbom-utility) validate the
-  licences as correct. This is why schema validation — not the score — is the
-  CI gate.
+  though every dependency carries a declared one — `sbom-tools` and all three
+  validators read them correctly. This divergence is why schema validation, not
+  any single quality score, is the CI gate.
 
 ### Checking for known vulnerabilities
 

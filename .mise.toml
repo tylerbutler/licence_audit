@@ -9,3 +9,16 @@ rebar = "3.26.0"
 "github:CycloneDX/cyclonedx-cli" = "0.32.0"
 "github:CycloneDX/sbom-utility" = "0.19.0"
 "github:interlynk-io/sbomqs" = "2.0.8"
+"github:sbom-tool/sbom-tools" = "0.1.21"
+
+# cdxgen publishes ~10 separate binaries per release; pin to just the
+# cdx-validate structural validator and expose it under that name.
+[tools."github:cdxgen/cdxgen"]
+version = "12.5.0"
+bin = "cdx-validate"
+
+[tools."github:cdxgen/cdxgen".platforms]
+linux-x64 = { asset_pattern = "cdx-validate-linux-amd64" }
+linux-arm64 = { asset_pattern = "cdx-validate-linux-arm64" }
+macos-x64 = { asset_pattern = "cdx-validate-darwin-amd64" }
+macos-arm64 = { asset_pattern = "cdx-validate-darwin-arm64" }
