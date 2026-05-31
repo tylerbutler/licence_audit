@@ -8,7 +8,7 @@ import licence_audit/manifest
 
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
-    manifest.HexProvenance(_) ->
+    manifest.HexProvenance(_, _) ->
       Ok("pkg:hex/" <> entry.name <> "@" <> entry.version)
     manifest.GitProvenance(repo, commit) ->
       case parse_github_repo(repo) {
@@ -202,11 +202,13 @@ fn build_component(
       #("version", json.string(entry.version)),
       #("purl", json.string(purl)),
     ]
+    |> append_supplier(entry, metadata)
+    |> append_publisher(metadata)
     |> append_description(metadata)
     |> append_hashes(entry)
     |> append_licenses(metadata)
     |> append_external_references(entry, metadata)
-    |> append_scope_property(entry, scopes)
+    |> append_properties(entry, scopes)
 
   Ok(json.object(fields))
 }
@@ -225,12 +227,57 @@ fn append_description(
   }
 }
 
+/// CycloneDX `supplier` is the organisation that supplied the component. For
+/// Hex packages that is always the Hex registry, so we emit a uniform
+/// `{name: "Hex", url: ["https://hex.pm/packages/<name>"]}` object per Hex
+/// component. Package owners/maintainers are surfaced separately via
+/// `publisher`, so the two fields stay semantically distinct: supplier = where
+/// the artefact came from, publisher = who authored/released it.
+fn append_supplier(
+  fields: List(Field),
+  entry: manifest.SbomEntry,
+  _metadata: Result(hex.PackageMetadata, Nil),
+) -> List(Field) {
+  case entry.provenance {
+    manifest.HexProvenance(_, _) ->
+      list.append(fields, [
+        #(
+          "supplier",
+          json.object([
+            #("name", json.string("Hex")),
+            #(
+              "url",
+              json.preprocessed_array([
+                json.string("https://hex.pm/packages/" <> entry.name),
+              ]),
+            ),
+          ]),
+        ),
+      ])
+    _ -> fields
+  }
+}
+
+/// CycloneDX `publisher` is a single string identifying the person or
+/// organisation that published the component. We populate it from Hex
+/// `owners` (preferred) or `meta.maintainers`; see `hex.publisher_from_names`.
+fn append_publisher(
+  fields: List(Field),
+  metadata: Result(hex.PackageMetadata, Nil),
+) -> List(Field) {
+  case metadata {
+    Ok(hex.PackageMetadata(publisher: option.Some(publisher), ..)) ->
+      list.append(fields, [#("publisher", json.string(publisher))])
+    _ -> fields
+  }
+}
+
 fn append_hashes(
   fields: List(Field),
   entry: manifest.SbomEntry,
 ) -> List(Field) {
   case entry.provenance {
-    manifest.HexProvenance(checksum) ->
+    manifest.HexProvenance(checksum, _) ->
       list.append(fields, [
         #(
           "hashes",
@@ -284,7 +331,7 @@ fn append_external_references(
   }
 }
 
-fn append_scope_property(
+fn append_properties(
   fields: List(Field),
   entry: manifest.SbomEntry,
   scopes: Dict(String, manifest.Scope),
@@ -293,17 +340,26 @@ fn append_scope_property(
     Ok(scope) -> scope
     Error(_) -> manifest.Prod
   }
-  list.append(fields, [
-    #(
-      "properties",
-      json.preprocessed_array([
-        json.object([
-          #("name", json.string("licence_audit:scope")),
-          #("value", json.string(manifest.scope_label(scope))),
-        ]),
+  let scope_property =
+    json.object([
+      #("name", json.string("licence_audit:scope")),
+      #("value", json.string(manifest.scope_label(scope))),
+    ])
+  // CycloneDX `hashes` cannot distinguish two SHA-256 entries (the schema
+  // only allows `alg`/`content`), so the Hex inner checksum is surfaced as a
+  // labelled property when present. The outer checksum stays in `hashes`
+  // because that is the canonical artefact hash consumers verify against.
+  let properties = case entry.provenance {
+    manifest.HexProvenance(_, option.Some(inner)) -> [
+      scope_property,
+      json.object([
+        #("name", json.string("licence_audit:hex_inner_checksum")),
+        #("value", json.string(string.lowercase(inner))),
       ]),
-    ),
-  ])
+    ]
+    _ -> [scope_property]
+  }
+  list.append(fields, [#("properties", json.preprocessed_array(properties))])
 }
 
 /// Build CycloneDX `externalReferences` for a component: the Hex tarball as a
@@ -323,7 +379,7 @@ fn external_references(
       ])
     })
   case entry.provenance {
-    manifest.HexProvenance(_) -> [
+    manifest.HexProvenance(_, _) -> [
       hex_distribution_reference(entry),
       ..from_links
     ]

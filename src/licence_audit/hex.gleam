@@ -18,14 +18,19 @@ pub type PackageMetadata {
     /// `meta.links` as `#(label, url)` pairs, sorted by label for
     /// deterministic output (e.g. `#("GitHub", "https://...")`).
     links: List(#(String, String)),
+    /// Display name of who published the package, derived best-effort from
+    /// Hex `owners` (preferred) or `meta.maintainers` (fallback). Multiple
+    /// names are joined with `", "` in stable, alphabetical order. `None`
+    /// when Hex exposes neither for the package (a common case).
+    publisher: Option(String),
   )
 }
 
-/// Construct metadata carrying only licences, with no description or links.
-/// Used where only licence policy matters (the `check`/`update` paths) and by
-/// tests that don't exercise SBOM enrichment.
+/// Construct metadata carrying only licences, with no description, links, or
+/// publisher. Used where only licence policy matters (the `check`/`update`
+/// paths) and by tests that don't exercise SBOM enrichment.
 pub fn licences_only(licences: List(String)) -> PackageMetadata {
-  PackageMetadata(licences:, description: None, links: [])
+  PackageMetadata(licences:, description: None, links: [], publisher: None)
 }
 
 pub type Error {
@@ -108,8 +113,42 @@ fn package_decoder() -> decode.Decoder(PackageMetadata) {
     licences_only([]),
     package_metadata_decoder(),
   )
+  use owners <- decode.optional_field(
+    "owners",
+    [],
+    decode.list(owner_decoder()),
+  )
 
-  decode.success(metadata)
+  // Hex `owners` (top-level) is the authoritative list of people allowed to
+  // publish the package; prefer it over `meta.maintainers` (which is often
+  // empty or out of date). Fall back to maintainers when owners is absent so
+  // we still surface something when Hex hides owners (e.g. for organisations).
+  let publisher = case owners {
+    [] -> metadata.publisher
+    _ -> publisher_from_names(owners)
+  }
+
+  decode.success(PackageMetadata(..metadata, publisher: publisher))
+}
+
+fn owner_decoder() -> decode.Decoder(String) {
+  use username <- decode.field("username", decode.string)
+  decode.success(username)
+}
+
+/// Join a list of publisher display names into a stable, comma-separated
+/// string, dropping blanks and sorting alphabetically so the rendered SBOM
+/// is order-independent.
+fn publisher_from_names(names: List(String)) -> Option(String) {
+  let cleaned =
+    names
+    |> list.map(string.trim)
+    |> list.filter(fn(name) { name != "" })
+    |> list.sort(string.compare)
+  case cleaned {
+    [] -> None
+    _ -> Some(string.join(cleaned, ", "))
+  }
 }
 
 fn package_metadata_decoder() -> decode.Decoder(PackageMetadata) {
@@ -133,6 +172,11 @@ fn package_metadata_decoder() -> decode.Decoder(PackageMetadata) {
     dict.new(),
     decode.dict(decode.string, decode.string),
   )
+  use maintainers <- decode.optional_field(
+    "maintainers",
+    [],
+    decode.list(decode.string),
+  )
 
   let licences = case upstream_licences {
     [] -> licences
@@ -143,6 +187,7 @@ fn package_metadata_decoder() -> decode.Decoder(PackageMetadata) {
     licences:,
     description:,
     links: sorted_links(links),
+    publisher: publisher_from_names(maintainers),
   ))
 }
 
@@ -168,9 +213,16 @@ pub fn encode_cache_entry(metadata: PackageMetadata) -> String {
       }),
     ),
   ]
-  let fields = case metadata.description {
+  let with_description = case metadata.description {
     Some(description) -> [#("description", json.string(description)), ..base]
     None -> base
+  }
+  let fields = case metadata.publisher {
+    Some(publisher) -> [
+      #("publisher", json.string(publisher)),
+      ..with_description
+    ]
+    None -> with_description
   }
   json.to_string(json.object(fields))
 }
@@ -190,7 +242,12 @@ fn cache_entry_decoder() -> decode.Decoder(PackageMetadata) {
     decode.map(decode.string, Some),
   )
   use links <- decode.field("links", decode.list(link_decoder()))
-  decode.success(PackageMetadata(licences:, description:, links:))
+  use publisher <- decode.optional_field(
+    "publisher",
+    None,
+    decode.map(decode.string, Some),
+  )
+  decode.success(PackageMetadata(licences:, description:, links:, publisher:))
 }
 
 fn link_decoder() -> decode.Decoder(#(String, String)) {
