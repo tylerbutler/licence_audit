@@ -1,13 +1,31 @@
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
 import gleam/httpc
 import gleam/json
-import gleam/option.{None}
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/string
 
 pub type PackageMetadata {
-  PackageMetadata(licences: List(String))
+  PackageMetadata(
+    licences: List(String),
+    /// Short package summary from Hex `meta.description`, when present.
+    description: Option(String),
+    /// `meta.links` as `#(label, url)` pairs, sorted by label for
+    /// deterministic output (e.g. `#("GitHub", "https://...")`).
+    links: List(#(String, String)),
+  )
+}
+
+/// Construct metadata carrying only licences, with no description or links.
+/// Used where only licence policy matters (the `check`/`update` paths) and by
+/// tests that don't exercise SBOM enrichment.
+pub fn licences_only(licences: List(String)) -> PackageMetadata {
+  PackageMetadata(licences:, description: None, links: [])
 }
 
 pub type Error {
@@ -87,7 +105,7 @@ fn decode_response(
 fn package_decoder() -> decode.Decoder(PackageMetadata) {
   use metadata <- decode.optional_field(
     "meta",
-    PackageMetadata(licences: []),
+    licences_only([]),
     package_metadata_decoder(),
   )
 
@@ -105,11 +123,78 @@ fn package_metadata_decoder() -> decode.Decoder(PackageMetadata) {
     [],
     decode.list(of: decode.string),
   )
+  use description <- decode.optional_field(
+    "description",
+    None,
+    decode.map(decode.string, Some),
+  )
+  use links <- decode.optional_field(
+    "links",
+    dict.new(),
+    decode.dict(decode.string, decode.string),
+  )
 
   let licences = case upstream_licences {
     [] -> licences
     _ -> upstream_licences
   }
 
-  decode.success(PackageMetadata(licences:))
+  decode.success(PackageMetadata(
+    licences:,
+    description:,
+    links: sorted_links(links),
+  ))
+}
+
+fn sorted_links(links: dict.Dict(String, String)) -> List(#(String, String)) {
+  links
+  |> dict.to_list
+  |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
+}
+
+/// Serialise metadata for the on-disk cache as a compact JSON object. The
+/// cache format is independent of the Hex API shape so it can evolve without
+/// reparsing upstream responses; bump the cache filename when it changes.
+pub fn encode_cache_entry(metadata: PackageMetadata) -> String {
+  let base = [
+    #("licences", json.array(metadata.licences, json.string)),
+    #(
+      "links",
+      json.array(metadata.links, fn(pair) {
+        json.object([
+          #("name", json.string(pair.0)),
+          #("url", json.string(pair.1)),
+        ])
+      }),
+    ),
+  ]
+  let fields = case metadata.description {
+    Some(description) -> [#("description", json.string(description)), ..base]
+    None -> base
+  }
+  json.to_string(json.object(fields))
+}
+
+/// Parse a cache entry written by `encode_cache_entry`. Returns `Error(Nil)`
+/// on any malformed entry so the caller can treat it as a cache miss.
+pub fn decode_cache_entry(encoded: String) -> Result(PackageMetadata, Nil) {
+  json.parse(encoded, cache_entry_decoder())
+  |> result.replace_error(Nil)
+}
+
+fn cache_entry_decoder() -> decode.Decoder(PackageMetadata) {
+  use licences <- decode.field("licences", decode.list(decode.string))
+  use description <- decode.optional_field(
+    "description",
+    None,
+    decode.map(decode.string, Some),
+  )
+  use links <- decode.field("links", decode.list(link_decoder()))
+  decode.success(PackageMetadata(licences:, description:, links:))
+}
+
+fn link_decoder() -> decode.Decoder(#(String, String)) {
+  use name <- decode.field("name", decode.string)
+  use url <- decode.field("url", decode.string)
+  decode.success(#(name, url))
 }

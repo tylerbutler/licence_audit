@@ -24,7 +24,9 @@ pub fn timestamp_rfc3339_z_suffix_test() {
   should.equal(string.length(ts), 20)
 }
 
+import gleam/option.{None, Some}
 import licence_audit/error
+import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/sbom
 
@@ -144,7 +146,7 @@ import gleam/dict
 pub fn render_includes_required_top_level_fields_test() {
   let json_str = sbom.render(minimal_input())
   let assert True = string.contains(json_str, "\"bomFormat\":\"CycloneDX\"")
-  let assert True = string.contains(json_str, "\"specVersion\":\"1.5\"")
+  let assert True = string.contains(json_str, "\"specVersion\":\"1.6\"")
   let assert True =
     string.contains(
       json_str,
@@ -161,6 +163,36 @@ pub fn render_emits_root_metadata_component_test() {
   let assert True = string.contains(json_str, "\"bom-ref\":\"root\"")
 }
 
+pub fn render_emits_provenance_metadata_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert True = string.contains(json_str, "\"authors\":")
+  let assert True = string.contains(json_str, "\"supplier\":")
+  let assert True = string.contains(json_str, "\"lifecycles\":")
+  let assert True = string.contains(json_str, "\"phase\":\"build\"")
+}
+
+pub fn render_declares_complete_composition_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert True = string.contains(json_str, "\"compositions\":")
+  let assert True = string.contains(json_str, "\"aggregate\":\"complete\"")
+}
+
+pub fn render_enriches_root_component_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert True =
+    string.contains(
+      json_str,
+      "\"description\":\"Audit licences of locked Hex dependencies\"",
+    )
+  // Root licence appears as an SPDX id, and the repo as a vcs reference.
+  let assert True = string.contains(json_str, "\"id\":\"Apache-2.0\"")
+  let assert True =
+    string.contains(
+      json_str,
+      "\"url\":\"https://github.com/tylerbutler/licence_audit\"",
+    )
+}
+
 pub fn render_emits_hex_component_with_hash_and_license_test() {
   let json_str = sbom.render(minimal_input())
   let assert True =
@@ -168,6 +200,9 @@ pub fn render_emits_hex_component_with_hash_and_license_test() {
   let assert True = string.contains(json_str, "\"alg\":\"SHA-256\"")
   let assert True = string.contains(json_str, "\"content\":\"deadbeef\"")
   let assert True = string.contains(json_str, "\"id\":\"Apache-2.0\"")
+  // CycloneDX 1.6: licences are flagged as declared (vs concluded).
+  let assert True =
+    string.contains(json_str, "\"acknowledgement\":\"declared\"")
 }
 
 pub fn render_emits_dependency_graph_test() {
@@ -179,9 +214,51 @@ pub fn render_emits_dependency_graph_test() {
 }
 
 pub fn render_offline_omits_licenses_test() {
-  let input = sbom.SbomInput(..minimal_input(), license_metadata: dict.new())
+  // No package metadata (offline) and a root without its own licences, so no
+  // component should declare a licence.
+  let bare_root =
+    sbom.RootComponent(
+      name: "x",
+      version: "0.0.0",
+      description: None,
+      licences: [],
+      repository: None,
+    )
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      package_metadata: dict.new(),
+      root: bare_root,
+    )
   let json_str = sbom.render(input)
   let assert False = string.contains(json_str, "\"licenses\":")
+}
+
+pub fn render_emits_component_description_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert True =
+    string.contains(json_str, "\"description\":\"A logging library for Gleam\"")
+}
+
+pub fn render_emits_component_external_references_test() {
+  let json_str = sbom.render(minimal_input())
+  // Hex tarball distribution reference is added for every Hex component.
+  let assert True = string.contains(json_str, "\"type\":\"distribution\"")
+  let assert True =
+    string.contains(json_str, "https://repo.hex.pm/tarballs/birch-0.2.1.tar")
+  // meta.links are mapped to typed references, label preserved as comment.
+  let assert True = string.contains(json_str, "\"type\":\"vcs\"")
+  let assert True =
+    string.contains(json_str, "https://github.com/tylerbutler/birch")
+}
+
+pub fn render_offline_still_emits_distribution_reference_test() {
+  // The tarball URL is derived from provenance, so it survives offline mode
+  // even though licences and descriptions (which need a Hex fetch) do not.
+  let input = sbom.SbomInput(..minimal_input(), package_metadata: dict.new())
+  let json_str = sbom.render(input)
+  let assert True =
+    string.contains(json_str, "https://repo.hex.pm/tarballs/birch-0.2.1.tar")
 }
 
 pub fn render_errors_on_unsupported_source_test() {
@@ -215,16 +292,29 @@ fn minimal_input() -> sbom.SbomInput {
     )
   let manifest_value =
     manifest.SbomManifest(entries: [entry], root_requirements: ["birch"])
-  let licenses =
+  let package_metadata =
     dict.new()
-    |> dict.insert("birch", ["Apache-2.0"])
+    |> dict.insert(
+      "birch",
+      hex.PackageMetadata(
+        licences: ["Apache-2.0"],
+        description: Some("A logging library for Gleam"),
+        links: [#("GitHub", "https://github.com/tylerbutler/birch")],
+      ),
+    )
   sbom.SbomInput(
     manifest: manifest_value,
-    root: sbom.RootComponent(name: "licence_audit", version: "0.1.0"),
+    root: sbom.RootComponent(
+      name: "licence_audit",
+      version: "0.1.0",
+      description: Some("Audit licences of locked Hex dependencies"),
+      licences: ["Apache-2.0"],
+      repository: Some("https://github.com/tylerbutler/licence_audit"),
+    ),
     tool_version: "0.1.0",
     serial_number: "urn:uuid:00000000-0000-4000-8000-000000000001",
     timestamp: "2026-05-24T22:51:00Z",
-    license_metadata: licenses,
+    package_metadata: package_metadata,
     scopes: dict.new(),
   )
 }

@@ -3,6 +3,7 @@ import gleam/option
 import gleam/regexp
 import gleam/string
 import licence_audit/error
+import licence_audit/hex
 import licence_audit/manifest
 
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
@@ -68,6 +69,11 @@ const spdx_ids = [
   "MPL-1.1", "MPL-2.0", "Unlicense", "WTFPL", "Zlib",
 ]
 
+/// Map raw declared licence strings to CycloneDX licence entries, one per
+/// declared licence. When a package declares more than one, they are emitted as
+/// separate entries: Hex does not record whether the relationship is
+/// conjunctive ("AND") or disjunctive ("OR"), so we do not synthesise an SPDX
+/// expression that would assert an operator we cannot verify.
 pub fn license_entries(licences: List(String)) -> List(LicenseEntry) {
   list.map(licences, fn(raw) {
     case match_spdx(raw) {
@@ -87,7 +93,16 @@ import gleam/json
 import gleam/result
 
 pub type RootComponent {
-  RootComponent(name: String, version: String)
+  RootComponent(
+    name: String,
+    version: String,
+    /// Project summary from the root `gleam.toml` `description`, if any.
+    description: option.Option(String),
+    /// Declared licences from the root `gleam.toml` `licences` array.
+    licences: List(String),
+    /// Project source URL (e.g. derived from a `repository` github table).
+    repository: option.Option(String),
+  )
 }
 
 pub type SbomInput {
@@ -97,7 +112,7 @@ pub type SbomInput {
     tool_version: String,
     serial_number: String,
     timestamp: String,
-    license_metadata: Dict(String, List(String)),
+    package_metadata: Dict(String, hex.PackageMetadata),
     scopes: Dict(String, manifest.Scope),
   )
 }
@@ -107,7 +122,7 @@ pub type SbomInput {
 pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
   use components <- result.try(
     list.try_map(input.manifest.entries, fn(entry) {
-      build_component(entry, input.license_metadata, input.scopes)
+      build_component(entry, input.package_metadata, input.scopes)
     }),
   )
   let dependencies = build_dependencies(input.manifest)
@@ -124,20 +139,50 @@ pub fn render(input: SbomInput) -> String {
 
 fn build_component(
   entry: manifest.SbomEntry,
-  license_metadata: Dict(String, List(String)),
+  package_metadata: Dict(String, hex.PackageMetadata),
   scopes: Dict(String, manifest.Scope),
 ) -> Result(json.Json, error.Error) {
   use purl <- result.try(purl_for(entry))
-  let base_fields = [
-    #("bom-ref", json.string(purl)),
-    #("type", json.string("library")),
-    #("name", json.string(entry.name)),
-    #("version", json.string(entry.version)),
-    #("purl", json.string(purl)),
-  ]
-  let with_hashes = case entry.provenance {
+  let metadata = dict.get(package_metadata, entry.name)
+
+  let fields =
+    [
+      #("bom-ref", json.string(purl)),
+      #("type", json.string("library")),
+      #("name", json.string(entry.name)),
+      #("version", json.string(entry.version)),
+      #("purl", json.string(purl)),
+    ]
+    |> append_description(metadata)
+    |> append_hashes(entry)
+    |> append_licenses(metadata)
+    |> append_external_references(entry, metadata)
+    |> append_scope_property(entry, scopes)
+
+  Ok(json.object(fields))
+}
+
+type Field =
+  #(String, json.Json)
+
+fn append_description(
+  fields: List(Field),
+  metadata: Result(hex.PackageMetadata, Nil),
+) -> List(Field) {
+  case metadata {
+    Ok(hex.PackageMetadata(description: option.Some(description), ..)) ->
+      list.append(fields, [#("description", json.string(description))])
+    _ -> fields
+  }
+}
+
+fn append_hashes(
+  fields: List(Field),
+  entry: manifest.SbomEntry,
+) -> List(Field) {
+  case entry.provenance {
     manifest.HexProvenance(checksum) ->
-      list.append(base_fields, [
+      list.append(fields, [
         #(
           "hashes",
           json.preprocessed_array([
@@ -148,52 +193,147 @@ fn build_component(
           ]),
         ),
       ])
-    _ -> base_fields
+    _ -> fields
   }
-  let final_fields = case dict.get(license_metadata, entry.name) {
-    Ok(raws) ->
-      case license_entries(raws) {
-        [] -> with_hashes
+}
+
+fn append_licenses(
+  fields: List(Field),
+  metadata: Result(hex.PackageMetadata, Nil),
+) -> List(Field) {
+  case metadata {
+    Ok(meta) ->
+      case license_entries(meta.licences) {
+        [] -> fields
         entries ->
-          list.append(with_hashes, [
+          list.append(fields, [
             #(
               "licenses",
               json.preprocessed_array(list.map(entries, license_to_json)),
             ),
           ])
       }
-    Error(_) -> with_hashes
+    Error(_) -> fields
   }
+}
+
+fn append_external_references(
+  fields: List(Field),
+  entry: manifest.SbomEntry,
+  metadata: Result(hex.PackageMetadata, Nil),
+) -> List(Field) {
+  let links = case metadata {
+    Ok(meta) -> meta.links
+    Error(_) -> []
+  }
+  case external_references(entry, links) {
+    [] -> fields
+    refs ->
+      list.append(fields, [
+        #("externalReferences", json.preprocessed_array(refs)),
+      ])
+  }
+}
+
+fn append_scope_property(
+  fields: List(Field),
+  entry: manifest.SbomEntry,
+  scopes: Dict(String, manifest.Scope),
+) -> List(Field) {
   let scope = case dict.get(scopes, entry.name) {
     Ok(scope) -> scope
     Error(_) -> manifest.Prod
   }
-  let with_properties =
-    list.append(final_fields, [
-      #(
-        "properties",
-        json.preprocessed_array([
-          json.object([
-            #("name", json.string("licence_audit:scope")),
-            #("value", json.string(manifest.scope_label(scope))),
-          ]),
+  list.append(fields, [
+    #(
+      "properties",
+      json.preprocessed_array([
+        json.object([
+          #("name", json.string("licence_audit:scope")),
+          #("value", json.string(manifest.scope_label(scope))),
         ]),
+      ]),
+    ),
+  ])
+}
+
+/// Build CycloneDX `externalReferences` for a component: the Hex tarball as a
+/// `distribution` reference (Hex packages only), followed by each Hex
+/// `meta.links` entry mapped to a reference type. The original link label is
+/// preserved as the reference `comment`.
+fn external_references(
+  entry: manifest.SbomEntry,
+  links: List(#(String, String)),
+) -> List(json.Json) {
+  let from_links =
+    list.map(links, fn(pair) {
+      json.object([
+        #("url", json.string(pair.1)),
+        #("type", json.string(reference_type(pair.0))),
+        #("comment", json.string(pair.0)),
+      ])
+    })
+  case entry.provenance {
+    manifest.HexProvenance(_) -> [
+      hex_distribution_reference(entry),
+      ..from_links
+    ]
+    _ -> from_links
+  }
+}
+
+fn hex_distribution_reference(entry: manifest.SbomEntry) -> json.Json {
+  json.object([
+    #(
+      "url",
+      json.string(
+        "https://repo.hex.pm/tarballs/"
+        <> entry.name
+        <> "-"
+        <> entry.version
+        <> ".tar",
       ),
-    ])
-  Ok(json.object(with_properties))
+    ),
+    #("type", json.string("distribution")),
+    #("comment", json.string("Hex package tarball")),
+  ])
+}
+
+/// Map a Hex link label to a CycloneDX external-reference type. Unknown labels
+/// fall back to `other` so no link is dropped.
+fn reference_type(label: String) -> String {
+  case string.lowercase(label) {
+    "github"
+    | "gitlab"
+    | "bitbucket"
+    | "source"
+    | "repository"
+    | "repo"
+    | "vcs" -> "vcs"
+    "website" | "homepage" | "home" -> "website"
+    "docs" | "documentation" | "hexdocs" -> "documentation"
+    _ -> "other"
+  }
 }
 
 fn license_to_json(entry: LicenseEntry) -> json.Json {
-  case entry {
-    LicenseId(id) ->
-      json.object([
-        #("license", json.object([#("id", json.string(id))])),
-      ])
-    LicenseName(name) ->
-      json.object([
-        #("license", json.object([#("name", json.string(name))])),
-      ])
+  // `acknowledgement: declared` (CycloneDX 1.6) records that these licences are
+  // as declared by the package's own metadata (Hex / gleam.toml), not concluded
+  // by scanning the source.
+  let fields = case entry {
+    LicenseId(id) -> [#("id", json.string(id))]
+    LicenseName(name) -> [#("name", json.string(name))]
   }
+  json.object([
+    #(
+      "license",
+      json.object(
+        list.append(fields, [
+          #("acknowledgement", json.string("declared")),
+        ]),
+      ),
+    ),
+  ])
 }
 
 fn build_dependencies(
@@ -249,6 +389,58 @@ fn component_refs(ref: String, deps: List(String)) -> json.Json {
   ])
 }
 
+const bom_vendor = "tylerbutler"
+
+const bom_vendor_url = "https://github.com/tylerbutler/licence_audit"
+
+/// Build the `metadata.component` object for the project being described,
+/// enriching the bare name/version with whatever `gleam.toml` provided.
+fn root_component_json(root: RootComponent) -> json.Json {
+  [
+    #("bom-ref", json.string("root")),
+    #("type", json.string("application")),
+    #("name", json.string(root.name)),
+    #("version", json.string(root.version)),
+  ]
+  |> fn(fields) {
+    case root.description {
+      option.Some(description) ->
+        list.append(fields, [#("description", json.string(description))])
+      option.None -> fields
+    }
+  }
+  |> fn(fields) {
+    case license_entries(root.licences) {
+      [] -> fields
+      entries ->
+        list.append(fields, [
+          #(
+            "licenses",
+            json.preprocessed_array(list.map(entries, license_to_json)),
+          ),
+        ])
+    }
+  }
+  |> fn(fields) {
+    case root.repository {
+      option.Some(url) ->
+        list.append(fields, [
+          #(
+            "externalReferences",
+            json.preprocessed_array([
+              json.object([
+                #("url", json.string(url)),
+                #("type", json.string("vcs")),
+              ]),
+            ]),
+          ),
+        ])
+      option.None -> fields
+    }
+  }
+  |> json.object
+}
+
 fn build_document(
   input: SbomInput,
   components: List(json.Json),
@@ -256,35 +448,61 @@ fn build_document(
 ) -> json.Json {
   json.object([
     #("bomFormat", json.string("CycloneDX")),
-    #("specVersion", json.string("1.5")),
+    #("specVersion", json.string("1.6")),
     #("serialNumber", json.string(input.serial_number)),
     #("version", json.int(1)),
     #(
       "metadata",
       json.object([
         #("timestamp", json.string(input.timestamp)),
+        // SBOMs are produced from the locked manifest, i.e. the dependency set
+        // used to build the project.
+        #(
+          "lifecycles",
+          json.preprocessed_array([
+            json.object([#("phase", json.string("build"))]),
+          ]),
+        ),
         #(
           "tools",
           json.preprocessed_array([
             json.object([
-              #("vendor", json.string("tylerbutler")),
+              #("vendor", json.string(bom_vendor)),
               #("name", json.string("licence_audit")),
               #("version", json.string(input.tool_version)),
             ]),
           ]),
         ),
+        // The BOM is authored and supplied by the licence_audit maintainer,
+        // independent of whichever project it describes.
         #(
-          "component",
-          json.object([
-            #("bom-ref", json.string("root")),
-            #("type", json.string("application")),
-            #("name", json.string(input.root.name)),
-            #("version", json.string(input.root.version)),
+          "authors",
+          json.preprocessed_array([
+            json.object([#("name", json.string(bom_vendor))]),
           ]),
         ),
+        #(
+          "supplier",
+          json.object([
+            #("name", json.string(bom_vendor)),
+            #("url", json.preprocessed_array([json.string(bom_vendor_url)])),
+          ]),
+        ),
+        #("component", root_component_json(input.root)),
       ]),
     ),
     #("components", json.preprocessed_array(components)),
     #("dependencies", json.preprocessed_array(dependencies)),
+    // The locked manifest is the fully resolved dependency tree, so the graph
+    // rooted at `root` is complete rather than partial.
+    #(
+      "compositions",
+      json.preprocessed_array([
+        json.object([
+          #("aggregate", json.string("complete")),
+          #("dependencies", json.preprocessed_array([json.string("root")])),
+        ]),
+      ]),
+    ),
   ])
 }

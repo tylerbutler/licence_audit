@@ -241,9 +241,9 @@ fn run_sbom_options(
       let cache_handle = cache.open(cache_mode)
       let cached_fetcher = cache.wrap(cache_handle, fetcher)
 
-      let #(license_metadata, reporter) = case options.offline {
+      let #(package_metadata, reporter) = case options.offline {
         True -> #(dict.new(), reporter)
-        False -> fetch_license_metadata(sbom_manifest, cached_fetcher, reporter)
+        False -> fetch_package_metadata(sbom_manifest, cached_fetcher, reporter)
       }
       let _ = cache.close(cache_handle)
 
@@ -260,7 +260,7 @@ fn run_sbom_options(
           tool_version: tool_version(),
           serial_number: sbom_uuid.serial_number(),
           timestamp: sbom_uuid.timestamp_now(),
-          license_metadata: license_metadata,
+          package_metadata: package_metadata,
           scopes: scopes,
         )
 
@@ -272,14 +272,14 @@ fn run_sbom_options(
   }
 }
 
-fn fetch_license_metadata(
+fn fetch_package_metadata(
   manifest_value: manifest.SbomManifest,
   fetcher: fn(manifest.Package, progress.Reporter) ->
     #(Result(hex.PackageMetadata, hex.Error), progress.Reporter),
   reporter: progress.Reporter,
-) -> #(dict.Dict(String, List(String)), progress.Reporter) {
+) -> #(dict.Dict(String, hex.PackageMetadata), progress.Reporter) {
   list.fold(manifest_value.entries, #(dict.new(), reporter), fn(acc, entry) {
-    let #(licenses_acc, rep) = acc
+    let #(metadata_acc, rep) = acc
     case entry.provenance {
       manifest.HexProvenance(_) -> {
         let package =
@@ -293,13 +293,13 @@ fn fetch_license_metadata(
         let #(result, rep) = fetcher(package, rep)
         case result {
           Ok(metadata) -> #(
-            dict.insert(licenses_acc, entry.name, metadata.licences),
+            dict.insert(metadata_acc, entry.name, metadata),
             rep,
           )
-          Error(_) -> #(licenses_acc, rep)
+          Error(_) -> #(metadata_acc, rep)
         }
       }
-      _ -> #(licenses_acc, rep)
+      _ -> #(metadata_acc, rep)
     }
   })
 }
@@ -307,22 +307,65 @@ fn fetch_license_metadata(
 fn read_root_component(project_root: String) -> sbom.RootComponent {
   let path = project_root <> "/gleam.toml"
   case simplifile.read(from: path) {
-    Error(_) -> sbom.RootComponent(name: "project", version: "0.0.0")
+    Error(_) -> default_root_component()
     Ok(contents) ->
       case toml.parse(contents) {
-        Error(_) -> sbom.RootComponent(name: "project", version: "0.0.0")
+        Error(_) -> default_root_component()
         Ok(doc) -> {
-          let name = case toml.get_string(doc, ["name"]) {
-            Ok(v) -> v
-            Error(_) -> "project"
+          let name = result.unwrap(toml.get_string(doc, ["name"]), "project")
+          let version =
+            result.unwrap(toml.get_string(doc, ["version"]), "0.0.0")
+          let description =
+            option.from_result(toml.get_string(doc, ["description"]))
+          let licences = case toml.get_array(doc, ["licences"]) {
+            Ok(items) -> list.filter_map(items, toml.as_string)
+            Error(_) -> []
           }
-          let version = case toml.get_string(doc, ["version"]) {
-            Ok(v) -> v
-            Error(_) -> "0.0.0"
+          let repository = case toml.get_table(doc, ["repository"]) {
+            Ok(entry) -> repository_url(entry)
+            Error(_) -> None
           }
-          sbom.RootComponent(name: name, version: version)
+          sbom.RootComponent(
+            name:,
+            version:,
+            description:,
+            licences:,
+            repository:,
+          )
         }
       }
+  }
+}
+
+fn default_root_component() -> sbom.RootComponent {
+  sbom.RootComponent(
+    name: "project",
+    version: "0.0.0",
+    description: None,
+    licences: [],
+    repository: None,
+  )
+}
+
+/// Build a source URL from a `gleam.toml` `repository` table. Only the
+/// `{ type = "github", user, repo }` shape is recognised; anything else yields
+/// `None` rather than a guessed URL.
+fn repository_url(entry: toml.Entry) -> option.Option(String) {
+  case
+    repository_field(entry, "type"),
+    repository_field(entry, "user"),
+    repository_field(entry, "repo")
+  {
+    Some("github"), Some(user), Some(repo) ->
+      Some("https://github.com/" <> user <> "/" <> repo)
+    _, _, _ -> None
+  }
+}
+
+fn repository_field(entry: toml.Entry, name: String) -> option.Option(String) {
+  case toml.field(entry, name) {
+    Ok(value) -> option.from_result(toml.as_string(value))
+    Error(_) -> None
   }
 }
 
