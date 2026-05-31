@@ -4,3 +4,8 @@ erlang = "28.3"
 gleam = "1.16.0"
 just = "latest"
 rebar = "3.26.0"
+
+# SBOM validation/scoring tooling (installed from GitHub releases)
+"github:CycloneDX/cyclonedx-cli" = "0.32.0"
+"github:CycloneDX/sbom-utility" = "0.19.0"
+"github:interlynk-io/sbomqs" = "2.0.8"
