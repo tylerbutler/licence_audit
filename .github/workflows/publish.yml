@@ -38,7 +38,6 @@ jobs:
           stage="licence_audit-${REF_NAME}"
           mkdir -p "$stage"
           cp licence_audit "$stage/"
-          [ -f licence_audit.ps1 ] && cp licence_audit.ps1 "$stage/" || true
           [ -f LICENSE ] && cp LICENSE "$stage/" || true
           [ -f README.md ] && cp README.md "$stage/" || true
           tar -czf "dist/${stage}.tar.gz" "$stage"

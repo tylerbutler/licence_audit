@@ -18,8 +18,8 @@ It reads `manifest.toml`, fetches package licence metadata from Hex, and reports
 
 Prebuilt escript archives are attached to each
 [GitHub Release](https://github.com/tylerbutler/licence_audit/releases). The
-archive contains the `licence_audit` escript (and a `.ps1` companion for
-Windows) and runs on any platform with a compatible Erlang/OTP runtime.
+archive contains the `licence_audit` escript and runs on any platform with a
+compatible Erlang/OTP runtime.
 
 Download the archive for your platform, extract it, and place `licence_audit`
 somewhere on your `PATH`.

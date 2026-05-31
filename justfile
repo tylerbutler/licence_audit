@@ -53,7 +53,7 @@ lint: format-check
 clean:
     rm -rf build
     rm -rf priv
-    rm -f licence_audit licence_audit.ps1
+    rm -f licence_audit
     rm -rf dist
 
 # === CHANGELOG ===
