@@ -292,7 +292,7 @@ fn fetch_package_metadata(
   list.fold(manifest_value.entries, #(dict.new(), reporter), fn(acc, entry) {
     let #(metadata_acc, rep) = acc
     case entry.provenance {
-      manifest.HexProvenance(_) -> {
+      manifest.HexProvenance(_, _) -> {
         let package =
           manifest.Package(
             name: entry.name,

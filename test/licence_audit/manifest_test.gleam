@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/option
 import gleeunit/should
 import licence_audit/manifest
 import simplifile
@@ -130,6 +131,27 @@ pub fn sbom_entries_returns_hex_provenance_test() {
     first.provenance,
     manifest.HexProvenance(
       outer_checksum: "0C5506589DF4C63DF5D6FFBB834562D6865C6C2AEE0019D7B37886BD6D128141",
+      inner_checksum: option.None,
+    ),
+  )
+}
+
+pub fn sbom_entries_captures_optional_inner_checksum_test() {
+  let input =
+    "packages = [
+  { name = \"foo\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"AAAA\", inner_checksum = \"BBBB\" },
+]
+
+[requirements]
+foo = { version = \">= 1.0.0\" }
+"
+  let assert Ok(parsed) = manifest.sbom_entries(input)
+  let assert [entry] = parsed.entries
+  should.equal(
+    entry.provenance,
+    manifest.HexProvenance(
+      outer_checksum: "AAAA",
+      inner_checksum: option.Some("BBBB"),
     ),
   )
 }

@@ -37,7 +37,10 @@ pub fn purl_for_hex_test() {
       version: "0.2.1",
       kind: manifest.Direct,
       requirements: [],
-      provenance: manifest.HexProvenance(outer_checksum: "DEADBEEF"),
+      provenance: manifest.HexProvenance(
+        outer_checksum: "DEADBEEF",
+        inner_checksum: None,
+      ),
     )
   should.equal(sbom.purl_for(entry), Ok("pkg:hex/birch@0.2.1"))
 }
@@ -305,7 +308,10 @@ pub fn reproducible_serial_changes_with_dependency_set_test() {
       version: "1.0.0",
       kind: manifest.Direct,
       requirements: [],
-      provenance: manifest.HexProvenance(outer_checksum: "ABCD"),
+      provenance: manifest.HexProvenance(
+        outer_checksum: "ABCD",
+        inner_checksum: None,
+      ),
     )
   let two =
     sbom.SbomInput(
@@ -348,7 +354,10 @@ fn hex_entry(name: String, version: String) -> manifest.SbomEntry {
     version: version,
     kind: manifest.Direct,
     requirements: [],
-    provenance: manifest.HexProvenance(outer_checksum: "DEADBEEF"),
+    provenance: manifest.HexProvenance(
+      outer_checksum: "DEADBEEF",
+      inner_checksum: None,
+    ),
   )
 }
 
@@ -359,7 +368,10 @@ fn minimal_input() -> sbom.SbomInput {
       version: "0.2.1",
       kind: manifest.Direct,
       requirements: [],
-      provenance: manifest.HexProvenance(outer_checksum: "DEADBEEF"),
+      provenance: manifest.HexProvenance(
+        outer_checksum: "DEADBEEF",
+        inner_checksum: None,
+      ),
     )
   let manifest_value =
     manifest.SbomManifest(entries: [entry], root_requirements: ["birch"])
@@ -371,6 +383,7 @@ fn minimal_input() -> sbom.SbomInput {
         licences: ["Apache-2.0"],
         description: Some("A logging library for Gleam"),
         links: [#("GitHub", "https://github.com/tylerbutler/birch")],
+        publisher: Some("birch_owner"),
       ),
     )
   sbom.SbomInput(
@@ -402,4 +415,102 @@ pub fn render_emits_scope_property_test() {
 
   assert string.contains(output, "licence_audit:scope")
   assert string.contains(output, "\"value\":\"dev\"")
+}
+
+pub fn render_emits_publisher_when_metadata_has_one_test() {
+  // The minimal input fixture sets the birch publisher to "birch_owner".
+  let output = sbom.render(minimal_input())
+
+  assert string.contains(output, "\"publisher\":\"birch_owner\"")
+}
+
+pub fn render_emits_supplier_for_every_hex_component_test() {
+  // Every Hex component carries the same supplier object so SBOM consumers
+  // can identify the registry the artefact was supplied from.
+  let output = sbom.render(minimal_input())
+
+  assert string.contains(
+    output,
+    "\"supplier\":{\"name\":\"Hex\",\"url\":[\"https://hex.pm/packages/birch\"]}",
+  )
+}
+
+pub fn render_emits_supplier_even_when_publisher_absent_test() {
+  // Supplier identifies *where* the artefact came from (the Hex registry),
+  // not who authored it, so it must be emitted regardless of whether Hex
+  // exposes owner / maintainer information.
+  let metadata =
+    dict.from_list([
+      #(
+        "birch",
+        hex.PackageMetadata(
+          licences: ["Apache-2.0"],
+          description: None,
+          links: [],
+          publisher: None,
+        ),
+      ),
+    ])
+  let output =
+    sbom.render(sbom.SbomInput(..minimal_input(), package_metadata: metadata))
+
+  assert string.contains(
+    output,
+    "\"supplier\":{\"name\":\"Hex\",\"url\":[\"https://hex.pm/packages/birch\"]}",
+  )
+  assert !string.contains(output, "\"publisher\":")
+}
+
+pub fn render_omits_publisher_when_metadata_has_none_test() {
+  let metadata =
+    dict.from_list([
+      #(
+        "birch",
+        hex.PackageMetadata(
+          licences: ["Apache-2.0"],
+          description: None,
+          links: [],
+          publisher: None,
+        ),
+      ),
+    ])
+  let output =
+    sbom.render(sbom.SbomInput(..minimal_input(), package_metadata: metadata))
+
+  assert !string.contains(output, "\"publisher\":")
+}
+
+pub fn render_emits_inner_checksum_property_when_present_test() {
+  let entry =
+    manifest.SbomEntry(
+      name: "birch",
+      version: "0.2.1",
+      kind: manifest.Direct,
+      requirements: [],
+      provenance: manifest.HexProvenance(
+        outer_checksum: "DEADBEEF",
+        inner_checksum: Some("CAFEBABE"),
+      ),
+    )
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      manifest: manifest.SbomManifest(entries: [entry], root_requirements: [
+        "birch",
+      ]),
+    )
+  let output = sbom.render(input)
+
+  // Outer hash still surfaces in the standard `hashes` block...
+  assert string.contains(output, "\"content\":\"deadbeef\"")
+  // ...and the inner checksum is labelled as a property so consumers can tell
+  // the two SHA-256 hashes apart (CycloneDX `hashes` has no scope/label).
+  assert string.contains(output, "licence_audit:hex_inner_checksum")
+  assert string.contains(output, "\"value\":\"cafebabe\"")
+}
+
+pub fn render_omits_inner_checksum_property_when_absent_test() {
+  let output = sbom.render(minimal_input())
+
+  assert !string.contains(output, "licence_audit:hex_inner_checksum")
 }

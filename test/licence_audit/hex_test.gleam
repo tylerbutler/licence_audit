@@ -1,7 +1,7 @@
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/time/duration
 import gleam/time/timestamp
 import gleam/uri
@@ -30,8 +30,24 @@ pub fn decode_package_response_with_upstream_licences_test() {
       licences: ["Apache-2.0", "MIT"],
       description: Some("Example package"),
       links: [#("HexDocs", "https://hexdocs.pm/example/")],
+      publisher: Some("alice, bob"),
     ),
   )
+}
+
+pub fn decode_package_response_falls_back_to_maintainers_test() {
+  let json =
+    "{\"meta\":{\"licences\":[\"MIT\"],\"maintainers\":[\"Carol\",\"Dan\"]}}"
+  let assert Ok(metadata) = hex.decode_package(json)
+
+  should.equal(metadata.publisher, Some("Carol, Dan"))
+}
+
+pub fn decode_package_response_publisher_none_when_unavailable_test() {
+  let json = "{\"meta\":{\"licences\":[\"MIT\"]}}"
+  let assert Ok(metadata) = hex.decode_package(json)
+
+  should.equal(metadata.publisher, None)
 }
 
 pub fn cache_entry_round_trips_full_metadata_test() {
@@ -40,6 +56,7 @@ pub fn cache_entry_round_trips_full_metadata_test() {
       licences: ["MIT", "Apache-2.0"],
       description: Some("A package"),
       links: [#("GitHub", "https://github.com/x/y")],
+      publisher: Some("alice, bob"),
     )
 
   let assert Ok(decoded) =
