@@ -1,5 +1,6 @@
 import gleam/dict.{type Dict}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import licence_audit/toml
@@ -74,7 +75,12 @@ pub type Error {
 }
 
 pub type Provenance {
-  HexProvenance(outer_checksum: String)
+  /// Hex lockfile entry. `outer_checksum` is the SHA-256 of the tarball as
+  /// shipped by Hex. `inner_checksum`, when present, is the SHA-256 of the
+  /// contents inside the tarball: Gleam's current `manifest.toml` does not
+  /// record it, but the field is accepted for forward compatibility with
+  /// future lockfile formats so the SBOM can surface both checksums.
+  HexProvenance(outer_checksum: String, inner_checksum: Option(String))
   GitProvenance(repo: String, commit: String)
   PathProvenance(path: String)
   UnknownProvenance(source: String)
@@ -175,7 +181,11 @@ fn decode_provenance(
         "outer_checksum",
         package_name,
       ))
-      Ok(HexProvenance(outer_checksum: checksum))
+      let inner = case optional_string(table, "inner_checksum") {
+        Ok(value) -> Some(value)
+        Error(_) -> None
+      }
+      Ok(HexProvenance(outer_checksum: checksum, inner_checksum: inner))
     }
     "git" -> {
       use repo <- result.try(required_string(table, "repo", package_name))
@@ -525,6 +535,13 @@ fn decode_string_list(
         Ok(value) ->
           decode_string_list(rest, package_name, field, [value, ..acc])
       }
+  }
+}
+
+fn optional_string(package: toml.Entry, field: String) -> Result(String, Nil) {
+  case toml.field(package, field) {
+    Error(_) -> Error(Nil)
+    Ok(value) -> toml.as_string(value)
   }
 }
 
