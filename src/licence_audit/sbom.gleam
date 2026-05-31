@@ -91,6 +91,7 @@ fn match_spdx(raw: String) -> Result(String, Nil) {
 import gleam/dict.{type Dict}
 import gleam/json
 import gleam/result
+import licence_audit/sbom_uuid
 
 pub type RootComponent {
   RootComponent(
@@ -105,12 +106,21 @@ pub type RootComponent {
   )
 }
 
+/// How the BOM `serialNumber` is produced.
+pub type SerialNumber {
+  /// Use this exact `urn:uuid` string (a random v4 in normal runs).
+  FixedSerial(String)
+  /// Derive a deterministic `urn:uuid` from a hash of the BOM content, so the
+  /// same dependency set always yields the same serial number.
+  ContentDerivedSerial
+}
+
 pub type SbomInput {
   SbomInput(
     manifest: manifest.SbomManifest,
     root: RootComponent,
     tool_version: String,
-    serial_number: String,
+    serial_number: SerialNumber,
     timestamp: String,
     package_metadata: Dict(String, hex.PackageMetadata),
     scopes: Dict(String, manifest.Scope),
@@ -120,14 +130,53 @@ pub type SbomInput {
 /// Returns the rendered JSON, or an `Error` if any entry has an unsupported
 /// source for purl generation.
 pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
+  // Emit components and dependencies in a stable, content-defined order so the
+  // output is canonical regardless of how the manifest happened to be ordered.
+  let sorted_entries =
+    list.sort(input.manifest.entries, by: fn(a, b) {
+      string.compare(sort_key(a), sort_key(b))
+    })
+  let sorted_manifest =
+    manifest.SbomManifest(..input.manifest, entries: sorted_entries)
   use components <- result.try(
-    list.try_map(input.manifest.entries, fn(entry) {
+    list.try_map(sorted_entries, fn(entry) {
       build_component(entry, input.package_metadata, input.scopes)
     }),
   )
-  let dependencies = build_dependencies(input.manifest)
-  let document = build_document(input, components, dependencies)
+  let dependencies = build_dependencies(sorted_manifest)
+  let serial = resolve_serial(input, components, dependencies)
+  let document = build_document(input, serial, components, dependencies)
   Ok(json.to_string(document))
+}
+
+/// Sort key for a component: its purl when available, falling back to the
+/// package name for sources without one.
+fn sort_key(entry: manifest.SbomEntry) -> String {
+  case purl_for(entry) {
+    Ok(purl) -> purl
+    Error(_) -> entry.name
+  }
+}
+
+/// Resolve the BOM `serialNumber`: either the caller-supplied fixed value, or a
+/// deterministic UUID derived from a hash of the rendered components and
+/// dependencies plus the described project.
+fn resolve_serial(
+  input: SbomInput,
+  components: List(json.Json),
+  dependencies: List(json.Json),
+) -> String {
+  case input.serial_number {
+    FixedSerial(value) -> value
+    ContentDerivedSerial -> {
+      let content =
+        json.to_string(json.preprocessed_array(components))
+        <> json.to_string(json.preprocessed_array(dependencies))
+        <> json.to_string(root_component_json(input.root))
+        <> input.tool_version
+      sbom_uuid.serial_number_from_content(content)
+    }
+  }
 }
 
 /// Convenience wrapper that panics on unsupported-source errors. Used in
@@ -385,7 +434,7 @@ fn component_entry(
 fn component_refs(ref: String, deps: List(String)) -> json.Json {
   json.object([
     #("ref", json.string(ref)),
-    #("dependsOn", json.array(deps, of: json.string)),
+    #("dependsOn", json.array(list.sort(deps, string.compare), of: json.string)),
   ])
 }
 
@@ -443,13 +492,14 @@ fn root_component_json(root: RootComponent) -> json.Json {
 
 fn build_document(
   input: SbomInput,
+  serial: String,
   components: List(json.Json),
   dependencies: List(json.Json),
 ) -> json.Json {
   json.object([
     #("bomFormat", json.string("CycloneDX")),
     #("specVersion", json.string("1.6")),
-    #("serialNumber", json.string(input.serial_number)),
+    #("serialNumber", json.string(serial)),
     #("version", json.int(1)),
     #(
       "metadata",

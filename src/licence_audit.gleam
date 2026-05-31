@@ -253,13 +253,24 @@ fn run_sbom_options(
           sbom_manifest,
           resolve_prod_seed(project_root, sbom_manifest.root_requirements),
         )
+      // In reproducible mode the serial number is derived from the content and
+      // the timestamp comes from SOURCE_DATE_EPOCH, so the same dependency set
+      // always renders byte-identical output.
+      let #(serial_number, timestamp) = case options.reproducible {
+        True -> #(sbom.ContentDerivedSerial, sbom_uuid.reproducible_timestamp())
+        False -> #(
+          sbom.FixedSerial(sbom_uuid.serial_number()),
+          sbom_uuid.timestamp_now(),
+        )
+      }
+
       let input =
         sbom.SbomInput(
           manifest: sbom_manifest,
           root: root,
           tool_version: tool_version(),
-          serial_number: sbom_uuid.serial_number(),
-          timestamp: sbom_uuid.timestamp_now(),
+          serial_number: serial_number,
+          timestamp: timestamp,
           package_metadata: package_metadata,
           scopes: scopes,
         )
