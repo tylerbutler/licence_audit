@@ -1,5 +1,9 @@
 # Gleam licence audit command-line tool
 
+# Persisted Hex licence metadata cache (DETS file). Kept in-repo so CI can
+# restore it between runs via actions/cache, cutting calls to the Hex API.
+hex_cache := ".hex-cache/hex-v2.dets"
+
 # === ALIASES ===
 alias b := build
 alias t := test
@@ -57,8 +61,9 @@ lint: format-check glint
 clean:
     rm -rf build
     rm -rf priv
-    rm -f licence_audit licence_audit.ps1
+    rm -f licence_audit
     rm -rf dist
+    rm -rf .hex-cache
 
 # === CHANGELOG ===
 
@@ -73,6 +78,31 @@ changelog-preview:
 # Generate CHANGELOG.md from unreleased fragments
 changelog:
     mise exec -- changie merge
+
+# === SBOM ===
+
+# Generate a CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
+sbom-generate: build
+    mkdir -p dist
+    ./licence_audit sbom --output=dist/sbom.json --cache-path={{hex_cache}}
+
+# Validate the generated SBOM with three independent validators (fails on any
+# schema/structural error). cdx-validate runs schema + deep purl/ref checks;
+# --fail-severity critical keeps compliance gaps (e.g. "not signed") off the gate.
+sbom-validate: sbom-generate
+    mise exec -- cyclonedx validate --input-file dist/sbom.json --input-format json --fail-on-errors
+    mise exec -- sbom-utility validate --input-file dist/sbom.json
+    mise exec -- cdx-validate -i dist/sbom.json --strict --fail-severity critical --no-include-manual
+
+# Score the generated SBOM's quality (informational, local only). sbom-tools is
+# CycloneDX 1.6-aware; sbomqs is kept for cross-reference but under-counts
+# licences on 1.6 / with the `acknowledgement` field.
+sbom-score: sbom-generate
+    mise exec -- sbom-tools quality dist/sbom.json
+    mise exec -- sbomqs score dist/sbom.json
+
+# Validate the SBOM schema and report its quality score
+sbom-check: sbom-validate sbom-score
 
 # === CI ===
 

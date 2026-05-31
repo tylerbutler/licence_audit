@@ -3,11 +3,16 @@
 [![CI](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml)
 [![Publish](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml)
 
-`licence_audit` is a standalone Gleam command-line tool for auditing locked Hex package licences.
+`licence_audit` is a simple CLI for checking the licences used by your Gleam project's locked dependencies.
+
+It helps you:
+
+- review the licences declared by your locked Hex packages
+- enforce a licence allow/deny policy in CI
+- generate an SBOM for your dependency tree
+- check for known vulnerabilities in your locked dependencies
 
 It reads `manifest.toml`, fetches package licence metadata from Hex, and reports the licences declared by locked Hex dependencies. Non-Hex dependencies are skipped and counted in the summary.
-
-> The repository, binary, crate, and CLI flags use `licence_audit` (British spelling).
 
 ## Installation
 
@@ -40,13 +45,39 @@ disable the duplicate Beam setup:
 
 Prebuilt escript archives are attached to each
 [GitHub Release](https://github.com/tylerbutler/licence_audit/releases). The
-archive contains the `licence_audit` escript (and a `.ps1` companion for
-Windows) and runs on any platform with a compatible Erlang/OTP runtime.
+archive contains the `licence_audit` escript and runs on any platform with a
+compatible Erlang/OTP runtime.
 
 Download the archive for your platform, extract it, and place `licence_audit`
 somewhere on your `PATH`.
 
 To build from source, see [DEV.md](./DEV.md).
+
+## Quick start
+
+If you just want the default report for your project:
+
+```sh
+gleam deps download
+licence_audit
+```
+
+Once you know which licences appear in your tree, capture your policy by
+running the interactive updater. It writes `allow` / `deny` lists to
+`[tools.licence_audit]` in `gleam.toml`:
+
+```sh
+licence_audit update
+```
+
+If you want to fail CI when a licence violates that policy:
+
+```sh
+gleam deps download
+licence_audit check
+```
+
+This is the most common workflow for end users: inspect your dependency licences, capture an allow/deny policy with `update`, then add `check` to your CI pipeline to enforce it.
 
 ## Usage
 
@@ -101,7 +132,7 @@ All commands accept `--help` and `-h`.
 | `licence_audit` | Report locked Hex package licences. Exits 0 even when policy statuses show denials. | `--allow`, `--deny`, `--config`, `--manifest`, `--ignore-config`, `--quiet`, `--verbose`, `--color`, `--no-cache`, `--cache-path` |
 | `licence_audit check` | Enforce the configured licence policy. | root flags, plus `--vulns`, `--vuln-severity` |
 | `licence_audit update` | Interactively write `[tools.licence_audit]` policy. | `--config`, `--manifest`, `--ignore-config`, `--quiet`, `--verbose`, `--color`, `--no-cache`, `--cache-path` |
-| `licence_audit sbom` | Generate a CycloneDX 1.5 JSON SBOM. | `--manifest`, `--quiet`, `--verbose`, `--no-cache`, `--cache-path`, `--output`, `--offline` |
+| `licence_audit sbom` | Generate a CycloneDX 1.6 JSON SBOM. | `--manifest`, `--quiet`, `--verbose`, `--no-cache`, `--cache-path`, `--output`, `--offline`, `--reproducible` |
 | `licence_audit vulns` | Report known vulnerabilities from OSV.dev without enforcing them. | `--manifest`, `--quiet`, `--verbose`, `--color` |
 
 Common defaults:
@@ -140,7 +171,7 @@ from an empty policy instead of preselecting values from the existing config.
 
 ### Generating an SBOM
 
-Generate a [CycloneDX 1.5](https://cyclonedx.org/) JSON Software Bill of
+Generate a [CycloneDX 1.6](https://cyclonedx.org/) JSON Software Bill of
 Materials from the project's `manifest.toml`:
 
 ```sh
@@ -152,8 +183,18 @@ licence_audit sbom --offline             # skip Hex fetch, omit licence fields
 The SBOM includes every locked dependency as a CycloneDX component with a
 package URL (`pkg:hex/...` for Hex, `pkg:github/owner/repo@<commit>` for
 GitHub git deps), a SHA-256 hash for Hex packages (from the lockfile's
-`outer_checksum`), and declared licences fetched from Hex. A `dependencies`
-graph mirrors the dependency tree.
+`outer_checksum`), the package description, and declared licences fetched from
+Hex. Each Hex component also carries `externalReferences`: a `distribution`
+link to its `repo.hex.pm` tarball plus any `meta.links` (source repo, homepage,
+docs) mapped to CycloneDX reference types. The root component is enriched from
+`gleam.toml` with its description, declared licence, and repository URL. A
+`dependencies` graph mirrors the dependency tree.
+
+Licences are tagged `acknowledgement: "declared"` to record that they come from
+the package's own metadata rather than from scanning its source. When a package
+declares **multiple** licences they are emitted as separate licence entries:
+Hex does not say whether the relationship is "AND" or "OR", so no SPDX
+expression is synthesised that would assert an operator we cannot verify.
 
 The `sbom` subcommand does not read licence policy and does not accept
 `--config` or `--ignore-config`. It exits non-zero on I/O, manifest, or network
@@ -164,6 +205,65 @@ with a clear error naming the offending package. `--offline` skips Hex licence
 metadata fetches only; unsupported dependency sources still fail because the
 SBOM would not have valid purls. (Contrast with `vulns`, which silently skips
 unsupported sources.)
+
+#### Reproducible output
+
+By default each run emits a random `serialNumber` and a wall-clock `timestamp`,
+so two SBOMs generated from the same dependency set never byte-compare equal.
+Pass `--reproducible` to make the output deterministic:
+
+```sh
+licence_audit sbom --reproducible > bom.json
+```
+
+In this mode:
+
+- the `serialNumber` is a `urn:uuid` derived from a SHA-256 hash of the BOM
+  content — stable for a given dependency set, and changing only when the
+  dependencies change;
+- the `timestamp` comes from
+  [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
+  when set, otherwise `1970-01-01T00:00:00Z`.
+
+Components and `dependsOn` lists are always emitted in a stable sorted order
+(independent of the flag). Deterministic output makes it practical to commit the
+SBOM to source control and diff it in CI to catch dependency or licence drift.
+
+### Validating the SBOM
+
+The generated SBOM is checked against the official CycloneDX schema in CI so
+schema regressions in the output fail the build. Two `just` tasks (tools
+installed via `mise`) cover this:
+
+```sh
+just sbom-validate   # schema validation; fails on any error (runs in CI)
+just sbom-score      # quality/completeness score (local only, informational)
+just sbom-check      # both of the above
+```
+
+`sbom-validate` runs three independent validators —
+[`cyclonedx-cli`](https://github.com/CycloneDX/cyclonedx-cli),
+[`sbom-utility`](https://github.com/CycloneDX/sbom-utility), and cdxgen's
+[`cdx-validate`](https://github.com/cdxgen/cdxgen) (schema + deep purl/reference
+checks). `sbom-score` runs [`sbom-tools`](https://github.com/sbom-tool/sbom-tools)
+and [`sbomqs`](https://github.com/interlynk-io/sbomqs). Only validation runs in
+CI — scoring is a local-only convenience.
+
+For `cdx-validate`, `--fail-severity critical` keeps its compliance scorecards
+(OWASP SCVS, CRA) from gating CI on non-structural gaps such as "BOM is not
+signed"; only a broken schema or failed deep check fails the build.
+
+As of the latest run the SBOM scores **86.3 / 100 (grade B)** on `sbom-tools`
+(licences 91.8/100), confirming the output is high quality. `sbomqs` reports a
+lower **7.4 / 10 (grade C)** for two reasons, neither a real defect:
+
+- its component-analysis category (malware / EOL checks) needs a third-party
+  service and is always zero here; and
+- `sbomqs` does not currently count component licences on CycloneDX **1.6**, nor
+  when the `acknowledgement` field is present, so it reports "0 licences" even
+  though every dependency carries a declared one — `sbom-tools` and all three
+  validators read them correctly. This divergence is why schema validation, not
+  any single quality score, is the CI gate.
 
 ### Checking for known vulnerabilities
 

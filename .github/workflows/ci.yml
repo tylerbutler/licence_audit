@@ -34,3 +34,14 @@ jobs:
 
       - name: Smoke test built CLI
         run: ./licence_audit --help
+
+      - name: Cache Hex licence metadata
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # ratchet:actions/cache@v4
+        with:
+          path: .hex-cache
+          key: hex-licence-v2-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+          restore-keys: |
+            hex-licence-v2-${{ runner.os }}-
+
+      - name: Validate SBOM (schema)
+        run: just sbom-validate

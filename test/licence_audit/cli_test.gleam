@@ -295,6 +295,13 @@ pub fn sbom_subcommand_parses_defaults_test() {
   should.equal(options.output, None)
   should.equal(options.offline, False)
   should.equal(options.no_cache, False)
+  should.equal(options.reproducible, False)
+}
+
+pub fn sbom_subcommand_parses_reproducible_flag_test() {
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(cli.app(), ["sbom", "--reproducible"])
+  should.equal(options.reproducible, True)
 }
 
 pub fn sbom_subcommand_parses_output_flag_test() {
