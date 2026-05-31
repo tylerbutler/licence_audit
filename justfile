@@ -2,7 +2,7 @@
 
 # Persisted Hex licence metadata cache (DETS file). Kept in-repo so CI can
 # restore it between runs via actions/cache, cutting calls to the Hex API.
-hex_cache := ".hex-cache/hex.dets"
+hex_cache := ".hex-cache/hex-v2.dets"
 
 # === ALIASES ===
 alias b := build

@@ -1,6 +1,7 @@
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
+import gleam/option.{Some}
 import gleam/time/duration
 import gleam/time/timestamp
 import gleam/uri
@@ -23,7 +24,41 @@ fn package_fixture() -> String {
 pub fn decode_package_response_with_upstream_licences_test() {
   let assert Ok(metadata) = hex.decode_package(package_fixture())
 
-  should.equal(metadata, hex.PackageMetadata(licences: ["Apache-2.0", "MIT"]))
+  should.equal(
+    metadata,
+    hex.PackageMetadata(
+      licences: ["Apache-2.0", "MIT"],
+      description: Some("Example package"),
+      links: [#("HexDocs", "https://hexdocs.pm/example/")],
+    ),
+  )
+}
+
+pub fn cache_entry_round_trips_full_metadata_test() {
+  let metadata =
+    hex.PackageMetadata(
+      licences: ["MIT", "Apache-2.0"],
+      description: Some("A package"),
+      links: [#("GitHub", "https://github.com/x/y")],
+    )
+
+  let assert Ok(decoded) =
+    hex.decode_cache_entry(hex.encode_cache_entry(metadata))
+
+  should.equal(decoded, metadata)
+}
+
+pub fn cache_entry_round_trips_licences_only_test() {
+  let metadata = hex.licences_only(["MIT"])
+
+  let assert Ok(decoded) =
+    hex.decode_cache_entry(hex.encode_cache_entry(metadata))
+
+  should.equal(decoded, metadata)
+}
+
+pub fn decode_cache_entry_rejects_garbage_test() {
+  should.equal(hex.decode_cache_entry("not json"), Error(Nil))
 }
 
 pub fn decode_package_response_with_licences_test() {

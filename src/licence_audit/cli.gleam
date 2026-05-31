@@ -373,7 +373,7 @@ fn offline_flag() -> glint.Flag(Bool) {
   |> glint.flag_help("Skip Hex metadata fetch; omit license fields")
 }
 
-const sbom_help = "Generate a CycloneDX 1.5 JSON SBOM from manifest.toml. Does not evaluate licence policy."
+const sbom_help = "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy."
 
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
