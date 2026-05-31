@@ -46,8 +46,12 @@ format:
 format-check:
     mise exec -- gleam format --check src test
 
-# Backwards-compatible alias for format-check
-lint: format-check
+# Run the glinter linter (exits non-zero only on error-level rules)
+glint:
+    mise exec -- gleam run -m glinter
+
+# Check formatting and run the linter
+lint: format-check glint
 
 # Remove build artifacts
 clean:
@@ -73,7 +77,7 @@ changelog:
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: format-check check test build-strict
+ci: format-check glint check test build-strict
 
 alias pr := ci
 

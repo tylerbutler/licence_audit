@@ -1,0 +1,8 @@
+packages = [
+  { name = "gleam_stdlib", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "AAAA" },
+  { name = "gleeunit", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleeunit", source = "hex", outer_checksum = "BBBB" },
+]
+
+[requirements]
+gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
+gleeunit = { version = ">= 1.0.0 and < 2.0.0" }

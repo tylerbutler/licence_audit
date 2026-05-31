@@ -1,6 +1,7 @@
-import envoy
+import gleam/bool
 import gleam/string
 import gleam_community/ansi
+import tty
 
 pub type Mode {
   Auto
@@ -20,45 +21,50 @@ pub fn resolve(mode: Mode) -> Palette {
   case mode {
     Always -> Palette(enabled: True)
     Never -> Palette(enabled: False)
-    Auto -> Palette(enabled: !no_color_set())
+    Auto -> resolve_with_color_level(Auto, tty.detect_color_level(tty.Stdout))
   }
 }
 
-pub fn mode_from_string(value: String) -> Result(Mode, String) {
+pub fn resolve_with_color_level(mode: Mode, level: tty.ColorLevel) -> Palette {
+  case mode {
+    Always -> Palette(enabled: True)
+    Never -> Palette(enabled: False)
+    Auto -> Palette(enabled: level != tty.NoColor)
+  }
+}
+
+pub type ColorModeError {
+  InvalidColorValue(String)
+}
+
+pub fn mode_from_string(value: String) -> Result(Mode, ColorModeError) {
   case string.lowercase(value) {
     "auto" -> Ok(Auto)
     "always" -> Ok(Always)
     "never" -> Ok(Never)
-    other -> Error("invalid --color value: " <> other)
+    other -> Error(InvalidColorValue(other))
   }
+}
+
+/// Human-readable description of an invalid `--color` value.
+pub fn mode_error_message(error: ColorModeError) -> String {
+  let InvalidColorValue(value) = error
+  "invalid --color value: " <> value
 }
 
 pub fn green(palette: Palette, text: String) -> String {
-  case palette.enabled {
-    True -> ansi.green(text)
-    False -> text
-  }
+  use <- bool.guard(when: !palette.enabled, return: text)
+  ansi.green(text)
 }
 
 pub fn red(palette: Palette, text: String) -> String {
-  case palette.enabled {
-    True -> ansi.red(text)
-    False -> text
-  }
+  use <- bool.guard(when: !palette.enabled, return: text)
+  ansi.red(text)
 }
 
 pub fn yellow(palette: Palette, text: String) -> String {
-  case palette.enabled {
-    True -> ansi.yellow(text)
-    False -> text
-  }
-}
-
-fn no_color_set() -> Bool {
-  case envoy.get("NO_COLOR") {
-    Ok(value) -> value != ""
-    Error(_) -> False
-  }
+  use <- bool.guard(when: !palette.enabled, return: text)
+  ansi.yellow(text)
 }
 
 pub type SeverityLabel {

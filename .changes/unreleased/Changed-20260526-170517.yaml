@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  Tighten the CLI contract for help, vulnerability checks, and SBOM generation.
+
+  Breaking changes: use `licence_audit check --vulns` instead of root-level `licence_audit --vulns`, remove `--config` and `--ignore-config` from `licence_audit sbom`, and use only `low`, `medium`, `high`, or `critical` for `--vuln-severity`/`vuln_severity`. `check --vulns` now fails if OSV.dev cannot be queried instead of passing with a skipped warning.
+time: 2026-05-26T17:05:17.000000000-07:00

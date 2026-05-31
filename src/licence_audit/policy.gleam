@@ -21,7 +21,7 @@ pub fn new(
   deny deny: List(String),
   check_mode check_mode: Bool,
 ) -> Result(Policy, Error) {
-  let audit_policy = Policy(allow: dedupe(allow), deny: dedupe(deny))
+  let audit_policy = Policy(allow: list.unique(allow), deny: list.unique(deny))
 
   case check_mode && is_empty(audit_policy) {
     True -> Error(MissingPolicy)
@@ -89,22 +89,6 @@ fn find_missing(
       case list.contains(allowed, licence) {
         True -> find_missing(rest, allowed)
         False -> Ok(licence)
-      }
-    }
-  }
-}
-
-fn dedupe(licences: List(String)) -> List(String) {
-  dedupe_loop(licences, [])
-}
-
-fn dedupe_loop(licences: List(String), current: List(String)) -> List(String) {
-  case licences {
-    [] -> current
-    [licence, ..rest] -> {
-      case list.contains(current, licence) {
-        True -> dedupe_loop(rest, current)
-        False -> dedupe_loop(rest, list.append(current, [licence]))
       }
     }
   }

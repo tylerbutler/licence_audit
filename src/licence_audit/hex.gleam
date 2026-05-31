@@ -1,14 +1,10 @@
 import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
-import gleam/http/response.{type Response, Response}
+import gleam/http/response.{type Response}
+import gleam/httpc
 import gleam/json
 import gleam/option.{None}
-import gluegun/client
-import gluegun/connection
-import gluegun/error as gluegun_error
-import gluegun/request as glue_request
-import gluegun/response as glue_response
 
 pub type PackageMetadata {
   PackageMetadata(licences: List(String))
@@ -47,29 +43,21 @@ pub fn fetch_package_metadata(
 pub fn fetch_package_metadata_from_hex(
   name: String,
 ) -> Result(PackageMetadata, Error) {
-  let timeout = connection.Milliseconds(5000)
-  let options =
-    connection.options()
-    |> connection.with_transport(connection.Tls)
-
-  case connection.open(options, host: "hex.pm", port: 443) {
-    Ok(conn) -> fetch_package_metadata_with_connection(conn, name, timeout)
-    Error(_) -> Error(NetworkFailure)
-  }
+  fetch_package_metadata(name, send)
 }
 
-fn fetch_package_metadata_with_connection(
-  conn: connection.Connection,
-  name: String,
-  timeout: connection.Timeout,
-) -> Result(PackageMetadata, Error) {
-  let result = case connection.await_up(conn, timeout) {
-    Ok(_) -> send_package_request(conn, name, timeout)
+/// Default HTTP client: dispatches the request synchronously via Erlang's
+/// built-in `httpc` (TLS verified by default).
+fn send(req: Request(String)) -> Result(Response(String), Error) {
+  let req = request.set_header(req, "user-agent", "licence_audit")
+  case
+    httpc.configure()
+    |> httpc.timeout(5000)
+    |> httpc.dispatch(req)
+  {
+    Ok(response) -> Ok(response)
     Error(_) -> Error(NetworkFailure)
   }
-
-  let _ = connection.close(conn)
-  result
 }
 
 fn package_request(name: String) -> Request(String) {
@@ -83,37 +71,6 @@ fn package_request(name: String) -> Request(String) {
     path: "/api/packages/" <> name,
     query: None,
   )
-}
-
-fn send_package_request(
-  conn: connection.Connection,
-  name: String,
-  timeout: connection.Timeout,
-) -> Result(PackageMetadata, Error) {
-  client.new(glue_request.Get, "/api/packages/" <> name)
-  |> client.with_header(name: "user-agent", value: "licence_audit")
-  |> client.with_timeout(timeout:)
-  |> client.send(conn)
-  |> decode_gluegun_response
-}
-
-fn decode_gluegun_response(
-  response: Result(glue_response.Response, gluegun_error.GluegunError),
-) -> Result(PackageMetadata, Error) {
-  case response {
-    Ok(response) -> {
-      case glue_response.body_text(response) {
-        Ok(body) ->
-          decode_response(Response(
-            status: glue_response.status(response),
-            headers: [],
-            body: body,
-          ))
-        Error(_) -> Error(NetworkFailure)
-      }
-    }
-    Error(_) -> Error(NetworkFailure)
-  }
 }
 
 fn decode_response(

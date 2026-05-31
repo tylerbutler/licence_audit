@@ -98,6 +98,7 @@ pub type SbomInput {
     serial_number: String,
     timestamp: String,
     license_metadata: Dict(String, List(String)),
+    scopes: Dict(String, manifest.Scope),
   )
 }
 
@@ -106,7 +107,7 @@ pub type SbomInput {
 pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
   use components <- result.try(
     list.try_map(input.manifest.entries, fn(entry) {
-      build_component(entry, input.license_metadata)
+      build_component(entry, input.license_metadata, input.scopes)
     }),
   )
   let dependencies = build_dependencies(input.manifest)
@@ -124,6 +125,7 @@ pub fn render(input: SbomInput) -> String {
 fn build_component(
   entry: manifest.SbomEntry,
   license_metadata: Dict(String, List(String)),
+  scopes: Dict(String, manifest.Scope),
 ) -> Result(json.Json, error.Error) {
   use purl <- result.try(purl_for(entry))
   let base_fields = [
@@ -162,7 +164,23 @@ fn build_component(
       }
     Error(_) -> with_hashes
   }
-  Ok(json.object(final_fields))
+  let scope = case dict.get(scopes, entry.name) {
+    Ok(scope) -> scope
+    Error(_) -> manifest.Prod
+  }
+  let with_properties =
+    list.append(final_fields, [
+      #(
+        "properties",
+        json.preprocessed_array([
+          json.object([
+            #("name", json.string("licence_audit:scope")),
+            #("value", json.string(manifest.scope_label(scope))),
+          ]),
+        ]),
+      ),
+    ])
+  Ok(json.object(with_properties))
 }
 
 fn license_to_json(entry: LicenseEntry) -> json.Json {
@@ -188,42 +206,47 @@ fn build_dependencies(
         Error(_) -> acc
       }
     })
-  let root_deps =
-    manifest_value.root_requirements
-    |> list.filter_map(fn(name) {
-      case dict.get(purl_index, name) {
-        Ok(purl) -> Ok(purl)
-        Error(_) -> Error(Nil)
-      }
-    })
   let root_entry =
-    json.object([
-      #("ref", json.string("root")),
-      #("dependsOn", json.array(root_deps, of: json.string)),
-    ])
+    component_refs(
+      "root",
+      resolve_purls(manifest_value.root_requirements, purl_index),
+    )
   let other_entries =
     list.filter_map(manifest_value.entries, fn(entry) {
-      case purl_for(entry) {
-        Ok(self_purl) -> {
-          let deps =
-            entry.requirements
-            |> list.filter_map(fn(name) {
-              case dict.get(purl_index, name) {
-                Ok(p) -> Ok(p)
-                Error(_) -> Error(Nil)
-              }
-            })
-          Ok(
-            json.object([
-              #("ref", json.string(self_purl)),
-              #("dependsOn", json.array(deps, of: json.string)),
-            ]),
-          )
-        }
-        Error(_) -> Error(Nil)
-      }
+      component_entry(entry, purl_index)
     })
   [root_entry, ..other_entries]
+}
+
+/// Map dependency names to their purls, dropping any not present in the index.
+fn resolve_purls(
+  names: List(String),
+  purl_index: Dict(String, String),
+) -> List(String) {
+  list.filter_map(names, fn(name) { dict.get(purl_index, name) })
+}
+
+/// Build the `dependencies` entry for a single component, or `Error(Nil)` if
+/// the entry has no purl (e.g. a non-Hex package).
+fn component_entry(
+  entry: manifest.SbomEntry,
+  purl_index: Dict(String, String),
+) -> Result(json.Json, Nil) {
+  case purl_for(entry) {
+    Error(_) -> Error(Nil)
+    Ok(self_purl) ->
+      Ok(component_refs(
+        self_purl,
+        resolve_purls(entry.requirements, purl_index),
+      ))
+  }
+}
+
+fn component_refs(ref: String, deps: List(String)) -> json.Json {
+  json.object([
+    #("ref", json.string(ref)),
+    #("dependsOn", json.array(deps, of: json.string)),
+  ])
 }
 
 fn build_document(

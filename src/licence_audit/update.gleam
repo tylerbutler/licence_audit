@@ -14,7 +14,7 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/picker
 import licence_audit/progress
-import licence_audit/toml_port
+import licence_audit/toml
 import simplifile
 
 pub type UpdateResult {
@@ -74,56 +74,93 @@ pub fn run(
             reporter,
           )
         }
-        False -> {
-          let reporter = progress.detail(reporter, "Awaiting selection")
-          let labels = merge_labels(existing, discovered)
-          let title =
-            "Allow which licences? ("
-            <> int.to_string(list.length(labels))
-            <> " total, "
-            <> int.to_string(list.length(only_new(existing, discovered)))
-            <> " new)"
-          let preselected_allow = existing.allow
-          let preselected_deny = existing.deny
-          case picker.pick(title, labels, preselected_allow, preselected_deny) {
-            Error(picker.Cancelled) -> {
-              let reporter = progress.warn(reporter, "Update cancelled")
-              let reporter = warn_cache(reporter, cache_warning)
-              #(
-                UpdateResult(exit_code: 130, output: "Update cancelled.\n"),
-                reporter,
-              )
-            }
-            Ok(picker.Selection(allow, deny)) -> {
-              let target = resolve_output_path(config_path, project_root)
-              case write_policy(target, allow, deny) {
-                Error(message) -> {
-                  let reporter = progress.fail(reporter, message)
-                  let reporter = warn_cache(reporter, cache_warning)
-                  #(
-                    UpdateResult(
-                      exit_code: 1,
-                      output: "Error: " <> message <> "\n",
-                    ),
-                    reporter,
-                  )
-                }
-                Ok(_) -> {
-                  let reporter = progress.success(reporter, "Wrote " <> target)
-                  let reporter = warn_cache(reporter, cache_warning)
-                  #(
-                    UpdateResult(
-                      exit_code: 0,
-                      output: summary(target, allow, deny),
-                    ),
-                    reporter,
-                  )
-                }
-              }
-            }
-          }
-        }
+        False ->
+          handle_selection(
+            existing,
+            discovered,
+            config_path,
+            project_root,
+            cache_warning,
+            reporter,
+          )
       }
+    }
+  }
+}
+
+/// Present the picker preselected with the current policy and act on the
+/// result: cancel, report a non-interactive terminal, or write the selection.
+fn handle_selection(
+  existing: config.Policy,
+  discovered: List(String),
+  config_path: Option(String),
+  project_root: String,
+  cache_warning: Option(String),
+  reporter: progress.Reporter,
+) -> #(UpdateResult, progress.Reporter) {
+  let reporter = progress.detail(reporter, "Awaiting selection")
+  let labels = merge_labels(existing, discovered)
+  let title =
+    "Allow which licences? ("
+    <> int.to_string(list.length(labels))
+    <> " total, "
+    <> int.to_string(list.length(only_new(existing, discovered)))
+    <> " new)"
+  case picker.pick(title, labels, existing.allow, existing.deny) {
+    Error(picker.Cancelled) -> {
+      let reporter = progress.warn(reporter, "Update cancelled")
+      let reporter = warn_cache(reporter, cache_warning)
+      #(UpdateResult(exit_code: 130, output: "Update cancelled.\n"), reporter)
+    }
+    Error(picker.NotInteractive) -> {
+      let message =
+        "The update picker requires an interactive terminal on stdin and stdout"
+      let reporter = progress.fail(reporter, message)
+      let reporter = warn_cache(reporter, cache_warning)
+      #(
+        UpdateResult(exit_code: 1, output: "Error: " <> message <> "\n"),
+        reporter,
+      )
+    }
+    Ok(picker.Selection(allow, deny)) ->
+      write_selection(
+        allow,
+        deny,
+        config_path,
+        project_root,
+        cache_warning,
+        reporter,
+      )
+  }
+}
+
+/// Write the chosen policy to disk and report success or failure.
+fn write_selection(
+  allow: List(String),
+  deny: List(String),
+  config_path: Option(String),
+  project_root: String,
+  cache_warning: Option(String),
+  reporter: progress.Reporter,
+) -> #(UpdateResult, progress.Reporter) {
+  let target = resolve_output_path(config_path, project_root)
+  case write_policy(target, allow, deny) {
+    Error(error) -> {
+      let message = write_error_message(error)
+      let reporter = progress.fail(reporter, message)
+      let reporter = warn_cache(reporter, cache_warning)
+      #(
+        UpdateResult(exit_code: 1, output: "Error: " <> message <> "\n"),
+        reporter,
+      )
+    }
+    Ok(_) -> {
+      let reporter = progress.success(reporter, "Wrote " <> target)
+      let reporter = warn_cache(reporter, cache_warning)
+      #(
+        UpdateResult(exit_code: 0, output: summary(target, allow, deny)),
+        reporter,
+      )
     }
   }
 }
@@ -215,25 +252,37 @@ fn resolve_output_path(
   }
 }
 
+type WriteError {
+  TomlEditFailed(toml.Error)
+  FileWriteFailed(path: String)
+}
+
+fn write_error_message(error: WriteError) -> String {
+  case error {
+    TomlEditFailed(e) -> toml.error_message(e)
+    FileWriteFailed(path) -> "Failed to write " <> path
+  }
+}
+
 fn write_policy(
   path: String,
   allow: List(String),
   deny: List(String),
-) -> Result(Nil, String) {
+) -> Result(Nil, WriteError) {
   let existing = case simplifile.read(from: path) {
     Ok(contents) -> contents
     Error(_) -> ""
   }
   let section = ["tools", "licence_audit"]
-  case toml_port.set_string_array(existing, section, "allow", allow) {
-    Error(e) -> Error(toml_port.error_message(e))
+  case toml.set_string_array(existing, section, "allow", allow) {
+    Error(e) -> Error(TomlEditFailed(e))
     Ok(after_allow) ->
-      case toml_port.set_string_array(after_allow, section, "deny", deny) {
-        Error(e) -> Error(toml_port.error_message(e))
+      case toml.set_string_array(after_allow, section, "deny", deny) {
+        Error(e) -> Error(TomlEditFailed(e))
         Ok(after_both) ->
           case simplifile.write(to: path, contents: after_both) {
             Ok(_) -> Ok(Nil)
-            Error(_) -> Error("Failed to write " <> path)
+            Error(_) -> Error(FileWriteFailed(path))
           }
       }
   }

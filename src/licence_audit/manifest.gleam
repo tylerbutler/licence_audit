@@ -1,10 +1,10 @@
 import gleam/dict.{type Dict}
 import gleam/list
-import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/toml
 import simplifile
-import tom.{type Toml}
+import tomlet.{type Document, type Value}
 
 pub type Source {
   Hex
@@ -16,6 +16,14 @@ pub type Source {
 pub type Kind {
   Direct
   Transitive
+}
+
+/// Whether a package is part of the production dependency tree (`Prod`) or only
+/// reachable through development dependencies (`Dev`). Prod wins: a package
+/// reachable from any production direct dependency is `Prod`.
+pub type Scope {
+  Prod
+  Dev
 }
 
 pub type Package {
@@ -87,21 +95,27 @@ pub type SbomManifest {
 }
 
 pub fn sbom_entries(input: String) -> Result(SbomManifest, Error) {
-  case tom.parse(input) {
+  case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
-    Ok(document) -> {
-      case tom.get_array(document, ["packages"]) {
-        Error(tom.NotFound(_)) -> Error(MissingPackages)
-        Error(_) ->
-          Error(InvalidPackageField("<manifest>", "packages", "Array"))
-        Ok(packages) -> {
-          let direct_names = decode_direct_names(document)
-          use entries <- result.try(
-            decode_sbom_entries(packages, direct_names, []),
-          )
-          Ok(SbomManifest(entries: entries, root_requirements: direct_names))
-        }
-      }
+    Ok(document) -> sbom_entries_from_document(document)
+  }
+}
+
+fn sbom_entries_from_document(
+  document: Document,
+) -> Result(SbomManifest, Error) {
+  case toml.get_array(document, ["packages"]) {
+    Error(toml.ArrayMissing) -> Error(MissingPackages)
+    Error(toml.ArrayNotArray) ->
+      Error(InvalidPackageField("<manifest>", "packages", "Array"))
+    Ok(packages) -> {
+      let direct_names = decode_direct_names(document)
+      use entries <- result.try(
+        list.try_map(packages, fn(package) {
+          decode_sbom_entry(package, direct_names)
+        }),
+      )
+      Ok(SbomManifest(entries: entries, root_requirements: direct_names))
     }
   }
 }
@@ -113,27 +127,11 @@ pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
   }
 }
 
-fn decode_sbom_entries(
-  packages: List(Toml),
-  direct_names: List(String),
-  acc: List(SbomEntry),
-) -> Result(List(SbomEntry), Error) {
-  case packages {
-    [] -> Ok(list.reverse(acc))
-    [package, ..rest] -> {
-      case decode_sbom_entry(package, direct_names) {
-        Error(error) -> Error(error)
-        Ok(entry) -> decode_sbom_entries(rest, direct_names, [entry, ..acc])
-      }
-    }
-  }
-}
-
 fn decode_sbom_entry(
-  package: Toml,
+  package: Value,
   direct_names: List(String),
 ) -> Result(SbomEntry, Error) {
-  case tom.as_table(package) {
+  case toml.as_table(package) {
     Error(_) ->
       Error(InvalidPackageField(
         package: "<unknown>",
@@ -167,7 +165,7 @@ fn decode_sbom_entry(
 
 fn decode_provenance(
   source: String,
-  table: Dict(String, Toml),
+  table: toml.Entry,
   package_name: String,
 ) -> Result(Provenance, Error) {
   case source {
@@ -215,15 +213,15 @@ pub fn load(path: String) -> Result(LockedPackages, Error) {
 }
 
 pub fn parse(input: String) -> Result(LockedPackages, Error) {
-  case tom.parse(input) {
+  case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
     Ok(document) -> {
-      case tom.get_array(document, ["packages"]) {
-        Error(tom.NotFound(_)) -> Error(MissingPackages)
-        Error(_) ->
+      case toml.get_array(document, ["packages"]) {
+        Error(toml.ArrayMissing) -> Error(MissingPackages)
+        Error(toml.ArrayNotArray) ->
           Error(InvalidPackageField("<manifest>", "packages", "Array"))
         Ok(packages) -> {
-          use raw_packages <- result.try(decode_packages(packages, []))
+          use raw_packages <- result.try(list.try_map(packages, decode_package))
           let direct_names = decode_direct_names(document)
           Ok(build_locked(raw_packages, direct_names))
         }
@@ -326,6 +324,74 @@ pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
   })
 }
 
+/// Parse the names of direct production dependencies from `gleam.toml` source:
+/// the keys of the `[dependencies]` table. `Error(Nil)` when the TOML cannot be
+/// parsed or has no `[dependencies]` table — callers treat that as "cannot
+/// determine" and fall back to classifying everything as production.
+pub fn prod_direct_names(gleam_toml: String) -> Result(List(String), Nil) {
+  case toml.parse(gleam_toml) {
+    Error(_) -> Error(Nil)
+    Ok(document) -> toml.table_keys(document, ["dependencies"])
+  }
+}
+
+/// Classify every package in the locked graph as `Prod` or `Dev`, seeded from
+/// the production direct dependency names.
+pub fn dep_scopes(
+  locked: LockedPackages,
+  prod_direct_names: List(String),
+) -> Dict(String, Scope) {
+  scope_map(graph_pairs(locked.graph), prod_direct_names)
+}
+
+/// Classify every entry in an SBOM manifest graph (used by `sbom` and `vulns`).
+pub fn sbom_scopes(
+  manifest: SbomManifest,
+  prod_direct_names: List(String),
+) -> Dict(String, Scope) {
+  let pairs =
+    list.map(manifest.entries, fn(entry) { #(entry.name, entry.requirements) })
+  scope_map(pairs, prod_direct_names)
+}
+
+/// String label for a scope, used in SBOM properties and CLI output.
+pub fn scope_label(scope: Scope) -> String {
+  case scope {
+    Prod -> "prod"
+    Dev -> "dev"
+  }
+}
+
+fn graph_pairs(graph: List(GraphNode)) -> List(#(String, List(String))) {
+  list.map(graph, fn(node) { #(node.name, node.requirements) })
+}
+
+/// Multi-source BFS over `pairs` from the production sources; every reachable
+/// node is `Prod`, every other node is `Dev`.
+fn scope_map(
+  pairs: List(#(String, List(String))),
+  prod_direct_names: List(String),
+) -> Dict(String, Scope) {
+  let edges =
+    list.fold(pairs, dict.new(), fn(acc, pair) {
+      dict.insert(acc, pair.0, pair.1)
+    })
+  let nodes =
+    list.fold(pairs, dict.new(), fn(acc, pair) { dict.insert(acc, pair.0, Nil) })
+  let sources =
+    list.filter(prod_direct_names, fn(name) { dict.has_key(nodes, name) })
+  let visited =
+    list.fold(sources, dict.new(), fn(acc, name) { dict.insert(acc, name, Nil) })
+  let #(prod_set, _parents) = bfs_loop(sources, edges, visited, dict.new())
+  list.fold(pairs, dict.new(), fn(acc, pair) {
+    let scope = case dict.has_key(prod_set, pair.0) {
+      True -> Prod
+      False -> Dev
+    }
+    dict.insert(acc, pair.0, scope)
+  })
+}
+
 fn bfs_loop(
   frontier: List(String),
   edges: Dict(String, List(String)),
@@ -342,21 +408,31 @@ fn bfs_loop(
             Ok(reqs) -> reqs
             Error(_) -> []
           }
-          list.fold(children, #(next, visited, parents), fn(inner, child) {
-            let #(next, visited, parents) = inner
-            case dict.has_key(visited, child) {
-              True -> #(next, visited, parents)
-              False -> #(
-                [child, ..next],
-                dict.insert(visited, child, Nil),
-                dict.insert(parents, child, node),
-              )
-            }
-          })
+          visit_children(node, children, #(next, visited, parents))
         })
       bfs_loop(list.reverse(next_rev), edges, visited, parents)
     }
   }
+}
+
+/// Visit each child of `node`, queueing and recording any not yet seen.
+/// Threads the BFS accumulator `#(next_frontier, visited, parents)`.
+fn visit_children(
+  node: String,
+  children: List(String),
+  acc: #(List(String), Dict(String, Nil), Dict(String, String)),
+) -> #(List(String), Dict(String, Nil), Dict(String, String)) {
+  list.fold(children, acc, fn(inner, child) {
+    let #(next, visited, parents) = inner
+    case dict.has_key(visited, child) {
+      True -> #(next, visited, parents)
+      False -> #(
+        [child, ..next],
+        dict.insert(visited, child, Nil),
+        dict.insert(parents, child, node),
+      )
+    }
+  })
 }
 
 fn reconstruct_path(
@@ -370,38 +446,15 @@ fn reconstruct_path(
   }
 }
 
-fn decode_direct_names(document: Dict(String, Toml)) -> List(String) {
-  case dict.get(document, "requirements") {
+fn decode_direct_names(document: Document) -> List(String) {
+  case toml.table_keys(document, ["requirements"]) {
+    Ok(keys) -> list.sort(keys, by: string.compare)
     Error(_) -> []
-    Ok(value) ->
-      case tom.as_table(value) {
-        Error(_) -> []
-        Ok(table) -> dict.keys(table) |> list.sort(by: string_compare)
-      }
   }
 }
 
-fn string_compare(a: String, b: String) -> order.Order {
-  string.compare(a, b)
-}
-
-fn decode_packages(
-  packages: List(Toml),
-  decoded: List(RawPackage),
-) -> Result(List(RawPackage), Error) {
-  case packages {
-    [] -> Ok(list.reverse(decoded))
-    [package, ..rest] -> {
-      case decode_package(package) {
-        Error(error) -> Error(error)
-        Ok(raw) -> decode_packages(rest, [raw, ..decoded])
-      }
-    }
-  }
-}
-
-fn decode_package(package: Toml) -> Result(RawPackage, Error) {
-  case tom.as_table(package) {
+fn decode_package(package: Value) -> Result(RawPackage, Error) {
+  case toml.as_table(package) {
     Error(_) ->
       Error(InvalidPackageField(
         package: "<unknown>",
@@ -434,14 +487,14 @@ fn decode_package(package: Toml) -> Result(RawPackage, Error) {
 }
 
 fn optional_string_list(
-  package: Dict(String, Toml),
+  package: toml.Entry,
   field: String,
   package_name: String,
 ) -> Result(List(String), Error) {
-  case dict.get(package, field) {
+  case toml.field(package, field) {
     Error(_) -> Ok([])
     Ok(value) ->
-      case tom.as_array(value) {
+      case toml.as_array(value) {
         Error(_) ->
           Error(InvalidPackageField(
             package: package_name,
@@ -454,7 +507,7 @@ fn optional_string_list(
 }
 
 fn decode_string_list(
-  items: List(Toml),
+  items: List(Value),
   package_name: String,
   field: String,
   acc: List(String),
@@ -462,7 +515,7 @@ fn decode_string_list(
   case items {
     [] -> Ok(list.reverse(acc))
     [item, ..rest] ->
-      case tom.as_string(item) {
+      case toml.as_string(item) {
         Error(_) ->
           Error(InvalidPackageField(
             package: package_name,
@@ -476,11 +529,11 @@ fn decode_string_list(
 }
 
 fn required_string(
-  package: Dict(String, Toml),
+  package: toml.Entry,
   field: String,
   package_name: String,
 ) -> Result(String, Error) {
-  case dict.get(package, field) {
+  case toml.field(package, field) {
     Error(_) ->
       Error(InvalidPackageField(
         package: package_name,
@@ -489,7 +542,7 @@ fn required_string(
       ))
 
     Ok(value) -> {
-      case tom.as_string(value) {
+      case toml.as_string(value) {
         Ok(value) -> Ok(value)
         Error(_) ->
           Error(InvalidPackageField(

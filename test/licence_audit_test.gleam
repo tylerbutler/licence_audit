@@ -14,11 +14,12 @@ pub fn help_path_returns_usage_text_test() {
   assert string.contains(output, "USAGE:")
 }
 
-pub fn short_help_path_returns_usage_error_test() {
+pub fn short_help_path_returns_usage_text_test() {
   let licence_audit.RunResult(exit_code, output) = licence_audit.run(["-h"])
 
-  assert exit_code == 1
-  assert string.contains(output, "invalid number of arguments")
+  assert exit_code == 0
+  assert string.contains(output, "licence_audit")
+  assert string.contains(output, "USAGE:")
 }
 
 pub fn unknown_option_returns_usage_error_test() {

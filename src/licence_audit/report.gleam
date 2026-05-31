@@ -1,3 +1,4 @@
+import glam/doc.{type Document}
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -27,6 +28,7 @@ pub type Row {
     licences: List(String),
     status: Status,
     kind: manifest.Kind,
+    scope: manifest.Scope,
     path: List(String),
   )
 }
@@ -34,6 +36,8 @@ pub type Row {
 pub type Summary {
   Summary(skipped_non_hex: Int)
 }
+
+const glam_line_width = 100
 
 /// Keep only rows that belong to a dependency tree containing at least one
 /// policy failure. Used by `check` to focus output on offending trees.
@@ -87,21 +91,49 @@ pub fn format(
   mode: Mode,
   palette: color.Palette,
 ) -> String {
-  let tree = build_tree(rows)
-  let widths = widths(rows, mode)
-  let body = tree_text(tree, widths, mode, palette)
+  let widths = widths(rows)
+  let #(prod_rows, dev_rows) =
+    list.partition(rows, fn(r) { r.scope == manifest.Prod })
+  let sections =
+    [
+      #("Production dependencies", prod_rows),
+      #("Development dependencies", dev_rows),
+    ]
+    |> list.filter(fn(section) { section.1 != [] })
+    |> list.map(fn(section) {
+      section_doc(section.0, section.1, widths, mode, palette)
+    })
+  let summary_line =
+    doc.from_string(
+      "Skipped non-Hex packages: " <> int.to_string(summary.skipped_non_hex),
+    )
 
-  header(widths, mode)
-  <> "\n"
-  <> body
-  <> "\nSkipped non-Hex packages: "
-  <> int.to_string(summary.skipped_non_hex)
-  <> "\n"
+  doc.concat([
+    header(widths, mode),
+    doc.line,
+    doc.join(sections, with: doc.line),
+    doc.line,
+    summary_line,
+    doc.line,
+  ])
+  |> doc.to_string(glam_line_width)
 }
 
-fn header(widths: Widths, mode: Mode) -> String {
+fn section_doc(
+  title: String,
+  rows: List(Row),
+  widths: Widths,
+  mode: Mode,
+  palette: color.Palette,
+) -> Document {
+  let tree = build_tree(rows)
+  let body = tree_text(tree, widths, mode, palette)
+  doc.concat([doc.from_string(title), doc.line, body])
+}
+
+fn header(widths: Widths, mode: Mode) -> Document {
   let prefix = "  "
-  case mode {
+  let line = case mode {
     Default ->
       prefix
       <> pad("Package", widths.package)
@@ -118,6 +150,7 @@ fn header(widths: Widths, mode: Mode) -> String {
       <> pad("Licences", widths.licences)
       <> "  Status"
   }
+  doc.from_string(line)
 }
 
 type Tree {
@@ -147,8 +180,9 @@ fn build_tree(rows: List(Row)) -> Tree {
   let children =
     dict.keys(children_rev)
     |> list.fold(dict.new(), fn(acc, k) {
-      let v = dict.get(children_rev, k) |> result.unwrap([]) |> list.reverse
-      dict.insert(acc, k, v)
+      let ordered =
+        dict.get(children_rev, k) |> result.unwrap([]) |> list.reverse
+      dict.insert(acc, k, ordered)
     })
 
   Tree(roots: roots, children: children)
@@ -191,10 +225,10 @@ fn tree_text(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> String {
+) -> Document {
   render_nodes(tree.roots, tree.children, "", True, widths, mode, palette, [])
   |> list.reverse
-  |> string.join("\n")
+  |> doc.join(with: doc.line)
 }
 
 fn render_nodes(
@@ -205,8 +239,8 @@ fn render_nodes(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-  acc: List(String),
-) -> List(String) {
+  acc: List(Document),
+) -> List(Document) {
   let count = list.length(nodes)
   indexed_fold(nodes, 0, acc, fn(acc, node, i) {
     let is_last = i == count - 1
@@ -249,7 +283,7 @@ fn row_text(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> String {
+) -> Document {
   let licences_raw = licences_text(row)
   let licences_padded = pad(licences_raw, widths.licences)
   let glyph = glyph(row.status, mode, palette)
@@ -257,7 +291,7 @@ fn row_text(
     colorize_for_status(row.status, mode, palette, licences_padded)
   let name_padded = pad_name(prefix, row.package, widths.package)
 
-  case mode {
+  let line = case mode {
     Default ->
       prefix
       <> glyph
@@ -280,6 +314,7 @@ fn row_text(
       <> "  "
       <> status_text(row.status)
   }
+  doc.from_string(line)
 }
 
 // Pads `prefix + name` such that the column ending the package field aligns
@@ -331,28 +366,19 @@ fn glyph(status: Status, mode: Mode, palette: color.Palette) -> String {
 }
 
 type Widths {
-  Widths(package: Int, version: Int, licences: Int, status: Int)
+  Widths(package: Int, version: Int, licences: Int)
 }
 
-fn widths(rows: List(Row), mode: Mode) -> Widths {
-  widths_loop(
-    rows,
-    Widths(package: 7, version: 7, licences: 8, status: 6),
-    mode,
-  )
+fn widths(rows: List(Row)) -> Widths {
+  widths_loop(rows, Widths(package: 7, version: 7, licences: 8))
 }
 
-fn widths_loop(rows: List(Row), current: Widths, mode: Mode) -> Widths {
+fn widths_loop(rows: List(Row), current: Widths) -> Widths {
   case rows {
     [] -> current
     [row, ..rest] -> {
       let licences_width =
-        max(current.licences, string.length(licences_text(row)))
-      let status_width = case mode {
-        Default -> current.status
-        Audit -> max(current.status, string.length(status_text(row.status)))
-      }
-
+        int.max(current.licences, string.length(licences_text(row)))
       // Package column must fit every row's (tree prefix + name). Roots have
       // an empty prefix, so deep transitive children dominate this width.
       let row_prefix_len = case row.path {
@@ -360,17 +386,15 @@ fn widths_loop(rows: List(Row), current: Widths, mode: Mode) -> Widths {
         path -> { list.length(path) - 1 } * 3
       }
       let package_width =
-        max(current.package, row_prefix_len + string.length(row.package))
+        int.max(current.package, row_prefix_len + string.length(row.package))
 
       widths_loop(
         rest,
         Widths(
           package: package_width,
-          version: max(current.version, string.length(row.version)),
+          version: int.max(current.version, string.length(row.version)),
           licences: licences_width,
-          status: status_width,
         ),
-        mode,
       )
     }
   }
@@ -404,28 +428,9 @@ fn status_text(status: Status) -> String {
 fn sort_dedupe(licences: List(String)) -> List(String) {
   licences
   |> list.sort(by: string.compare)
-  |> dedupe([])
-}
-
-fn dedupe(licences: List(String), current: List(String)) -> List(String) {
-  case licences {
-    [] -> list.reverse(current)
-    [licence, ..rest] -> {
-      case list.contains(current, licence) {
-        True -> dedupe(rest, current)
-        False -> dedupe(rest, [licence, ..current])
-      }
-    }
-  }
+  |> list.unique
 }
 
 fn pad(text: String, width: Int) -> String {
   text <> string.repeat(" ", times: width - string.length(text))
-}
-
-fn max(first: Int, second: Int) -> Int {
-  case first > second {
-    True -> first
-    False -> second
-  }
 }

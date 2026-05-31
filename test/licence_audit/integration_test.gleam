@@ -3,6 +3,7 @@ import gleam/string
 import gleeunit/should
 import licence_audit
 import licence_audit/hex
+import licence_audit/osv
 import licence_audit/progress
 import simplifile
 
@@ -294,6 +295,32 @@ pub fn check_failure_only_reports_failing_trees_test() {
   assert !string.contains(output, "argv")
 }
 
+fn failing_osv_batch(
+  _purls: List(String),
+) -> Result(List(osv.BatchEntry), osv.Error) {
+  Error(osv.NetworkFailure)
+}
+
+fn unused_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
+  Error(osv.NotFound)
+}
+
+pub fn check_vulns_osv_batch_failure_exits_two_test() {
+  let result =
+    licence_audit.run_with_clients(
+      manifest_args(["check", "--allow=MIT,Apache-2.0", "--vulns"]),
+      fake_fetcher,
+      failing_osv_batch,
+      unused_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Vulnerability check failed: OSV request failed",
+  )
+}
+
 fn sbom_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
     "gleam_stdlib" -> Ok(hex.PackageMetadata(licences: ["Apache-2.0"]))
@@ -376,4 +403,80 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
     )
   should.equal(result.exit_code, 0)
   let assert False = string.contains(result.output, "\"licenses\":")
+}
+
+fn one_vuln_batch(
+  purls: List(String),
+) -> Result(List(osv.BatchEntry), osv.Error) {
+  Ok(
+    list.map(purls, fn(purl) {
+      osv.BatchEntry(purl: purl, vuln_ids: ["CVE-2024-0001"])
+    }),
+  )
+}
+
+fn one_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
+  Ok(osv.Vulnerability(
+    id: "CVE-2024-0001",
+    summary: "example",
+    severity: osv.High,
+  ))
+}
+
+pub fn vulns_report_labels_scope_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with_clients(
+      ["vulns", "--manifest=test/fixtures/manifest_github_git.toml"],
+      fake_fetcher,
+      one_vuln_batch,
+      one_vuln_detail,
+    )
+
+  should.equal(exit_code, 0)
+  assert string.contains(output, "gleam_stdlib")
+  assert string.contains(output, "[prod]")
+}
+
+fn prod_dev_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
+  case name {
+    "gleam_stdlib" -> Ok(hex.PackageMetadata(licences: ["MIT"]))
+    // A denied licence on the dev dependency.
+    "gleeunit" -> Ok(hex.PackageMetadata(licences: ["AGPL-3.0"]))
+    _ -> Error(hex.NotFound)
+  }
+}
+
+pub fn check_fails_on_dev_dependency_violation_by_default_test() {
+  let licence_audit.RunResult(exit_code, _output) =
+    licence_audit.run_with(
+      [
+        "--manifest=test/fixtures/prod_dev_manifest.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--deny=AGPL-3.0",
+      ],
+      prod_dev_fetcher,
+    )
+
+  should.equal(exit_code, 1)
+}
+
+pub fn check_prod_only_ignores_dev_dependency_violation_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with(
+      [
+        "--manifest=test/fixtures/prod_dev_manifest.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--deny=AGPL-3.0",
+        "--prod-only",
+      ],
+      prod_dev_fetcher,
+    )
+
+  should.equal(exit_code, 0)
+  assert string.contains(output, "gleam_stdlib")
+  assert !string.contains(output, "gleeunit")
 }
