@@ -249,6 +249,10 @@ fn component_refs(ref: String, deps: List(String)) -> json.Json {
   ])
 }
 
+const bom_vendor = "tylerbutler"
+
+const bom_vendor_url = "https://github.com/tylerbutler/licence_audit"
+
 fn build_document(
   input: SbomInput,
   components: List(json.Json),
@@ -263,14 +267,37 @@ fn build_document(
       "metadata",
       json.object([
         #("timestamp", json.string(input.timestamp)),
+        // SBOMs are produced from the locked manifest, i.e. the dependency set
+        // used to build the project.
+        #(
+          "lifecycles",
+          json.preprocessed_array([
+            json.object([#("phase", json.string("build"))]),
+          ]),
+        ),
         #(
           "tools",
           json.preprocessed_array([
             json.object([
-              #("vendor", json.string("tylerbutler")),
+              #("vendor", json.string(bom_vendor)),
               #("name", json.string("licence_audit")),
               #("version", json.string(input.tool_version)),
             ]),
+          ]),
+        ),
+        // The BOM is authored and supplied by the licence_audit maintainer,
+        // independent of whichever project it describes.
+        #(
+          "authors",
+          json.preprocessed_array([
+            json.object([#("name", json.string(bom_vendor))]),
+          ]),
+        ),
+        #(
+          "supplier",
+          json.object([
+            #("name", json.string(bom_vendor)),
+            #("url", json.preprocessed_array([json.string(bom_vendor_url)])),
           ]),
         ),
         #(
@@ -286,5 +313,16 @@ fn build_document(
     ),
     #("components", json.preprocessed_array(components)),
     #("dependencies", json.preprocessed_array(dependencies)),
+    // The locked manifest is the fully resolved dependency tree, so the graph
+    // rooted at `root` is complete rather than partial.
+    #(
+      "compositions",
+      json.preprocessed_array([
+        json.object([
+          #("aggregate", json.string("complete")),
+          #("dependencies", json.preprocessed_array([json.string("root")])),
+        ]),
+      ]),
+    ),
   ])
 }

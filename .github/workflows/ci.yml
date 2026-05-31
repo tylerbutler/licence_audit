@@ -43,5 +43,5 @@ jobs:
           restore-keys: |
             hex-licence-${{ runner.os }}-
 
-      - name: Validate and score SBOM
-        run: just sbom-check
+      - name: Validate SBOM (schema)
+        run: just sbom-validate

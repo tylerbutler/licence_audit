@@ -13,6 +13,7 @@
 - Lint: `just glint` (glinter; configured under `[tools.glinter]` in `gleam.toml`, fails only on error-level rules). `just lint` runs format-check + glint.
 - Full local CI pass: `just ci`
 - Run a single test module: `mise exec -- gleam test --target erlang -- <module_name>_test`
+- Validate the generated SBOM against the CycloneDX schema: `just sbom-validate` (runs in CI; `just sbom-score` adds a local-only sbomqs quality score, `just sbom-check` runs both). SBOM tooling is pinned in `.mise.toml` via the `github:` backend.
 
 ## High-level architecture
 

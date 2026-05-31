@@ -63,6 +63,7 @@ clean:
     rm -rf priv
     rm -f licence_audit
     rm -rf dist
+    rm -rf .hex-cache
 
 # === CHANGELOG ===
 

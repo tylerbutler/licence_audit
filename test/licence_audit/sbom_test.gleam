@@ -161,6 +161,20 @@ pub fn render_emits_root_metadata_component_test() {
   let assert True = string.contains(json_str, "\"bom-ref\":\"root\"")
 }
 
+pub fn render_emits_provenance_metadata_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert True = string.contains(json_str, "\"authors\":")
+  let assert True = string.contains(json_str, "\"supplier\":")
+  let assert True = string.contains(json_str, "\"lifecycles\":")
+  let assert True = string.contains(json_str, "\"phase\":\"build\"")
+}
+
+pub fn render_declares_complete_composition_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert True = string.contains(json_str, "\"compositions\":")
+  let assert True = string.contains(json_str, "\"aggregate\":\"complete\"")
+}
+
 pub fn render_emits_hex_component_with_hash_and_license_test() {
   let json_str = sbom.render(minimal_input())
   let assert True =

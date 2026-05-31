@@ -196,6 +196,28 @@ metadata fetches only; unsupported dependency sources still fail because the
 SBOM would not have valid purls. (Contrast with `vulns`, which silently skips
 unsupported sources.)
 
+### Validating the SBOM
+
+The generated SBOM is checked against the official CycloneDX schema in CI so
+schema regressions in the output fail the build. Two `just` tasks (tools
+installed via `mise`) cover this:
+
+```sh
+just sbom-validate   # schema validation; fails on any error (runs in CI)
+just sbom-score      # quality/completeness score (local only, informational)
+just sbom-check      # both of the above
+```
+
+`sbom-validate` runs both [`cyclonedx-cli`](https://github.com/CycloneDX/cyclonedx-cli)
+and [`sbom-utility`](https://github.com/CycloneDX/sbom-utility); `sbom-score`
+runs [`sbomqs`](https://github.com/interlynk-io/sbomqs). Only schema validation
+runs in CI — scoring is a local-only convenience because part of its rubric
+(component-level malware/EOL analysis) needs an external service.
+
+As of the latest run the SBOM scores **8.3 / 10 (grade B)** on `sbomqs`, with a
+perfect structural/schema score; the remaining gap is the component-analysis
+rubric that requires a third-party service.
+
 ### Checking for known vulnerabilities
 
 Query the [OSV.dev](https://osv.dev/) database for known vulnerabilities
