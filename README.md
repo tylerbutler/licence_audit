@@ -1,7 +1,7 @@
 # licence_audit
 
-[![CI](https://github.com/tylerbutler/license_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/license_audit/actions/workflows/ci.yml)
-[![Publish](https://github.com/tylerbutler/license_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/license_audit/actions/workflows/publish.yml)
+[![CI](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml)
+[![Publish](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml)
 
 `licence_audit` is a simple CLI for checking the licences used by your Gleam project's locked dependencies.
 
@@ -14,12 +14,10 @@ It helps you:
 
 It reads `manifest.toml`, fetches package licence metadata from Hex, and reports the licences declared by locked Hex dependencies. Non-Hex dependencies are skipped and counted in the summary.
 
-> The repository is named `license_audit` (American spelling), but the binary, crate, and CLI flags use `licence_audit` (British spelling). The British spelling is used throughout the rest of this document.
-
 ## Installation
 
 Prebuilt escript archives are attached to each
-[GitHub Release](https://github.com/tylerbutler/license_audit/releases). The
+[GitHub Release](https://github.com/tylerbutler/licence_audit/releases). The
 archive contains the `licence_audit` escript (and a `.ps1` companion for
 Windows) and runs on any platform with a compatible Erlang/OTP runtime.
 
@@ -252,7 +250,7 @@ jobs:
           VERSION: v1.0.0
         run: |
           curl -fsSL -o licence_audit.tar.gz \
-            "https://github.com/tylerbutler/license_audit/releases/download/${VERSION}/licence_audit-${VERSION}.tar.gz"
+            "https://github.com/tylerbutler/licence_audit/releases/download/${VERSION}/licence_audit-${VERSION}.tar.gz"
           tar -xzf licence_audit.tar.gz --strip-components=1
           chmod +x licence_audit
           echo "$PWD" >> "$GITHUB_PATH"
