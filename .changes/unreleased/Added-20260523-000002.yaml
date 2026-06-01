@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  Hex package metadata licence fetching, policy evaluation, report formatting, and escript generation with `gleescript` for the `licence_audit` executable.
-time: 2026-05-23T00:00:02.000000000-07:00

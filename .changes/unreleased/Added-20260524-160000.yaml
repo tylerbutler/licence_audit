@@ -1,4 +1,4 @@
 kind: Added
 body: |-
-  New `sbom` subcommand generates a CycloneDX 1.5 JSON Software Bill of Materials from `manifest.toml`. Supports `--output` to write to a file and `--offline` to skip Hex metadata fetch. Hex and GitHub git dependencies are supported; path and non-GitHub git deps cause a clear error.
+  New `sbom` subcommand generates a CycloneDX 1.6 JSON Software Bill of Materials from `manifest.toml`. Supports `--output` to write to a file and `--offline` to skip Hex metadata fetch. Hex and GitHub git dependencies are supported; path and non-GitHub git deps cause a clear error. Components and `dependsOn` lists are emitted in a stable sorted order.
 time: 2026-05-24T16:00:00.000000000-07:00
