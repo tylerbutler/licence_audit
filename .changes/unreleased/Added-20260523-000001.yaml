@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  Locked Hex dependency auditing from `manifest.toml`. The audit always covers the full resolved tree, matching `cargo audit` / `cargo deny` behaviour. Non-Hex dependencies (git, path, etc.) are included in the tree but their licences are not evaluated; they are tallied in the `Skipped non-Hex packages` summary.
-time: 2026-05-23T00:00:01.000000000-07:00
