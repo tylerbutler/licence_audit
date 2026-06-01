@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  New `licence_audit vulns` subcommand that queries OSV.dev for known vulnerabilities affecting locked Hex and GitHub git dependencies. The report lists each affected package with its advisory IDs (GHSA / CVE / OSV), a severity bucket, and a one-line summary. Descriptive only — exits non-zero only on I/O, manifest, or network errors.
-time: 2026-05-24T16:45:00.000000000-07:00
