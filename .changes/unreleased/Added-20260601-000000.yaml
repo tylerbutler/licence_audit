@@ -1,0 +1,3 @@
+kind: Added
+body: '`gen-docs` subcommand for auto-generating Markdown reference documentation from the CLI, powered by `glint_markdown`. Single- and multi-file modes, sentinel-comment injection into `README.md`, and a `--check` mode for CI drift detection. New `just docs` / `just docs-check` recipes; `docs-check` is wired into the CI workflow.'
+time: 2026-06-01T00:00:00Z

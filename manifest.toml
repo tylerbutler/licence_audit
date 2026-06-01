@@ -24,8 +24,10 @@ packages = [
   { name = "gleescript", version = "1.5.2", build_tools = ["gleam"], requirements = ["argv", "filepath", "gleam_erlang", "gleam_stdlib", "simplifile", "snag", "tom"], otp_app = "gleescript", source = "hex", outer_checksum = "27AC58481742ED29D9B37C506F78958A8AD798750A79ED08C8F8AFBA8F23563B" },
   { name = "gleeunit", version = "1.10.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "254B697FE72EEAD7BF82E941723918E421317813AC49923EE76A18C788C61E72" },
   { name = "glexer", version = "2.4.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "splitter"], otp_app = "glexer", source = "hex", outer_checksum = "5AB2401BF251699746B3551EF699ECC1D94FE2897C15041F181614B089125CA0" },
-  { name = "glint", version = "1.2.1", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_community_colour", "gleam_stdlib", "snag"], otp_app = "glint", source = "hex", outer_checksum = "2214C7CEFDE457CEE62140C3D4899B964E05236DA74E4243DFADF4AF29C382BB" },
+  { name = "glint", version = "1.3.0", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_community_colour", "gleam_stdlib", "snag"], source = "git", repo = "https://github.com/tylerbutler/glint.git", commit = "040e9e9c11bcb8cbb9d20797b6bc4ef4c43e74f1" },
+  { name = "glint_markdown", version = "0.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "glint", "glugify", "simplifile"], source = "git", repo = "https://github.com/tylerbutler/glint_markdown.git", commit = "baef456116e1cc90744ed78c20275044f74cf099" },
   { name = "glinter", version = "2.19.0", build_tools = ["gleam"], requirements = ["argv", "glance", "gleam_json", "gleam_stdlib", "simplifile", "tom"], otp_app = "glinter", source = "hex", outer_checksum = "9A0B5EE224BB84FB25DFB4A8DD3E87F06BDFE0C49B3A669D92AB4C555593FC75" },
+  { name = "glugify", version = "2.0.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "glugify", source = "hex", outer_checksum = "BFAC84C1CA0184C856783CE0EFF42EB5B38F5E86C52CC9C3197E8CB792B2C4A3" },
   { name = "jsone", version = "1.9.0", build_tools = ["rebar3"], requirements = [], otp_app = "jsone", source = "hex", outer_checksum = "6863DCF95A7FC26094EAAFF0D72522D58FE22719B4758AFB75A21735BC92646D" },
   { name = "simplifile", version = "2.4.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "7C18AFA4FED0B4CE1FA5B0B4BAC1FA1744427054EA993565F6F3F82E5453170D" },
   { name = "slate", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_stdlib"], otp_app = "slate", source = "hex", outer_checksum = "07C509E87A1F7B95903250C1F14FE336F0AAF0CFD6F247A059F08032B4F64A40" },
@@ -41,7 +43,7 @@ packages = [
 argv = { version = ">= 1.1.0 and < 2.0.0" }
 birch = { version = ">= 0.2.1 and < 1.0.0" }
 envoy = { version = ">= 1.2.0 and < 2.0.0" }
-etch = { version = ">= 1.3.3 and < 2.0.0" }
+etch = { version = ">= 1.3.3 and < 1.4.0" }
 glam = { version = ">= 2.0.4 and < 3.0.0" }
 gleam_community_ansi = { version = ">= 1.5.0 and < 2.0.0" }
 gleam_http = { version = ">= 4.3.0 and < 5.0.0" }
@@ -52,7 +54,8 @@ gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_time = { version = ">= 1.8.0 and < 2.0.0" }
 gleescript = { version = ">= 1.5.2 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
-glint = { version = ">= 1.2.1 and < 2.0.0" }
+glint = { git = "https://github.com/tylerbutler/glint.git", ref = "glint-markdown" }
+glint_markdown = { git = "https://github.com/tylerbutler/glint_markdown.git", ref = "main" }
 glinter = { version = ">= 2.19.0 and < 3.0.0" }
 jsone = { version = ">= 1.9.0 and < 2.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }

@@ -104,10 +104,21 @@ sbom-score: sbom-generate
 # Validate the SBOM schema and report its quality score
 sbom-check: sbom-validate sbom-score
 
+# === DOCS ===
+
+# Generate Markdown reference docs into ./docs and inject the topics index
+# into README.md between the <!-- commands --> sentinels.
+docs: build
+    ./licence_audit gen-docs --mode=multi --out=docs --readme=README.md
+
+# Fail if `just docs` would change anything on disk (use in CI to catch drift).
+docs-check: build
+    ./licence_audit gen-docs --mode=multi --out=docs --readme=README.md --check
+
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: format-check glint check test build-strict
+ci: format-check glint check test build-strict docs-check
 
 alias pr := ci
 

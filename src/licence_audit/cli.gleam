@@ -3,6 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import glint
 import glint/constraint
+import glint_markdown/cli as glint_markdown_cli
 import licence_audit/color
 import licence_audit/progress
 
@@ -67,19 +68,31 @@ pub type CliAction {
   UpdateConfig(UpdateOptions)
   RunSbom(SbomOptions)
   RunVulns(VulnsOptions)
+  GenDocsCompleted
   InvalidUsage(String)
 }
 
 pub fn app() -> glint.Glint(CliAction) {
-  glint.new()
-  |> glint.with_name("licence_audit")
-  |> glint.global_help("Audit locked Hex package licences.")
-  |> glint.pretty_help(glint.default_pretty_help())
-  |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
-  |> glint.add(at: ["check"], do: check_command())
-  |> glint.add(at: ["update"], do: update_command())
-  |> glint.add(at: ["sbom"], do: sbom_command())
-  |> glint.add(at: ["vulns"], do: vulns_command())
+  let base =
+    glint.new()
+    |> glint.with_name("licence_audit")
+    |> glint.global_help("Audit locked Hex package licences.")
+    |> glint.pretty_help(glint.default_pretty_help())
+    |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
+    |> glint.add(at: ["check"], do: check_command())
+    |> glint.add(at: ["update"], do: update_command())
+    |> glint.add(at: ["sbom"], do: sbom_command())
+    |> glint.add(at: ["vulns"], do: vulns_command())
+
+  // Document the app *before* adding `gen-docs` so the subcommand does not
+  // appear in its own rendered output. Bridge the `Glint(Nil)` command into
+  // our `Glint(CliAction)` host via `glint.map_command`.
+  let gen_docs =
+    glint_markdown_cli.command(glint.document(base))
+    |> glint.map_command(fn(_) { GenDocsCompleted })
+
+  base
+  |> glint.add(at: ["gen-docs"], do: gen_docs)
 }
 
 pub fn normalize_args(args: List(String)) -> List(String) {
