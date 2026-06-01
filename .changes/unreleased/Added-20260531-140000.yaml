@@ -1,10 +1,8 @@
 kind: Added
 body: |-
-  SBOM components are now enriched with richer integrity and supplier metadata (issue #11):
+  SBOM components include richer integrity and supplier metadata:
 
-  - A CycloneDX `publisher` field is populated best-effort from Hex `owners` (preferred) or `meta.maintainers` (fallback), joined alphabetically and comma-separated when there are multiple.
-  - A CycloneDX `supplier` object (`{name: "Hex", url: ["https://hex.pm/packages/<name>"]}`) is emitted for every Hex component to identify the registry the artefact was supplied from. This keeps `supplier` (where the artefact came from) semantically distinct from `publisher` (who authored it), and gives SBOM quality scorers full supplier coverage.
-  - When a lockfile records `inner_checksum` alongside `outer_checksum`, the inner hash is surfaced as a `licence_audit:hex_inner_checksum` property so consumers can distinguish it from the outer SHA-256 already in `hashes` (CycloneDX `hashes` has no scope/label). Gleam's current `manifest.toml` only records `outer_checksum`, so this is opt-in based on lockfile contents.
-
-  All additions use data we already fetch / parse, skip cleanly when the data is absent, and have no impact on reproducible-output determinism.
+  - A CycloneDX `publisher` field, populated best-effort from Hex `owners` (preferred) or `meta.maintainers` (fallback), joined alphabetically and comma-separated when there are multiple.
+  - A CycloneDX `supplier` object (`{name: "Hex", url: ["https://hex.pm/packages/<name>"]}`) is emitted for every Hex component so that "where the artefact came from" stays distinct from "who authored it".
+  - When a lockfile records `inner_checksum` alongside `outer_checksum`, the inner hash is surfaced as a `licence_audit:hex_inner_checksum` property. Gleam's current `manifest.toml` only records `outer_checksum`, so this is opt-in based on lockfile contents.
 time: 2026-05-31T14:00:00Z
