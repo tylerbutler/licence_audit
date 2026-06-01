@@ -25,7 +25,7 @@ up Erlang/OTP 28 before downloading `licence_audit`.
 ```yaml
 - uses: tylerbutler/actions/setup-licence-audit@v1
   with:
-    version: v1.0.0
+    version: v0.1.0
 - run: licence_audit check
 ```
 
@@ -36,7 +36,7 @@ disable the duplicate Beam setup:
 - uses: tylerbutler/actions/setup-gleam@v1
 - uses: tylerbutler/actions/setup-licence-audit@v1
   with:
-    version: v1.0.0
+    version: v0.1.0
     setup-beam: "false"
 - run: licence_audit check
 ```
@@ -400,7 +400,7 @@ jobs:
       - uses: tylerbutler/actions/setup-gleam@v1
       - uses: tylerbutler/actions/setup-licence-audit@v1
         with:
-          version: v1.0.0
+          version: v0.1.0
           setup-beam: "false"
       - run: licence_audit check
 ```
