@@ -93,6 +93,7 @@ violation. Pass `--config=other.toml` to read policy from a different file (it
 must still have a `[tools.licence_audit]` section) or `--ignore-config` to use
 only CLI flags.
 
+> [!TIP]
 > `--allow`/`--deny` also work on the bare command — they switch the report into
 > a policy *preview* mode but still exit `0`. Use `check` when you want failures.
 
