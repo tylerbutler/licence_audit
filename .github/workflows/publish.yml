@@ -19,7 +19,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build escript
-        run: mise exec -- gleam run -m gleescript
+        run: just build-strict
 
       - name: Generate CycloneDX SBOM
         env:
