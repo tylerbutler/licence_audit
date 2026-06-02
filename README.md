@@ -204,8 +204,8 @@ and prefixed with a status glyph:
 
 The default report shows `Package`, `Version`, `Licences`. Once a policy is in
 scope (config, `--allow`/`--deny`, or `check`) a `Status` column appears. Colour
-is controlled by `--color` (`auto`/`always`/`never`); `auto` honours
-`NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
+is controlled by `--color`/`--colour` (`auto`/`always`/`never`); `auto`
+honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 
 **Exit codes.**
 
@@ -239,8 +239,9 @@ advisories are not cached.
   doesn't bypass this.
 - **OSV.dev unreachable** — `vulns` and `check --vulns` need network access to
   `api.osv.dev`; there's no on-disk cache for advisories.
-- **No colours in automated output** — pass `--color=always` to force ANSI codes, or
-  `--color=never` (or set `NO_COLOR=1`) for plain text.
+- **No colours in automated output** — pass `--color=always` or
+  `--colour=always` to force ANSI codes, or `--color=never`/`--colour=never`
+  (or set `NO_COLOR=1`) for plain text.
 
 ## Limitations
 
