@@ -1,6 +1,6 @@
 # `licence_audit check`
 
-Report Hex package licence metadata and enforce the configured licence policy, exiting non-zero on violations.
+Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
 
 **Usage:**
 

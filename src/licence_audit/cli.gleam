@@ -112,9 +112,9 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   })
 }
 
-const root_help = "Report Hex package licence metadata. Use the `check` subcommand to enforce a licence policy."
+const root_help = "Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy."
 
-const check_help = "Report Hex package licence metadata and enforce the configured licence policy, exiting non-zero on violations."
+const check_help = "Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations."
 
 fn audit_command(
   check_mode check_mode: Bool,

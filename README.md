@@ -45,18 +45,36 @@ exits non-zero on a policy violation.
 
 ## Commands
 
-`licence_audit` has four subcommands plus the default report. The **full
-per-flag reference lives in [`docs/`](./docs/)** — one file per subcommand,
-generated straight from the CLI with:
+<!-- root -->
+Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy.
 
-```sh
-licence_audit gen-docs --mode=multi --out=docs --readme=README.md
+**Usage:**
+
+```
+licence_audit (check | sbom | update | vulns) [--flags]
 ```
 
-<!-- commands -->
-## Command Topics
+**Flags:**
 
-* [`licence_audit check`](docs/check.md) - Report Hex package licence metadata and enforce the configured licence policy, exiting non-zero on violations.
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache file location |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
+| `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+<!-- rootstop -->
+
+<!-- commands -->
+## Subcommands
+
+* [`licence_audit check`](docs/check.md) - Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
 * [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
 * [`licence_audit update`](docs/update.md) - Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
