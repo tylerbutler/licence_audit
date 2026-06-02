@@ -28,6 +28,7 @@ import gleam/option.{None, Some}
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/osv
 import licence_audit/sbom
 
 pub fn purl_for_hex_test() {
@@ -402,7 +403,73 @@ fn minimal_input() -> sbom.SbomInput {
     timestamp: "2026-05-24T22:51:00Z",
     package_metadata: package_metadata,
     scopes: dict.new(),
+    vulnerabilities: [],
   )
+}
+
+pub fn render_omits_vulnerabilities_when_absent_test() {
+  // A plain SBOM (no embedded vulns) must keep its existing shape.
+  let assert False =
+    string.contains(sbom.render(minimal_input()), "\"vulnerabilities\":")
+}
+
+pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
+  let vuln =
+    osv.Vulnerability(
+      id: "GHSA-aaaa-bbbb-cccc",
+      summary: "Cross-site scripting in example",
+      severity: osv.High,
+      scores: [
+        osv.Score(
+          kind: "CVSS_V3",
+          vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        ),
+      ],
+    )
+  let input =
+    sbom.SbomInput(..minimal_input(), vulnerabilities: [
+      sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
+    ])
+  let out = sbom.render(input)
+
+  assert string.contains(out, "\"vulnerabilities\":")
+  assert string.contains(out, "\"id\":\"GHSA-aaaa-bbbb-cccc\"")
+  // source points at the OSV advisory page.
+  assert string.contains(
+    out,
+    "\"url\":\"https://osv.dev/vulnerability/GHSA-aaaa-bbbb-cccc\"",
+  )
+  // The raw CVSS vector and mapped method are preserved in ratings.
+  assert string.contains(out, "\"method\":\"CVSSv31\"")
+  assert string.contains(out, "\"vector\":\"CVSS:3.1/AV:N")
+  assert string.contains(out, "\"severity\":\"high\"")
+  // affects references the component bom-ref (purl).
+  assert string.contains(out, "\"affects\":[{\"ref\":\"pkg:hex/birch@0.2.1\"}]")
+  assert string.contains(
+    out,
+    "\"description\":\"Cross-site scripting in example\"",
+  )
+}
+
+pub fn render_embeds_vulnerability_without_cvss_vector_test() {
+  // When OSV reports no machine-readable vector, ratings carry just the
+  // severity bucket (no method/vector keys).
+  let vuln =
+    osv.Vulnerability(
+      id: "CVE-2024-0002",
+      summary: "",
+      severity: osv.Medium,
+      scores: [],
+    )
+  let input =
+    sbom.SbomInput(..minimal_input(), vulnerabilities: [
+      sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
+    ])
+  let out = sbom.render(input)
+
+  assert string.contains(out, "\"id\":\"CVE-2024-0002\"")
+  assert string.contains(out, "\"severity\":\"medium\"")
+  assert !string.contains(out, "\"method\":")
 }
 
 pub fn render_emits_scope_property_test() {

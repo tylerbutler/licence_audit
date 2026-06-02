@@ -103,6 +103,20 @@ pub fn decode_vuln_response_extracts_severity_from_database_specific_test() {
   assert string.contains(vuln.summary, "Cross-site scripting")
 }
 
+pub fn decode_vuln_response_retains_cvss_scores_test() {
+  let assert Ok(vuln) =
+    osv.decode_vuln_body(
+      read_fixture("osv_vuln_high.json"),
+      "GHSA-aaaa-bbbb-cccc",
+    )
+  should.equal(vuln.scores, [
+    osv.Score(
+      kind: "CVSS_V3",
+      vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    ),
+  ])
+}
+
 pub fn decode_vuln_response_falls_back_to_details_for_summary_test() {
   let assert Ok(vuln) =
     osv.decode_vuln_body(read_fixture("osv_vuln_medium.json"), "CVE-2024-0001")

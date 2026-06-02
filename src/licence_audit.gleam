@@ -94,6 +94,8 @@ fn handle_action(action: cli.CliAction) -> Nil {
         run_sbom_options(
           options,
           hex.fetch_package_metadata_from_hex,
+          osv.query_batch_from_osv,
+          osv.fetch_vulnerability_from_osv,
           progress.enabled(options.verbosity, "sbom"),
         )
       io.print(output)
@@ -203,7 +205,13 @@ fn run_with_reporter(
       reporter,
     )
     Ok(glint.Out(cli.RunSbom(options))) ->
-      run_sbom_options(options, fetcher, reporter)
+      run_sbom_options(
+        options,
+        fetcher,
+        osv_batch_fetcher,
+        osv_detail_fetcher,
+        reporter,
+      )
     Ok(glint.Out(cli.RunVulns(options))) -> {
       let #(result, reporter) =
         run_vulns_options(
@@ -223,6 +231,8 @@ fn run_with_reporter(
 fn run_sbom_options(
   options: cli.SbomOptions,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
@@ -235,54 +245,187 @@ fn run_sbom_options(
       diagnostic(error.from_manifest_error(manifest_error)),
       reporter,
     )
-    Ok(sbom_manifest) -> {
-      let cache_mode = case options.no_cache {
-        True -> cache.Disabled
-        False -> cache.Enabled(path: options.cache_path)
-      }
-      let cache_handle = cache.open(cache_mode)
-      let cached_fetcher = cache.wrap(cache_handle, fetcher)
+    Ok(sbom_manifest) ->
+      run_sbom_for_manifest(
+        options,
+        sbom_manifest,
+        project_root,
+        fetcher,
+        osv_batch_fetcher,
+        osv_detail_fetcher,
+        reporter,
+      )
+  }
+}
 
-      let #(package_metadata, reporter) = case options.offline {
-        True -> #(dict.new(), reporter)
-        False -> fetch_package_metadata(sbom_manifest, cached_fetcher, reporter)
-      }
-      let _ = cache.close(cache_handle)
+/// Fetch package metadata, optionally query OSV for embedded vulnerabilities,
+/// then render the SBOM for an already-loaded manifest.
+fn run_sbom_for_manifest(
+  options: cli.SbomOptions,
+  sbom_manifest: manifest.SbomManifest,
+  project_root: String,
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  let cache_mode = case options.no_cache {
+    True -> cache.Disabled
+    False -> cache.Enabled(path: options.cache_path)
+  }
+  let cache_handle = cache.open(cache_mode)
+  let cached_fetcher = cache.wrap(cache_handle, fetcher)
 
-      let root = read_root_component(project_root)
-      let scopes =
-        manifest.sbom_scopes(
-          sbom_manifest,
-          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+  let #(package_metadata, reporter) = case options.offline {
+    True -> #(dict.new(), reporter)
+    False -> fetch_package_metadata(sbom_manifest, cached_fetcher, reporter)
+  }
+  let _ = cache.close(cache_handle)
+
+  // Optionally query OSV and embed the results as a CycloneDX vulnerabilities
+  // array. A failed OSV query fails the whole command, since the user
+  // explicitly asked for vulnerabilities.
+  let #(vulns_result, reporter) = case options.with_vulns {
+    False -> #(Ok([]), reporter)
+    True ->
+      gather_embedded_vulnerabilities(
+        sbom_manifest,
+        osv_batch_fetcher,
+        osv_detail_fetcher,
+        reporter,
+      )
+  }
+
+  case vulns_result {
+    Error(osv_error) -> #(diagnostic(error.from_osv_error(osv_error)), reporter)
+    Ok(vulnerabilities) ->
+      render_sbom(
+        options,
+        sbom_manifest,
+        project_root,
+        package_metadata,
+        vulnerabilities,
+        reporter,
+      )
+  }
+}
+
+/// Build the `SbomInput` from a loaded manifest plus the gathered package
+/// metadata and embedded vulnerabilities, render it, and write the output.
+fn render_sbom(
+  options: cli.SbomOptions,
+  sbom_manifest: manifest.SbomManifest,
+  project_root: String,
+  package_metadata: dict.Dict(String, hex.PackageMetadata),
+  vulnerabilities: List(sbom.EmbeddedVulnerability),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  let root = read_root_component(project_root)
+  let scopes =
+    manifest.sbom_scopes(
+      sbom_manifest,
+      resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+    )
+  // In reproducible mode the serial number is derived from the content and the
+  // timestamp comes from SOURCE_DATE_EPOCH, so the same dependency set always
+  // renders byte-identical output.
+  let #(serial_number, timestamp) = case options.reproducible {
+    True -> #(sbom.ContentDerivedSerial, sbom_uuid.reproducible_timestamp())
+    False -> #(
+      sbom.FixedSerial(sbom_uuid.serial_number()),
+      sbom_uuid.timestamp_now(),
+    )
+  }
+
+  let input =
+    sbom.SbomInput(
+      manifest: sbom_manifest,
+      root: root,
+      tool_version: tool_version(),
+      serial_number: serial_number,
+      timestamp: timestamp,
+      package_metadata: package_metadata,
+      scopes: scopes,
+      vulnerabilities: vulnerabilities,
+    )
+
+  case sbom.try_render(input) {
+    Error(err) -> #(diagnostic(err), reporter)
+    Ok(json_str) -> write_sbom_output(options.output, json_str, reporter)
+  }
+}
+
+/// Query OSV for every component with a purl and map the results into
+/// `sbom.EmbeddedVulnerability` values, one per unique advisory, each carrying
+/// the component `bom-ref`s (purls) it affects. Returns the OSV error on a
+/// failed batch query so the caller can fail the command.
+fn gather_embedded_vulnerabilities(
+  sbom_manifest: manifest.SbomManifest,
+  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+) -> #(Result(List(sbom.EmbeddedVulnerability), osv.Error), progress.Reporter) {
+  let #(purl_pairs, _errors) = build_purl_pairs(sbom_manifest)
+  let purls = list.map(purl_pairs, fn(pair) { pair.1 })
+  case purls {
+    [] -> #(Ok([]), reporter)
+    _ -> {
+      let reporter =
+        progress.detail(
+          reporter,
+          "Querying OSV.dev for "
+            <> int.to_string(list.length(purls))
+            <> " packages",
         )
-      // In reproducible mode the serial number is derived from the content and
-      // the timestamp comes from SOURCE_DATE_EPOCH, so the same dependency set
-      // always renders byte-identical output.
-      let #(serial_number, timestamp) = case options.reproducible {
-        True -> #(sbom.ContentDerivedSerial, sbom_uuid.reproducible_timestamp())
-        False -> #(
-          sbom.FixedSerial(sbom_uuid.serial_number()),
-          sbom_uuid.timestamp_now(),
-        )
-      }
-
-      let input =
-        sbom.SbomInput(
-          manifest: sbom_manifest,
-          root: root,
-          tool_version: tool_version(),
-          serial_number: serial_number,
-          timestamp: timestamp,
-          package_metadata: package_metadata,
-          scopes: scopes,
-        )
-
-      case sbom.try_render(input) {
-        Error(err) -> #(diagnostic(err), reporter)
-        Ok(json_str) -> write_sbom_output(options.output, json_str, reporter)
+      case batch_fetcher(purls) {
+        Error(osv_error) -> #(Error(osv_error), reporter)
+        Ok(entries) -> {
+          let id_to_refs = build_id_to_refs(purl_pairs, entries)
+          let unique_ids = unique_vuln_ids(entries)
+          let #(vulns, reporter) =
+            fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+          #(Ok(to_embedded_vulnerabilities(vulns, id_to_refs)), reporter)
+        }
       }
     }
   }
+}
+
+/// Pair each fetched advisory with the component `bom-ref`s (purls) it affects.
+fn to_embedded_vulnerabilities(
+  vulns: List(osv.Vulnerability),
+  id_to_refs: dict.Dict(String, List(String)),
+) -> List(sbom.EmbeddedVulnerability) {
+  list.map(vulns, fn(vuln) {
+    let affects = case dict.get(id_to_refs, vuln.id) {
+      Ok(refs) -> refs
+      Error(_) -> []
+    }
+    sbom.EmbeddedVulnerability(vuln: vuln, affects: affects)
+  })
+}
+
+/// Build a map from each OSV advisory id to the component `bom-ref`s (purls)
+/// it affects. Batch entries align positionally with `purl_pairs` because
+/// `osv.query_batch` preserves input order.
+fn build_id_to_refs(
+  purl_pairs: List(PurlPair),
+  entries: List(osv.BatchEntry),
+) -> dict.Dict(String, List(String)) {
+  list.zip(purl_pairs, entries)
+  |> list.fold(dict.new(), fn(acc, pair) {
+    let #(#(_entry, purl), batch_entry) = pair
+    list.fold(batch_entry.vuln_ids, acc, fn(inner, id) {
+      let existing = case dict.get(inner, id) {
+        Ok(refs) -> refs
+        Error(_) -> []
+      }
+      case list.contains(existing, purl) {
+        True -> inner
+        False -> dict.insert(inner, id, list.append(existing, [purl]))
+      }
+    })
+  })
 }
 
 fn fetch_package_metadata(
@@ -1086,6 +1229,7 @@ fn placeholder_vulnerability(id: String) -> osv.Vulnerability {
     id: id,
     summary: "(details unavailable)",
     severity: osv.UnknownSeverity,
+    scores: [],
   )
 }
 

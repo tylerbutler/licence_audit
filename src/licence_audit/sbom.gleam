@@ -5,6 +5,7 @@ import gleam/string
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/osv
 
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
@@ -115,6 +116,13 @@ pub type SerialNumber {
   ContentDerivedSerial
 }
 
+/// An OSV advisory paired with the component `bom-ref`s (purls) it affects,
+/// ready to be emitted into the CycloneDX `vulnerabilities` array. An empty
+/// list of these on `SbomInput` omits the array entirely.
+pub type EmbeddedVulnerability {
+  EmbeddedVulnerability(vuln: osv.Vulnerability, affects: List(String))
+}
+
 pub type SbomInput {
   SbomInput(
     manifest: manifest.SbomManifest,
@@ -124,6 +132,8 @@ pub type SbomInput {
     timestamp: String,
     package_metadata: Dict(String, hex.PackageMetadata),
     scopes: Dict(String, manifest.Scope),
+    /// Vulnerabilities to embed (CycloneDX `vulnerabilities`); empty omits it.
+    vulnerabilities: List(EmbeddedVulnerability),
   )
 }
 
@@ -144,8 +154,10 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
     }),
   )
   let dependencies = build_dependencies(sorted_manifest)
-  let serial = resolve_serial(input, components, dependencies)
-  let document = build_document(input, serial, components, dependencies)
+  let vulnerabilities = build_vulnerabilities(input.vulnerabilities)
+  let serial = resolve_serial(input, components, dependencies, vulnerabilities)
+  let document =
+    build_document(input, serial, components, dependencies, vulnerabilities)
   Ok(json.to_string(document))
 }
 
@@ -165,6 +177,7 @@ fn resolve_serial(
   input: SbomInput,
   components: List(json.Json),
   dependencies: List(json.Json),
+  vulnerabilities: List(json.Json),
 ) -> String {
   case input.serial_number {
     FixedSerial(value) -> value
@@ -172,6 +185,7 @@ fn resolve_serial(
       let content =
         json.to_string(json.preprocessed_array(components))
         <> json.to_string(json.preprocessed_array(dependencies))
+        <> json.to_string(json.preprocessed_array(vulnerabilities))
         <> json.to_string(root_component_json(input.root))
         <> input.tool_version
       sbom_uuid.serial_number_from_content(content)
@@ -551,8 +565,9 @@ fn build_document(
   serial: String,
   components: List(json.Json),
   dependencies: List(json.Json),
+  vulnerabilities: List(json.Json),
 ) -> json.Json {
-  json.object([
+  let base = [
     #("bomFormat", json.string("CycloneDX")),
     #("specVersion", json.string("1.6")),
     #("serialNumber", json.string(serial)),
@@ -610,5 +625,98 @@ fn build_document(
         ]),
       ]),
     ),
-  ])
+  ]
+  // Only emit `vulnerabilities` when vulnerabilities were embedded, so a plain
+  // SBOM keeps its existing shape.
+  let fields = case vulnerabilities {
+    [] -> base
+    _ ->
+      list.append(base, [
+        #("vulnerabilities", json.preprocessed_array(vulnerabilities)),
+      ])
+  }
+  json.object(fields)
+}
+
+/// Map each embedded advisory to a CycloneDX `vulnerabilities[]` entry,
+/// emitted in a stable order by advisory id for canonical output.
+fn build_vulnerabilities(
+  vulnerabilities: List(EmbeddedVulnerability),
+) -> List(json.Json) {
+  vulnerabilities
+  |> list.sort(by: fn(a, b) { string.compare(a.vuln.id, b.vuln.id) })
+  |> list.map(vulnerability_json)
+}
+
+fn vulnerability_json(embedded: EmbeddedVulnerability) -> json.Json {
+  let vuln = embedded.vuln
+  let source =
+    json.object([
+      #("name", json.string("OSV")),
+      #("url", json.string("https://osv.dev/vulnerability/" <> vuln.id)),
+    ])
+  let base = [
+    #("bom-ref", json.string("vuln:" <> vuln.id)),
+    #("id", json.string(vuln.id)),
+    #("source", source),
+    #("ratings", json.preprocessed_array(ratings_json(vuln))),
+  ]
+  let with_description = case vuln.summary {
+    "" -> base
+    summary -> list.append(base, [#("description", json.string(summary))])
+  }
+  let affects =
+    embedded.affects
+    |> list.sort(string.compare)
+    |> list.map(fn(ref) { json.object([#("ref", json.string(ref))]) })
+  json.object(
+    list.append(with_description, [
+      #("affects", json.preprocessed_array(affects)),
+    ]),
+  )
+}
+
+/// CycloneDX `ratings` for an advisory: one entry per CVSS vector reported by
+/// OSV (with `method` + `vector`), or a single severity-only entry when OSV
+/// gave no machine-readable vector. The advisory's resolved severity bucket is
+/// used as the `severity` in all cases, since OSV's `database_specific` label
+/// (when present) is authoritative.
+fn ratings_json(vuln: osv.Vulnerability) -> List(json.Json) {
+  let severity = json.string(osv.severity_to_string(vuln.severity))
+  let osv_source = json.object([#("name", json.string("OSV"))])
+  case vuln.scores {
+    [] -> [json.object([#("source", osv_source), #("severity", severity)])]
+    scores ->
+      list.map(scores, fn(score) {
+        json.object([
+          #("source", osv_source),
+          #("method", json.string(cvss_method(score.kind, score.vector))),
+          #("vector", json.string(score.vector)),
+          #("severity", severity),
+        ])
+      })
+  }
+}
+
+/// Map an OSV CVSS score to a CycloneDX `ratings.method` enum value. The vector
+/// string's version prefix is authoritative when present (CVSS v2 vectors carry
+/// no prefix); otherwise we fall back to the OSV score `type`.
+fn cvss_method(kind: String, vector: String) -> String {
+  let upper = string.uppercase(vector)
+  case
+    string.contains(upper, "CVSS:3.1"),
+    string.contains(upper, "CVSS:3.0"),
+    string.contains(upper, "CVSS:4.0")
+  {
+    True, _, _ -> "CVSSv31"
+    _, True, _ -> "CVSSv3"
+    _, _, True -> "CVSSv4"
+    _, _, _ ->
+      case string.uppercase(kind) {
+        "CVSS_V4" -> "CVSSv4"
+        "CVSS_V3" -> "CVSSv3"
+        "CVSS_V2" -> "CVSSv2"
+        _ -> "other"
+      }
+  }
 }

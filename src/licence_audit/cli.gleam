@@ -51,6 +51,7 @@ pub type SbomOptions {
     output: Option(String),
     offline: Bool,
     reproducible: Bool,
+    with_vulns: Bool,
   )
 }
 
@@ -395,6 +396,14 @@ fn reproducible_flag() -> glint.Flag(Bool) {
   )
 }
 
+fn sbom_vulns_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("vulns")
+  |> glint.flag_default(False)
+  |> glint.flag_help(
+    "Query OSV.dev and embed a CycloneDX vulnerabilities array (requires network; conflicts with --offline)",
+  )
+}
+
 const sbom_help = "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy."
 
 fn sbom_command() -> glint.Command(CliAction) {
@@ -408,6 +417,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   use output <- glint.flag(output_flag())
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
+  use with_vulns <- glint.flag(sbom_vulns_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -418,11 +428,16 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(output_value) = output(flags)
   let assert Ok(offline_value) = offline(flags)
   let assert Ok(reproducible_value) = reproducible(flags)
+  let assert Ok(with_vulns_value) = with_vulns(flags)
 
-  case verbosity(quiet, verbose) {
-    Error(verbosity_error) ->
+  case verbosity(quiet, verbose), offline_value && with_vulns_value {
+    Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    Ok(verbosity) ->
+    _, True ->
+      InvalidUsage(
+        "--vulns requires network access and cannot be combined with --offline",
+      )
+    Ok(verbosity), False ->
       RunSbom(SbomOptions(
         manifest_path: optional_string(manifest_path),
         project_root: None,
@@ -432,6 +447,7 @@ fn sbom_command() -> glint.Command(CliAction) {
         output: optional_string(output_value),
         offline: offline_value,
         reproducible: reproducible_value,
+        with_vulns: with_vulns_value,
       ))
   }
 }
