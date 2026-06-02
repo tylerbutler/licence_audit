@@ -14,3 +14,6 @@ jobs:
     uses: tylerbutler/actions/.github/workflows/auto-tag.yml@77f80621309fc7443b628802e08a815d41dd4b47 # ratchet:tylerbutler/actions/.github/workflows/auto-tag.yml@main
     with:
       create-release: true
+    secrets:
+      app-id: ${{ secrets.RELEASE_APP_ID }}
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
