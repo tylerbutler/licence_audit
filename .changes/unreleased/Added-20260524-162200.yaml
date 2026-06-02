@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  Release workflow now generates a CycloneDX SBOM for each release and attaches it as `licence_audit-<version>.cdx.json`. Both the release archives and the SBOM are signed via GitHub Artifact Attestations (Sigstore-backed), verifiable with `gh attestation verify <file> --repo tylerbutler/licence_audit`.
-time: 2026-05-24T16:22:00.000000000-07:00
