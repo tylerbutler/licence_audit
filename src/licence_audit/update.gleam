@@ -180,11 +180,6 @@ fn discover_licences(
       case result {
         Error(_) -> discover_licences(rest, fetcher, reporter, collected, True)
         Ok(metadata) -> {
-          let reporter =
-            progress.detail(
-              reporter,
-              "Fetched package metadata for " <> pkg.name,
-            )
           discover_licences(
             rest,
             fetcher,

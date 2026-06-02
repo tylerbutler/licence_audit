@@ -735,11 +735,6 @@ fn fetch_packages(
           )
         }
         Ok(metadata) -> {
-          let reporter =
-            progress.detail(
-              reporter,
-              "Fetched package metadata for " <> package.name,
-            )
           let status = status_for(check_mode, audit_policy, metadata.licences)
           fetch_packages(
             rest,

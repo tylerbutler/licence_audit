@@ -81,10 +81,13 @@ pub fn verbose_progress_includes_package_details_test() {
 
   should.equal(exit_code, 0)
   assert string.contains(output, "Package")
-  assert list.contains(
-    events,
-    progress.Event(progress.Detail, "Fetched package metadata for gleam_stdlib"),
-  )
+  assert !list.any(events, fn(event) {
+    event
+    == progress.Event(
+      progress.Detail,
+      "Fetched package metadata for gleam_stdlib",
+    )
+  })
   assert !string.contains(output, "Fetched package metadata for gleam_stdlib")
   assert !string.contains(output, "Licence audit completed")
 }

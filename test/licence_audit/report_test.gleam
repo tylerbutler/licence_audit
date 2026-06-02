@@ -27,7 +27,10 @@ pub fn audit_report_includes_status_column_test() {
       off,
     )
 
-  assert string.starts_with(output, "  Package       Version  Licences  Status")
+  assert string.starts_with(
+    output,
+    "Production dependencies\n  Package       Version  Licences  Status",
+  )
   assert string.contains(output, "✓ gleam_stdlib  1.0.0    MIT       allowed")
 }
 
@@ -50,7 +53,10 @@ pub fn default_report_omits_status_column_test() {
       off,
     )
 
-  assert string.starts_with(output, "  Package       Version  Licences")
+  assert string.starts_with(
+    output,
+    "Production dependencies\n  Package       Version  Licences",
+  )
   assert !string.contains(output, "Status")
   assert string.contains(output, "? gleam_stdlib  1.0.0    MIT")
 }
@@ -342,6 +348,94 @@ pub fn report_groups_prod_and_dev_sections_test() {
   assert string.contains(output, "Development dependencies")
   assert string.contains(output, "prod_pkg")
   assert string.contains(output, "dev_pkg")
+}
+
+pub fn report_renders_header_inside_each_dependency_group_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "prod_pkg",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+        report.Row(
+          package: "dev_pkg",
+          version: "2.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Dev,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_non_hex: 0),
+      report.Default,
+      off,
+    )
+
+  assert string.contains(output, "Production dependencies\n  Package")
+  assert string.contains(output, "Development dependencies\n  Package")
+}
+
+pub fn report_separates_dependency_groups_with_blank_line_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "prod_pkg",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+        report.Row(
+          package: "dev_pkg",
+          version: "2.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Dev,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_non_hex: 0),
+      report.Default,
+      off,
+    )
+
+  assert string.contains(
+    output,
+    "? prod_pkg  1.0.0    MIT     \n\nDevelopment dependencies",
+  )
+}
+
+pub fn report_leaves_blank_line_before_deferred_logs_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "prod_pkg",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_non_hex: 0),
+      report.Default,
+      off,
+    )
+
+  assert string.ends_with(output, "Skipped non-Hex packages: 0\n\n")
 }
 
 pub fn report_omits_empty_dev_section_test() {
