@@ -13,7 +13,6 @@ gleam_json = ">= 3.1.0 and < 4.0.0"
 gleam_http = ">= 4.3.0 and < 5.0.0"
 glint = { git = "https://github.com/tylerbutler/glint.git", ref = "glint-markdown" }
 glint_markdown = { git = "https://github.com/tylerbutler/glint_markdown.git", ref = "main" }
-birch = ">= 0.2.1 and < 1.0.0"
 gleam_community_ansi = ">= 1.5.0 and < 2.0.0"
 envoy = ">= 1.2.0 and < 2.0.0"
 slate = ">= 1.0.0 and < 2.0.0"

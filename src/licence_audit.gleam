@@ -56,7 +56,6 @@ pub fn main() -> Nil {
 fn handle_action(action: cli.CliAction) -> Nil {
   case action {
     cli.RunAudit(options) -> {
-      progress.configure(options.verbosity)
       let palette = color.resolve(options.color)
       let command = case options.check {
         True -> "check"
@@ -74,7 +73,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
       halt(exit_code)
     }
     cli.UpdateConfig(options) -> {
-      progress.configure(options.verbosity)
       let #(update_cmd.UpdateResult(exit_code, output), _) =
         run_update_options(
           options,
@@ -89,7 +87,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
       halt(1)
     }
     cli.RunSbom(options) -> {
-      progress.configure(options.verbosity)
       let #(RunResult(exit_code, output), reporter) =
         run_sbom_options(
           options,
@@ -101,7 +98,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
       halt(exit_code)
     }
     cli.RunVulns(options) -> {
-      progress.configure(options.verbosity)
       let palette = color.resolve(options.color)
       let #(RunResult(exit_code, output), reporter) =
         run_vulns_options(

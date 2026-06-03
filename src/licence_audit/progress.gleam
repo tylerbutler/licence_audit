@@ -1,15 +1,9 @@
-import birch as log
-import birch/formatter
-import birch/handler
-import birch/level
-import birch/level_formatter
-import birch/logger.{type Logger}
-import birch/record
 import gleam/bool
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
+import gleam_community/ansi
 import tty
 
 pub type Verbosity {
@@ -30,6 +24,23 @@ pub type EventKind {
 
 pub type Event {
   Event(kind: EventKind, message: String)
+}
+
+pub type Level {
+  DebugLevel
+  InfoLevel
+  WarnLevel
+  ErrorLevel
+  FatalLevel
+}
+
+pub type LogEntry {
+  LogEntry(
+    level: Level,
+    logger_name: String,
+    message: String,
+    metadata: List(#(String, String)),
+  )
 }
 
 pub type Reporter {
@@ -80,60 +91,22 @@ pub fn events(reporter: Reporter) -> List(Event) {
   list.reverse(reporter.events)
 }
 
-pub fn configure(verbosity: Verbosity) -> Nil {
-  let stderr_is_tty = tty.is_tty(tty.Stderr)
-  let use_color = stderr_color_enabled(tty.detect_color_level(tty.Stderr))
-  let format = case stderr_is_tty {
-    True -> tty_record_formatter(use_color)
-    False -> standard_record_formatter(use_color)
-  }
-  let stderr_handler =
-    handler.new(name: "progress", write: io.println_error, format: format)
-  let threshold = case verbosity {
-    Verbose -> level.Debug
-    Quiet | Normal -> level.Info
-  }
-
-  log.configure([
-    log.config_level(threshold),
-    log.config_handlers([stderr_handler]),
-  ])
-}
-
-pub fn minimal_level_formatter() -> level_formatter.LevelFormatter {
-  level_formatter.custom_level_formatter(
-    fn(lvl, _use_color) {
-      let label = level.to_string_lowercase(lvl)
-      case lvl {
-        level.Info -> ""
-        level.Warn -> "⚠ " <> label
-        level.Err | level.Fatal -> "✖ " <> label
-        _ -> label
-      }
-    },
-    0,
-  )
-}
-
 pub fn stderr_color_enabled(level: tty.ColorLevel) -> Bool {
   level != tty.NoColor
 }
 
-fn tty_record_formatter(use_color: Bool) -> formatter.Formatter {
-  fn(record) { format_tty_record(record, use_color) }
+pub fn format_level(level: Level, _use_color: Bool) -> String {
+  case level {
+    InfoLevel -> ""
+    DebugLevel -> "debug"
+    WarnLevel -> "⚠ warn"
+    ErrorLevel -> "✖ error"
+    FatalLevel -> "✖ fatal"
+  }
 }
 
-fn standard_record_formatter(use_color: Bool) -> formatter.Formatter {
-  fn(record) { format_standard_record(record, use_color) }
-}
-
-pub fn format_tty_record(record: record.LogRecord, use_color: Bool) -> String {
-  let level =
-    level_formatter.format_level_padded(
-      minimal_level_formatter(),
-      record.level,
-      use_color,
-    )
+pub fn format_tty_record(record: LogEntry, use_color: Bool) -> String {
+  let level = format_level(record.level, use_color)
 
   let metadata = format_metadata_visible(record.metadata, use_color)
   let metadata_suffix = case metadata {
@@ -147,16 +120,8 @@ pub fn format_tty_record(record: record.LogRecord, use_color: Bool) -> String {
   }
 }
 
-pub fn format_standard_record(
-  record: record.LogRecord,
-  use_color: Bool,
-) -> String {
-  let level =
-    level_formatter.format_level_padded(
-      level_formatter.simple_formatter(),
-      record.level,
-      use_color,
-    )
+pub fn format_standard_record(record: LogEntry, use_color: Bool) -> String {
+  let level = format_standard_level(record.level, use_color)
   let metadata = format_metadata_visible(record.metadata, use_color)
   let metadata_suffix = case metadata {
     "" -> ""
@@ -171,19 +136,61 @@ pub fn format_standard_record(
   <> metadata_suffix
 }
 
+fn format_standard_level(level: Level, use_color: Bool) -> String {
+  let label = case level {
+    DebugLevel -> "DEBUG"
+    InfoLevel -> "INFO"
+    WarnLevel -> "WARN"
+    ErrorLevel -> "ERROR"
+    FatalLevel -> "FATAL"
+  }
+  let colored = case use_color {
+    True ->
+      case level {
+        DebugLevel -> ansi.blue(label)
+        InfoLevel -> ansi.cyan(label)
+        WarnLevel -> ansi.yellow(label)
+        ErrorLevel -> ansi.red(label)
+        FatalLevel -> ansi.red(label)
+      }
+    False -> label
+  }
+  pad_to_width(colored, label, 5)
+}
+
+fn pad_to_width(text: String, plain_text: String, width: Int) -> String {
+  text
+  <> string.repeat(" ", times: int.max(width - string.length(plain_text), 0))
+}
+
 fn format_metadata_visible(
-  metadata: record.Metadata,
+  metadata: List(#(String, String)),
   use_color: Bool,
 ) -> String {
   metadata
   |> list.filter(fn(pair) { !string.starts_with(pair.0, "_") })
-  |> formatter.format_metadata_colored(use_color)
+  |> list.map(fn(pair) {
+    let formatted = pair.0 <> "=" <> escape_metadata_value(pair.1)
+    case use_color {
+      True -> ansi.cyan(formatted)
+      False -> formatted
+    }
+  })
+  |> string.join(" ")
+}
+
+fn escape_metadata_value(value: String) -> String {
+  use <- bool.guard(
+    when: string.contains(value, " ") || string.contains(value, "="),
+    return: value,
+  )
+  "\"" <> value <> "\""
 }
 
 pub fn phase(reporter: Reporter, message: String) -> Reporter {
   use <- bool.guard(when: !should_log(reporter), return: reporter)
   case reporter.emit {
-    True -> log.logger_info(logger_for(reporter), message, [])
+    True -> emit(reporter, InfoLevel, message, [])
     False -> Nil
   }
   record(reporter, Phase, message)
@@ -193,7 +200,7 @@ pub fn detail(reporter: Reporter, message: String) -> Reporter {
   case reporter.enabled, reporter.verbosity {
     True, Verbose -> {
       case reporter.emit {
-        True -> log.logger_debug(logger_for(reporter), message, [])
+        True -> emit(reporter, DebugLevel, message, [])
         False -> Nil
       }
       record(reporter, Detail, message)
@@ -207,7 +214,7 @@ pub fn package_count(reporter: Reporter, count: Int) -> Reporter {
   let message = "Checking Hex package metadata"
   case reporter.emit {
     True ->
-      log.logger_info(logger_for(reporter), message, [
+      emit(reporter, InfoLevel, message, [
         #("packages", int.to_string(count)),
       ])
     False -> Nil
@@ -218,7 +225,7 @@ pub fn package_count(reporter: Reporter, count: Int) -> Reporter {
 pub fn success(reporter: Reporter, message: String) -> Reporter {
   use <- bool.guard(when: !should_log(reporter), return: reporter)
   case reporter.emit {
-    True -> log.logger_info(logger_for(reporter), message, [])
+    True -> emit(reporter, InfoLevel, message, [])
     False -> Nil
   }
   record(reporter, Success, message)
@@ -227,7 +234,7 @@ pub fn success(reporter: Reporter, message: String) -> Reporter {
 pub fn fail(reporter: Reporter, message: String) -> Reporter {
   use <- bool.guard(when: !should_log(reporter), return: reporter)
   case reporter.emit {
-    True -> log.logger_warn(logger_for(reporter), message, [])
+    True -> emit(reporter, WarnLevel, message, [])
     False -> Nil
   }
   record(reporter, Failure, message)
@@ -236,7 +243,7 @@ pub fn fail(reporter: Reporter, message: String) -> Reporter {
 pub fn warn(reporter: Reporter, message: String) -> Reporter {
   use <- bool.guard(when: !should_log(reporter), return: reporter)
   case reporter.emit {
-    True -> log.logger_warn(logger_for(reporter), message, [])
+    True -> emit(reporter, WarnLevel, message, [])
     False -> Nil
   }
   record(reporter, Warning, message)
@@ -272,9 +279,8 @@ pub fn defer_error(reporter: Reporter, message: String) -> Reporter {
 pub fn flush(reporter: Reporter) -> Reporter {
   case reporter.emit {
     True -> {
-      let lgr = logger_for(reporter)
       list.each(list.reverse(reporter.deferred), fn(event) {
-        emit_event(lgr, event)
+        emit_event(reporter, event)
       })
     }
     False -> Nil
@@ -286,19 +292,36 @@ fn queue(reporter: Reporter, kind: EventKind, message: String) -> Reporter {
   Reporter(..reporter, deferred: [Event(kind, message), ..reporter.deferred])
 }
 
-fn logger_for(reporter: Reporter) -> Logger {
-  log.new(reporter.command)
+fn emit(
+  reporter: Reporter,
+  level: Level,
+  message: String,
+  metadata: List(#(String, String)),
+) -> Nil {
+  let entry =
+    LogEntry(
+      level: level,
+      logger_name: reporter.command,
+      message: message,
+      metadata: metadata,
+    )
+  let use_color = stderr_color_enabled(tty.detect_color_level(tty.Stderr))
+  case tty.is_tty(tty.Stderr) {
+    True -> format_tty_record(entry, use_color)
+    False -> format_standard_record(entry, use_color)
+  }
+  |> io.println_error
 }
 
-fn emit_event(lgr: Logger, event: Event) -> Nil {
+fn emit_event(reporter: Reporter, event: Event) -> Nil {
   case event.kind {
-    Error -> log.logger_error(lgr, event.message, [])
-    Warning -> log.logger_warn(lgr, event.message, [])
-    Failure -> log.logger_warn(lgr, event.message, [])
-    Success -> log.logger_info(lgr, event.message, [])
-    Phase -> log.logger_info(lgr, event.message, [])
-    PackageCount -> log.logger_info(lgr, event.message, [])
-    Detail -> log.logger_debug(lgr, event.message, [])
+    Error -> emit(reporter, ErrorLevel, event.message, [])
+    Warning -> emit(reporter, WarnLevel, event.message, [])
+    Failure -> emit(reporter, WarnLevel, event.message, [])
+    Success -> emit(reporter, InfoLevel, event.message, [])
+    Phase -> emit(reporter, InfoLevel, event.message, [])
+    PackageCount -> emit(reporter, InfoLevel, event.message, [])
+    Detail -> emit(reporter, DebugLevel, event.message, [])
   }
 }
 
