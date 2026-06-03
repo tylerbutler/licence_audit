@@ -30,8 +30,21 @@ pub type Severity {
   UnknownSeverity
 }
 
+/// A single CVSS score as reported by OSV's `severity[]` array. `kind` is the
+/// OSV score type (e.g. "CVSS_V3"); `vector` is the raw CVSS vector string
+/// (e.g. "CVSS:3.1/AV:N/..."). Retained so callers can surface the full vector
+/// rather than only the coarse `Severity` bucket derived from it.
+pub type Score {
+  Score(kind: String, vector: String)
+}
+
 pub type Vulnerability {
-  Vulnerability(id: String, summary: String, severity: Severity)
+  Vulnerability(
+    id: String,
+    summary: String,
+    severity: Severity,
+    scores: List(Score),
+  )
 }
 
 /// A single per-purl result from `/v1/querybatch`.
@@ -270,10 +283,10 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
     UnknownSeverity,
     database_specific_severity_decoder(),
   )
-  use severity_vectors <- decode.optional_field(
+  use scores <- decode.optional_field(
     "severity",
     [],
-    decode.list(of: severity_score_decoder()),
+    decode.list(of: score_decoder()),
   )
 
   let resolved_summary = case summary {
@@ -282,7 +295,10 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
   }
 
   let severity = case database_severity {
-    UnknownSeverity -> highest_severity_from_vectors(severity_vectors)
+    UnknownSeverity ->
+      highest_severity_from_vectors(
+        list.map(scores, fn(score) { severity_from_cvss_vector(score.vector) }),
+      )
     known -> known
   }
 
@@ -290,6 +306,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
     id: id,
     summary: resolved_summary,
     severity: severity,
+    scores: scores,
   ))
 }
 
@@ -298,9 +315,10 @@ fn database_specific_severity_decoder() -> decode.Decoder(Severity) {
   decode.success(parse_severity_label(raw))
 }
 
-fn severity_score_decoder() -> decode.Decoder(Severity) {
-  use score <- decode.optional_field("score", "", decode.string)
-  decode.success(severity_from_cvss_vector(score))
+fn score_decoder() -> decode.Decoder(Score) {
+  use kind <- decode.optional_field("type", "", decode.string)
+  use vector <- decode.optional_field("score", "", decode.string)
+  decode.success(Score(kind:, vector:))
 }
 
 fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {

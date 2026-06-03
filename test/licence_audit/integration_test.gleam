@@ -412,6 +412,48 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
   let assert True = license_blocks <= 2
 }
 
+pub fn sbom_subcommand_with_vulns_embeds_vulnerabilities_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with_clients(
+      [
+        "sbom",
+        "--vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+      ],
+      sbom_fetcher,
+      one_vuln_batch,
+      one_vuln_detail,
+    )
+
+  should.equal(exit_code, 0)
+  // stdout is pretty-printed, so keys are followed by ": ".
+  assert string.contains(output, "\"vulnerabilities\": [")
+  assert string.contains(output, "\"id\": \"CVE-2024-0001\"")
+  assert string.contains(
+    output,
+    "\"url\": \"https://osv.dev/vulnerability/CVE-2024-0001\"",
+  )
+  assert string.contains(output, "\"method\": \"CVSSv31\"")
+  // The advisory affects the Hex component's bom-ref (purl).
+  assert string.contains(output, "pkg:hex/gleam_stdlib@1.0.0")
+}
+
+pub fn sbom_subcommand_vulns_conflicts_with_offline_test() {
+  let result =
+    licence_audit.run_with(
+      [
+        "sbom",
+        "--vulns",
+        "--offline",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+      ],
+      sbom_fetcher,
+    )
+
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "--offline")
+}
+
 fn one_vuln_batch(
   purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
@@ -423,11 +465,19 @@ fn one_vuln_batch(
 }
 
 fn one_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
-  Ok(osv.Vulnerability(
-    id: "CVE-2024-0001",
-    summary: "example",
-    severity: osv.High,
-  ))
+  Ok(
+    osv.Vulnerability(
+      id: "CVE-2024-0001",
+      summary: "example",
+      severity: osv.High,
+      scores: [
+        osv.Score(
+          kind: "CVSS_V3",
+          vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        ),
+      ],
+    ),
+  )
 }
 
 pub fn vulns_report_labels_scope_test() {

@@ -122,6 +122,7 @@ licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # compact JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
 licence_audit sbom --reproducible      # deterministic output (see below)
+licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
 ```
 
 `sbom` emits a [CycloneDX 1.6](https://cyclonedx.org/) document. Every locked
@@ -140,6 +141,15 @@ synthesised.
 become a clean purl (path deps, non-GitHub git deps); only `hex` and GitHub
 `git` are supported. `--offline` skips licence fetches but still validates purls.
 (Contrast with `vulns`, which silently skips unsupported sources.)
+
+**Embedded vulnerabilities.** `--vulns` queries OSV.dev (the same pipeline as the
+standalone `vulns` command) and embeds the results into the document's CycloneDX
+`vulnerabilities` array — one entry per advisory, each with its `id`, an `OSV`
+source link, ratings (the raw CVSS vector and method when OSV reports one,
+otherwise the severity bucket), and an `affects` list referencing the affected
+components by `bom-ref`/purl. The result is a single VEX-style document that
+tools like [Dependency-Track](https://dependencytrack.org/) can ingest directly.
+Because it needs network access, `--vulns` cannot be combined with `--offline`.
 
 **Reproducible output.** By default the `serialNumber` is random and the
 `timestamp` is wall-clock, so two runs never byte-match. `--reproducible` makes
