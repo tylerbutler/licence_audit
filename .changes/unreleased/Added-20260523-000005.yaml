@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  Interactive licence picker (`licence_audit update`) with tri-state selection: every discovered licence can be set to **Allow** (`+`), **Deny** (`-`), or **Ignore** (` `). Ignored licences are omitted from the written policy. Hotkeys: `space` cycles, `a`/`d`/`i` bulk-set.
-time: 2026-05-23T00:00:05.000000000-07:00

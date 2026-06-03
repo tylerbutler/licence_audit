@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  Initial release of `licence_audit`, a CLI for auditing the licences of locked Hex dependencies in Gleam projects. Running `licence_audit` prints an inventory of the full resolved dependency tree from `manifest.toml`, including each package's locked version and declared licences fetched from Hex. Non-Hex dependencies (git, path, etc.) appear in the tree but their licences are not evaluated; they are counted in the `Skipped non-Hex packages` summary, matching the conservative behaviour of `cargo audit` / `cargo deny`.
-time: 2026-05-23T00:00:00.000000000-07:00

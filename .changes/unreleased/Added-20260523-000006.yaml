@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  Requires Erlang/OTP 28.x or newer. Earlier OTP releases do not reattach stdin in raw mode, which prevents `licence_audit update` from receiving keyboard input.
-time: 2026-05-23T00:00:06.000000000-07:00

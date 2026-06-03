@@ -109,14 +109,17 @@ pub fn format(
     )
 
   doc.concat([
-    header(widths, mode),
-    doc.line,
-    doc.join(sections, with: doc.line),
+    doc.join(sections, with: blank_line()),
     doc.line,
     summary_line,
     doc.line,
+    doc.line,
   ])
   |> doc.to_string(glam_line_width)
+}
+
+fn blank_line() -> Document {
+  doc.concat([doc.line, doc.line])
 }
 
 fn section_doc(
@@ -128,7 +131,13 @@ fn section_doc(
 ) -> Document {
   let tree = build_tree(rows)
   let body = tree_text(tree, widths, mode, palette)
-  doc.concat([doc.from_string(title), doc.line, body])
+  doc.concat([
+    doc.from_string(title),
+    doc.line,
+    header(widths, mode),
+    doc.line,
+    body,
+  ])
 }
 
 fn header(widths: Widths, mode: Mode) -> Document {

@@ -1,13 +1,10 @@
 # licence_audit
 
-[![CI](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/ci.yml)
-[![Publish](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml/badge.svg)](https://github.com/tylerbutler/licence_audit/actions/workflows/publish.yml)
-
 A small CLI that audits the licences used by your Gleam project's locked
 dependencies. Point it at a project, and it will:
 
 - 📋 **report** the licences declared by your locked Hex packages
-- 🚦 **enforce** a licence allow/deny policy in CI
+- 🚦 **preview or enforce** a licence allow/deny policy
 - 📦 **generate** a CycloneDX SBOM for your dependency tree
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
@@ -26,35 +23,9 @@ platform with a compatible Erlang/OTP runtime.
 
 To build from source, see [DEV.md](./DEV.md).
 
-### In GitHub Actions
-
-Use the shared setup action. For a plain `manifest.toml` it can set up
-Erlang/OTP 28 for you:
-
-```yaml
-- uses: tylerbutler/actions/setup-licence-audit@v1
-  with:
-    version: v0.1.0
-- run: licence_audit check
-```
-
-For a Gleam project, set up Gleam first (so `manifest.toml` exists) and skip the
-duplicate Beam setup:
-
-```yaml
-- uses: tylerbutler/actions/setup-gleam@v1
-- uses: tylerbutler/actions/setup-licence-audit@v1
-  with:
-    version: v0.1.0
-    setup-beam: "false"
-- run: licence_audit check
-```
-
-A complete CI workflow is shown under [Use it in CI](#use-it-in-ci).
-
 ## Quick start
 
-The typical workflow is **inspect → capture a policy → enforce it in CI**:
+The typical workflow is **inspect → capture a policy → enforce it when needed**:
 
 ```sh
 # 1. Make sure manifest.toml exists, then see what's in your tree
@@ -65,7 +36,7 @@ licence_audit
 #    Writes [tools.licence_audit] into gleam.toml.
 licence_audit update
 
-# 3. Fail the build on any violation
+# 3. Fail on any violation
 licence_audit check
 ```
 
@@ -74,18 +45,36 @@ exits non-zero on a policy violation.
 
 ## Commands
 
-`licence_audit` has four subcommands plus the default report. The **full
-per-flag reference lives in [`docs/`](./docs/)** — one file per subcommand,
-generated straight from the CLI with:
+<!-- root -->
+Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy.
 
-```sh
-licence_audit gen-docs --mode=multi --out=docs --readme=README.md
+**Usage:**
+
+```
+licence_audit (check | sbom | update | vulns) [--flags]
 ```
 
-<!-- commands -->
-## Command Topics
+**Flags:**
 
-* [`licence_audit check`](docs/check.md) - Report Hex package licence metadata and enforce the configured licence policy, exiting non-zero on violations.
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache file location |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
+| `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+<!-- rootstop -->
+
+<!-- commands -->
+## Subcommands
+
+* [`licence_audit check`](docs/check.md) - Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
 * [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
 * [`licence_audit update`](docs/update.md) - Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
@@ -122,6 +111,7 @@ violation. Pass `--config=other.toml` to read policy from a different file (it
 must still have a `[tools.licence_audit]` section) or `--ignore-config` to use
 only CLI flags.
 
+> [!TIP]
 > `--allow`/`--deny` also work on the bare command — they switch the report into
 > a policy *preview* mode but still exit `0`. Use `check` when you want failures.
 
@@ -166,13 +156,13 @@ Because it needs network access, `--vulns` cannot be combined with `--offline`.
 the `serialNumber` a content hash and takes the timestamp from
 [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
 (falling back to the Unix epoch) — making it practical to commit the SBOM and
-diff it in CI to catch dependency or licence drift.
+diff it over time to catch dependency or licence drift.
 
-**Validation.** CI validates the generated SBOM against the official CycloneDX
-schema. Three `just` tasks (tools installed via `mise`) cover this:
+**Validation.** The repository validates the generated SBOM against the official
+CycloneDX schema. Three `just` tasks (tools installed via `mise`) cover this:
 
 ```sh
-just sbom-validate   # schema validation; the CI gate
+just sbom-validate   # schema validation
 just sbom-score      # quality score (local only, informational)
 just sbom-check      # both
 ```
@@ -180,7 +170,7 @@ just sbom-check      # both
 Validation runs `cyclonedx-cli`, `sbom-utility`, and cdxgen's `cdx-validate`.
 Scoring (`sbom-tools`, `sbomqs`) is local-only; note `sbomqs` under-counts
 licences on CycloneDX 1.6, which is why schema validation — not any single
-quality score — is the CI gate.
+quality score — is the strict validation check.
 
 ## Check for vulnerabilities
 
@@ -197,7 +187,8 @@ skipped and listed at the end. Severity comes from OSV's
 `database_specific.severity`, falling back to the CVSS vector. Advisories are
 fetched over HTTPS and are **not** cached.
 
-To make vulnerabilities a CI gate, add `--vulns` to `check`:
+To fail when vulnerabilities meet a severity threshold, add `--vulns` to
+`check`:
 
 ```sh
 licence_audit check --vulns
@@ -207,7 +198,7 @@ licence_audit check --vulns --vuln-severity=medium
 This runs the licence audit, then queries OSV.dev and fails when any advisory's
 severity meets or exceeds the threshold (`low`/`medium`/`high` (default)/
 `critical`). Unknown-severity advisories are reported but never fail. It also
-fails if OSV.dev can't be reached, since the gate couldn't complete. The
+fails if OSV.dev can't be reached, since the vulnerability check couldn't complete. The
 threshold can also live in config (CLI flags win):
 
 ```toml
@@ -241,15 +232,15 @@ and prefixed with a status glyph:
 
 The default report shows `Package`, `Version`, `Licences`. Once a policy is in
 scope (config, `--allow`/`--deny`, or `check`) a `Status` column appears. Colour
-is controlled by `--color` (`auto`/`always`/`never`); `auto` honours
-`NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
+is controlled by `--color`/`--colour` (`auto`/`always`/`never`); `auto`
+honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 
 **Exit codes.**
 
 | Code | Meaning |
 | ---- | ------- |
 | `0` | Success (the default report uses `0` even when statuses show denials). |
-| `1` | Enforced gate failed (`check` violation, or `check --vulns` advisory at/above threshold), invalid usage, or `update` couldn't run non-interactively. |
+| `1` | Enforced check failed (`check` violation, or `check --vulns` advisory at/above threshold), invalid usage, or `update` couldn't run non-interactively. |
 | `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
 | `130` | `update` cancelled by the user. |
 
@@ -265,7 +256,33 @@ Override with `--cache-path=PATH` or bypass with `--no-cache`. Cache failures
 are non-fatal — they surface as stderr warnings and never block an audit. OSV
 advisories are not cached.
 
-## Use it in CI
+## Troubleshooting
+
+- **`manifest.toml not found`** — run `gleam deps download` first; the manifest
+  is a side effect of dependency resolution.
+- **Hex fetch fails or times out** — Hex may be rate-limiting; retry, or let
+  cached entries be reused (don't pass `--no-cache`).
+- **`sbom` fails with "unsupported source"** — a dep resolves to a path or
+  non-GitHub git source. `sbom` needs a clean purl for every dep; `--offline`
+  doesn't bypass this.
+- **OSV.dev unreachable** — `vulns` and `check --vulns` need network access to
+  `api.osv.dev`; there's no on-disk cache for advisories.
+- **No colours in automated output** — pass `--color=always` or
+  `--colour=always` to force ANSI codes, or `--color=never`/`--colour=never`
+  (or set `NO_COLOR=1`) for plain text.
+
+## Limitations
+
+- Audits only locked **Hex** packages in `manifest.toml`; non-Hex deps are
+  skipped and counted in the summary.
+- Uses Hex *package* metadata for licences, not per-release metadata.
+- The default command reports only — run `check` to enforce policy, and add
+  `--vulns` to fail on vulnerabilities.
+
+## Optional GitHub Actions usage
+
+If you want to wire `licence_audit` into GitHub Actions, use the shared setup
+action. For a Gleam project, set up Gleam first so `manifest.toml` exists:
 
 ```yaml
 name: licence audit
@@ -287,28 +304,6 @@ jobs:
           setup-beam: "false"
       - run: licence_audit check
 ```
-
-## Troubleshooting
-
-- **`manifest.toml not found`** — run `gleam deps download` first; the manifest
-  is a side effect of dependency resolution.
-- **Hex fetch fails or times out** — Hex may be rate-limiting; retry, or let
-  cached entries be reused (don't pass `--no-cache`).
-- **`sbom` fails with "unsupported source"** — a dep resolves to a path or
-  non-GitHub git source. `sbom` needs a clean purl for every dep; `--offline`
-  doesn't bypass this.
-- **OSV.dev unreachable** — `vulns` and `check --vulns` need network access to
-  `api.osv.dev`; there's no on-disk cache for advisories.
-- **No colours in CI** — pass `--color=always` to force ANSI codes, or
-  `--color=never` (or set `NO_COLOR=1`) for plain text.
-
-## Limitations
-
-- Audits only locked **Hex** packages in `manifest.toml`; non-Hex deps are
-  skipped and counted in the summary.
-- Uses Hex *package* metadata for licences, not per-release metadata.
-- The default command reports only — run `check` to enforce policy, and add
-  `--vulns` to gate on vulnerabilities.
 
 ## Contributing
 

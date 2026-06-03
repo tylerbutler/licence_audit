@@ -1,6 +1,7 @@
 import gleam/bool
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import glint
 import glint/constraint
 import glint_markdown/cli as glint_markdown_cli
@@ -100,14 +101,21 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   list.map(args, fn(arg) {
     case arg {
       "-h" -> "--help"
-      other -> other
+      "--colour" -> "--color"
+      other -> {
+        case string.starts_with(other, "--colour=") {
+          True ->
+            "--color=" <> string.drop_start(other, string.length("--colour="))
+          False -> other
+        }
+      }
     }
   })
 }
 
-const root_help = "Report Hex package licence metadata. Use the `check` subcommand to enforce a licence policy."
+const root_help = "Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy."
 
-const check_help = "Report Hex package licence metadata and enforce the configured licence policy, exiting non-zero on violations."
+const check_help = "Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations."
 
 fn audit_command(
   check_mode check_mode: Bool,
@@ -264,7 +272,9 @@ fn verbose_flag() -> glint.Flag(Bool) {
 fn color_flag() -> glint.Flag(String) {
   glint.string_flag("color")
   |> glint.flag_default("auto")
-  |> glint.flag_help("Colorize output: auto|always|never (default auto)")
+  |> glint.flag_help(
+    "Colorize output: auto|always|never (default auto; alias: --colour)",
+  )
 }
 
 fn no_cache_flag() -> glint.Flag(Bool) {

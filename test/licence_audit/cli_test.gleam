@@ -170,6 +170,7 @@ pub fn help_text_includes_usage_and_supported_options_test() {
     "--quiet",
     "--verbose",
     "--color",
+    "--colour",
     "--no-cache",
     "--cache-path",
     "--help",
@@ -275,8 +276,20 @@ pub fn color_always_sets_always_mode_test() {
   should.equal(options.color, color.Always)
 }
 
+pub fn colour_alias_always_sets_always_mode_test() {
+  let options = parse_options(["--colour=always"])
+
+  should.equal(options.color, color.Always)
+}
+
 pub fn color_never_sets_never_mode_test() {
   let options = parse_options(["--color=never"])
+
+  should.equal(options.color, color.Never)
+}
+
+pub fn update_subcommand_accepts_colour_alias_test() {
+  let options = parse_update_options(["update", "--colour=never"])
 
   should.equal(options.color, color.Never)
 }

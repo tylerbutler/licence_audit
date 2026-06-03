@@ -19,7 +19,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build escript
-        run: mise exec -- gleam run -m gleescript
+        run: just build-strict
 
       - name: Generate CycloneDX SBOM
         env:
@@ -58,6 +58,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
 
@@ -75,7 +76,7 @@ jobs:
             dist/*.zip
 
       - name: Attest SBOM for release archives
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # ratchet:actions/attest-sbom@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # ratchet:actions/attest@v4
         with:
           subject-path: |
             dist/*.tar.gz

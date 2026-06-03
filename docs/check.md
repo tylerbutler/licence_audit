@@ -1,6 +1,6 @@
 # `licence_audit check`
 
-Report Hex package licence metadata and enforce the configured licence policy, exiting non-zero on violations.
+Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
 
 **Usage:**
 
@@ -14,7 +14,7 @@ licence_audit check [--flags]
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
 | `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache file location |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto) |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |

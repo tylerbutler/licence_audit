@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  `licence_audit check` now accepts `--vulns` to fold OSV.dev vulnerability checking into the policy gate, and `--vuln-severity` (or the `vuln_severity` config key) to set the failure threshold (`low`, `medium`, `high`, or `critical`; default `high`). The combined `check` exits non-zero when any advisory meets or exceeds the threshold, in addition to existing licence-policy failures.
-time: 2026-05-24T18:00:00.000000000-07:00
