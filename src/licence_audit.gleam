@@ -1,5 +1,4 @@
 import argv
-import glam/doc.{type Document}
 import gleam/bool
 import gleam/dict
 import gleam/int
@@ -39,8 +38,6 @@ type FetchResult {
     reporter: progress.Reporter,
   )
 }
-
-const output_line_width = 100
 
 pub fn main() -> Nil {
   case glint.execute(cli.app(), cli.normalize_args(argv.load().arguments)) {
@@ -1251,72 +1248,63 @@ fn format_vulns_output(
         <> string.join(pkgs, with: ", ")
     }
 
-  let summary_doc = doc.from_string(summary)
-
   let document = case affected {
     [] ->
-      doc.join(
-        [
-          doc.from_string("No known vulnerabilities reported by OSV.dev."),
-          summary_doc,
-        ],
-        with: doc.line,
+      string.join(
+        ["No known vulnerabilities reported by OSV.dev.", summary],
+        with: "\n",
       )
     _ -> {
-      let body_doc =
+      let body =
         list.map(affected, fn(row) { format_vuln_row(row, scopes, palette) })
-        |> doc.join(with: doc.line)
-      doc.join(
+        |> string.join(with: "\n")
+      string.join(
         [
-          doc.from_string("Vulnerabilities reported by OSV.dev:"),
+          "Vulnerabilities reported by OSV.dev:",
           horizontal_rule(),
-          body_doc,
+          body,
           horizontal_rule(),
-          summary_doc,
+          summary,
         ],
-        with: doc.line,
+        with: "\n",
       )
     }
   }
 
-  render_document(doc.append(to: document, doc: doc.line))
+  document <> "\n"
 }
 
 fn format_vuln_row(
   row: VulnRow,
   scopes: dict.Dict(String, manifest.Scope),
   palette: color.Palette,
-) -> Document {
+) -> String {
   let scope = case dict.get(scopes, row.package.name) {
     Ok(scope) -> scope
     Error(_) -> manifest.Prod
   }
   let pkg_line =
-    doc.from_string(
-      "● "
-      <> row.package.name
-      <> " "
-      <> row.package.version
-      <> "  ["
-      <> manifest.scope_label(scope)
-      <> "]",
-    )
+    "● "
+    <> row.package.name
+    <> " "
+    <> row.package.version
+    <> "  ["
+    <> manifest.scope_label(scope)
+    <> "]"
   let vuln_lines =
     list.map(row.vulnerabilities, fn(vuln) {
       let severity_text = color.severity(palette, severity_label(vuln.severity))
-      doc.from_string(
-        "    "
-        <> severity_text
-        <> "  "
-        <> vuln.id
-        <> case vuln.summary {
-          "" -> ""
-          s -> "  " <> truncate(s, 80)
-        },
-      )
+      "    "
+      <> severity_text
+      <> "  "
+      <> vuln.id
+      <> case vuln.summary {
+        "" -> ""
+        s -> "  " <> truncate(s, 80)
+      }
     })
-    |> doc.join(with: doc.line)
-  doc.concat([pkg_line, doc.line, vuln_lines])
+    |> string.join(with: "\n")
+  pkg_line <> "\n" <> vuln_lines
 }
 
 fn severity_label(severity: osv.Severity) -> color.SeverityLabel {
@@ -1494,15 +1482,9 @@ fn format_vuln_gate_output(
   palette: color.Palette,
 ) -> String {
   case all_vulns {
-    [] ->
-      doc.concat([
-        doc.line,
-        doc.from_string("No known vulnerabilities reported by OSV.dev."),
-        doc.line,
-      ])
-      |> render_document
+    [] -> "\nNo known vulnerabilities reported by OSV.dev.\n"
     _ -> {
-      let lines_doc =
+      let lines =
         list.map(all_vulns, fn(vuln) {
           let label = case dict.get(id_to_pkg, vuln.id) {
             Ok(pkgs) -> string.join(pkgs, with: ", ")
@@ -1514,54 +1496,41 @@ fn format_vuln_gate_output(
             True -> "✗"
             False -> "·"
           }
-          doc.from_string(
-            marker
-            <> "  "
-            <> color.severity(palette, severity_label(vuln.severity))
-            <> "  "
-            <> vuln.id
-            <> "  "
-            <> label,
-          )
+          marker
+          <> "  "
+          <> color.severity(palette, severity_label(vuln.severity))
+          <> "  "
+          <> vuln.id
+          <> "  "
+          <> label
         })
-        |> doc.join(with: doc.line)
-      let summary_doc =
-        doc.from_string(
-          int.to_string(list.length(triggering))
-          <> " advisory/advisories at or above "
-          <> osv.severity_to_string(threshold)
-          <> " (of "
-          <> int.to_string(list.length(all_vulns))
-          <> " total reported).",
-        )
+        |> string.join(with: "\n")
+      let summary =
+        int.to_string(list.length(triggering))
+        <> " advisory/advisories at or above "
+        <> osv.severity_to_string(threshold)
+        <> " (of "
+        <> int.to_string(list.length(all_vulns))
+        <> " total reported)."
 
-      doc.concat([
-        doc.line,
-        doc.join(
-          [
-            doc.from_string(
-              "Vulnerability check (threshold: "
-              <> osv.severity_to_string(threshold)
-              <> ")",
-            ),
-            horizontal_rule(),
-            lines_doc,
-            horizontal_rule(),
-            summary_doc,
-          ],
-          with: doc.line,
-        ),
-        doc.line,
-      ])
-      |> render_document
+      "\n"
+      <> string.join(
+        [
+          "Vulnerability check (threshold: "
+            <> osv.severity_to_string(threshold)
+            <> ")",
+          horizontal_rule(),
+          lines,
+          horizontal_rule(),
+          summary,
+        ],
+        with: "\n",
+      )
+      <> "\n"
     }
   }
 }
 
-fn horizontal_rule() -> Document {
-  doc.from_string(string.repeat("─", 72))
-}
-
-fn render_document(document: Document) -> String {
-  doc.to_string(document, output_line_width)
+fn horizontal_rule() -> String {
+  string.repeat("─", 72)
 }

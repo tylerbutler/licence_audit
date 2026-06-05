@@ -1,6 +1,6 @@
-import gleam/bool
 import gleam/string
-import gleam_community/ansi
+import spruce
+import spruce/style
 import tty
 
 pub type Mode {
@@ -52,19 +52,24 @@ pub fn mode_error_message(error: ColorModeError) -> String {
   "invalid --color value: " <> value
 }
 
+fn paint(enabled: Bool, color: style.Color, text: String) -> String {
+  let sp = case enabled {
+    True -> spruce.with_color_level(tty.Basic)
+    False -> spruce.no_color()
+  }
+  style.render(sp, style.fg(style.new(), color), text)
+}
+
 pub fn green(palette: Palette, text: String) -> String {
-  use <- bool.guard(when: !palette.enabled, return: text)
-  ansi.green(text)
+  paint(palette.enabled, style.Green, text)
 }
 
 pub fn red(palette: Palette, text: String) -> String {
-  use <- bool.guard(when: !palette.enabled, return: text)
-  ansi.red(text)
+  paint(palette.enabled, style.Red, text)
 }
 
 pub fn yellow(palette: Palette, text: String) -> String {
-  use <- bool.guard(when: !palette.enabled, return: text)
-  ansi.yellow(text)
+  paint(palette.enabled, style.Yellow, text)
 }
 
 pub type SeverityLabel {
@@ -86,15 +91,9 @@ pub fn severity(palette: Palette, label: SeverityLabel) -> String {
     LowSeverity -> "[LOW     ]"
     UnknownSeverityLabel -> "[UNKNOWN ]"
   }
-  case palette.enabled {
-    False -> text
-    True ->
-      case label {
-        CriticalSeverity -> ansi.red(text)
-        HighSeverity -> ansi.red(text)
-        MediumSeverity -> ansi.yellow(text)
-        LowSeverity -> ansi.yellow(text)
-        UnknownSeverityLabel -> text
-      }
+  case label {
+    UnknownSeverityLabel -> text
+    CriticalSeverity | HighSeverity -> paint(palette.enabled, style.Red, text)
+    MediumSeverity | LowSeverity -> paint(palette.enabled, style.Yellow, text)
   }
 }

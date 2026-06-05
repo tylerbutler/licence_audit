@@ -1,0 +1,3 @@
+kind: Changed
+body: Replace the glam pretty-printer with plain string building for the licence report tree and vulnerability reports (output unchanged), and drop the glam dependency.
+time: 2026-06-05T16:04:59.082799-07:00

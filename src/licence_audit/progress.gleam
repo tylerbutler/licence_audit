@@ -3,7 +3,8 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
-import gleam_community/ansi
+import spruce
+import spruce/style
 import tty
 
 pub type Verbosity {
@@ -136,6 +137,14 @@ pub fn format_standard_record(record: LogEntry, use_color: Bool) -> String {
   <> metadata_suffix
 }
 
+fn paint(use_color: Bool, color: style.Color, text: String) -> String {
+  let sp = case use_color {
+    True -> spruce.with_color_level(tty.Basic)
+    False -> spruce.no_color()
+  }
+  style.render(sp, style.fg(style.new(), color), text)
+}
+
 fn format_standard_level(level: Level, use_color: Bool) -> String {
   let label = case level {
     DebugLevel -> "DEBUG"
@@ -144,17 +153,14 @@ fn format_standard_level(level: Level, use_color: Bool) -> String {
     ErrorLevel -> "ERROR"
     FatalLevel -> "FATAL"
   }
-  let colored = case use_color {
-    True ->
-      case level {
-        DebugLevel -> ansi.blue(label)
-        InfoLevel -> ansi.cyan(label)
-        WarnLevel -> ansi.yellow(label)
-        ErrorLevel -> ansi.red(label)
-        FatalLevel -> ansi.red(label)
-      }
-    False -> label
+  let color = case level {
+    DebugLevel -> style.Blue
+    InfoLevel -> style.Cyan
+    WarnLevel -> style.Yellow
+    ErrorLevel -> style.Red
+    FatalLevel -> style.Red
   }
+  let colored = paint(use_color, color, label)
   pad_to_width(colored, label, 5)
 }
 
@@ -171,10 +177,7 @@ fn format_metadata_visible(
   |> list.filter(fn(pair) { !string.starts_with(pair.0, "_") })
   |> list.map(fn(pair) {
     let formatted = pair.0 <> "=" <> escape_metadata_value(pair.1)
-    case use_color {
-      True -> ansi.cyan(formatted)
-      False -> formatted
-    }
+    paint(use_color, style.Cyan, formatted)
   })
   |> string.join(" ")
 }

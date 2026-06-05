@@ -1,4 +1,3 @@
-import glam/doc.{type Document}
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -40,7 +39,28 @@ pub type Summary {
   Summary(skipped_names: List(String))
 }
 
-const glam_line_width = 100
+pub fn format(
+  rows: List(Row),
+  summary: Summary,
+  mode: Mode,
+  palette: color.Palette,
+) -> String {
+  let widths = widths(rows)
+  let #(prod_rows, dev_rows) =
+    list.partition(rows, fn(r) { r.scope == manifest.Prod })
+  let sections =
+    [
+      #("Production dependencies", prod_rows),
+      #("Development dependencies", dev_rows),
+    ]
+    |> list.filter(fn(section) { section.1 != [] })
+    |> list.map(fn(section) {
+      section_text(section.0, section.1, widths, mode, palette)
+    })
+  let summary_line = skipped_summary_text(summary.skipped_names)
+
+  string.join(sections, "\n\n") <> "\n" <> summary_line <> "\n" <> "\n"
+}
 
 /// Keep only rows that belong to a dependency tree containing at least one
 /// policy failure. Used by `check` to focus output on offending trees.
@@ -88,37 +108,6 @@ fn is_failure(status: Status) -> Bool {
   }
 }
 
-pub fn format(
-  rows: List(Row),
-  summary: Summary,
-  mode: Mode,
-  palette: color.Palette,
-) -> String {
-  let widths = widths(rows)
-  let #(prod_rows, dev_rows) =
-    list.partition(rows, fn(r) { r.scope == manifest.Prod })
-  let sections =
-    [
-      #("Production dependencies", prod_rows),
-      #("Development dependencies", dev_rows),
-    ]
-    |> list.filter(fn(section) { section.1 != [] })
-    |> list.map(fn(section) {
-      section_doc(section.0, section.1, widths, mode, palette)
-    })
-  let summary_line =
-    doc.from_string(skipped_summary_text(summary.skipped_names))
-
-  doc.concat([
-    doc.join(sections, with: blank_line()),
-    doc.line,
-    summary_line,
-    doc.line,
-    doc.line,
-  ])
-  |> doc.to_string(glam_line_width)
-}
-
 /// Render the summary line tallying non-Hex packages omitted from the audit.
 /// Lists the names (sorted) so the user knows exactly what was skipped; falls
 /// back to a bare `0` when nothing was omitted.
@@ -131,31 +120,21 @@ fn skipped_summary_text(skipped_names: List(String)) -> String {
   }
 }
 
-fn blank_line() -> Document {
-  doc.concat([doc.line, doc.line])
-}
-
-fn section_doc(
+fn section_text(
   title: String,
   rows: List(Row),
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> Document {
+) -> String {
   let tree = build_tree(rows)
   let body = tree_text(tree, widths, mode, palette)
-  doc.concat([
-    doc.from_string(title),
-    doc.line,
-    header(widths, mode),
-    doc.line,
-    body,
-  ])
+  title <> "\n" <> header(widths, mode) <> "\n" <> body
 }
 
-fn header(widths: Widths, mode: Mode) -> Document {
+fn header(widths: Widths, mode: Mode) -> String {
   let prefix = "  "
-  let line = case mode {
+  case mode {
     Default ->
       prefix
       <> pad("Package", widths.package)
@@ -172,7 +151,6 @@ fn header(widths: Widths, mode: Mode) -> Document {
       <> pad("Licences", widths.licences)
       <> "  Status"
   }
-  doc.from_string(line)
 }
 
 type Tree {
@@ -247,10 +225,10 @@ fn tree_text(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> Document {
+) -> String {
   render_nodes(tree.roots, tree.children, "", True, widths, mode, palette, [])
   |> list.reverse
-  |> doc.join(with: doc.line)
+  |> string.join(with: "\n")
 }
 
 fn render_nodes(
@@ -261,8 +239,8 @@ fn render_nodes(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-  acc: List(Document),
-) -> List(Document) {
+  acc: List(String),
+) -> List(String) {
   let count = list.length(nodes)
   indexed_fold(nodes, 0, acc, fn(acc, node, i) {
     let is_last = i == count - 1
@@ -305,7 +283,7 @@ fn row_text(
   widths: Widths,
   mode: Mode,
   palette: color.Palette,
-) -> Document {
+) -> String {
   let licences_raw = licences_text(row)
   let licences_padded = pad(licences_raw, widths.licences)
   let glyph = glyph(row.status, mode, palette)
@@ -313,7 +291,7 @@ fn row_text(
     colorize_for_status(row.status, mode, palette, licences_padded)
   let name_padded = pad_name(prefix, row.package, widths.package)
 
-  let line = case mode {
+  case mode {
     Default ->
       prefix
       <> glyph
@@ -336,7 +314,6 @@ fn row_text(
       <> "  "
       <> status_text(row.status)
   }
-  doc.from_string(line)
 }
 
 // Pads `prefix + name` such that the column ending the package field aligns
