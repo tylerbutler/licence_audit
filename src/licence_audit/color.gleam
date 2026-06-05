@@ -1,5 +1,6 @@
 import gleam/string
 import spruce
+import spruce/box
 import spruce/style
 import tty
 
@@ -52,11 +53,18 @@ pub fn mode_error_message(error: ColorModeError) -> String {
   "invalid --color value: " <> value
 }
 
-fn paint(enabled: Bool, color: style.Color, text: String) -> String {
-  let sp = case enabled {
+/// Build the shared spruce rendering context for a palette. Color escapes are
+/// emitted at the `Basic` level when the palette is enabled, and suppressed
+/// entirely otherwise, so plain-text output stays byte-identical.
+fn spruce_context(palette: Palette) -> spruce.Spruce {
+  case palette.enabled {
     True -> spruce.with_color_level(tty.Basic)
     False -> spruce.no_color()
   }
+}
+
+fn paint(enabled: Bool, color: style.Color, text: String) -> String {
+  let sp = spruce_context(Palette(enabled: enabled))
   style.render(sp, style.fg(style.new(), color), text)
 }
 
@@ -70,6 +78,30 @@ pub fn red(palette: Palette, text: String) -> String {
 
 pub fn yellow(palette: Palette, text: String) -> String {
   paint(palette.enabled, style.Yellow, text)
+}
+
+/// Render `text` in bold when color is enabled; plain text otherwise.
+pub fn bold(palette: Palette, text: String) -> String {
+  let sp = spruce_context(palette)
+  style.render(sp, style.bold(style.new()), text)
+}
+
+/// Render `text` dimmed when color is enabled; plain text otherwise.
+pub fn dim(palette: Palette, text: String) -> String {
+  let sp = spruce_context(palette)
+  style.render(sp, style.dim(style.new()), text)
+}
+
+/// Frame `content` in a rounded box with a `title` in the top border. The box
+/// borders are drawn (uncolored) even when the palette is disabled, so callers
+/// get a consistent layout regardless of color support.
+pub fn boxed(palette: Palette, title: String, content: String) -> String {
+  let sp = spruce_context(palette)
+  let options =
+    box.options(title: title, color: style.Cyan)
+    |> box.border(box.Rounded)
+    |> box.padding(0, 1, 0, 1)
+  box.render(sp, content, options)
 }
 
 pub type SeverityLabel {

@@ -129,7 +129,11 @@ fn section_text(
 ) -> String {
   let tree = build_tree(rows)
   let body = tree_text(tree, widths, mode, palette)
-  title <> "\n" <> header(widths, mode) <> "\n" <> body
+  color.bold(palette, title)
+  <> "\n"
+  <> color.dim(palette, header(widths, mode))
+  <> "\n"
+  <> body
 }
 
 fn header(widths: Widths, mode: Mode) -> String {

@@ -1258,16 +1258,7 @@ fn format_vulns_output(
       let body =
         list.map(affected, fn(row) { format_vuln_row(row, scopes, palette) })
         |> string.join(with: "\n")
-      string.join(
-        [
-          "Vulnerabilities reported by OSV.dev:",
-          horizontal_rule(),
-          body,
-          horizontal_rule(),
-          summary,
-        ],
-        with: "\n",
-      )
+      color.boxed(palette, "Vulnerabilities · OSV.dev", body) <> "\n" <> summary
     }
   }
 
@@ -1284,23 +1275,19 @@ fn format_vuln_row(
     Error(_) -> manifest.Prod
   }
   let pkg_line =
-    "● "
-    <> row.package.name
-    <> " "
-    <> row.package.version
-    <> "  ["
-    <> manifest.scope_label(scope)
-    <> "]"
+    color.bold(palette, row.package.name <> " " <> row.package.version)
+    <> "  "
+    <> color.dim(palette, "[" <> manifest.scope_label(scope) <> "]")
   let vuln_lines =
     list.map(row.vulnerabilities, fn(vuln) {
       let severity_text = color.severity(palette, severity_label(vuln.severity))
-      "    "
+      "  "
       <> severity_text
       <> "  "
       <> vuln.id
       <> case vuln.summary {
         "" -> ""
-        s -> "  " <> truncate(s, 80)
+        s -> "  " <> color.dim(palette, truncate(s, 80))
       }
     })
     |> string.join(with: "\n")
@@ -1493,8 +1480,8 @@ fn format_vuln_gate_output(
           let marker = case
             severity_meets_or_exceeds(vuln.severity, threshold)
           {
-            True -> "✗"
-            False -> "·"
+            True -> color.red(palette, "✗")
+            False -> color.dim(palette, "·")
           }
           marker
           <> "  "
@@ -1502,7 +1489,7 @@ fn format_vuln_gate_output(
           <> "  "
           <> vuln.id
           <> "  "
-          <> label
+          <> color.dim(palette, label)
         })
         |> string.join(with: "\n")
       let summary =
@@ -1513,24 +1500,10 @@ fn format_vuln_gate_output(
         <> int.to_string(list.length(all_vulns))
         <> " total reported)."
 
-      "\n"
-      <> string.join(
-        [
-          "Vulnerability check (threshold: "
-            <> osv.severity_to_string(threshold)
-            <> ")",
-          horizontal_rule(),
-          lines,
-          horizontal_rule(),
-          summary,
-        ],
-        with: "\n",
-      )
-      <> "\n"
+      let title =
+        "Vulnerability check · threshold: " <> osv.severity_to_string(threshold)
+
+      "\n" <> color.boxed(palette, title, lines) <> "\n" <> summary <> "\n"
     }
   }
-}
-
-fn horizontal_rule() -> String {
-  string.repeat("─", 72)
 }
