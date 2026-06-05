@@ -1,3 +1,0 @@
-kind: Added
-body: '`sbom --vulns` queries OSV.dev and embeds the results into the generated CycloneDX document as a `vulnerabilities` array. Each advisory becomes one entry with its `id`, an `OSV` source link, ratings (the raw CVSS vector and method when OSV reports one, otherwise the severity bucket), and an `affects` list referencing the affected components by `bom-ref`/purl — producing a single VEX-style document for downstream tooling (Dependency-Track, etc.). Requires network access, so it conflicts with `--offline`. The standalone `vulns` report is unchanged.'
-time: 2026-06-01T12:00:00Z
