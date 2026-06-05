@@ -714,10 +714,11 @@ fn audit_locked(
     True -> report.filter_failing_trees(all_rows)
     False -> all_rows
   }
+  let skipped_names = list.map(locked.skipped_packages, fn(pkg) { pkg.name })
   let licence_output =
     report.format(
       display_rows,
-      report.Summary(skipped_non_hex: locked.skipped_non_hex),
+      report.Summary(skipped_names: skipped_names),
       mode,
       palette,
     )

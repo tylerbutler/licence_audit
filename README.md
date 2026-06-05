@@ -9,7 +9,7 @@ dependencies. Point it at a project, and it will:
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
 It reads `manifest.toml`, fetches licence metadata from Hex, and reports on the
-full resolved dependency tree. Non-Hex dependencies are skipped and counted in
+full resolved dependency tree. Non-Hex dependencies are skipped and named in
 the summary.
 
 ## Install
@@ -274,7 +274,7 @@ advisories are not cached.
 ## Limitations
 
 - Audits only locked **Hex** packages in `manifest.toml`; non-Hex deps are
-  skipped and counted in the summary.
+  skipped and named in the summary.
 - Uses Hex *package* metadata for licences, not per-release metadata.
 - The default command reports only — run `check` to enforce policy, and add
   `--vulns` to fail on vulnerabilities.

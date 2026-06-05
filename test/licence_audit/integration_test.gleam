@@ -181,7 +181,11 @@ pub fn path_and_git_packages_are_skipped_and_counted_test() {
   assert string.contains(output, "git_dep")
   assert string.contains(output, "non-hex (path)")
   assert string.contains(output, "non-hex (git)")
-  assert string.contains(output, "Skipped non-Hex packages: 2")
+  // The skipped summary names the omitted non-Hex packages (issue #3).
+  assert string.contains(
+    output,
+    "Skipped non-Hex packages: 2 (git_dep, local_dep)",
+  )
 }
 
 pub fn hex_fetch_failure_in_report_mode_exits_zero_test() {
