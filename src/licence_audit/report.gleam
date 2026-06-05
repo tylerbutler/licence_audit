@@ -34,7 +34,10 @@ pub type Row {
 }
 
 pub type Summary {
-  Summary(skipped_non_hex: Int)
+  /// `skipped_names` are the non-Hex packages encountered but not audited. The
+  /// summary line reports both the count and the names so the user knows
+  /// exactly what was omitted (issue #3).
+  Summary(skipped_names: List(String))
 }
 
 const glam_line_width = 100
@@ -104,9 +107,7 @@ pub fn format(
       section_doc(section.0, section.1, widths, mode, palette)
     })
   let summary_line =
-    doc.from_string(
-      "Skipped non-Hex packages: " <> int.to_string(summary.skipped_non_hex),
-    )
+    doc.from_string(skipped_summary_text(summary.skipped_names))
 
   doc.concat([
     doc.join(sections, with: blank_line()),
@@ -116,6 +117,18 @@ pub fn format(
     doc.line,
   ])
   |> doc.to_string(glam_line_width)
+}
+
+/// Render the summary line tallying non-Hex packages omitted from the audit.
+/// Lists the names (sorted) so the user knows exactly what was skipped; falls
+/// back to a bare `0` when nothing was omitted.
+fn skipped_summary_text(skipped_names: List(String)) -> String {
+  let prefix =
+    "Skipped non-Hex packages: " <> int.to_string(list.length(skipped_names))
+  case list.sort(skipped_names, by: string.compare) {
+    [] -> prefix
+    names -> prefix <> " (" <> string.join(names, ", ") <> ")"
+  }
 }
 
 fn blank_line() -> Document {

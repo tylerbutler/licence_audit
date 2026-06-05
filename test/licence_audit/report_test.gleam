@@ -22,7 +22,7 @@ pub fn audit_report_includes_status_column_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Audit,
       off,
     )
@@ -48,7 +48,7 @@ pub fn default_report_omits_status_column_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -75,7 +75,7 @@ pub fn licences_are_sorted_and_deduplicated_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -97,7 +97,7 @@ pub fn empty_licences_render_as_dash_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -119,7 +119,7 @@ pub fn fetch_or_read_failures_appear_in_report_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Audit,
       off,
     )
@@ -131,9 +131,38 @@ pub fn fetch_or_read_failures_appear_in_report_test() {
 
 pub fn skipped_non_hex_package_count_appears_in_summary_test() {
   let output =
-    report.format([], report.Summary(skipped_non_hex: 2), report.Default, off)
+    report.format(
+      [],
+      report.Summary(skipped_names: ["local_dep", "git_dep"]),
+      report.Default,
+      off,
+    )
 
   assert string.contains(output, "Skipped non-Hex packages: 2")
+}
+
+pub fn skipped_non_hex_package_names_appear_in_summary_test() {
+  let output =
+    report.format(
+      [],
+      report.Summary(skipped_names: ["local_dep", "git_dep"]),
+      report.Default,
+      off,
+    )
+
+  // Names are listed (sorted) so the user knows what was omitted (issue #3).
+  assert string.contains(
+    output,
+    "Skipped non-Hex packages: 2 (git_dep, local_dep)",
+  )
+}
+
+pub fn empty_skipped_summary_lists_no_names_test() {
+  let output =
+    report.format([], report.Summary(skipped_names: []), report.Default, off)
+
+  assert string.contains(output, "Skipped non-Hex packages: 0")
+  assert !string.contains(output, "(")
 }
 
 pub fn denied_row_has_red_cross_glyph_test() {
@@ -150,7 +179,7 @@ pub fn denied_row_has_red_cross_glyph_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Audit,
       off,
     )
@@ -172,7 +201,7 @@ pub fn enabled_palette_emits_ansi_for_allowed_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Audit,
       on,
     )
@@ -196,7 +225,7 @@ pub fn enabled_palette_emits_ansi_for_default_question_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       on,
     )
@@ -219,7 +248,7 @@ pub fn report_omits_legacy_emoji_column_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -241,7 +270,7 @@ pub fn report_omits_legacy_joined_emoji_column_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -263,7 +292,7 @@ pub fn allowed_licences_text_is_green_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Audit,
       on,
     )
@@ -288,7 +317,7 @@ pub fn denied_licences_text_is_red_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Audit,
       on,
     )
@@ -339,7 +368,7 @@ pub fn report_groups_prod_and_dev_sections_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -373,7 +402,7 @@ pub fn report_renders_header_inside_each_dependency_group_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -405,7 +434,7 @@ pub fn report_separates_dependency_groups_with_blank_line_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -430,7 +459,7 @@ pub fn report_leaves_blank_line_before_deferred_logs_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
@@ -452,7 +481,7 @@ pub fn report_omits_empty_dev_section_test() {
           path: [],
         ),
       ],
-      report.Summary(skipped_non_hex: 0),
+      report.Summary(skipped_names: []),
       report.Default,
       off,
     )
