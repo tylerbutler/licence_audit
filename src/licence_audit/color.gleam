@@ -92,6 +92,29 @@ pub fn dim(palette: Palette, text: String) -> String {
   style.render(sp, style.dim(style.new()), text)
 }
 
+pub type DependencySection {
+  ProductionDependencies
+  DevelopmentDependencies
+}
+
+/// Render a dependency section title with scope-aware emphasis.
+pub fn dependency_section_title(
+  palette: Palette,
+  section: DependencySection,
+) -> String {
+  let #(title, tint) = case section {
+    ProductionDependencies -> #("PRODUCTION DEPENDENCIES", style.Green)
+    DevelopmentDependencies -> #("DEVELOPMENT DEPENDENCIES", style.Cyan)
+  }
+  let sp = spruce_context(palette)
+  let title_style =
+    style.new()
+    |> style.fg(tint)
+    |> style.bold
+    |> style.underline
+  style.render(sp, title_style, title)
+}
+
 /// Frame `content` in a rounded box with a `title` in the top border. The box
 /// borders are drawn (uncolored) even when the palette is disabled, so callers
 /// get a consistent layout regardless of color support.
