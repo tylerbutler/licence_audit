@@ -286,6 +286,33 @@ pub fn enabled_palette_styles_development_section_title_test() {
   assert string.contains(output, "\u{001b}[36m")
 }
 
+pub fn enabled_palette_styles_table_header_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "pkg",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.Checked(policy.Allowed),
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_names: []),
+      report.Audit,
+      on,
+    )
+
+  assert string.contains(output, "\u{001b}[1m")
+  assert string.contains(output, "\u{001b}[4m")
+  assert string.contains(output, "\u{001b}[1m  Package")
+  assert string.contains(output, "Version")
+  assert string.contains(output, "Licences")
+  assert string.contains(output, "Status")
+}
+
 pub fn disabled_palette_renders_plain_uppercase_section_title_test() {
   let output =
     report.format(

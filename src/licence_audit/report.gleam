@@ -131,7 +131,7 @@ fn section_text(
   let body = tree_text(tree, widths, mode, palette)
   color.dependency_section_title(palette, section)
   <> "\n"
-  <> color.dim(palette, header(widths, mode))
+  <> color.bold_underline(palette, header(widths, mode))
   <> "\n"
   <> body
 }

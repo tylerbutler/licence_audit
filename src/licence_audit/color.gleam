@@ -86,6 +86,16 @@ pub fn bold(palette: Palette, text: String) -> String {
   style.render(sp, style.bold(style.new()), text)
 }
 
+/// Render `text` in bold and underlined when color is enabled; plain text otherwise.
+pub fn bold_underline(palette: Palette, text: String) -> String {
+  let sp = spruce_context(palette)
+  let text_style =
+    style.new()
+    |> style.bold
+    |> style.underline
+  style.render(sp, text_style, text)
+}
+
 /// Render `text` dimmed when color is enabled; plain text otherwise.
 pub fn dim(palette: Palette, text: String) -> String {
   let sp = spruce_context(palette)
