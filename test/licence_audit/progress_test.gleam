@@ -40,6 +40,33 @@ pub fn format_tty_record_hides_source_and_vertical_bars_test() {
   should.equal(line, "⚠ warn Audit warning")
 }
 
+pub fn format_tty_info_record_keeps_message_without_level_prefix_test() {
+  let entry =
+    progress.LogEntry(
+      level: progress.InfoLevel,
+      logger_name: "check",
+      message: "Starting licence audit",
+      metadata: [],
+    )
+  let line = progress.format_tty_record(entry, False)
+
+  should.equal(line, "Starting licence audit")
+}
+
+pub fn format_tty_warning_record_uses_colored_semantic_rendering_test() {
+  let entry =
+    progress.LogEntry(
+      level: progress.WarnLevel,
+      logger_name: "check",
+      message: "Audit warning",
+      metadata: [],
+    )
+  let line = progress.format_tty_record(entry, True)
+
+  should.equal(string.contains(line, "Audit warning"), True)
+  should.equal(string.contains(line, "\u{1b}["), True)
+}
+
 pub fn format_standard_record_keeps_category_and_level_test() {
   let entry =
     progress.LogEntry(
@@ -52,5 +79,6 @@ pub fn format_standard_record_keeps_category_and_level_test() {
 
   should.equal(string.contains(line, "|"), True)
   should.equal(string.contains(line, "report"), True)
+  should.equal(line, "INFO  | report | Audit complete")
   should.equal(string.starts_with(line, "INFO"), True)
 }

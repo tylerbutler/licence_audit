@@ -4,6 +4,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import spruce
+import spruce/message as spruce_message
 import spruce/style
 import tty
 
@@ -107,18 +108,13 @@ pub fn format_level(level: Level, _use_color: Bool) -> String {
 }
 
 pub fn format_tty_record(record: LogEntry, use_color: Bool) -> String {
-  let level = format_level(record.level, use_color)
-
   let metadata = format_metadata_visible(record.metadata, use_color)
   let metadata_suffix = case metadata {
     "" -> ""
     value -> " " <> value
   }
 
-  case level {
-    "" -> record.message <> metadata_suffix
-    _ -> level <> " " <> record.message <> metadata_suffix
-  }
+  format_tty_message(record.level, record.message, use_color) <> metadata_suffix
 }
 
 pub fn format_standard_record(record: LogEntry, use_color: Bool) -> String {
@@ -138,11 +134,30 @@ pub fn format_standard_record(record: LogEntry, use_color: Bool) -> String {
 }
 
 fn paint(use_color: Bool, color: style.Color, text: String) -> String {
-  let sp = case use_color {
+  style.render(spruce_context(use_color), style.fg(style.new(), color), text)
+}
+
+fn spruce_context(use_color: Bool) -> spruce.Spruce {
+  case use_color {
     True -> spruce.with_color_level(tty.Basic)
     False -> spruce.no_color()
   }
-  style.render(sp, style.fg(style.new(), color), text)
+}
+
+fn format_tty_message(level: Level, text: String, use_color: Bool) -> String {
+  let sp = spruce_context(use_color)
+  case level {
+    InfoLevel -> text
+    WarnLevel -> spruce_message.warn(sp, text)
+    ErrorLevel -> spruce_message.error(sp, text)
+    _ -> {
+      let label = format_level(level, use_color)
+      case label {
+        "" -> text
+        _ -> label <> " " <> text
+      }
+    }
+  }
 }
 
 fn format_standard_level(level: Level, use_color: Bool) -> String {

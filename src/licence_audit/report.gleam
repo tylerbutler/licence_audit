@@ -50,8 +50,8 @@ pub fn format(
     list.partition(rows, fn(r) { r.scope == manifest.Prod })
   let sections =
     [
-      #("Production dependencies", prod_rows),
-      #("Development dependencies", dev_rows),
+      #(color.ProductionDependencies, prod_rows),
+      #(color.DevelopmentDependencies, dev_rows),
     ]
     |> list.filter(fn(section) { section.1 != [] })
     |> list.map(fn(section) {
@@ -121,7 +121,7 @@ fn skipped_summary_text(skipped_names: List(String)) -> String {
 }
 
 fn section_text(
-  title: String,
+  section: color.DependencySection,
   rows: List(Row),
   widths: Widths,
   mode: Mode,
@@ -129,9 +129,9 @@ fn section_text(
 ) -> String {
   let tree = build_tree(rows)
   let body = tree_text(tree, widths, mode, palette)
-  color.bold(palette, title)
+  color.dependency_section_title(palette, section)
   <> "\n"
-  <> color.dim(palette, header(widths, mode))
+  <> color.bold_underline(palette, header(widths, mode))
   <> "\n"
   <> body
 }
