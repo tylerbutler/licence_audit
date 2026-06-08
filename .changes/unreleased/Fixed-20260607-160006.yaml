@@ -1,0 +1,3 @@
+kind: Fixed
+body: Report output no longer emits trailing whitespace on dependency rows in the default view, and tree column widths now match the rendered indentation when non-Hex intermediate dependencies are skipped.
+time: 2026-06-07T16:00:06.000000-00:00

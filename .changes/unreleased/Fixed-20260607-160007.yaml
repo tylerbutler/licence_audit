@@ -1,0 +1,3 @@
+kind: Fixed
+body: The interactive `update` picker now restores the terminal (raw mode and cursor) on all exit paths including panics, redraws correctly when its help line or labels wrap on narrow terminals, and no longer loops silently on repeated read errors.
+time: 2026-06-07T16:00:07.000000-00:00

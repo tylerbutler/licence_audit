@@ -1,0 +1,3 @@
+kind: Fixed
+body: Prevent `update` from silently corrupting `gleam.toml` when an existing `allow`/`deny` array line carries a trailing comment containing a quote, or when a key of the same name exists in another table. The array rewrite is now scoped to the `[tools.licence_audit]` table and fails loudly instead of writing a bogus value.
+time: 2026-06-07T16:00:01.000000-00:00
