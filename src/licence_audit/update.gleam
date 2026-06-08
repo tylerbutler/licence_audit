@@ -31,6 +31,33 @@ pub fn run(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
+  run_with_picker(
+    manifest_path,
+    project_root,
+    config_path,
+    ignore_config,
+    no_cache,
+    cache_path,
+    fetcher,
+    picker.pick,
+    reporter,
+  )
+}
+
+/// Run the update workflow with an injected picker, allowing tests to drive the
+/// interactive selection step headlessly.
+pub fn run_with_picker(
+  manifest_path: String,
+  project_root: String,
+  config_path: Option(String),
+  ignore_config: Bool,
+  no_cache: Bool,
+  cache_path: Option(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  pick: fn(String, List(String), List(String), List(String)) ->
+    Result(picker.Selection, picker.PickerError),
+  reporter: progress.Reporter,
+) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.phase(reporter, "Starting licence policy update")
 
   let existing = load_existing_policy(config_path, project_root, ignore_config)
@@ -81,6 +108,7 @@ pub fn run(
             config_path,
             project_root,
             cache_warning,
+            pick,
             reporter,
           )
       }
@@ -96,6 +124,8 @@ fn handle_selection(
   config_path: Option(String),
   project_root: String,
   cache_warning: Option(String),
+  pick: fn(String, List(String), List(String), List(String)) ->
+    Result(picker.Selection, picker.PickerError),
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.detail(reporter, "Awaiting selection")
@@ -106,7 +136,7 @@ fn handle_selection(
     <> " total, "
     <> int.to_string(list.length(only_new(existing, discovered)))
     <> " new)"
-  case picker.pick(title, labels, existing.allow, existing.deny) {
+  case pick(title, labels, existing.allow, existing.deny) {
     Error(picker.Cancelled) -> {
       let reporter = progress.warn(reporter, "Update cancelled")
       let reporter = warn_cache(reporter, cache_warning)
