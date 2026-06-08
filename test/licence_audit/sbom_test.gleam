@@ -1,3 +1,5 @@
+import gleam/dynamic/decode
+import gleam/json
 import gleam/regexp
 import gleam/string
 import gleeunit/should
@@ -46,8 +48,33 @@ pub fn purl_for_hex_test() {
   should.equal(sbom.purl_for(entry), Ok("pkg:hex/birch@0.2.1"))
 }
 
+pub fn purl_for_hex_lowercases_name_segment_only_test() {
+  let entry =
+    manifest.SbomEntry(
+      name: "Birch",
+      version: "0.2.1",
+      kind: manifest.Direct,
+      requirements: [],
+      provenance: manifest.HexProvenance(
+        outer_checksum: "DEADBEEF",
+        inner_checksum: None,
+      ),
+    )
+  should.equal(sbom.purl_for(entry), Ok("pkg:hex/birch@0.2.1"))
+}
+
 pub fn purl_for_github_git_https_test() {
   let entry = github_git_entry("https://github.com/tylerbutler/gluegun")
+  should.equal(
+    sbom.purl_for(entry),
+    Ok(
+      "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+    ),
+  )
+}
+
+pub fn purl_for_github_lowercases_owner_and_repo_segments_only_test() {
+  let entry = github_git_entry("https://github.com/TylerButler/GlueGun")
   should.equal(
     sbom.purl_for(entry),
     Ok(
@@ -136,6 +163,24 @@ pub fn license_entries_case_insensitive_spdx_match_test() {
   should.equal(entries, [sbom.LicenseId("Apache-2.0")])
 }
 
+pub fn license_entries_maps_common_spdx_ids_beyond_original_allowlist_test() {
+  let entries =
+    sbom.license_entries([
+      "postgresql", "blueoak-1.0.0", "bsd-4-clause", "lgpl-2.0-or-later",
+    ])
+  should.equal(entries, [
+    sbom.LicenseId("PostgreSQL"),
+    sbom.LicenseId("BlueOak-1.0.0"),
+    sbom.LicenseId("BSD-4-Clause"),
+    sbom.LicenseId("LGPL-2.0-or-later"),
+  ])
+}
+
+pub fn license_entries_deduplicates_declared_licences_test() {
+  let entries = sbom.license_entries(["MIT", "mit", "Apache-2.0", "apache-2.0"])
+  should.equal(entries, [sbom.LicenseId("MIT"), sbom.LicenseId("Apache-2.0")])
+}
+
 pub fn license_entries_unknown_string_becomes_name_test() {
   let entries = sbom.license_entries(["Custom Corporate Licence"])
   should.equal(entries, [sbom.LicenseName("Custom Corporate Licence")])
@@ -160,11 +205,63 @@ pub fn render_includes_required_top_level_fields_test() {
     string.contains(json_str, "\"timestamp\":\"2026-05-24T22:51:00Z\"")
 }
 
+pub fn render_includes_cyclonedx_schema_uri_test() {
+  let assert Ok(schema) =
+    json.parse(
+      sbom.render(minimal_input()),
+      decode.at(["$schema"], decode.string),
+    )
+
+  should.equal(schema, "https://cyclonedx.org/schema/bom-1.6.schema.json")
+}
+
 pub fn render_emits_root_metadata_component_test() {
   let json_str = sbom.render(minimal_input())
   let assert True = string.contains(json_str, "\"name\":\"licence_audit\"")
   let assert True = string.contains(json_str, "\"version\":\"0.1.0\"")
   let assert True = string.contains(json_str, "\"bom-ref\":\"root\"")
+}
+
+pub fn render_root_metadata_component_has_supplier_and_purl_test() {
+  let json_str = sbom.render(minimal_input())
+  let assert Ok(supplier_name) =
+    json.parse(
+      json_str,
+      decode.at(["metadata", "component", "supplier", "name"], decode.string),
+    )
+  let assert Ok(supplier_urls) =
+    json.parse(
+      json_str,
+      decode.at(
+        ["metadata", "component", "supplier", "url"],
+        decode.list(decode.string),
+      ),
+    )
+  let assert Ok(purl) =
+    json.parse(
+      json_str,
+      decode.at(["metadata", "component", "purl"], decode.string),
+    )
+
+  should.equal(supplier_name, "tylerbutler")
+  should.equal(supplier_urls, ["https://github.com/tylerbutler/licence_audit"])
+  should.equal(purl, "pkg:github/tylerbutler/licence_audit@0.1.0")
+}
+
+pub fn render_root_metadata_component_omits_purl_without_repository_test() {
+  let root = sbom.RootComponent(..minimal_input().root, repository: None)
+  let json_str = sbom.render(sbom.SbomInput(..minimal_input(), root: root))
+  let assert Ok(purl) =
+    json.parse(
+      json_str,
+      decode.optionally_at(
+        ["metadata", "component", "purl"],
+        "__missing__",
+        decode.string,
+      ),
+    )
+
+  should.equal(purl, "__missing__")
 }
 
 pub fn render_emits_provenance_metadata_test() {
@@ -340,6 +437,62 @@ pub fn components_are_emitted_sorted_by_purl_test() {
   let assert Ok(#(before, _)) =
     string.split_once(rendered, on: "pkg:hex/zeta@1.0.0")
   string.contains(before, "pkg:hex/alpha@1.0.0") |> should.equal(True)
+}
+
+pub fn render_omits_component_version_when_empty_test() {
+  let entry =
+    manifest.SbomEntry(
+      name: "GlueGun",
+      version: "",
+      kind: manifest.Direct,
+      requirements: [],
+      provenance: manifest.GitProvenance(
+        repo: "https://github.com/TylerButler/GlueGun",
+        commit: "fa4c8ee919138fc8ffddd2642165a89654e61999",
+      ),
+    )
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      manifest: manifest.SbomManifest(entries: [entry], root_requirements: [
+        "GlueGun",
+      ]),
+      package_metadata: dict.new(),
+    )
+  let json_str = sbom.render(input)
+  let assert Ok(versions) =
+    json.parse(
+      json_str,
+      decode.field(
+        "components",
+        decode.list(component_version_or_missing_decoder()),
+        decode.success,
+      ),
+    )
+  let assert Ok(purls) =
+    json.parse(
+      json_str,
+      decode.field(
+        "components",
+        decode.list(component_purl_decoder()),
+        decode.success,
+      ),
+    )
+
+  should.equal(versions, ["__missing__"])
+  should.equal(purls, [
+    "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+  ])
+}
+
+fn component_version_or_missing_decoder() {
+  use version <- decode.optional_field("version", "__missing__", decode.string)
+  decode.success(version)
+}
+
+fn component_purl_decoder() {
+  use purl <- decode.field("purl", decode.string)
+  decode.success(purl)
 }
 
 fn serial_of(rendered: String) -> String {
