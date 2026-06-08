@@ -188,6 +188,18 @@ pub fn path_and_git_packages_are_skipped_and_counted_test() {
   )
 }
 
+pub fn prod_only_skipped_summary_matches_displayed_non_hex_rows_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with(manifest_args(["--prod-only"]), fake_fetcher)
+
+  should.equal(exit_code, 0)
+  assert string.contains(output, "gleam_stdlib")
+  assert !string.contains(output, "local_dep")
+  assert !string.contains(output, "git_dep")
+  assert string.contains(output, "Skipped non-Hex packages: 0")
+  assert !string.contains(output, "Skipped non-Hex packages: 2")
+}
+
 pub fn hex_fetch_failure_in_report_mode_exits_zero_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_with(manifest_args([]), failing_fetcher)
@@ -540,4 +552,56 @@ pub fn check_prod_only_ignores_dev_dependency_violation_test() {
   should.equal(exit_code, 0)
   assert string.contains(output, "gleam_stdlib")
   assert !string.contains(output, "gleeunit")
+}
+
+fn dev_only_vuln_batch(
+  purls: List(String),
+) -> Result(List(osv.BatchEntry), osv.Error) {
+  Ok(
+    list.map(purls, fn(purl) {
+      let vuln_ids = case string.contains(purl, "gleeunit") {
+        True -> ["CVE-DEV-0001"]
+        False -> []
+      }
+      osv.BatchEntry(purl: purl, vuln_ids: vuln_ids)
+    }),
+  )
+}
+
+fn dev_only_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
+  Ok(
+    osv.Vulnerability(
+      id: id,
+      summary: "dev dependency advisory",
+      severity: osv.High,
+      scores: [],
+    ),
+  )
+}
+
+pub fn check_prod_only_vulns_ignores_dev_dependency_advisory_test() {
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run_with_clients(
+      [
+        "--manifest=test/fixtures/prod_dev_manifest.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--prod-only",
+        "--vulns",
+      ],
+      prod_dev_fetcher,
+      dev_only_vuln_batch,
+      dev_only_vuln_detail,
+    )
+
+  should.equal(exit_code, 0)
+  assert string.contains(output, "gleam_stdlib")
+  assert string.contains(
+    output,
+    "No known vulnerabilities reported by OSV.dev.",
+  )
+  assert !string.contains(output, "gleeunit")
+  assert !string.contains(output, "CVE-DEV-0001")
+  assert !string.contains(output, "Vulnerability check failed")
 }

@@ -711,7 +711,7 @@ fn audit_locked(
     True -> report.filter_failing_trees(all_rows)
     False -> all_rows
   }
-  let skipped_names = list.map(locked.skipped_packages, fn(pkg) { pkg.name })
+  let skipped_names = list.map(active_skipped, fn(pkg) { pkg.name })
   let licence_output =
     report.format(
       display_rows,
@@ -733,7 +733,7 @@ fn audit_locked(
           config_policy.vuln_severity,
         )
       run_vuln_check_for_audit(
-        locked.packages,
+        active_packages,
         threshold,
         osv_batch_fetcher,
         osv_detail_fetcher,
