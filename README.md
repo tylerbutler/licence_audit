@@ -19,7 +19,8 @@ the summary.
 Prebuilt escript archives are attached to each
 [release](https://github.com/tylerbutler/licence_audit/releases). Download the
 archive, extract it, and put `licence_audit` on your `PATH`. It runs on any
-platform with a compatible Erlang/OTP runtime.
+platform with Erlang/OTP 28.x or newer. Older OTP releases cannot reattach
+stdin in raw mode, which breaks keyboard input for `licence_audit update`.
 
 To build from source, see [DEV.md](./DEV.md).
 
@@ -110,6 +111,10 @@ CLI `--allow`/`--deny` values merge with config. `check` exits non-zero on any
 violation. Pass `--config=other.toml` to read policy from a different file (it
 must still have a `[tools.licence_audit]` section) or `--ignore-config` to use
 only CLI flags.
+
+Use `--prod-only` when your gate should consider only production dependencies.
+Dev-dependency licence violations are ignored, which is useful for CI checks
+that should not fail on tooling-only packages.
 
 > [!TIP]
 > `--allow`/`--deny` also work on the bare command — they switch the report into
@@ -249,12 +254,13 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 Hex licence metadata is cached on disk between runs:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex.dets
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 ```
 
-Override with `--cache-path=PATH` or bypass with `--no-cache`. Cache failures
-are non-fatal — they surface as stderr warnings and never block an audit. OSV
-advisories are not cached.
+Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
+version-suffixed so cache format bumps ignore stale data instead of reading it
+back. Cache failures are non-fatal — they surface as stderr warnings and never
+block an audit. OSV advisories are not cached.
 
 ## Troubleshooting
 
@@ -267,6 +273,9 @@ advisories are not cached.
   doesn't bypass this.
 - **OSV.dev unreachable** — `vulns` and `check --vulns` need network access to
   `api.osv.dev`; there's no on-disk cache for advisories.
+- **`update` does not react to keystrokes** — use Erlang/OTP 28.x or newer.
+  Earlier OTP releases cannot reattach stdin in raw mode, so the interactive
+  picker cannot receive keyboard input.
 - **No colours in automated output** — pass `--color=always` or
   `--colour=always` to force ANSI codes, or `--color=never`/`--colour=never`
   (or set `NO_COLOR=1`) for plain text.
@@ -300,7 +309,7 @@ jobs:
       - uses: tylerbutler/actions/setup-gleam@v1
       - uses: tylerbutler/actions/setup-licence-audit@v1
         with:
-          version: v0.1.0
+          version: v0.2.0
           setup-beam: "false"
       - run: licence_audit check
 ```
