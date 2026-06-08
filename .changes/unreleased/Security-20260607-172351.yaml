@@ -1,3 +1,0 @@
-kind: Security
-body: Release attestations now also cover the bare `licence_audit` escript and the `checksums.txt` manifest (in addition to the archives), and the SBOM attestation is extended to the bare binary; install instructions document verifying the binary directly.
-time: 2026-06-07T17:23:51.000000-07:00

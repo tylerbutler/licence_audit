@@ -1,3 +1,0 @@
-kind: Changed
-body: Upgrade the tomlet dependency to 1.1.2 and replace the local TOML array-editing workarounds with tomlet's native value accessors (table_keys, as_string, set_array); generated output is unchanged.
-time: 2026-06-07T17:14:52.000000-07:00

@@ -1,3 +1,0 @@
-kind: Changed
-body: Migrate terminal styling in the colour and progress modules to the spruce terminal-UI kit (added as a git dependency); spruce wraps the same gleam_community_ansi styling, so output is unchanged. Dropped the now-transitive direct gleam_community_ansi dependency.
-time: 2026-06-05T15:36:59.957085-07:00
