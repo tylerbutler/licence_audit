@@ -206,12 +206,7 @@ fn escape_metadata_value(value: String) -> String {
 }
 
 pub fn phase(reporter: Reporter, message: String) -> Reporter {
-  use <- bool.guard(when: !should_log(reporter), return: reporter)
-  case reporter.emit {
-    True -> emit(reporter, InfoLevel, message, [])
-    False -> Nil
-  }
-  record(reporter, Phase, message)
+  log(reporter, InfoLevel, Phase, message, [])
 }
 
 pub fn detail(reporter: Reporter, message: String) -> Reporter {
@@ -228,43 +223,37 @@ pub fn detail(reporter: Reporter, message: String) -> Reporter {
 }
 
 pub fn package_count(reporter: Reporter, count: Int) -> Reporter {
-  use <- bool.guard(when: !should_log(reporter), return: reporter)
   let message = "Checking Hex package metadata"
-  case reporter.emit {
-    True ->
-      emit(reporter, InfoLevel, message, [
-        #("packages", int.to_string(count)),
-      ])
-    False -> Nil
-  }
-  record(reporter, PackageCount, message)
+  log(reporter, InfoLevel, PackageCount, message, [
+    #("packages", int.to_string(count)),
+  ])
 }
 
 pub fn success(reporter: Reporter, message: String) -> Reporter {
-  use <- bool.guard(when: !should_log(reporter), return: reporter)
-  case reporter.emit {
-    True -> emit(reporter, InfoLevel, message, [])
-    False -> Nil
-  }
-  record(reporter, Success, message)
+  log(reporter, InfoLevel, Success, message, [])
 }
 
 pub fn fail(reporter: Reporter, message: String) -> Reporter {
-  use <- bool.guard(when: !should_log(reporter), return: reporter)
-  case reporter.emit {
-    True -> emit(reporter, WarnLevel, message, [])
-    False -> Nil
-  }
-  record(reporter, Failure, message)
+  log(reporter, WarnLevel, Failure, message, [])
 }
 
 pub fn warn(reporter: Reporter, message: String) -> Reporter {
+  log(reporter, WarnLevel, Warning, message, [])
+}
+
+fn log(
+  reporter: Reporter,
+  level: Level,
+  kind: EventKind,
+  message: String,
+  metadata: List(#(String, String)),
+) -> Reporter {
   use <- bool.guard(when: !should_log(reporter), return: reporter)
   case reporter.emit {
-    True -> emit(reporter, WarnLevel, message, [])
+    True -> emit(reporter, level, message, metadata)
     False -> Nil
   }
-  record(reporter, Warning, message)
+  record(reporter, kind, message)
 }
 
 fn record(reporter: Reporter, kind: EventKind, message: String) -> Reporter {
