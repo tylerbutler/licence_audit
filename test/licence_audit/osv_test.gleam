@@ -62,6 +62,41 @@ pub fn batch_response_zips_with_input_purls_test() {
   should.equal(third.vuln_ids, [])
 }
 
+pub fn batch_response_follows_next_page_token_for_truncated_result_test() {
+  let purls = ["pkg:hex/affected@1.0.0"]
+
+  let client = fn(req: request.Request(String)) {
+    should.equal(req.method, Post)
+    should.equal(
+      req |> request.to_uri |> uri.to_string,
+      "https://api.osv.dev/v1/querybatch",
+    )
+
+    case string.contains(req.body, "page_token") {
+      False ->
+        Ok(Response(
+          status: 200,
+          headers: [],
+          body: "{\"results\":[{\"vulns\":[{\"id\":\"OSV-1\"}],\"next_page_token\":\"page-2\"}]}",
+        ))
+      True -> {
+        let assert True = string.contains(req.body, "\"page_token\":\"page-2\"")
+        Ok(Response(
+          status: 200,
+          headers: [],
+          body: "{\"results\":[{\"vulns\":[{\"id\":\"OSV-2\"}]}]}",
+        ))
+      }
+    }
+  }
+
+  let assert Ok(entries) = osv.query_batch(purls, client)
+
+  let assert [entry] = entries
+  should.equal(entry.purl, "pkg:hex/affected@1.0.0")
+  should.equal(entry.vuln_ids, ["OSV-1", "OSV-2"])
+}
+
 pub fn batch_response_length_mismatch_returns_typed_error_test() {
   // Server returns 1 result but we asked about 2 purls — refuse to align.
   let client = fn(_req) {
@@ -148,6 +183,12 @@ pub fn severity_from_cvss_vector_buckets_test() {
       "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N",
     ),
     osv.Medium,
+  )
+  should.equal(
+    osv.severity_from_cvss_vector(
+      "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+    ),
+    osv.High,
   )
   should.equal(osv.severity_from_cvss_vector(""), osv.UnknownSeverity)
 }

@@ -35,6 +35,14 @@ pub opaque type Cache {
 
 const cache_subdir = "licence_audit"
 
+const cache_entry_ttl_seconds = 86_400
+
+const cached_at_prefix = "$cached_at:"
+
+type TimeUnit {
+  Second
+}
+
 /// On-disk cache format version. Bump on any incompatible change to the cached
 /// value shape (see `hex.encode_cache_entry`). The version is encoded into the
 /// cache filename so a file written by an older format is simply ignored rather
@@ -136,7 +144,15 @@ fn lookup_entry(
   // A stored value that no longer parses (e.g. partial format drift) is
   // reported as a miss so the caller refetches rather than failing.
   case dets_set.lookup(from: table, key: key) {
-    Ok(encoded) -> hex.decode_cache_entry(encoded)
+    Ok(encoded) ->
+      case hex.decode_cache_entry(encoded) {
+        Error(_) -> Error(Nil)
+        Ok(metadata) ->
+          case cache_entry_expired(table, key) {
+            True -> Error(Nil)
+            False -> Ok(metadata)
+          }
+      }
     Error(_) -> Error(Nil)
   }
 }
@@ -157,8 +173,15 @@ fn fetch_and_store(
           value: hex.encode_cache_entry(metadata),
         )
       {
-        Ok(_) ->
+        Ok(_) -> {
+          let _ =
+            dets_set.insert(
+              into: table,
+              key: cached_at_key(key),
+              value: int.to_string(now_seconds()),
+            )
           progress.detail(reporter, "Cached licence metadata for " <> key)
+        }
         Error(error) ->
           progress.detail(
             reporter,
@@ -172,6 +195,37 @@ fn fetch_and_store(
     }
   }
 }
+
+fn cache_entry_expired(
+  table: dets_set.Set(String, String),
+  key: String,
+) -> Bool {
+  case cached_at_seconds(table, key) {
+    Error(_) -> True
+    Ok(cached_at) -> now_seconds() - cached_at > cache_entry_ttl_seconds
+  }
+}
+
+fn cached_at_seconds(
+  table: dets_set.Set(String, String),
+  key: String,
+) -> Result(Int, Nil) {
+  case dets_set.lookup(from: table, key: cached_at_key(key)) {
+    Error(_) -> Error(Nil)
+    Ok(raw) -> int.parse(raw)
+  }
+}
+
+fn cached_at_key(key: String) -> String {
+  cached_at_prefix <> key
+}
+
+fn now_seconds() -> Int {
+  erlang_system_time(Second)
+}
+
+@external(erlang, "erlang", "system_time")
+fn erlang_system_time(unit: TimeUnit) -> Int
 
 /// Why a cache file path could not be resolved or prepared.
 type PathError {
@@ -196,7 +250,8 @@ fn resolve_path(override: Option(String)) -> Result(String, PathError) {
   }
 }
 
-/// Default cache path: `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex.dets`.
+/// Default cache path:
+/// `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`.
 fn default_path() -> Result(String, PathError) {
   case envoy.get("XDG_CACHE_HOME") {
     Ok(dir) if dir != "" -> Ok(join_path(dir))

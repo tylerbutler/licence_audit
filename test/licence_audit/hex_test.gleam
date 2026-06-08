@@ -1,3 +1,4 @@
+import envoy
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
@@ -156,12 +157,18 @@ pub fn injected_network_failure_maps_to_network_failure_test() {
 }
 
 pub fn hex_metadata_fetch_returns_without_ipv6_fallback_delay_test() {
-  let started = timestamp.system_time()
+  case envoy.get("LICENCE_AUDIT_NET_TESTS") {
+    Ok(value) if value != "" -> {
+      let started = timestamp.system_time()
 
-  let assert Ok(metadata) = hex.fetch_package_metadata_from_hex("gleam_stdlib")
+      let assert Ok(metadata) =
+        hex.fetch_package_metadata_from_hex("gleam_stdlib")
 
-  assert metadata.licences != []
-  assert timestamp.difference(started, timestamp.system_time())
-    |> duration.to_milliseconds
-    < 5000
+      assert metadata.licences != []
+      assert timestamp.difference(started, timestamp.system_time())
+        |> duration.to_milliseconds
+        < 5000
+    }
+    _ -> Nil
+  }
 }

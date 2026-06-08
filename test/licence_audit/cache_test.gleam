@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -7,6 +8,7 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/progress
 import simplifile
+import slate/set as dets_set
 
 const tmp_dir = "build/tmp/cache_test"
 
@@ -29,6 +31,36 @@ fn pkg(name: String, version: String) -> manifest.Package {
 
 fn reporter() -> progress.Reporter {
   progress.capturing(progress.Verbose, "report")
+}
+
+fn metadata_with_publisher(publisher: String) -> hex.PackageMetadata {
+  hex.PackageMetadata(
+    licences: ["MIT"],
+    description: Some("Package metadata"),
+    links: [#("HexDocs", "https://hexdocs.pm/example")],
+    publisher: Some(publisher),
+  )
+}
+
+fn write_legacy_cache_entry(
+  path: String,
+  key: String,
+  metadata: hex.PackageMetadata,
+) {
+  let assert Ok(table) =
+    dets_set.open(
+      path,
+      key_decoder: decode.string,
+      value_decoder: decode.string,
+    )
+  let assert Ok(_) =
+    dets_set.insert(
+      into: table,
+      key: key,
+      value: hex.encode_cache_entry(metadata),
+    )
+  let assert Ok(_) = dets_set.close(table)
+  Nil
 }
 
 fn detail_messages(rep: progress.Reporter) -> List(String) {
@@ -105,6 +137,25 @@ pub fn cache_key_includes_version_test() {
   let #(result, _) = cache.wrap(handle, v2)(pkg("foo", "2.0.0"), reporter())
   let assert Ok(metadata) = result
   should.equal(metadata.licences, ["Apache-2.0"])
+  let assert None = cache.close(handle)
+}
+
+pub fn cache_refetches_legacy_enriched_entry_instead_of_stale_publisher_test() {
+  let path = fresh_path("legacy_enriched_refetch")
+  write_legacy_cache_entry(
+    path,
+    "example@1.0.0",
+    metadata_with_publisher("old-owner"),
+  )
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let fetcher = fn(_name) { Ok(metadata_with_publisher("new-owner")) }
+  let #(result, rep) =
+    cache.wrap(handle, fetcher)(pkg("example", "1.0.0"), reporter())
+
+  let assert Ok(metadata) = result
+  should.equal(metadata.publisher, Some("new-owner"))
+  let assert True = any_contains(detail_messages(rep), "Cache miss")
   let assert None = cache.close(handle)
 }
 
