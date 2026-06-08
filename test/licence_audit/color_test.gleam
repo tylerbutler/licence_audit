@@ -45,9 +45,48 @@ pub fn resolve_with_color_level_auto_uses_tty_color_detection_test() {
 pub fn enabled_palette_wraps_text_with_ansi_test() {
   let palette = color.for_enabled(True)
 
-  assert color.green(palette, "ok") != "ok"
-  assert color.red(palette, "no") != "no"
-  assert color.yellow(palette, "?") != "?"
+  assert string.contains(color.green(palette, "ok"), "\u{1b}[32m")
+  assert string.contains(color.red(palette, "no"), "\u{1b}[31m")
+  assert string.contains(color.yellow(palette, "?"), "\u{1b}[33m")
+}
+
+pub fn enabled_palette_emits_ansi_for_text_emphasis_test() {
+  let palette = color.for_enabled(True)
+
+  assert string.contains(color.bold(palette, "title"), "\u{1b}[1m")
+  assert string.contains(color.dim(palette, "aside"), "\u{1b}[2m")
+}
+
+pub fn enabled_palette_emits_ansi_for_severity_test() {
+  let palette = color.for_enabled(True)
+
+  assert string.contains(
+    color.severity(palette, color.CriticalSeverity),
+    "\u{1b}[31m",
+  )
+  assert string.contains(
+    color.severity(palette, color.MediumSeverity),
+    "\u{1b}[33m",
+  )
+  assert !string.contains(
+    color.severity(palette, color.UnknownSeverityLabel),
+    "\u{1b}[",
+  )
+}
+
+pub fn enabled_palette_emits_ansi_for_dependency_section_titles_test() {
+  let palette = color.for_enabled(True)
+  let production =
+    color.dependency_section_title(palette, color.ProductionDependencies)
+  let development =
+    color.dependency_section_title(palette, color.DevelopmentDependencies)
+
+  assert string.contains(production, "\u{1b}[1m")
+  assert string.contains(production, "\u{1b}[4m")
+  assert string.contains(production, "\u{1b}[32m")
+  assert string.contains(development, "\u{1b}[1m")
+  assert string.contains(development, "\u{1b}[4m")
+  assert string.contains(development, "\u{1b}[36m")
 }
 
 pub fn disabled_palette_passes_through_test() {

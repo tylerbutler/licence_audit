@@ -45,9 +45,9 @@ pub fn format(
   mode: Mode,
   palette: color.Palette,
 ) -> String {
-  let widths = widths(rows)
   let #(prod_rows, dev_rows) =
     list.partition(rows, fn(r) { r.scope == manifest.Prod })
+  let widths = widths_for_sections([prod_rows, dev_rows])
   let sections =
     [
       #(color.ProductionDependencies, prod_rows),
@@ -158,7 +158,11 @@ fn header(widths: Widths, mode: Mode) -> String {
 }
 
 type Tree {
-  Tree(roots: List(Row), children: Dict(String, List(Row)))
+  Tree(
+    roots: List(Row),
+    children: Dict(String, List(Row)),
+    depths: Dict(String, Int),
+  )
 }
 
 fn build_tree(rows: List(Row)) -> Tree {
@@ -189,7 +193,27 @@ fn build_tree(rows: List(Row)) -> Tree {
       dict.insert(acc, k, ordered)
     })
 
-  Tree(roots: roots, children: children)
+  Tree(roots: roots, children: children, depths: depths(roots, children))
+}
+
+fn depths(
+  roots: List(Row),
+  children: Dict(String, List(Row)),
+) -> Dict(String, Int) {
+  depths_loop(roots, children, 0, dict.new())
+}
+
+fn depths_loop(
+  rows: List(Row),
+  children: Dict(String, List(Row)),
+  depth: Int,
+  acc: Dict(String, Int),
+) -> Dict(String, Int) {
+  list.fold(rows, acc, fn(acc, row) {
+    let acc = dict.insert(acc, row.package, depth)
+    let kids = dict.get(children, row.package) |> result.unwrap([])
+    depths_loop(kids, children, depth + 1, acc)
+  })
 }
 
 fn parent_in_rows(row: Row, by_name: Dict(String, Row)) -> Option(String) {
@@ -217,13 +241,6 @@ fn find_present(
   }
 }
 
-fn indexed_fold(list: List(a), index: Int, acc: b, f: fn(b, a, Int) -> b) -> b {
-  case list {
-    [] -> acc
-    [x, ..rest] -> indexed_fold(rest, index + 1, f(acc, x, index), f)
-  }
-}
-
 fn tree_text(
   tree: Tree,
   widths: Widths,
@@ -246,7 +263,7 @@ fn render_nodes(
   acc: List(String),
 ) -> List(String) {
   let count = list.length(nodes)
-  indexed_fold(nodes, 0, acc, fn(acc, node, i) {
+  list.index_fold(nodes, acc, fn(acc, node, i) {
     let is_last = i == count - 1
     let row_prefix = case is_root_level {
       True -> ""
@@ -289,10 +306,13 @@ fn row_text(
   palette: color.Palette,
 ) -> String {
   let licences_raw = licences_text(row)
-  let licences_padded = pad(licences_raw, widths.licences)
+  let licences_text = case mode {
+    Default -> licences_raw
+    Audit -> pad(licences_raw, widths.licences)
+  }
   let glyph = glyph(row.status, mode, palette)
-  let licences_padded_colored =
-    colorize_for_status(row.status, mode, palette, licences_padded)
+  let licences_colored =
+    colorize_for_status(row.status, mode, palette, licences_text)
   let name_padded = pad_name(prefix, row.package, widths.package)
 
   case mode {
@@ -304,7 +324,7 @@ fn row_text(
       <> "  "
       <> pad(row.version, widths.version)
       <> "  "
-      <> licences_padded_colored
+      <> licences_colored
 
     Audit ->
       prefix
@@ -314,7 +334,7 @@ fn row_text(
       <> "  "
       <> pad(row.version, widths.version)
       <> "  "
-      <> licences_padded_colored
+      <> licences_colored
       <> "  "
       <> status_text(row.status)
   }
@@ -372,27 +392,36 @@ type Widths {
   Widths(package: Int, version: Int, licences: Int)
 }
 
-fn widths(rows: List(Row)) -> Widths {
-  widths_loop(rows, Widths(package: 7, version: 7, licences: 8))
+fn widths_for_sections(sections: List(List(Row))) -> Widths {
+  list.fold(
+    sections,
+    Widths(package: 7, version: 7, licences: 8),
+    fn(current, rows) {
+      let tree = build_tree(rows)
+      widths_loop(rows, tree.depths, current)
+    },
+  )
 }
 
-fn widths_loop(rows: List(Row), current: Widths) -> Widths {
+fn widths_loop(
+  rows: List(Row),
+  depths: Dict(String, Int),
+  current: Widths,
+) -> Widths {
   case rows {
     [] -> current
     [row, ..rest] -> {
       let licences_width =
         int.max(current.licences, string.length(licences_text(row)))
-      // Package column must fit every row's (tree prefix + name). Roots have
-      // an empty prefix, so deep transitive children dominate this width.
-      let row_prefix_len = case row.path {
-        [] | [_] -> 0
-        path -> { list.length(path) - 1 } * 3
-      }
+      // Package column must fit the rendered tree prefix plus the package name.
+      let row_prefix_len =
+        { dict.get(depths, row.package) |> result.unwrap(0) } * 3
       let package_width =
         int.max(current.package, row_prefix_len + string.length(row.package))
 
       widths_loop(
         rest,
+        depths,
         Widths(
           package: package_width,
           version: int.max(current.version, string.length(row.version)),

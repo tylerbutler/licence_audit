@@ -63,21 +63,21 @@ fn spruce_context(palette: Palette) -> spruce.Spruce {
   }
 }
 
-fn paint(enabled: Bool, color: style.Color, text: String) -> String {
-  let sp = spruce_context(Palette(enabled: enabled))
+fn fg(palette: Palette, color: style.Color, text: String) -> String {
+  let sp = spruce_context(palette)
   style.render(sp, style.fg(style.new(), color), text)
 }
 
 pub fn green(palette: Palette, text: String) -> String {
-  paint(palette.enabled, style.Green, text)
+  fg(palette, style.Green, text)
 }
 
 pub fn red(palette: Palette, text: String) -> String {
-  paint(palette.enabled, style.Red, text)
+  fg(palette, style.Red, text)
 }
 
 pub fn yellow(palette: Palette, text: String) -> String {
-  paint(palette.enabled, style.Yellow, text)
+  fg(palette, style.Yellow, text)
 }
 
 /// Render `text` in bold when color is enabled; plain text otherwise.
@@ -158,7 +158,7 @@ pub fn severity(palette: Palette, label: SeverityLabel) -> String {
   }
   case label {
     UnknownSeverityLabel -> text
-    CriticalSeverity | HighSeverity -> paint(palette.enabled, style.Red, text)
-    MediumSeverity | LowSeverity -> paint(palette.enabled, style.Yellow, text)
+    CriticalSeverity | HighSeverity -> fg(palette, style.Red, text)
+    MediumSeverity | LowSeverity -> fg(palette, style.Yellow, text)
   }
 }
