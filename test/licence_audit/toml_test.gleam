@@ -26,6 +26,201 @@ pub fn preserves_inline_trailing_comment_test() {
   should.be_true(string.contains(output, "[\"MIT\", \"Apache-2.0\"]"))
 }
 
+pub fn preserves_trailing_comment_containing_quote_test() {
+  let input =
+    "[tools.licence_audit]\nallow = [\"MIT\"] # use \"MIT\" only\ndeny = []\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "MIT",
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "# use \"MIT\" only"))
+  should.be_true(string.contains(output, "[\"MIT\", \"Apache-2.0\"]"))
+  should.equal(string.contains(output, "__licence_audit_array__allow_2"), False)
+}
+
+pub fn preserves_trailing_comment_containing_hash_test() {
+  let input =
+    "[tools.licence_audit]\nallow = [\"MIT\"] # keep #123\ndeny = []\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "MIT",
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "# keep #123"))
+  should.be_true(string.contains(output, "[\"MIT\", \"Apache-2.0\"]"))
+}
+
+pub fn rewrites_only_matching_key_in_target_table_test() {
+  let input =
+    "[dependencies]\ndeny = \">= 1.0.0\"\n\n[tools.licence_audit]\nallow = []\ndeny = [\"MIT\"]\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "deny", [
+      "GPL-3.0",
+    ])
+
+  should.be_true(string.contains(output, "[dependencies]"))
+  should.be_true(string.contains(output, "deny = \">= 1.0.0\""))
+  should.be_true(string.contains(output, "[tools.licence_audit]"))
+  should.be_true(string.contains(output, "deny = [\"GPL-3.0\"]"))
+}
+
+pub fn array_table_after_target_does_not_inherit_target_scope_test() {
+  let input =
+    "[tools.licence_audit]\ndeny = [\"MIT\"]\n\n[[dependencies]]\ndeny = \"__licence_audit_array__deny_1\"\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "deny", [
+      "GPL-3.0",
+    ])
+
+  should.be_true(string.contains(output, "deny = [\"GPL-3.0\"]"))
+  should.be_true(string.contains(
+    output,
+    "deny = \"__licence_audit_array__deny_1\"",
+  ))
+}
+
+pub fn matching_array_table_is_not_rewritten_as_standard_table_test() {
+  let input = "[[tools.licence_audit]]\nallow = [\"MIT\"]\n"
+  let assert Error(_) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "GPL-3.0",
+    ])
+  Nil
+}
+
+pub fn quoted_bracket_header_after_target_does_not_inherit_scope_test() {
+  let input =
+    "[tools.licence_audit]\nallow = [\"MIT\"]\n\n[other.\"]\"]\nallow = \"__licence_audit_array__allow_1\"\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "GPL-3.0",
+    ])
+
+  should.be_true(string.contains(output, "allow = [\"GPL-3.0\"]"))
+  should.be_true(string.contains(
+    output,
+    "allow = \"__licence_audit_array__allow_1\"",
+  ))
+}
+
+pub fn quoted_assignment_key_is_rewritten_test() {
+  let input = "[tools.licence_audit]\n\"allow\" = [\"MIT\"]\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "\"allow\" = [\"Apache-2.0\"]"))
+}
+
+pub fn multiline_strings_are_not_scanned_as_tables_test() {
+  let input =
+    "[other]\nblob = \"\"\"\n[tools.licence_audit]\nallow = \"__licence_audit_array__allow_1\"\n\"\"\"\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(
+    output,
+    "allow = \"__licence_audit_array__allow_1\"",
+  ))
+  should.be_true(string.contains(output, "allow = [\"Apache-2.0\"]"))
+}
+
+pub fn multiline_string_in_array_does_not_hide_later_target_table_test() {
+  let input =
+    "arr = [\"\"\"\nexample\n\"\"\"]\n\n[tools.licence_audit]\nallow = [\"MIT\"]\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "arr = [\"\"\""))
+  should.be_true(string.contains(output, "allow = [\"Apache-2.0\"]"))
+}
+
+pub fn same_line_multiline_string_in_array_preserves_depth_test() {
+  let input =
+    "arr = [\"\"\"example\"\"\"]\n\n[tools.licence_audit]\nallow = [\"MIT\"]\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "arr = [\"\"\"example\"\"\"]"))
+  should.be_true(string.contains(output, "allow = [\"Apache-2.0\"]"))
+}
+
+pub fn quoted_table_key_spaces_do_not_match_trimmed_target_test() {
+  let input =
+    "[tools.\" licence_audit \"]\nallow = \"__licence_audit_array__allow_1\"\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "[tools.\" licence_audit \"]"))
+  should.be_true(string.contains(
+    output,
+    "allow = \"__licence_audit_array__allow_1\"",
+  ))
+  should.be_true(string.contains(output, "[tools.licence_audit]"))
+  should.be_true(string.contains(output, "allow = [\"Apache-2.0\"]"))
+}
+
+pub fn rewrites_key_in_quoted_target_table_header_test() {
+  let input = "[tools.\"licence_audit\"]\nallow = [\"MIT\"]\ndeny = []\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "[tools.\"licence_audit\"]"))
+  should.be_true(string.contains(output, "allow = [\"Apache-2.0\"]"))
+}
+
+pub fn ignores_array_items_that_look_like_table_headers_test() {
+  let input =
+    "[tools.licence_audit]\ngroups = [\n  [\"MIT\"]\n]\ndeny = [\"MIT\"]\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "deny", [
+      "GPL-3.0",
+    ])
+
+  should.be_true(string.contains(output, "groups = ["))
+  should.be_true(string.contains(output, "[\"MIT\"]"))
+  should.be_true(string.contains(output, "deny = [\"GPL-3.0\"]"))
+}
+
+pub fn leaves_keys_containing_target_key_untouched_test() {
+  let input =
+    "[tools.licence_audit]\nallowlist = \"keep\"\nallow = [\"MIT\"]\ndeny = []\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "allowlist = \"keep\""))
+  should.be_true(string.contains(output, "allow = [\"Apache-2.0\"]"))
+}
+
+pub fn preserves_hashes_inside_array_values_test() {
+  let input =
+    "[tools.licence_audit]\nallow = [\"MIT\"] # value can include #\ndeny = []\n"
+  let assert Ok(output) =
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "License #1",
+      "Apache-2.0",
+    ])
+
+  should.be_true(string.contains(output, "\"License #1\""))
+  should.be_true(string.contains(output, "# value can include #"))
+}
+
 pub fn leaves_unrelated_sections_untouched_test() {
   let input =
     "[tools.licence_audit]\nallow = []\ndeny = []\n\n[other]\nkey = \"value\"\nnumber = 42\n"
