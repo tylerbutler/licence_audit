@@ -42,7 +42,10 @@ jobs:
           [ -f README.md ] && cp README.md "$stage/" || true
           tar -czf "dist/${stage}.tar.gz" "$stage"
           (cd "$stage" && zip -qr "../dist/${stage}.zip" .)
-          (cd dist && sha256sum *.tar.gz *.zip *.cdx.json > checksums.txt)
+          # Ship the bare escript alongside the archives so it can be attested
+          # and downloaded directly.
+          cp licence_audit dist/
+          (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
       - name: Upload artifacts
@@ -68,17 +71,20 @@ jobs:
           name: licence_audit-release
           path: dist
 
-      - name: Attest build provenance for release archives
+      - name: Attest build provenance for release artifacts
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # ratchet:actions/attest-build-provenance@v4
         with:
           subject-path: |
+            dist/licence_audit
             dist/*.tar.gz
             dist/*.zip
+            dist/checksums.txt
 
-      - name: Attest SBOM for release archives
+      - name: Attest SBOM for release artifacts
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # ratchet:actions/attest@v4
         with:
           subject-path: |
+            dist/licence_audit
             dist/*.tar.gz
             dist/*.zip
           sbom-path: dist/licence_audit-${{ github.ref_name }}.cdx.json

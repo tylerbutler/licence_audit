@@ -18,9 +18,12 @@ chmod +x licence_audit
 ### Verify the download
 
 ```sh
-# Checksums (run from the directory containing the archives)
+# Checksums (run from the directory containing the artifacts)
 sha256sum -c checksums.txt
 
-# Build provenance + SBOM attestations
+# Build provenance + SBOM attestations for the archive...
 gh attestation verify licence_audit-${REF_NAME}.tar.gz --repo ${REPO}
+
+# ...or for the bare escript binary
+gh attestation verify licence_audit --repo ${REPO}
 ```
