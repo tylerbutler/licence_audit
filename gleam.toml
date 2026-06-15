@@ -22,7 +22,7 @@ jsone = ">= 1.9.0 and < 2.0.0"
 tomlet = ">= 1.1.2 and < 2.0.0"
 tty = ">= 1.0.0 and < 2.0.0"
 gleam_httpc = ">= 5.0.0 and < 6.0.0"
-spruce = { git = "https://github.com/tylerbutler/spruce.git", ref = "main" }
+spruce = ">= 1.0.0 and < 2.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
