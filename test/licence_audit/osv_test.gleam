@@ -1,7 +1,10 @@
 import gleam/http.{Post}
 import gleam/http/request
 import gleam/http/response.{Response}
+import gleam/int
 import gleam/list
+import gleam/option.{Some}
+import gleam/regexp
 import gleam/string
 import gleam/uri
 import gleeunit/should
@@ -97,6 +100,44 @@ pub fn batch_response_follows_next_page_token_for_truncated_result_test() {
   should.equal(entry.vuln_ids, ["OSV-1", "OSV-2"])
 }
 
+pub fn batch_response_rejects_excessive_pagination_test() {
+  let client = fn(req: request.Request(String)) {
+    let page = request_page(req)
+    let next = page + 1
+    let body = case page < 40 {
+      True ->
+        "{\"results\":[{\"vulns\":[{\"id\":\"OSV-"
+        <> int.to_string(page)
+        <> "\"}],\"next_page_token\":\"page-"
+        <> int.to_string(next)
+        <> "\"}]}"
+      False -> "{\"results\":[{\"vulns\":[{\"id\":\"OSV-final\"}]}]}"
+    }
+    Ok(Response(status: 200, headers: [], body: body))
+  }
+
+  let assert Error(error) = osv.query_batch(["pkg:hex/affected@1.0.0"], client)
+  case error {
+    osv.InvalidResponse(_) -> Nil
+    _ -> panic as "expected InvalidResponse"
+  }
+}
+
+fn request_page(req: request.Request(String)) -> Int {
+  let assert Ok(re) = regexp.from_string("\"page_token\":\"page-([0-9]+)\"")
+  case regexp.scan(with: re, content: req.body) {
+    [match, ..] ->
+      case match.submatches {
+        [Some(raw)] -> {
+          let assert Ok(page) = int.parse(raw)
+          page
+        }
+        _ -> 0
+      }
+    [] -> 0
+  }
+}
+
 pub fn batch_response_length_mismatch_returns_typed_error_test() {
   // Server returns 1 result but we asked about 2 purls — refuse to align.
   let client = fn(_req) {
@@ -159,6 +200,16 @@ pub fn decode_vuln_response_falls_back_to_details_for_summary_test() {
   // database_specific absent, cvss vector has low confidentiality impact → Medium
   should.equal(vuln.severity, osv.Medium)
   assert string.contains(vuln.summary, "Memory corruption")
+}
+
+pub fn decode_vuln_response_uses_score_type_for_bare_cvss_v2_vector_test() {
+  let assert Ok(vuln) =
+    osv.decode_vuln_body(
+      "{\"id\":\"CVE-2024-0002\",\"severity\":[{\"type\":\"CVSS_V2\",\"score\":\"AV:N/AC:L/Au:N/C:P/I:P/A:P\"}]}",
+      "CVE-2024-0002",
+    )
+
+  should.equal(vuln.severity, osv.Medium)
 }
 
 pub fn parse_severity_label_recognises_common_labels_test() {

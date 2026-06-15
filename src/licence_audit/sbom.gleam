@@ -230,6 +230,10 @@ const spdx_ids = [
   "Zlib", "zlib-acknowledgement", "ZPL-1.1", "ZPL-2.0", "ZPL-2.1",
 ]
 
+const spdx_ids_outside_cyclonedx_16 = [
+  "Brian-Gladman-3-Clause-no-conversion", "MVT-1.1",
+]
+
 /// Map raw declared licence strings to CycloneDX licence entries, one per
 /// declared licence. When a package declares more than one, they are emitted as
 /// separate entries: Hex does not record whether the relationship is
@@ -259,7 +263,14 @@ fn dedupe_license_entries(entries: List(LicenseEntry)) -> List(LicenseEntry) {
 
 fn match_spdx(raw: String) -> Result(String, Nil) {
   let lower = string.lowercase(raw)
-  list.find(spdx_ids, fn(id) { string.lowercase(id) == lower })
+  case
+    list.find(spdx_ids_outside_cyclonedx_16, fn(id) {
+      string.lowercase(id) == lower
+    })
+  {
+    Ok(_) -> Error(Nil)
+    Error(_) -> list.find(spdx_ids, fn(id) { string.lowercase(id) == lower })
+  }
 }
 
 import gleam/dict.{type Dict}
@@ -690,15 +701,6 @@ fn component_refs(ref: String, deps: List(String)) -> json.Json {
 
 const bom_vendor = "tylerbutler"
 
-const bom_vendor_url = "https://github.com/tylerbutler/licence_audit"
-
-fn bom_supplier_json() -> json.Json {
-  json.object([
-    #("name", json.string(bom_vendor)),
-    #("url", json.preprocessed_array([json.string(bom_vendor_url)])),
-  ])
-}
-
 /// Build the `metadata.component` object for the project being described,
 /// enriching the bare name/version with whatever `gleam.toml` provided.
 fn root_component_json(root: RootComponent) -> json.Json {
@@ -707,7 +709,6 @@ fn root_component_json(root: RootComponent) -> json.Json {
     #("type", json.string("application")),
     #("name", json.string(root.name)),
     #("version", json.string(root.version)),
-    #("supplier", bom_supplier_json()),
   ]
   |> fn(fields) {
     case root_purl(root) {
@@ -758,25 +759,19 @@ fn root_component_json(root: RootComponent) -> json.Json {
 }
 
 fn root_purl(root: RootComponent) -> option.Option(String) {
-  case root.version {
-    "" -> option.None
-    _ ->
-      case root.repository {
-        option.Some(repo) ->
-          case parse_github_repo(repo) {
-            Ok(#(owner, name)) ->
-              option.Some(
-                "pkg:github/"
-                <> string.lowercase(owner)
-                <> "/"
-                <> string.lowercase(name)
-                <> "@"
-                <> root.version,
-              )
-            Error(_) -> option.None
-          }
-        option.None -> option.None
+  case root.repository {
+    option.Some(repo) ->
+      case parse_github_repo(repo) {
+        Ok(#(owner, name)) ->
+          option.Some(
+            "pkg:github/"
+            <> string.lowercase(owner)
+            <> "/"
+            <> string.lowercase(name),
+          )
+        Error(_) -> option.None
       }
+    option.None -> option.None
   }
 }
 
@@ -818,15 +813,14 @@ fn build_document(
             ]),
           ]),
         ),
-        // The BOM is authored and supplied by the licence_audit maintainer,
-        // independent of whichever project it describes.
+        // The BOM is authored by the licence_audit maintainer, independent of
+        // whichever project it describes.
         #(
           "authors",
           json.preprocessed_array([
             json.object([#("name", json.string(bom_vendor))]),
           ]),
         ),
-        #("supplier", bom_supplier_json()),
         #("component", root_component_json(input.root)),
       ]),
     ),

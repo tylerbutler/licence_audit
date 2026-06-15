@@ -73,6 +73,8 @@ const osv_host = "api.osv.dev"
 
 const osv_timeout_ms = 8000
 
+const max_batch_pages = 32
+
 // --- High-level injectable API -------------------------------------------
 
 /// Query OSV for vulnerabilities affecting each of `purls`. Returns one
@@ -326,6 +328,7 @@ fn follow_entry_pages(
     entry.vuln_ids,
     entry.next_page_token,
     client,
+    pages_seen: 1,
   )
 }
 
@@ -334,10 +337,19 @@ fn follow_entry_pages_loop(
   vuln_ids: List(String),
   next_page_token: Option(String),
   client: fn(Request(String)) -> Result(Response(String), Error),
+  pages_seen pages_seen: Int,
 ) -> Result(BatchEntry, Error) {
   case next_page_token {
     None -> Ok(BatchEntry(purl: purl, vuln_ids: vuln_ids))
-    Some(token) ->
+    Some(token) -> {
+      use <- bool.guard(
+        when: pages_seen >= max_batch_pages,
+        return: Error(InvalidResponse(
+          "OSV paginated response exceeded "
+          <> int.to_string(max_batch_pages)
+          <> " pages",
+        )),
+      )
       case fetch_batch_page([purl], [Some(token)], client) {
         Error(error) -> Error(error)
         Ok([page]) ->
@@ -346,12 +358,14 @@ fn follow_entry_pages_loop(
             list.append(vuln_ids, page.vuln_ids),
             page.next_page_token,
             client,
+            pages_seen: pages_seen + 1,
           )
         Ok(_) ->
           Error(InvalidResponse(
             "OSV paginated response did not contain exactly one result",
           ))
       }
+    }
   }
 }
 
@@ -402,9 +416,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
 
   let severity = case database_severity {
     UnknownSeverity ->
-      highest_severity_from_vectors(
-        list.map(scores, fn(score) { severity_from_cvss_vector(score.vector) }),
-      )
+      highest_severity_from_vectors(list.map(scores, severity_from_score))
     known -> known
   }
 
@@ -425,6 +437,24 @@ fn score_decoder() -> decode.Decoder(Score) {
   use kind <- decode.optional_field("type", "", decode.string)
   use vector <- decode.optional_field("score", "", decode.string)
   decode.success(Score(kind:, vector:))
+}
+
+fn severity_from_score(score: Score) -> Severity {
+  case severity_from_cvss_vector(score.vector) {
+    UnknownSeverity -> severity_from_cvss_kind(score.kind, score.vector)
+    severity -> severity
+  }
+}
+
+fn severity_from_cvss_kind(kind: String, vector: String) -> Severity {
+  let upper_kind = string.uppercase(kind)
+  let upper_vector = string.uppercase(vector)
+  case upper_kind {
+    "CVSS_V4" -> bucket_from_cvss4(upper_vector)
+    "CVSS_V3" -> bucket_from_cvss3(upper_vector)
+    "CVSS_V2" -> Medium
+    _ -> UnknownSeverity
+  }
 }
 
 fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {

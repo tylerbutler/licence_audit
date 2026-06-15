@@ -186,6 +186,16 @@ pub fn license_entries_unknown_string_becomes_name_test() {
   should.equal(entries, [sbom.LicenseName("Custom Corporate Licence")])
 }
 
+pub fn license_entries_treats_spdx_ids_outside_cdx16_as_names_test() {
+  let entries =
+    sbom.license_entries(["Brian-Gladman-3-Clause-no-conversion", "MVT-1.1"])
+
+  should.equal(entries, [
+    sbom.LicenseName("Brian-Gladman-3-Clause-no-conversion"),
+    sbom.LicenseName("MVT-1.1"),
+  ])
+}
+
 pub fn license_entries_empty_list_test() {
   should.equal(sbom.license_entries([]), [])
 }
@@ -222,19 +232,24 @@ pub fn render_emits_root_metadata_component_test() {
   let assert True = string.contains(json_str, "\"bom-ref\":\"root\"")
 }
 
-pub fn render_root_metadata_component_has_supplier_and_purl_test() {
+pub fn render_root_metadata_omits_unknown_supplier_and_emits_unversioned_purl_test() {
   let json_str = sbom.render(minimal_input())
-  let assert Ok(supplier_name) =
+  let assert Ok(metadata_supplier) =
     json.parse(
       json_str,
-      decode.at(["metadata", "component", "supplier", "name"], decode.string),
+      decode.optionally_at(
+        ["metadata", "supplier", "name"],
+        "__missing__",
+        decode.string,
+      ),
     )
-  let assert Ok(supplier_urls) =
+  let assert Ok(component_supplier) =
     json.parse(
       json_str,
-      decode.at(
-        ["metadata", "component", "supplier", "url"],
-        decode.list(decode.string),
+      decode.optionally_at(
+        ["metadata", "component", "supplier", "name"],
+        "__missing__",
+        decode.string,
       ),
     )
   let assert Ok(purl) =
@@ -243,9 +258,9 @@ pub fn render_root_metadata_component_has_supplier_and_purl_test() {
       decode.at(["metadata", "component", "purl"], decode.string),
     )
 
-  should.equal(supplier_name, "tylerbutler")
-  should.equal(supplier_urls, ["https://github.com/tylerbutler/licence_audit"])
-  should.equal(purl, "pkg:github/tylerbutler/licence_audit@0.1.0")
+  should.equal(metadata_supplier, "__missing__")
+  should.equal(component_supplier, "__missing__")
+  should.equal(purl, "pkg:github/tylerbutler/licence_audit")
 }
 
 pub fn render_root_metadata_component_omits_purl_without_repository_test() {
@@ -262,6 +277,18 @@ pub fn render_root_metadata_component_omits_purl_without_repository_test() {
     )
 
   should.equal(purl, "__missing__")
+}
+
+pub fn render_root_metadata_component_emits_purl_when_version_empty_test() {
+  let root = sbom.RootComponent(..minimal_input().root, version: "")
+  let json_str = sbom.render(sbom.SbomInput(..minimal_input(), root: root))
+  let assert Ok(purl) =
+    json.parse(
+      json_str,
+      decode.at(["metadata", "component", "purl"], decode.string),
+    )
+
+  should.equal(purl, "pkg:github/tylerbutler/licence_audit")
 }
 
 pub fn render_emits_provenance_metadata_test() {

@@ -46,5 +46,8 @@ jobs:
           restore-keys: |
             hex-licence-v2-${{ runner.os }}-
 
+      - name: Check committed SBOM is up to date
+        run: just sbom-drift-check
+
       - name: Validate SBOM (schema)
         run: just sbom-validate
