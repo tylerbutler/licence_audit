@@ -15,13 +15,17 @@ import etch/command
 import etch/event
 import etch/stdout
 import etch/terminal
+import gleam/dynamic.{type Dynamic}
 import gleam/int
+import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import tty
 
-type Choice {
+const max_read_failures = 3
+
+pub type Choice {
   Allow
   Deny
   Ignore
@@ -40,9 +44,66 @@ pub type PickerError {
   NotInteractive
 }
 
-type State {
+pub opaque type State {
   State(title: String, items: List(Item), cursor: Int)
 }
+
+pub type PickerKey {
+  MoveUp
+  MoveDown
+  CycleCurrent
+  AllowAll
+  DenyAll
+  IgnoreAll
+}
+
+type LoopOutcome {
+  LoopDone(Result(Selection, PickerError))
+  LoopReadFailed
+}
+
+type WorkerMessage {
+  WorkerFinished(LoopOutcome)
+  WorkerDown(Dynamic)
+}
+
+type Pid
+
+type Monitor
+
+type Reference
+
+type Selector(payload)
+
+type DoNotLeak
+
+@external(erlang, "erlang", "self")
+fn self() -> Pid
+
+@external(erlang, "erlang", "make_ref")
+fn make_ref() -> Reference
+
+@external(erlang, "erlang", "send")
+fn erlang_send(pid: Pid, message: message) -> message
+
+@external(erlang, "erlang", "spawn_monitor")
+fn spawn_monitor(running: fn() -> anything) -> #(Pid, Monitor)
+
+@external(erlang, "gleam_erlang_ffi", "new_selector")
+fn new_selector() -> Selector(payload)
+
+@external(erlang, "gleam_erlang_ffi", "insert_selector_handler")
+fn insert_selector_handler(
+  selector: Selector(payload),
+  for tag: tag,
+  mapping mapping: fn(message) -> payload,
+) -> Selector(payload)
+
+@external(erlang, "gleam_erlang_ffi", "select")
+fn selector_receive_forever(selector: Selector(payload)) -> payload
+
+@external(erlang, "gleam_erlang_ffi", "demonitor")
+fn demonitor_process(monitor: Monitor) -> DoNotLeak
 
 /// Present an interactive tri-state prompt.
 ///
@@ -91,6 +152,28 @@ fn pick_interactive(
   allow: List(String),
   deny: List(String),
 ) -> Result(Selection, PickerError) {
+  let state = new_state(title, labels, allow, deny)
+
+  terminal.enter_raw()
+  let outcome = run_loop_worker(state)
+  stdout.execute([command.ShowCursor, command.Println("")])
+  terminal.exit_raw()
+
+  case outcome {
+    LoopDone(result) -> result
+    LoopReadFailed -> {
+      io.println_error("Picker failed to read terminal input repeatedly.")
+      Error(Cancelled)
+    }
+  }
+}
+
+pub fn new_state(
+  title: String,
+  labels: List(String),
+  allow: List(String),
+  deny: List(String),
+) -> State {
   let items =
     list.map(labels, fn(label) {
       let choice = case
@@ -103,72 +186,152 @@ fn pick_interactive(
       }
       Item(label: label, choice: choice)
     })
-  let state = State(title: title, items: items, cursor: 0)
 
-  terminal.enter_raw()
-  event.init_event_server()
-  stdout.execute([command.HideCursor])
-  render(state, first: True)
-  let result = loop(state)
-  stdout.execute([command.ShowCursor, command.Println("")])
-  terminal.exit_raw()
-  result
+  State(title: title, items: items, cursor: 0)
 }
 
-fn loop(state: State) -> Result(Selection, PickerError) {
+pub fn handle_picker_key(state: State, key: PickerKey) -> State {
+  let count = list.length(state.items)
+  case key {
+    MoveUp -> State(..state, cursor: wrap(state.cursor - 1, count))
+    MoveDown -> State(..state, cursor: wrap(state.cursor + 1, count))
+    CycleCurrent -> cycle_at_index(state, state.cursor)
+    AllowAll -> State(..state, items: set_all(state.items, Allow))
+    DenyAll -> State(..state, items: set_all(state.items, Deny))
+    IgnoreAll -> State(..state, items: set_all(state.items, Ignore))
+  }
+}
+
+pub fn cycle_at_index(state: State, index: Int) -> State {
+  State(..state, items: cycle_items_at(state.items, index))
+}
+
+pub fn state_choices(state: State) -> List(#(String, Choice)) {
+  list.map(state.items, fn(item) { #(item.label, item.choice) })
+}
+
+pub fn state_selection(state: State) -> Selection {
+  build_selection(state.items)
+}
+
+pub fn state_cursor(state: State) -> Int {
+  state.cursor
+}
+
+fn run_loop_worker(state: State) -> LoopOutcome {
+  let parent = self()
+  let tag = make_ref()
+  let #(_, monitor) =
+    spawn_monitor(fn() {
+      event.init_event_server()
+      stdout.execute([command.HideCursor])
+      render(state, first: True)
+      send_worker_message(
+        parent,
+        tag,
+        WorkerFinished(loop(state, read_failures: 0)),
+      )
+    })
+  let message =
+    new_selector()
+    |> select_worker_messages(tag)
+    |> select_monitor(monitor)
+    |> selector_receive_forever
+  let _ = demonitor_process(monitor)
+
+  case message {
+    WorkerFinished(outcome) -> outcome
+    WorkerDown(_) -> LoopReadFailed
+  }
+}
+
+fn send_worker_message(
+  pid: Pid,
+  tag: Reference,
+  message: WorkerMessage,
+) -> Nil {
+  let _ = erlang_send(pid, #(tag, message))
+  Nil
+}
+
+fn select_worker_messages(
+  selector: Selector(WorkerMessage),
+  tag: Reference,
+) -> Selector(WorkerMessage) {
+  insert_selector_handler(
+    selector,
+    for: #(tag, 2),
+    mapping: fn(message: #(Reference, WorkerMessage)) { message.1 },
+  )
+}
+
+fn select_monitor(
+  selector: Selector(WorkerMessage),
+  monitor: Monitor,
+) -> Selector(WorkerMessage) {
+  insert_selector_handler(selector, for: monitor, mapping: fn(down: Dynamic) {
+    WorkerDown(down)
+  })
+}
+
+fn loop(state: State, read_failures read_failures: Int) -> LoopOutcome {
   case event.read() {
     Some(Ok(event.Key(key))) ->
       case key.kind {
         event.Press | event.Repeat -> handle_key(state, key)
-        event.Release -> loop(state)
+        event.Release -> loop(state, read_failures: 0)
       }
-    Some(Ok(_)) -> loop(state)
-    Some(Error(_)) -> loop(state)
-    None -> loop(state)
+    Some(Ok(_)) -> loop(state, read_failures: 0)
+    Some(Error(_)) -> handle_read_failure(state, read_failures)
+    None -> handle_read_failure(state, read_failures)
   }
 }
 
-fn handle_key(
-  state: State,
-  key: event.KeyEvent,
-) -> Result(Selection, PickerError) {
-  let count = list.length(state.items)
+fn handle_key(state: State, key: event.KeyEvent) -> LoopOutcome {
   case key.code, key.modifiers.control {
-    event.Char("c"), True -> Error(Cancelled)
-    event.Esc, _ -> Error(Cancelled)
-    event.Char("q"), False -> Error(Cancelled)
-    event.Enter, _ -> Ok(build_selection(state.items))
+    event.Char("c"), True -> LoopDone(Error(Cancelled))
+    event.Esc, _ -> LoopDone(Error(Cancelled))
+    event.Char("q"), False -> LoopDone(Error(Cancelled))
+    event.Enter, _ -> LoopDone(Ok(state_selection(state)))
     event.UpArrow, _ | event.Char("k"), False -> {
-      let new = State(..state, cursor: wrap(state.cursor - 1, count))
+      let new = handle_picker_key(state, MoveUp)
       render(new, first: False)
-      loop(new)
+      loop(new, read_failures: 0)
     }
     event.DownArrow, _ | event.Char("j"), False -> {
-      let new = State(..state, cursor: wrap(state.cursor + 1, count))
+      let new = handle_picker_key(state, MoveDown)
       render(new, first: False)
-      loop(new)
+      loop(new, read_failures: 0)
     }
     event.Char(" "), _ -> {
-      let new = State(..state, items: cycle_at(state.items, state.cursor))
+      let new = handle_picker_key(state, CycleCurrent)
       render(new, first: False)
-      loop(new)
+      loop(new, read_failures: 0)
     }
     event.Char("a"), False -> {
-      let new = State(..state, items: set_all(state.items, Allow))
+      let new = handle_picker_key(state, AllowAll)
       render(new, first: False)
-      loop(new)
+      loop(new, read_failures: 0)
     }
     event.Char("d"), False -> {
-      let new = State(..state, items: set_all(state.items, Deny))
+      let new = handle_picker_key(state, DenyAll)
       render(new, first: False)
-      loop(new)
+      loop(new, read_failures: 0)
     }
     event.Char("i"), False -> {
-      let new = State(..state, items: set_all(state.items, Ignore))
+      let new = handle_picker_key(state, IgnoreAll)
       render(new, first: False)
-      loop(new)
+      loop(new, read_failures: 0)
     }
-    _, _ -> loop(state)
+    _, _ -> loop(state, read_failures: 0)
+  }
+}
+
+fn handle_read_failure(state: State, read_failures: Int) -> LoopOutcome {
+  let read_failures = read_failures + 1
+  case read_failures >= max_read_failures {
+    True -> LoopReadFailed
+    False -> loop(state, read_failures:)
   }
 }
 
@@ -185,7 +348,7 @@ fn wrap(i: Int, count: Int) -> Int {
   }
 }
 
-fn cycle_at(items: List(Item), index: Int) -> List(Item) {
+fn cycle_items_at(items: List(Item), index: Int) -> List(Item) {
   list.index_map(items, fn(item, i) {
     case i == index {
       True -> Item(..item, choice: next_choice(item.choice))
@@ -218,20 +381,19 @@ fn build_selection(items: List(Item)) -> Selection {
 }
 
 fn render(state: State, first first: Bool) -> Nil {
-  let rows = list.length(state.items) + 3
-  // On redraws, move cursor back up to the title row and clear from there.
   let prelude = case first {
-    True -> []
+    True -> [command.SavePosition]
     False -> [
-      command.MoveToPreviousLine(rows),
+      command.RestorePosition,
       command.Clear(terminal.FromCursorDown),
+      command.SavePosition,
     ]
   }
 
   let header = [
     command.Println(state.title),
     command.Println(
-      "  ↑/↓ move · space cycle · a allow all · d deny all · i ignore all · enter confirm · esc cancel",
+      "  ↑/↓ move · space cycle · a/d/i all · enter ok · esc cancel",
     ),
   ]
 

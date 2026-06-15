@@ -35,11 +35,13 @@ just format         # gleam format src test
 just format-check   # gleam format --check src test
 just glint          # gleam run -m glinter (linter; fails only on error-level rules)
 just lint           # format-check + glint
-just ci             # full validation (format-check + glint + check + test + strict build)
+just ci             # full validation (format-check + glint + check + test + strict build + docs-check + sbom-drift-check + sbom-validate)
 just clean          # remove build artifacts
 ```
 
-Run `just` with no arguments to see the full recipe list.
+Run `just` with no arguments to see the full recipe list. The local `just ci`
+recipe and GitHub Actions both validate the SBOM after checking the committed
+SBOM for drift.
 
 To run a single Gleam test module, invoke `gleam test` directly through
 mise and pass the module name:

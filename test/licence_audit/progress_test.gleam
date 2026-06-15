@@ -82,3 +82,33 @@ pub fn format_standard_record_keeps_category_and_level_test() {
   should.equal(line, "INFO  | report | Audit complete")
   should.equal(string.starts_with(line, "INFO"), True)
 }
+
+pub fn capturing_reporter_records_standard_log_events_test() {
+  let reporter =
+    progress.capturing(progress.Normal, "check")
+    |> progress.phase("Starting licence audit")
+    |> progress.package_count(3)
+    |> progress.success("Audit complete")
+    |> progress.fail("Audit failed")
+    |> progress.warn("Cache unavailable")
+
+  should.equal(progress.events(reporter), [
+    progress.Event(progress.Phase, "Starting licence audit"),
+    progress.Event(progress.PackageCount, "Checking Hex package metadata"),
+    progress.Event(progress.Success, "Audit complete"),
+    progress.Event(progress.Failure, "Audit failed"),
+    progress.Event(progress.Warning, "Cache unavailable"),
+  ])
+}
+
+pub fn quiet_reporter_skips_standard_log_events_test() {
+  let reporter =
+    progress.capturing(progress.Quiet, "check")
+    |> progress.phase("Starting licence audit")
+    |> progress.package_count(3)
+    |> progress.success("Audit complete")
+    |> progress.fail("Audit failed")
+    |> progress.warn("Cache unavailable")
+
+  should.equal(progress.events(reporter), [])
+}

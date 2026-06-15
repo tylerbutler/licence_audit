@@ -19,7 +19,7 @@ import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 
 pub type Severity {
@@ -52,6 +52,14 @@ pub type BatchEntry {
   BatchEntry(purl: String, vuln_ids: List(String))
 }
 
+type BatchPageEntry {
+  BatchPageEntry(
+    purl: String,
+    vuln_ids: List(String),
+    next_page_token: Option(String),
+  )
+}
+
 pub type Error {
   InvalidJson(String)
   InvalidResponse(String)
@@ -65,6 +73,8 @@ const osv_host = "api.osv.dev"
 
 const osv_timeout_ms = 8000
 
+const max_batch_pages = 32
+
 // --- High-level injectable API -------------------------------------------
 
 /// Query OSV for vulnerabilities affecting each of `purls`. Returns one
@@ -76,14 +86,11 @@ pub fn query_batch(
 ) -> Result(List(BatchEntry), Error) {
   case purls {
     [] -> Ok([])
-    _ -> {
-      let body = encode_batch_body(purls)
-      let req = batch_request(body)
-      case client(req) {
+    _ ->
+      case fetch_batch_page(purls, initial_page_tokens(purls), client) {
         Error(error) -> Error(error)
-        Ok(response) -> decode_batch_response(response, purls)
+        Ok(entries) -> follow_paginated_entries(entries, client)
       }
-    }
   }
 }
 
@@ -167,11 +174,23 @@ fn vuln_request(id: String) -> Request(String) {
 // --- Body encoding -------------------------------------------------------
 
 pub fn encode_batch_body(purls: List(String)) -> String {
+  encode_batch_body_with_tokens(list.map(purls, fn(purl) { #(purl, None) }))
+}
+
+fn encode_batch_body_with_tokens(
+  purls: List(#(String, Option(String))),
+) -> String {
   let queries =
-    list.map(purls, fn(purl) {
-      json.object([
+    list.map(purls, fn(entry) {
+      let #(purl, page_token) = entry
+      let fields = [
         #("package", json.object([#("purl", json.string(purl))])),
-      ])
+      ]
+      let fields = case page_token {
+        None -> fields
+        Some(token) -> [#("page_token", json.string(token)), ..fields]
+      }
+      json.object(fields)
     })
 
   json.object([#("queries", json.preprocessed_array(queries))])
@@ -180,10 +199,26 @@ pub fn encode_batch_body(purls: List(String)) -> String {
 
 // --- Response decoding ---------------------------------------------------
 
+fn fetch_batch_page(
+  purls: List(String),
+  page_tokens: List(Option(String)),
+  client: fn(Request(String)) -> Result(Response(String), Error),
+) -> Result(List(BatchPageEntry), Error) {
+  let body =
+    encode_batch_body_with_tokens(
+      list.map2(purls, page_tokens, fn(purl, token) { #(purl, token) }),
+    )
+  let req = batch_request(body)
+  case client(req) {
+    Error(error) -> Error(error)
+    Ok(response) -> decode_batch_response(response, purls)
+  }
+}
+
 fn decode_batch_response(
   response: Response(String),
   purls: List(String),
-) -> Result(List(BatchEntry), Error) {
+) -> Result(List(BatchPageEntry), Error) {
   case response.status {
     404 -> Error(NotFound)
     429 -> Error(RateLimited)
@@ -196,7 +231,7 @@ fn decode_batch_response(
 fn decode_batch_body(
   body: String,
   purls: List(String),
-) -> Result(List(BatchEntry), Error) {
+) -> Result(List(BatchPageEntry), Error) {
   case json.parse(body, using: batch_results_decoder()) {
     Error(json.UnableToDecode(_)) ->
       Error(InvalidResponse("Invalid OSV batch response"))
@@ -207,8 +242,8 @@ fn decode_batch_body(
 
 fn zip_batch(
   purls: List(String),
-  results: List(List(String)),
-) -> Result(List(BatchEntry), Error) {
+  results: List(BatchResult),
+) -> Result(List(BatchPageEntry), Error) {
   use <- bool.guard(
     when: list.length(purls) != list.length(results),
     return: Error(InvalidResponse(
@@ -220,13 +255,21 @@ fn zip_batch(
     )),
   )
   Ok(
-    list.map2(purls, results, fn(purl, ids) {
-      BatchEntry(purl: purl, vuln_ids: ids)
+    list.map2(purls, results, fn(purl, result) {
+      BatchPageEntry(
+        purl: purl,
+        vuln_ids: result.vuln_ids,
+        next_page_token: result.next_page_token,
+      )
     }),
   )
 }
 
-fn batch_results_decoder() -> decode.Decoder(List(List(String))) {
+type BatchResult {
+  BatchResult(vuln_ids: List(String), next_page_token: Option(String))
+}
+
+fn batch_results_decoder() -> decode.Decoder(List(BatchResult)) {
   use results <- decode.optional_field(
     "results",
     [],
@@ -235,18 +278,95 @@ fn batch_results_decoder() -> decode.Decoder(List(List(String))) {
   decode.success(results)
 }
 
-fn batch_entry_decoder() -> decode.Decoder(List(String)) {
+fn batch_entry_decoder() -> decode.Decoder(BatchResult) {
   use vulns <- decode.optional_field(
     "vulns",
     [],
     decode.list(of: vuln_id_decoder()),
   )
-  decode.success(vulns)
+  use next_page_token <- decode.optional_field(
+    "next_page_token",
+    None,
+    decode.map(decode.string, Some),
+  )
+  decode.success(BatchResult(vuln_ids: vulns, next_page_token:))
 }
 
 fn vuln_id_decoder() -> decode.Decoder(String) {
   use id <- decode.field("id", decode.string)
   decode.success(id)
+}
+
+fn initial_page_tokens(purls: List(String)) -> List(Option(String)) {
+  list.map(purls, fn(_) { None })
+}
+
+fn follow_paginated_entries(
+  entries: List(BatchPageEntry),
+  client: fn(Request(String)) -> Result(Response(String), Error),
+) -> Result(List(BatchEntry), Error) {
+  case entries {
+    [] -> Ok([])
+    [entry, ..rest] ->
+      case follow_entry_pages(entry, client) {
+        Error(error) -> Error(error)
+        Ok(resolved) ->
+          case follow_paginated_entries(rest, client) {
+            Error(error) -> Error(error)
+            Ok(resolved_rest) -> Ok([resolved, ..resolved_rest])
+          }
+      }
+  }
+}
+
+fn follow_entry_pages(
+  entry: BatchPageEntry,
+  client: fn(Request(String)) -> Result(Response(String), Error),
+) -> Result(BatchEntry, Error) {
+  follow_entry_pages_loop(
+    entry.purl,
+    entry.vuln_ids,
+    entry.next_page_token,
+    client,
+    pages_seen: 1,
+  )
+}
+
+fn follow_entry_pages_loop(
+  purl: String,
+  vuln_ids: List(String),
+  next_page_token: Option(String),
+  client: fn(Request(String)) -> Result(Response(String), Error),
+  pages_seen pages_seen: Int,
+) -> Result(BatchEntry, Error) {
+  case next_page_token {
+    None -> Ok(BatchEntry(purl: purl, vuln_ids: vuln_ids))
+    Some(token) -> {
+      use <- bool.guard(
+        when: pages_seen >= max_batch_pages,
+        return: Error(InvalidResponse(
+          "OSV paginated response exceeded "
+          <> int.to_string(max_batch_pages)
+          <> " pages",
+        )),
+      )
+      case fetch_batch_page([purl], [Some(token)], client) {
+        Error(error) -> Error(error)
+        Ok([page]) ->
+          follow_entry_pages_loop(
+            purl,
+            list.append(vuln_ids, page.vuln_ids),
+            page.next_page_token,
+            client,
+            pages_seen: pages_seen + 1,
+          )
+        Ok(_) ->
+          Error(InvalidResponse(
+            "OSV paginated response did not contain exactly one result",
+          ))
+      }
+    }
+  }
 }
 
 fn decode_vuln_response(
@@ -296,9 +416,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
 
   let severity = case database_severity {
     UnknownSeverity ->
-      highest_severity_from_vectors(
-        list.map(scores, fn(score) { severity_from_cvss_vector(score.vector) }),
-      )
+      highest_severity_from_vectors(list.map(scores, severity_from_score))
     known -> known
   }
 
@@ -319,6 +437,24 @@ fn score_decoder() -> decode.Decoder(Score) {
   use kind <- decode.optional_field("type", "", decode.string)
   use vector <- decode.optional_field("score", "", decode.string)
   decode.success(Score(kind:, vector:))
+}
+
+fn severity_from_score(score: Score) -> Severity {
+  case severity_from_cvss_vector(score.vector) {
+    UnknownSeverity -> severity_from_cvss_kind(score.kind, score.vector)
+    severity -> severity
+  }
+}
+
+fn severity_from_cvss_kind(kind: String, vector: String) -> Severity {
+  let upper_kind = string.uppercase(kind)
+  let upper_vector = string.uppercase(vector)
+  case upper_kind {
+    "CVSS_V4" -> bucket_from_cvss4(upper_vector)
+    "CVSS_V3" -> bucket_from_cvss3(upper_vector)
+    "CVSS_V2" -> Medium
+    _ -> UnknownSeverity
+  }
 }
 
 fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {
@@ -374,10 +510,36 @@ pub fn parse_severity_label(raw: String) -> Severity {
 /// reasonable bucket, not a precise CVSS score.
 pub fn severity_from_cvss_vector(vector: String) -> Severity {
   let upper = string.uppercase(vector)
-  case string.contains(upper, "CVSS:3"), string.contains(upper, "CVSS:2") {
-    True, _ -> bucket_from_cvss3(upper)
+  case
+    string.contains(upper, "CVSS:4.0"),
+    string.contains(upper, "CVSS:3"),
+    string.contains(upper, "CVSS:2")
+  {
+    True, _, _ -> bucket_from_cvss4(upper)
+    _, True, _ -> bucket_from_cvss3(upper)
+    _, _, True -> Medium
+    _, _, _ -> UnknownSeverity
+  }
+}
+
+fn bucket_from_cvss4(vector: String) -> Severity {
+  case
+    string.contains(vector, "/VC:H")
+    || string.contains(vector, "/VI:H")
+    || string.contains(vector, "/VA:H")
+    || string.contains(vector, "/SC:H")
+    || string.contains(vector, "/SI:H")
+    || string.contains(vector, "/SA:H"),
+    string.contains(vector, "/VC:L")
+    || string.contains(vector, "/VI:L")
+    || string.contains(vector, "/VA:L")
+    || string.contains(vector, "/SC:L")
+    || string.contains(vector, "/SI:L")
+    || string.contains(vector, "/SA:L")
+  {
+    True, _ -> High
     _, True -> Medium
-    _, _ -> UnknownSeverity
+    _, _ -> Low
   }
 }
 

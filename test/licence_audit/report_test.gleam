@@ -61,6 +61,72 @@ pub fn default_report_omits_status_column_test() {
   assert string.contains(output, "? gleam_stdlib  1.0.0    MIT")
 }
 
+pub fn default_report_does_not_pad_licences_inside_ansi_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "short_licence",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+        report.Row(
+          package: "long_licence",
+          version: "1.0.0",
+          licences: ["Apache-2.0"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: [],
+        ),
+      ],
+      report.Summary(skipped_names: []),
+      report.Default,
+      on,
+    )
+
+  assert string.contains(output, "MIT\u{001b}[")
+  assert !string.contains(output, "MIT       \u{001b}[")
+}
+
+pub fn tree_width_uses_rendered_depth_when_intermediate_is_skipped_test() {
+  let output =
+    report.format(
+      [
+        report.Row(
+          package: "root",
+          version: "1.0.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Direct,
+          scope: manifest.Prod,
+          path: ["root"],
+        ),
+        report.Row(
+          package: "leaf",
+          version: "1.1.0",
+          licences: ["MIT"],
+          status: report.NotChecked,
+          kind: manifest.Transitive,
+          scope: manifest.Prod,
+          path: ["root", "git_dependency", "leaf"],
+        ),
+      ],
+      report.Summary(skipped_names: []),
+      report.Default,
+      off,
+    )
+
+  assert string.contains(
+    output,
+    "? root     1.0.0    MIT\n└─ ? leaf  1.1.0    MIT\n",
+  )
+}
+
 pub fn licences_are_sorted_and_deduplicated_test() {
   let output =
     report.format(
@@ -102,7 +168,7 @@ pub fn empty_licences_render_as_dash_test() {
       off,
     )
 
-  assert string.contains(output, "? pkg      1.0.0    -       \n")
+  assert string.contains(output, "? pkg      1.0.0    -\n")
 }
 
 pub fn fetch_or_read_failures_appear_in_report_test() {
@@ -543,7 +609,7 @@ pub fn report_separates_dependency_groups_with_blank_line_test() {
 
   assert string.contains(
     output,
-    "? prod_pkg  1.0.0    MIT     \n\nDEVELOPMENT DEPENDENCIES",
+    "? prod_pkg  1.0.0    MIT\n\nDEVELOPMENT DEPENDENCIES",
   )
 }
 

@@ -81,10 +81,14 @@ changelog:
 
 # === SBOM ===
 
-# Generate a CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
+# Generate a reproducible CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
 sbom-generate: build
     mkdir -p dist
-    ./licence_audit sbom --output=dist/sbom.json --cache-path={{hex_cache}}
+    ./licence_audit sbom --reproducible --output=dist/sbom.json --cache-path={{hex_cache}}
+
+# Fail if regenerating the checked-in SBOM changes ./dist/sbom.json.
+sbom-drift-check: sbom-generate
+    git diff --exit-code -- dist/sbom.json
 
 # Validate the generated SBOM with three independent validators (fails on any
 # schema/structural error). cdx-validate runs schema + deep purl/ref checks;
@@ -118,7 +122,6 @@ docs-check: build
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: format-check glint check test build-strict docs-check
+ci: format-check glint check test build-strict docs-check sbom-drift-check sbom-validate
 
 alias pr := ci
-
