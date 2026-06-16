@@ -1,3 +1,0 @@
-kind: Fixed
-body: '`check --prod-only --vulns` now restricts the vulnerability gate to production dependencies, so dev-only advisories no longer fail the gate or appear in output. The prod-only skipped-package summary now matches the rendered tree.'
-time: 2026-06-07T16:00:02.000000-00:00

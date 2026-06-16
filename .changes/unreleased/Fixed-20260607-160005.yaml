@@ -1,3 +1,0 @@
-kind: Fixed
-body: The on-disk Hex cache no longer serves a stale `publisher` value indefinitely; cached enrichment entries now expire after 24 hours.
-time: 2026-06-07T16:00:05.000000-00:00

@@ -1,3 +1,0 @@
-kind: Changed
-body: SBOM output now emits canonical (lowercased) `pkg:hex` and `pkg:github` purls, recognises the SPDX licence identifiers supported by CycloneDX 1.6 (emitting `license.id` only for schema-valid identifiers), adds `$schema`, adds a primary-component identifier when available, omits empty component versions, and de-duplicates declared licences.
-time: 2026-06-07T16:00:04.000000-00:00
