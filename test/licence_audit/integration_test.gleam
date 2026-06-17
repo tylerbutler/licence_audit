@@ -152,6 +152,21 @@ pub fn notices_run_with_does_not_append_no_cache_test() {
   assert !string.contains(result.output, "no-cache")
 }
 
+pub fn notices_run_with_accepts_manifest_before_command_test() {
+  let result =
+    licence_audit.run_with(
+      ["--manifest=build/tmp/notices-missing.toml", "notices"],
+      notice_metadata_fetcher,
+    )
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Could not read build/tmp/notices-missing.toml",
+  )
+  assert !string.contains(result.output, "no-cache")
+}
+
 pub fn normal_progress_reports_audit_phases_without_package_details_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_with_progress(
