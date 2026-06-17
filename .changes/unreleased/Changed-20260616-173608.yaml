@@ -1,0 +1,3 @@
+kind: Changed
+body: Direct dependencies on `envoy`, `gleam_regexp`, and `youid` were removed in favor of standard string parsing and small Erlang FFI helpers.
+time: 2026-06-16T17:36:08.000000-00:00

@@ -3,8 +3,7 @@ import gleam/http/request
 import gleam/http/response.{Response}
 import gleam/int
 import gleam/list
-import gleam/option.{Some}
-import gleam/regexp
+import gleam/result
 import gleam/string
 import gleam/uri
 import gleeunit/should
@@ -124,17 +123,13 @@ pub fn batch_response_rejects_excessive_pagination_test() {
 }
 
 fn request_page(req: request.Request(String)) -> Int {
-  let assert Ok(re) = regexp.from_string("\"page_token\":\"page-([0-9]+)\"")
-  case regexp.scan(with: re, content: req.body) {
-    [match, ..] ->
-      case match.submatches {
-        [Some(raw)] -> {
-          let assert Ok(page) = int.parse(raw)
-          page
-        }
+  case string.split(req.body, on: "\"page_token\":\"page-") {
+    [_, rest] ->
+      case string.split(rest, on: "\"") {
+        [raw, ..] -> result.unwrap(int.parse(raw), 0)
         _ -> 0
       }
-    [] -> 0
+    _ -> 0
   }
 }
 

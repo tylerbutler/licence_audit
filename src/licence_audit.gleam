@@ -229,7 +229,6 @@ fn run_sbom_options(
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
-  let project_root = option_value(options.project_root, ".")
   let reporter = progress.phase(reporter, "Generating SBOM")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
@@ -242,7 +241,7 @@ fn run_sbom_options(
       run_sbom_for_manifest(
         options,
         sbom_manifest,
-        project_root,
+        ".",
         fetcher,
         osv_batch_fetcher,
         osv_detail_fetcher,
@@ -591,11 +590,10 @@ fn run_options_with_clients(
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
-  let project_root = option_value(options.project_root, ".")
   let reporter = progress.phase(reporter, "Starting licence audit")
   let reporter = progress.detail(reporter, "Loading licence policy")
 
-  case prepare_audit(options, manifest_path, project_root, reporter) {
+  case prepare_audit(options, manifest_path, ".", reporter) {
     Error(failure) -> failure
     Ok(#(config_policy, audit_policy, locked, scopes, reporter)) ->
       audit_locked(
@@ -1019,10 +1017,9 @@ fn run_update_options(
   reporter: progress.Reporter,
 ) -> #(update_cmd.UpdateResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
-  let project_root = option_value(options.project_root, ".")
   update_cmd.run(
     manifest_path,
-    project_root,
+    ".",
     options.config_path,
     options.ignore_config,
     options.no_cache,
@@ -1042,7 +1039,6 @@ fn run_vulns_options(
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
-  let project_root = option_value(options.project_root, ".")
   let reporter = progress.phase(reporter, "Checking for vulnerabilities")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
@@ -1055,7 +1051,7 @@ fn run_vulns_options(
       let scopes =
         manifest.sbom_scopes(
           sbom_manifest,
-          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+          resolve_prod_seed(".", sbom_manifest.root_requirements),
         )
       let #(purl_pairs, purl_errors) = build_purl_pairs(sbom_manifest)
       let purls = list.map(purl_pairs, fn(pair) { pair.1 })

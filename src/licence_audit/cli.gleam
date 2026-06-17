@@ -13,7 +13,6 @@ const absent_string_flag = "__licence_audit_absent_string_flag__"
 pub type Options {
   Options(
     manifest_path: Option(String),
-    project_root: Option(String),
     config_path: Option(String),
     allow_licences: List(String),
     deny_licences: List(String),
@@ -32,7 +31,6 @@ pub type Options {
 pub type UpdateOptions {
   UpdateOptions(
     manifest_path: Option(String),
-    project_root: Option(String),
     config_path: Option(String),
     ignore_config: Bool,
     verbosity: progress.Verbosity,
@@ -45,7 +43,6 @@ pub type UpdateOptions {
 pub type SbomOptions {
   SbomOptions(
     manifest_path: Option(String),
-    project_root: Option(String),
     verbosity: progress.Verbosity,
     no_cache: Bool,
     cache_path: Option(String),
@@ -59,7 +56,6 @@ pub type SbomOptions {
 pub type VulnsOptions {
   VulnsOptions(
     manifest_path: Option(String),
-    project_root: Option(String),
     verbosity: progress.Verbosity,
     color: color.Mode,
   )
@@ -154,7 +150,6 @@ fn audit_command(
     Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
         manifest_path: optional_string(manifest_path),
-        project_root: None,
         config_path: optional_string(config_path),
         allow_licences: allow_licences,
         deny_licences: deny_licences,
@@ -210,7 +205,6 @@ fn check_command() -> glint.Command(CliAction) {
     Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
         manifest_path: optional_string(manifest_path),
-        project_root: None,
         config_path: optional_string(config_path),
         allow_licences: allow_licences,
         deny_licences: deny_licences,
@@ -375,7 +369,6 @@ fn update_command() -> glint.Command(CliAction) {
     Ok(verbosity), Ok(color_mode) ->
       UpdateConfig(UpdateOptions(
         manifest_path: optional_string(manifest_path),
-        project_root: None,
         config_path: optional_string(config_path),
         ignore_config: ignore_config,
         verbosity: verbosity,
@@ -450,7 +443,6 @@ fn sbom_command() -> glint.Command(CliAction) {
     Ok(verbosity), False ->
       RunSbom(SbomOptions(
         manifest_path: optional_string(manifest_path),
-        project_root: None,
         verbosity: verbosity,
         no_cache: no_cache,
         cache_path: optional_string(cache_path_value),
@@ -488,7 +480,6 @@ fn vulns_command() -> glint.Command(CliAction) {
     Ok(verbosity), Ok(color_mode) ->
       RunVulns(VulnsOptions(
         manifest_path: optional_string(manifest_path),
-        project_root: None,
         verbosity: verbosity,
         color: color_mode,
       ))
