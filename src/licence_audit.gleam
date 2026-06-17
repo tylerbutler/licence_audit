@@ -110,6 +110,10 @@ fn handle_action(action: cli.CliAction) -> Nil {
       let _ = progress.flush(reporter)
       halt(exit_code)
     }
+    cli.RunNotices(_) -> {
+      io.print_error("Error: notices command execution is not implemented\n")
+      halt(1)
+    }
     cli.GenDocsCompleted -> Nil
   }
 }
@@ -216,6 +220,10 @@ fn run_with_reporter(
         )
       #(result, reporter)
     }
+    Ok(glint.Out(cli.RunNotices(_))) -> #(
+      RunResult(1, "Error: notices command execution is not implemented\n"),
+      reporter,
+    )
     Ok(glint.Out(cli.GenDocsCompleted)) -> #(RunResult(0, ""), reporter)
     Error(message) -> #(RunResult(1, message <> "\n"), reporter)
   }

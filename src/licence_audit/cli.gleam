@@ -61,11 +61,21 @@ pub type VulnsOptions {
   )
 }
 
+pub type NoticesOptions {
+  NoticesOptions(
+    manifest_path: Option(String),
+    verbosity: progress.Verbosity,
+    output: Option(String),
+    include_dev: Bool,
+  )
+}
+
 pub type CliAction {
   RunAudit(Options)
   UpdateConfig(UpdateOptions)
   RunSbom(SbomOptions)
   RunVulns(VulnsOptions)
+  RunNotices(NoticesOptions)
   GenDocsCompleted
   InvalidUsage(String)
 }
@@ -81,6 +91,7 @@ pub fn app() -> glint.Glint(CliAction) {
     |> glint.add(at: ["update"], do: update_command())
     |> glint.add(at: ["sbom"], do: sbom_command())
     |> glint.add(at: ["vulns"], do: vulns_command())
+    |> glint.add(at: ["notices"], do: notices_command())
 
   // Document the app *before* adding `gen-docs` so the subcommand does not
   // appear in its own rendered output. Bridge the `Glint(Nil)` command into
@@ -385,6 +396,12 @@ fn output_flag() -> glint.Flag(String) {
   |> glint.flag_help("Write SBOM to PATH instead of stdout")
 }
 
+fn include_dev_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("include-dev")
+  |> glint.flag_default(False)
+  |> glint.flag_help("Include dev-only dependencies in the notice file")
+}
+
 fn offline_flag() -> glint.Flag(Bool) {
   glint.bool_flag("offline")
   |> glint.flag_default(False)
@@ -450,6 +467,37 @@ fn sbom_command() -> glint.Command(CliAction) {
         offline: offline_value,
         reproducible: reproducible_value,
         with_vulns: with_vulns_value,
+      ))
+  }
+}
+
+const notices_help = "Generate a release-ready third-party licence notices text file from locked dependencies."
+
+fn notices_command() -> glint.Command(CliAction) {
+  use <- glint.command_help(notices_help)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use manifest <- glint.flag(manifest_flag())
+  use quiet <- glint.flag(quiet_flag())
+  use verbose <- glint.flag(verbose_flag())
+  use output <- glint.flag(output_flag())
+  use include_dev <- glint.flag(include_dev_flag())
+  use _, _, flags <- glint.command()
+
+  let assert Ok(manifest_path) = manifest(flags)
+  let assert Ok(quiet) = quiet(flags)
+  let assert Ok(verbose) = verbose(flags)
+  let assert Ok(output_value) = output(flags)
+  let assert Ok(include_dev_value) = include_dev(flags)
+
+  case verbosity(quiet, verbose) {
+    Error(verbosity_error) ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    Ok(verbosity) ->
+      RunNotices(NoticesOptions(
+        manifest_path: optional_string(manifest_path),
+        verbosity: verbosity,
+        output: optional_string(output_value),
+        include_dev: include_dev_value,
       ))
   }
 }
