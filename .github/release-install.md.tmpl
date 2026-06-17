@@ -5,6 +5,22 @@ Download the archive for your platform, extract it, and place `licence_audit`
 somewhere on your `PATH`. The escript runs on any platform with a compatible
 Erlang/OTP runtime.
 
+### With mise
+
+If you use [mise](https://mise.jdx.dev/), install this release with the
+`github:` provider:
+
+```sh
+mise use -g "github:${REPO}@${REF_NAME}"
+```
+
+For a project-local install, omit `-g`. The escript still needs Erlang/OTP 28.x
+or newer on your `PATH`; if you manage Erlang with mise, install it too:
+
+```sh
+mise use -g erlang@28
+```
+
 ### Linux / macOS
 
 ```sh
