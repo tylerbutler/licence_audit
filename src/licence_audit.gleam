@@ -221,7 +221,7 @@ pub fn run_with_notice_clients(
 ) -> RunResult {
   let #(result, _) =
     run_with_reporter_and_notices(
-      args,
+      library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,

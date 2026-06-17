@@ -167,6 +167,23 @@ pub fn notices_run_with_accepts_manifest_before_command_test() {
   assert !string.contains(result.output, "no-cache")
 }
 
+pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
+  let cache_path = "build/tmp/run-with-notice-clients-cache.dets"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let _ = simplifile.delete(cache_path)
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      manifest_args(["--cache-path=" <> cache_path]),
+      fake_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  let assert Error(_) = simplifile.read_bits(cache_path)
+}
+
 pub fn normal_progress_reports_audit_phases_without_package_details_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_with_progress(
