@@ -137,6 +137,89 @@ gleam_stdlib = { version = \">= 1.0.0\" }
   assert string.contains(contents, "Fixture licence text")
 }
 
+pub fn notices_manifest_path_uses_manifest_project_for_scope_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let project_root = "build/tmp/notices-scope-project"
+  let manifest_path = project_root <> "/manifest.toml"
+  let assert Ok(Nil) = simplifile.create_directory_all(project_root)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_root <> "/gleam.toml",
+      contents: "[dependencies]
+prod_dep = \">= 1.0.0\"
+
+[dev-dependencies]
+dev_dep = \">= 1.0.0\"
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"prod_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+  { name = \"dev_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+prod_dep = { version = \">= 1.0.0\" }
+dev_dep = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "prod_dep 1.0.0")
+  assert !string.contains(result.output, "dev_dep 1.0.0")
+}
+
+pub fn notices_path_dependencies_resolve_relative_to_manifest_project_test() {
+  let project_root = "build/tmp/notices-path-project"
+  let local_dep = project_root <> "/deps/local_dep"
+  let manifest_path = project_root <> "/manifest.toml"
+  let assert Ok(Nil) = simplifile.create_directory_all(local_dep)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: local_dep <> "/LICENSE",
+      contents: "Path licence text\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_root <> "/gleam.toml",
+      contents: "[dependencies]
+local_dep = { path = \"deps/local_dep\" }
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"deps/local_dep\" },
+]
+
+[requirements]
+local_dep = { path = \"deps/local_dep\" }
+",
+    )
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "local_dep 0.1.0")
+  assert string.contains(result.output, "Path licence text")
+}
+
 pub fn notices_run_with_does_not_append_no_cache_test() {
   let result =
     licence_audit.run_with(

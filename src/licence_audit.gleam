@@ -373,6 +373,7 @@ fn run_notices_options(
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let project_root = project_root_for_manifest(manifest_path)
   let reporter = progress.phase(reporter, "Generating licence notices")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
@@ -385,7 +386,7 @@ fn run_notices_options(
       let scopes =
         manifest.sbom_scopes(
           sbom_manifest,
-          resolve_prod_seed(".", sbom_manifest.root_requirements),
+          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
         )
       let selected =
         notices.selected_entries(
@@ -403,6 +404,7 @@ fn run_notices_options(
         Ok(packages) ->
           build_notice_entries(
             packages,
+            project_root,
             manifest_path,
             options.output,
             hex_tarball_fetcher,
@@ -416,6 +418,7 @@ fn run_notices_options(
 
 fn build_notice_entries(
   packages: List(notices.NoticePackage),
+  project_root: String,
   manifest_path: String,
   output: option.Option(String),
   hex_tarball_fetcher: fn(String, String) ->
@@ -427,7 +430,7 @@ fn build_notice_entries(
   let result =
     notices.entries_from_sources(packages, fn(package) {
       notices.read_remote_source(
-        package,
+        package_for_source_read(package, project_root),
         hex_tarball_fetcher,
         github_tarball_fetcher,
       )
@@ -444,6 +447,54 @@ fn build_notice_entries(
         output,
         reporter,
       )
+  }
+}
+
+fn package_for_source_read(
+  package: notices.NoticePackage,
+  project_root: String,
+) -> notices.NoticePackage {
+  case package.source {
+    notices.PathPackage(path) ->
+      notices.NoticePackage(
+        ..package,
+        source: notices.PathPackage(resolve_project_path(project_root, path)),
+      )
+    _ -> package
+  }
+}
+
+fn resolve_project_path(project_root: String, path: String) -> String {
+  case string.starts_with(path, "/"), project_root {
+    True, _ -> path
+    False, "." -> path
+    False, _ -> join_project_path(project_root, path)
+  }
+}
+
+fn join_project_path(parent: String, child: String) -> String {
+  case string.ends_with(parent, "/") {
+    True -> parent <> child
+    False -> parent <> "/" <> child
+  }
+}
+
+fn project_root_for_manifest(manifest_path: String) -> String {
+  case string.split(manifest_path, on: "/") |> list.reverse {
+    [] -> "."
+    [_] -> "."
+    [_, ..directory_parts_reversed] -> {
+      let directory =
+        directory_parts_reversed
+        |> list.reverse
+        |> string.join("/")
+
+      case directory, string.starts_with(manifest_path, "/") {
+        "", True -> "/"
+        "", False -> "."
+        _, _ -> directory
+      }
+    }
   }
 }
 
