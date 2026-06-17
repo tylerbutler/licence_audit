@@ -275,16 +275,40 @@ fn read_path_source(
   package_name: String,
   path: String,
 ) -> Result(List(source_archive.ArchiveFile), Error) {
-  use files <- result.try(
-    simplifile.get_files(in: path)
-    |> result.map_error(fn(error) {
-      PathReadFailed(package_name, path, simplifile.describe_error(error))
-    }),
-  )
+  use files <- result.try(read_path_files(package_name, path))
 
   files
   |> list.sort(string.compare)
   |> list.try_map(read_path_file(package_name, path, _))
+}
+
+fn read_path_files(
+  package_name: String,
+  path: String,
+) -> Result(List(String), Error) {
+  use children <- result.try(
+    simplifile.read_directory(at: path)
+    |> result.map_error(fn(error) {
+      PathReadFailed(package_name, path, simplifile.describe_error(error))
+    }),
+  )
+  use files, child <- list.try_fold(over: children, from: [])
+  let child_path = join_path(path, child)
+  use info <- result.try(
+    simplifile.link_info(child_path)
+    |> result.map_error(fn(error) {
+      PathReadFailed(package_name, child_path, simplifile.describe_error(error))
+    }),
+  )
+
+  case simplifile.file_info_type(info) {
+    simplifile.File -> Ok([child_path, ..files])
+    simplifile.Directory -> {
+      use nested_files <- result.try(read_path_files(package_name, child_path))
+      Ok(list.append(files, nested_files))
+    }
+    simplifile.Symlink | simplifile.Other -> Ok(files)
+  }
 }
 
 fn read_path_file(
@@ -302,6 +326,13 @@ fn read_path_file(
     path: relative_path(file_path, root),
     contents: contents,
   ))
+}
+
+fn join_path(parent: String, child: String) -> String {
+  case string.ends_with(parent, "/") {
+    True -> parent <> child
+    False -> parent <> "/" <> child
+  }
 }
 
 fn relative_path(file_path: String, root: String) -> String {

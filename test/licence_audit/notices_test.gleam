@@ -134,6 +134,43 @@ pub fn read_path_source_returns_relative_binary_archive_files_test() {
   should.equal(binary.contents, <<0, 255>>)
 }
 
+pub fn read_path_source_skips_symlink_targets_outside_root_test() {
+  let root = fresh_dir("path_source_symlink_root")
+  let outside_dir = fresh_dir("path_source_symlink_outside")
+  let outside_contents = "Outside secret/license text\n"
+  let assert Ok(Nil) =
+    simplifile.write(to: root <> "/LICENSE", contents: "Local licence\n")
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: outside_dir <> "/outside.txt",
+      contents: outside_contents,
+    )
+  let assert Ok(cwd) = simplifile.current_directory()
+  let assert Ok(Nil) =
+    simplifile.create_symlink(
+      to: cwd <> "/" <> outside_dir <> "/outside.txt",
+      from: root <> "/LINKED_LICENSE",
+    )
+  let pkg = package("local_dep", notices.PathPackage(path: root))
+
+  let assert Ok(files) =
+    notices.read_remote_source(
+      pkg,
+      fn(_name, _version) { Error(notices.FetchNetworkFailure) },
+      fn(_owner, _repo, _commit) { Error(notices.FetchNetworkFailure) },
+    )
+
+  let paths = list.map(files, fn(file) { file.path })
+  assert list.contains(paths, "LICENSE")
+  assert !list.contains(paths, "LINKED_LICENSE")
+  assert !list.any(files, fn(file) {
+    case bit_array.to_string(file.contents) {
+      Ok(contents) -> string.contains(contents, outside_contents)
+      Error(_) -> False
+    }
+  })
+}
+
 pub fn read_github_source_uses_fetcher_and_extracts_archive_test() {
   let assert Ok(bits) =
     simplifile.read_bits(archive_fixture_dir <> "/contents.tar.gz")
