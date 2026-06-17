@@ -95,6 +95,14 @@ pub fn licence_files(
   |> list.try_map(to_notice_file)
 }
 
+pub fn entries_from_sources(
+  packages: List(NoticePackage),
+  read_source: fn(NoticePackage) ->
+    Result(List(source_archive.ArchiveFile), Error),
+) -> Result(List(NoticeEntry), Error) {
+  entries_from_sources_loop(packages, read_source, [], [])
+}
+
 pub fn render(
   entries: List(NoticeEntry),
   manifest_path manifest_path: String,
@@ -195,6 +203,46 @@ fn strip_prefix(value: String, prefix: String) -> Result(String, Nil) {
 fn drop_suffix(value: String, suffix: String) -> String {
   use <- bool.guard(when: !string.ends_with(value, suffix), return: value)
   string.slice(value, 0, string.length(value) - string.length(suffix))
+}
+
+fn entries_from_sources_loop(
+  packages: List(NoticePackage),
+  read_source: fn(NoticePackage) ->
+    Result(List(source_archive.ArchiveFile), Error),
+  entries: List(NoticeEntry),
+  missing: List(String),
+) -> Result(List(NoticeEntry), Error) {
+  case packages {
+    [] ->
+      case list.reverse(missing) {
+        [] -> Ok(list.reverse(entries))
+        missing_packages -> Error(MissingLicenceText(missing_packages))
+      }
+    [package, ..rest] ->
+      case read_source(package) {
+        Error(error) -> Error(error)
+        Ok(files) ->
+          case licence_files(files) {
+            Error(error) ->
+              Error(ArchiveFailed(
+                package: package.name,
+                reason: source_archive.describe_error(error),
+              ))
+            Ok([]) ->
+              entries_from_sources_loop(rest, read_source, entries, [
+                package.name,
+                ..missing
+              ])
+            Ok(notice_files) ->
+              entries_from_sources_loop(
+                rest,
+                read_source,
+                [NoticeEntry(package: package, files: notice_files), ..entries],
+                missing,
+              )
+          }
+      }
+  }
 }
 
 fn matched_archive_files(

@@ -62,6 +62,70 @@ fn transitive_manifest_entry(
   )
 }
 
+fn fake_archive_files(
+  package_name: String,
+) -> Result(List(source_archive.ArchiveFile), notices.Error) {
+  case package_name {
+    "with_license" -> Ok([file("./LICENSE", "License text\n")])
+    "without_license" -> Ok([file("./README.md", "Readme\n")])
+    _ -> Ok([file("./LICENSE", "Default text\n")])
+  }
+}
+
+pub fn entries_from_sources_fails_with_all_missing_license_text_test() {
+  let packages = [
+    package("without_license", notices.HexPackage(outer_checksum: "AAAA")),
+    package("also_missing", notices.PathPackage(path: "./missing")),
+  ]
+  let read_source = fn(pkg: notices.NoticePackage) {
+    case pkg.name {
+      "also_missing" -> Ok([file("./README.md", "Readme\n")])
+      _ -> fake_archive_files(pkg.name)
+    }
+  }
+
+  let result = notices.entries_from_sources(packages, read_source)
+
+  should.equal(
+    result,
+    Error(notices.MissingLicenceText(["without_license", "also_missing"])),
+  )
+}
+
+pub fn entries_from_sources_collects_notice_entries_test() {
+  let packages = [
+    package("with_license", notices.HexPackage(outer_checksum: "AAAA")),
+  ]
+
+  let assert Ok(entries) =
+    notices.entries_from_sources(packages, fn(pkg) {
+      fake_archive_files(pkg.name)
+    })
+
+  should.equal(list.length(entries), 1)
+  let assert [entry] = entries
+  should.equal(entry.package.name, "with_license")
+  should.equal(list.map(entry.files, fn(file) { file.path }), ["./LICENSE"])
+}
+
+pub fn entries_from_sources_propagates_read_source_error_test() {
+  let packages = [
+    package("checksum_mismatch", notices.HexPackage(outer_checksum: "AAAA")),
+  ]
+  let error =
+    notices.ChecksumMismatch(
+      package: "checksum_mismatch",
+      expected: "AAAA",
+      actual: "BBBB",
+    )
+  let read_source = fn(_pkg: notices.NoticePackage) { Error(error) }
+
+  should.equal(
+    notices.entries_from_sources(packages, read_source),
+    Error(error),
+  )
+}
+
 pub fn licence_file_candidates_include_all_root_matches_test() {
   let files = [
     file("./README.md", "readme"),
