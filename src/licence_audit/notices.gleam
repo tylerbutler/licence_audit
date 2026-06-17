@@ -1,4 +1,5 @@
 import gleam/bool
+import gleam/dict.{type Dict}
 import gleam/list
 import gleam/order
 import gleam/result
@@ -10,6 +11,11 @@ pub type PackageSource {
   HexPackage(outer_checksum: String)
   GitHubPackage(repo: String, commit: String)
   PathPackage(path: String)
+}
+
+pub type FetchError {
+  FetchNetworkFailure
+  FetchUnexpectedResponse(status: Int)
 }
 
 pub type NoticePackage {
@@ -43,6 +49,41 @@ pub type Error {
 type ArchiveRootPath {
   ArchiveRootPath(root: String, path: String)
   NoArchiveRootPath
+}
+
+pub fn selected_entries(
+  manifest_value: manifest.SbomManifest,
+  scopes: Dict(String, manifest.Scope),
+  include_dev include_dev: Bool,
+) -> List(manifest.SbomEntry) {
+  list.filter(manifest_value.entries, fn(entry) {
+    include_dev || scope_for(scopes, entry.name) == manifest.Prod
+  })
+}
+
+pub fn package_source(
+  entry: manifest.SbomEntry,
+) -> Result(PackageSource, Error) {
+  case entry.provenance {
+    manifest.HexProvenance(outer_checksum, _) -> Ok(HexPackage(outer_checksum))
+    manifest.PathProvenance(path) -> Ok(PathPackage(path))
+    manifest.GitProvenance(repo, commit) ->
+      case parse_github_repo(repo) {
+        Ok(_) -> Ok(GitHubPackage(repo: repo, commit: commit))
+        Error(_) ->
+          Error(UnsupportedSource(
+            package: entry.name,
+            source: "git",
+            detail: "repo: " <> repo,
+          ))
+      }
+    manifest.UnknownProvenance(source) ->
+      Error(UnsupportedSource(
+        package: entry.name,
+        source: source,
+        detail: "unsupported source",
+      ))
+  }
 }
 
 pub fn licence_files(
@@ -108,6 +149,52 @@ pub fn describe_error(error: Error) -> String {
     OutputWriteFailed(path, reason) ->
       "Failed to write notices to " <> path <> ": " <> reason
   }
+}
+
+fn scope_for(
+  scopes: Dict(String, manifest.Scope),
+  name: String,
+) -> manifest.Scope {
+  case dict.get(scopes, name) {
+    Ok(scope) -> scope
+    Error(_) -> manifest.Prod
+  }
+}
+
+fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
+  use path <- result.try(github_repo_path(repo))
+  case string.split(drop_suffix(drop_suffix(path, "/"), ".git"), on: "/") {
+    [owner, name] if owner != "" && name != "" -> Ok(#(owner, name))
+    _ -> Error(Nil)
+  }
+}
+
+fn github_repo_path(repo: String) -> Result(String, Nil) {
+  case strip_prefix(repo, "https://github.com/") {
+    Ok(path) -> Ok(path)
+    Error(_) ->
+      case strip_prefix(repo, "http://github.com/") {
+        Ok(path) -> Ok(path)
+        Error(_) ->
+          case strip_prefix(repo, "git@github.com:") {
+            Ok(path) -> Ok(path)
+            Error(_) -> strip_prefix(repo, "git@github.com/")
+          }
+      }
+  }
+}
+
+fn strip_prefix(value: String, prefix: String) -> Result(String, Nil) {
+  use <- bool.guard(
+    when: !string.starts_with(value, prefix),
+    return: Error(Nil),
+  )
+  Ok(string.drop_start(value, string.length(prefix)))
+}
+
+fn drop_suffix(value: String, suffix: String) -> String {
+  use <- bool.guard(when: !string.ends_with(value, suffix), return: value)
+  string.slice(value, 0, string.length(value) - string.length(suffix))
 }
 
 fn matched_archive_files(

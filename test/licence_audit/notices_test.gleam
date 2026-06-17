@@ -1,5 +1,7 @@
 import gleam/bit_array
+import gleam/dict
 import gleam/list
+import gleam/option.{None}
 import gleam/string
 import gleeunit/should
 import licence_audit/manifest
@@ -27,6 +29,36 @@ fn package(
     declared_licences: ["MIT"],
     source: source,
     scope: manifest.Prod,
+  )
+}
+
+fn manifest_entry(
+  name: String,
+  version: String,
+  provenance: manifest.Provenance,
+  requirements: List(String),
+) -> manifest.SbomEntry {
+  manifest.SbomEntry(
+    name: name,
+    version: version,
+    kind: manifest.Direct,
+    requirements: requirements,
+    provenance: provenance,
+  )
+}
+
+fn transitive_manifest_entry(
+  name: String,
+  version: String,
+  provenance: manifest.Provenance,
+  requirements: List(String),
+) -> manifest.SbomEntry {
+  manifest.SbomEntry(
+    name: name,
+    version: version,
+    kind: manifest.Transitive,
+    requirements: requirements,
+    provenance: provenance,
   )
 }
 
@@ -120,6 +152,170 @@ pub fn licence_file_matching_returns_matched_decode_errors_test() {
   should.equal(
     notices.licence_files(files),
     Error(source_archive.InvalidText("./LICENSE")),
+  )
+}
+
+pub fn selected_packages_default_to_prod_scope_test() {
+  let manifest_value =
+    manifest.SbomManifest(
+      entries: [
+        manifest_entry(
+          "prod_dep",
+          "1.0.0",
+          manifest.HexProvenance("AAAA", None),
+          ["shared"],
+        ),
+        manifest_entry(
+          "dev_dep",
+          "1.0.0",
+          manifest.HexProvenance("BBBB", None),
+          [],
+        ),
+        transitive_manifest_entry(
+          "shared",
+          "1.0.0",
+          manifest.HexProvenance("CCCC", None),
+          [],
+        ),
+      ],
+      root_requirements: ["prod_dep", "dev_dep"],
+    )
+  let scopes =
+    dict.from_list([
+      #("prod_dep", manifest.Prod),
+      #("shared", manifest.Prod),
+      #("dev_dep", manifest.Dev),
+    ])
+
+  let selected =
+    notices.selected_entries(manifest_value, scopes, include_dev: False)
+
+  should.equal(list.map(selected, fn(entry) { entry.name }), [
+    "prod_dep",
+    "shared",
+  ])
+}
+
+pub fn selected_packages_include_dev_when_requested_test() {
+  let manifest_value =
+    manifest.SbomManifest(
+      entries: [
+        manifest_entry(
+          "prod_dep",
+          "1.0.0",
+          manifest.HexProvenance("AAAA", None),
+          [],
+        ),
+        manifest_entry(
+          "dev_dep",
+          "1.0.0",
+          manifest.HexProvenance("BBBB", None),
+          [],
+        ),
+      ],
+      root_requirements: ["prod_dep", "dev_dep"],
+    )
+  let scopes =
+    dict.from_list([
+      #("prod_dep", manifest.Prod),
+      #("dev_dep", manifest.Dev),
+    ])
+
+  let selected =
+    notices.selected_entries(manifest_value, scopes, include_dev: True)
+
+  should.equal(list.map(selected, fn(entry) { entry.name }), [
+    "prod_dep",
+    "dev_dep",
+  ])
+}
+
+pub fn selected_packages_treat_missing_scope_as_prod_test() {
+  let manifest_value =
+    manifest.SbomManifest(
+      entries: [
+        manifest_entry(
+          "missing_scope",
+          "1.0.0",
+          manifest.HexProvenance("AAAA", None),
+          [],
+        ),
+      ],
+      root_requirements: ["missing_scope"],
+    )
+
+  let selected =
+    notices.selected_entries(manifest_value, dict.new(), include_dev: False)
+
+  should.equal(list.map(selected, fn(entry) { entry.name }), ["missing_scope"])
+}
+
+pub fn github_source_rejects_non_github_repo_test() {
+  let entry =
+    manifest_entry(
+      "git_dep",
+      "1.0.0",
+      manifest.GitProvenance(
+        repo: "https://gitlab.com/example/git_dep",
+        commit: "abc",
+      ),
+      [],
+    )
+
+  let result = notices.package_source(entry)
+
+  let assert Error(notices.UnsupportedSource("git_dep", "git", _)) = result
+}
+
+pub fn github_source_accepts_github_repo_test() {
+  let entry =
+    manifest_entry(
+      "git_dep",
+      "1.0.0",
+      manifest.GitProvenance(
+        repo: "https://github.com/example/git_dep.git",
+        commit: "abc",
+      ),
+      [],
+    )
+
+  let assert Ok(notices.GitHubPackage(repo, commit)) =
+    notices.package_source(entry)
+  should.equal(repo, "https://github.com/example/git_dep.git")
+  should.equal(commit, "abc")
+}
+
+pub fn path_source_returns_path_package_test() {
+  let entry =
+    manifest_entry(
+      "local_dep",
+      "1.0.0",
+      manifest.PathProvenance(path: "../local_dep"),
+      [],
+    )
+
+  should.equal(
+    notices.package_source(entry),
+    Ok(notices.PathPackage(path: "../local_dep")),
+  )
+}
+
+pub fn unknown_source_returns_unsupported_source_test() {
+  let entry =
+    manifest_entry(
+      "weird",
+      "1.0.0",
+      manifest.UnknownProvenance(source: "rebar3"),
+      [],
+    )
+
+  should.equal(
+    notices.package_source(entry),
+    Error(notices.UnsupportedSource(
+      package: "weird",
+      source: "rebar3",
+      detail: "unsupported source",
+    )),
   )
 }
 
