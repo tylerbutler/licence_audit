@@ -1,4 +1,3 @@
-import envoy
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
@@ -7,6 +6,7 @@ import gleam/time/duration
 import gleam/time/timestamp
 import gleam/uri
 import gleeunit/should
+import licence_audit/env
 import licence_audit/hex
 import simplifile
 
@@ -157,7 +157,7 @@ pub fn injected_network_failure_maps_to_network_failure_test() {
 }
 
 pub fn hex_metadata_fetch_returns_without_ipv6_fallback_delay_test() {
-  case envoy.get("LICENCE_AUDIT_NET_TESTS") {
+  case env.get("LICENCE_AUDIT_NET_TESTS") {
     Ok(value) if value != "" -> {
       let started = timestamp.system_time()
 

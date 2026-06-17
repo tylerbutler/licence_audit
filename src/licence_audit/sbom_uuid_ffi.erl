@@ -1,5 +1,5 @@
 -module(sbom_uuid_ffi).
--export([timestamp_now_utc/0, timestamp_of_epoch_utc/1, sha256/1]).
+-export([timestamp_now_utc/0, timestamp_of_epoch_utc/1, sha256/1, random_bytes/1]).
 
 timestamp_now_utc() ->
     timestamp_of_epoch_utc(erlang:system_time(second)).
@@ -10,3 +10,6 @@ timestamp_of_epoch_utc(Seconds) ->
 
 sha256(Data) ->
     crypto:hash(sha256, Data).
+
+random_bytes(Size) ->
+    crypto:strong_rand_bytes(Size).

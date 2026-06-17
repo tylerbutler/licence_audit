@@ -1,6 +1,6 @@
+import gleam/bool
 import gleam/list
 import gleam/option
-import gleam/regexp
 import gleam/string
 import licence_audit/error
 import licence_audit/hex
@@ -45,22 +45,39 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
 }
 
 fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
-  let assert Ok(re) =
-    regexp.from_string(
-      "^(?:https?://|git@)github\\.com[:/]([^/]+)/([^/]+?)(?:\\.git)?/?$",
-    )
-  case regexp.scan(with: re, content: repo) {
-    [match, ..] ->
-      case match.submatches {
-        [owner_opt, name_opt] ->
-          case owner_opt, name_opt {
-            option.Some(owner), option.Some(name) -> Ok(#(owner, name))
-            _, _ -> Error(Nil)
-          }
-        _ -> Error(Nil)
-      }
-    [] -> Error(Nil)
+  use path <- result.try(github_repo_path(repo))
+  case string.split(drop_suffix(drop_suffix(path, "/"), ".git"), on: "/") {
+    [owner, name] if owner != "" && name != "" -> Ok(#(owner, name))
+    _ -> Error(Nil)
   }
+}
+
+fn github_repo_path(repo: String) -> Result(String, Nil) {
+  case strip_prefix(repo, "https://github.com/") {
+    Ok(path) -> Ok(path)
+    Error(_) ->
+      case strip_prefix(repo, "http://github.com/") {
+        Ok(path) -> Ok(path)
+        Error(_) ->
+          case strip_prefix(repo, "git@github.com:") {
+            Ok(path) -> Ok(path)
+            Error(_) -> strip_prefix(repo, "git@github.com/")
+          }
+      }
+  }
+}
+
+fn strip_prefix(value: String, prefix: String) -> Result(String, Nil) {
+  use <- bool.guard(
+    when: !string.starts_with(value, prefix),
+    return: Error(Nil),
+  )
+  Ok(string.drop_start(value, string.length(prefix)))
+}
+
+fn drop_suffix(value: String, suffix: String) -> String {
+  use <- bool.guard(when: !string.ends_with(value, suffix), return: value)
+  string.slice(value, 0, string.length(value) - string.length(suffix))
 }
 
 pub type LicenseEntry {

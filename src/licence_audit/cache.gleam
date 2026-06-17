@@ -5,7 +5,6 @@
 //// falls back silently to the network fetcher and records a deferred
 //// warning so the caller can surface it after the audit finishes.
 
-import envoy
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
@@ -16,6 +15,7 @@ import simplifile
 import slate
 import slate/set as dets_set
 
+import licence_audit/env
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/progress
@@ -253,10 +253,10 @@ fn resolve_path(override: Option(String)) -> Result(String, PathError) {
 /// Default cache path:
 /// `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`.
 fn default_path() -> Result(String, PathError) {
-  case envoy.get("XDG_CACHE_HOME") {
+  case env.get("XDG_CACHE_HOME") {
     Ok(dir) if dir != "" -> Ok(join_path(dir))
     _ ->
-      case envoy.get("HOME") {
+      case env.get("HOME") {
         Ok(home) if home != "" -> Ok(join_path(home <> "/.cache"))
         _ -> Error(CacheDirUnknown)
       }

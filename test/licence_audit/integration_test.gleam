@@ -1,3 +1,5 @@
+import gleam/dynamic/decode
+import gleam/json
 import gleam/list
 import gleam/string
 import gleeunit/should
@@ -368,7 +370,7 @@ pub fn sbom_subcommand_prints_cyclonedx_to_stdout_test() {
   let assert True = string.contains(result.output, "\"id\": \"Apache-2.0\"")
 }
 
-pub fn sbom_subcommand_output_file_remains_compact_json_test() {
+pub fn sbom_subcommand_output_file_is_formatted_json_test() {
   let path = "build/tmp/sbom-output-file.json"
   let _ = simplifile.create_directory_all("build/tmp")
   let _ = simplifile.delete(path)
@@ -382,11 +384,15 @@ pub fn sbom_subcommand_output_file_remains_compact_json_test() {
       sbom_fetcher,
     )
   let assert Ok(contents) = simplifile.read(from: path)
+  let assert Ok(bom_format) =
+    json.parse(contents, decode.at(["bomFormat"], decode.string))
 
   should.equal(result.exit_code, 0)
   should.equal(result.output, "")
-  let assert True = string.contains(contents, "\"bomFormat\":\"CycloneDX\"")
-  let assert False = string.contains(contents, "\n  \"metadata\": {")
+  should.equal(bom_format, "CycloneDX")
+  let assert True = string.contains(contents, "\"bomFormat\": \"CycloneDX\"")
+  let assert True = string.contains(contents, "\n  \"metadata\": {")
+  let assert True = string.contains(contents, "\n    \"tools\": [")
 }
 
 pub fn sbom_subcommand_errors_on_path_dep_test() {

@@ -1,15 +1,12 @@
-import envoy
 import gleam/bit_array
 import gleam/int
 import gleam/string
-import youid/uuid
+
+import licence_audit/env
 
 /// Generate a CycloneDX-compatible `urn:uuid:<v4>` serial number.
-///
-/// Note: youid's built-in `Urn` format drops the canonical UUID dashes,
-/// so we prepend the `urn:uuid:` prefix to the dashed `String` form ourselves.
 pub fn serial_number() -> String {
-  "urn:uuid:" <> { uuid.v4() |> uuid.format(uuid.String) }
+  uuid_urn_from_bytes(random_bytes(16), version_bits: 0x40)
 }
 
 /// Derive a deterministic `urn:uuid` serial number from arbitrary BOM content.
@@ -19,6 +16,16 @@ pub fn serial_number() -> String {
 /// same serial number, so two SBOMs generated from the same dependency set
 /// compare equal — while a change anywhere in the content changes the serial.
 pub fn serial_number_from_content(content: String) -> String {
+  uuid_urn_from_bytes(
+    sha256(bit_array.from_string(content)),
+    version_bits: 0x80,
+  )
+}
+
+fn uuid_urn_from_bytes(
+  bytes: BitArray,
+  version_bits version_bits: Int,
+) -> String {
   let assert <<
     b0,
     b1,
@@ -37,9 +44,8 @@ pub fn serial_number_from_content(content: String) -> String {
     b14,
     b15,
     _:bits,
-  >> = sha256(bit_array.from_string(content))
-  // Set the version nibble to 8 (custom) and the two top variant bits to 10.
-  let v6 = int.bitwise_or(int.bitwise_and(b6, 0x0f), 0x80)
+  >> = bytes
+  let v6 = int.bitwise_or(int.bitwise_and(b6, 0x0f), version_bits)
   let v8 = int.bitwise_or(int.bitwise_and(b8, 0x3f), 0x80)
   let hex =
     <<b0, b1, b2, b3, b4, b5, v6, b7, v8, b9, b10, b11, b12, b13, b14, b15>>
@@ -74,7 +80,7 @@ pub fn resolve_source_date_epoch(raw: Result(String, Nil)) -> Int {
 /// The reproducible timestamp string: `SOURCE_DATE_EPOCH` formatted as a UTC
 /// RFC 3339 instant, falling back to `1970-01-01T00:00:00Z` when unset.
 pub fn reproducible_timestamp() -> String {
-  envoy.get("SOURCE_DATE_EPOCH")
+  env.get("SOURCE_DATE_EPOCH")
   |> resolve_source_date_epoch
   |> timestamp_of_epoch
 }
@@ -91,3 +97,6 @@ pub fn timestamp_of_epoch(seconds: Int) -> String
 
 @external(erlang, "sbom_uuid_ffi", "sha256")
 fn sha256(data: BitArray) -> BitArray
+
+@external(erlang, "sbom_uuid_ffi", "random_bytes")
+fn random_bytes(size: Int) -> BitArray

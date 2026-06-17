@@ -1,17 +1,31 @@
 import gleam/dynamic/decode
 import gleam/json
-import gleam/regexp
+import gleam/list
 import gleam/string
 import gleeunit/should
 import licence_audit/sbom_uuid
 
 pub fn generate_serial_number_returns_urn_v4_test() {
   let serial = sbom_uuid.serial_number()
-  let assert Ok(re) =
-    regexp.from_string(
-      "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-    )
-  let assert True = regexp.check(with: re, content: serial)
+
+  string.starts_with(serial, "urn:uuid:") |> should.equal(True)
+  string.length(serial) |> should.equal(45)
+  uuid_body_is_lower_hex(serial) |> should.equal(True)
+  string.slice(serial, 17, 1) |> should.equal("-")
+  string.slice(serial, 22, 1) |> should.equal("-")
+  string.slice(serial, 23, 1) |> should.equal("4")
+  string.slice(serial, 27, 1) |> should.equal("-")
+  string.slice(serial, 32, 1) |> should.equal("-")
+  let variant = string.slice(serial, 28, 1)
+  { variant == "8" || variant == "9" || variant == "a" || variant == "b" }
+  |> should.equal(True)
+}
+
+fn uuid_body_is_lower_hex(serial: String) -> Bool {
+  string.drop_start(serial, string.length("urn:uuid:"))
+  |> string.replace("-", "")
+  |> string.to_graphemes
+  |> list.all(fn(char) { string.contains("0123456789abcdef", char) })
 }
 
 pub fn serial_number_two_calls_differ_test() {
@@ -85,6 +99,56 @@ pub fn purl_for_github_lowercases_owner_and_repo_segments_only_test() {
 
 pub fn purl_for_github_git_with_dot_git_suffix_test() {
   let entry = github_git_entry("https://github.com/tylerbutler/gluegun.git")
+  should.equal(
+    sbom.purl_for(entry),
+    Ok(
+      "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+    ),
+  )
+}
+
+pub fn purl_for_github_git_http_test() {
+  let entry = github_git_entry("http://github.com/tylerbutler/gluegun")
+  should.equal(
+    sbom.purl_for(entry),
+    Ok(
+      "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+    ),
+  )
+}
+
+pub fn purl_for_github_git_ssh_colon_test() {
+  let entry = github_git_entry("git@github.com:tylerbutler/gluegun")
+  should.equal(
+    sbom.purl_for(entry),
+    Ok(
+      "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+    ),
+  )
+}
+
+pub fn purl_for_github_git_ssh_slash_test() {
+  let entry = github_git_entry("git@github.com/tylerbutler/gluegun")
+  should.equal(
+    sbom.purl_for(entry),
+    Ok(
+      "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+    ),
+  )
+}
+
+pub fn purl_for_github_git_with_trailing_slash_test() {
+  let entry = github_git_entry("https://github.com/tylerbutler/gluegun/")
+  should.equal(
+    sbom.purl_for(entry),
+    Ok(
+      "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+    ),
+  )
+}
+
+pub fn purl_for_github_git_with_dot_git_and_trailing_slash_test() {
+  let entry = github_git_entry("https://github.com/tylerbutler/gluegun.git/")
   should.equal(
     sbom.purl_for(entry),
     Ok(
