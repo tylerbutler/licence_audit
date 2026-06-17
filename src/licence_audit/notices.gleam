@@ -10,6 +10,7 @@ import gleam/option.{None}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/source_archive
 import simplifile
@@ -67,6 +68,31 @@ pub fn selected_entries(
 ) -> List(manifest.SbomEntry) {
   list.filter(manifest_value.entries, fn(entry) {
     include_dev || scope_for(scopes, entry.name) == manifest.Prod
+  })
+}
+
+pub fn packages_from_entries(
+  entries: List(manifest.SbomEntry),
+  scopes: Dict(String, manifest.Scope),
+  fetch_metadata: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+) -> Result(List(NoticePackage), Error) {
+  list.try_map(entries, fn(entry) {
+    use source <- result.try(package_source(entry))
+    let declared_licences = case entry.provenance {
+      manifest.HexProvenance(_, _) ->
+        case fetch_metadata(entry.name) {
+          Ok(metadata) -> metadata.licences
+          Error(_) -> []
+        }
+      _ -> []
+    }
+    Ok(NoticePackage(
+      name: entry.name,
+      version: entry.version,
+      declared_licences: declared_licences,
+      source: source,
+      scope: scope_for(scopes, entry.name),
+    ))
   })
 }
 

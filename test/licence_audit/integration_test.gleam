@@ -5,8 +5,10 @@ import gleam/string
 import gleeunit/should
 import licence_audit
 import licence_audit/hex
+import licence_audit/notices
 import licence_audit/osv
 import licence_audit/progress
+import licence_audit/source_archive
 import simplifile
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
@@ -22,6 +24,34 @@ fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
     "argv" -> Error(hex.NotFound)
     _ -> fake_fetcher(name)
   }
+}
+
+fn notice_metadata_fetcher(
+  name: String,
+) -> Result(hex.PackageMetadata, hex.Error) {
+  case name {
+    "gleam_stdlib" -> Ok(hex.licences_only(["Apache-2.0"]))
+    "argv" -> Ok(hex.licences_only(["Apache-2.0"]))
+    _ -> Ok(hex.licences_only([]))
+  }
+}
+
+fn fixture_hex_tarball(
+  _name: String,
+  _version: String,
+) -> Result(BitArray, notices.FetchError) {
+  case simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar") {
+    Ok(bits) -> Ok(bits)
+    Error(_) -> Error(notices.FetchNetworkFailure)
+  }
+}
+
+fn unused_github_tarball(
+  _owner: String,
+  _repo: String,
+  _commit: String,
+) -> Result(BitArray, notices.FetchError) {
+  Error(notices.FetchNetworkFailure)
 }
 
 fn manifest_args(extra: List(String)) -> List(String) {
@@ -42,6 +72,69 @@ pub fn default_report_succeeds_without_policy_test() {
   assert string.contains(output, "argv")
   assert string.contains(output, "Apache-2.0")
   assert !string.contains(output, "Status")
+}
+
+pub fn notices_subcommand_prints_release_notice_text_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = "build/tmp/notices-manifest.toml"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Third-party licences")
+  assert string.contains(result.output, "gleam_stdlib 1.0.0")
+  assert string.contains(result.output, "Declared licences: Apache-2.0")
+  assert string.contains(result.output, "Fixture licence text")
+}
+
+pub fn notices_subcommand_writes_output_file_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = "build/tmp/notices-output-manifest.toml"
+  let output_path = "build/tmp/THIRD_PARTY_LICENSES.txt"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let _ = simplifile.delete(output_path)
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      [
+        "notices",
+        "--manifest=" <> manifest_path,
+        "--output=" <> output_path,
+      ],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+  let assert Ok(contents) = simplifile.read(from: output_path)
+
+  should.equal(result.exit_code, 0)
+  should.equal(result.output, "")
+  assert string.contains(contents, "Fixture licence text")
 }
 
 pub fn normal_progress_reports_audit_phases_without_package_details_test() {

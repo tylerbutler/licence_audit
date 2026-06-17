@@ -15,6 +15,7 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/notices
 import licence_audit/osv
 import licence_audit/policy
 import licence_audit/progress
@@ -110,9 +111,18 @@ fn handle_action(action: cli.CliAction) -> Nil {
       let _ = progress.flush(reporter)
       halt(exit_code)
     }
-    cli.RunNotices(_) -> {
-      io.print_error("Error: notices command execution is not implemented\n")
-      halt(1)
+    cli.RunNotices(options) -> {
+      let #(RunResult(exit_code, output), reporter) =
+        run_notices_options(
+          options,
+          hex.fetch_package_metadata_from_hex,
+          notices.fetch_hex_tarball_from_hex,
+          notices.fetch_github_tarball_from_github,
+          progress.enabled(options.verbosity, "notices"),
+        )
+      io.print(output)
+      let _ = progress.flush(reporter)
+      halt(exit_code)
     }
     cli.GenDocsCompleted -> Nil
   }
@@ -156,6 +166,28 @@ pub fn run_with_clients(
   result
 }
 
+pub fn run_with_notice_clients(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+) -> RunResult {
+  let #(result, _) =
+    run_with_reporter_and_notices(
+      args,
+      fetcher,
+      osv.query_batch_from_osv,
+      osv.fetch_vulnerability_from_osv,
+      hex_tarball_fetcher,
+      github_tarball_fetcher,
+      progress.disabled(),
+      color.for_enabled(False),
+    )
+  result
+}
+
 pub fn run_with_progress(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
@@ -178,6 +210,30 @@ fn run_with_reporter(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+  palette: color.Palette,
+) -> #(RunResult, progress.Reporter) {
+  run_with_reporter_and_notices(
+    args,
+    fetcher,
+    osv_batch_fetcher,
+    osv_detail_fetcher,
+    notices.fetch_hex_tarball_from_hex,
+    notices.fetch_github_tarball_from_github,
+    reporter,
+    palette,
+  )
+}
+
+fn run_with_reporter_and_notices(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
@@ -220,10 +276,14 @@ fn run_with_reporter(
         )
       #(result, reporter)
     }
-    Ok(glint.Out(cli.RunNotices(_))) -> #(
-      RunResult(1, "Error: notices command execution is not implemented\n"),
-      reporter,
-    )
+    Ok(glint.Out(cli.RunNotices(options))) ->
+      run_notices_options(
+        options,
+        fetcher,
+        hex_tarball_fetcher,
+        github_tarball_fetcher,
+        reporter,
+      )
     Ok(glint.Out(cli.GenDocsCompleted)) -> #(RunResult(0, ""), reporter)
     Error(message) -> #(RunResult(1, message <> "\n"), reporter)
   }
@@ -255,6 +315,115 @@ fn run_sbom_options(
         osv_detail_fetcher,
         reporter,
       )
+  }
+}
+
+fn run_notices_options(
+  options: cli.NoticesOptions,
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let reporter = progress.phase(reporter, "Generating licence notices")
+  let reporter = progress.detail(reporter, "Loading package manifest")
+
+  case manifest.load_sbom(manifest_path) {
+    Error(manifest_error) -> #(
+      diagnostic(error.from_manifest_error(manifest_error)),
+      reporter,
+    )
+    Ok(sbom_manifest) -> {
+      let scopes =
+        manifest.sbom_scopes(
+          sbom_manifest,
+          resolve_prod_seed(".", sbom_manifest.root_requirements),
+        )
+      let selected =
+        notices.selected_entries(
+          sbom_manifest,
+          scopes,
+          include_dev: options.include_dev,
+        )
+      let reporter = progress.package_count(reporter, list.length(selected))
+
+      case notices.packages_from_entries(selected, scopes, fetcher) {
+        Error(notice_error) -> #(
+          diagnostic(error.Notices(notices.describe_error(notice_error))),
+          reporter,
+        )
+        Ok(packages) ->
+          build_notice_entries(
+            packages,
+            manifest_path,
+            options.output,
+            hex_tarball_fetcher,
+            github_tarball_fetcher,
+            reporter,
+          )
+      }
+    }
+  }
+}
+
+fn build_notice_entries(
+  packages: List(notices.NoticePackage),
+  manifest_path: String,
+  output: option.Option(String),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  let result =
+    notices.entries_from_sources(packages, fn(package) {
+      notices.read_remote_source(
+        package,
+        hex_tarball_fetcher,
+        github_tarball_fetcher,
+      )
+    })
+
+  case result {
+    Error(notice_error) -> #(
+      diagnostic(error.Notices(notices.describe_error(notice_error))),
+      reporter,
+    )
+    Ok(entries) ->
+      write_notice_output(
+        notices.render(entries, manifest_path: manifest_path),
+        output,
+        reporter,
+      )
+  }
+}
+
+fn write_notice_output(
+  text: String,
+  output: option.Option(String),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  case output {
+    None -> #(RunResult(0, text), reporter)
+    Some(path) ->
+      case simplifile.write(to: path, contents: text) {
+        Ok(_) -> #(RunResult(0, ""), reporter)
+        Error(reason) -> #(
+          diagnostic(
+            error.Notices(
+              notices.describe_error(notices.OutputWriteFailed(
+                path,
+                simplifile.describe_error(reason),
+              )),
+            ),
+          ),
+          reporter,
+        )
+      }
   }
 }
 
