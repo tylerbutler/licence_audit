@@ -10,8 +10,9 @@ dependencies. Point it at a project, and it will:
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
 It reads `manifest.toml`, fetches licence metadata from Hex, and reports on the
-full resolved dependency tree. Non-Hex dependencies are skipped and named in
-the summary.
+full resolved dependency tree. For audit reports, non-Hex dependencies are
+skipped and named in the summary; `notices` handles supported source archives
+and fails on unsupported sources.
 
 ## Install
 
@@ -204,12 +205,13 @@ licence_audit notices --output=THIRD_PARTY_LICENSES.txt
 licence_audit notices --include-dev
 ```
 
-`notices` creates a plain-text release artifact containing the licence and
-notice files shipped by locked dependencies. It defaults to production
-dependencies; pass `--include-dev` to include development-only dependencies.
+`notices` creates a plain-text release artifact containing the actual licence
+and notice files shipped by locked dependencies, not canonical SPDX text
+inferred from identifiers. It defaults to production dependencies; pass
+`--include-dev` to include development-only dependencies.
 
 Use `notices` when you need a human-readable third-party licence bundle for a
-release. Use `sbom` when you need machine-readable CycloneDX JSON. It is
+release. Use `sbom` when you need machine-readable CycloneDX JSON. `notices` is
 similar to npm's `generate-license-file`.
 
 `notices` fails if selected dependencies lack a recognizable licence or notice
