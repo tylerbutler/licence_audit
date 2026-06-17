@@ -14,6 +14,23 @@ the summary.
 
 ## Install
 
+### With mise
+
+If you use [mise](https://mise.jdx.dev/), install `licence_audit` with the
+`github:` provider:
+
+```sh
+mise use -g "github:tylerbutler/licence_audit@latest"
+```
+
+Replace `latest` with a release tag, such as `v0.3.0`, to pin a version. For a
+project-local install, omit `-g`. The escript still needs Erlang/OTP 28.x or
+newer on your `PATH`; if you manage Erlang with mise, install it too:
+
+```sh
+mise use -g erlang@28
+```
+
 ### From a GitHub Release
 
 Prebuilt escript archives are attached to each
