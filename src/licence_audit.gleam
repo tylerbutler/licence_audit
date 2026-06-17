@@ -132,13 +132,20 @@ pub fn run(args: List(String)) -> RunResult {
   run_with(args, hex.fetch_package_metadata_from_hex)
 }
 
+fn library_args(args: List(String)) -> List(String) {
+  case args {
+    ["notices", ..] -> args
+    _ -> list.append(args, ["--no-cache"])
+  }
+}
+
 pub fn run_with(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
 ) -> RunResult {
   let #(result, _) =
     run_with_reporter(
-      list.append(args, ["--no-cache"]),
+      library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,
@@ -156,7 +163,7 @@ pub fn run_with_clients(
 ) -> RunResult {
   let #(result, _) =
     run_with_reporter(
-      list.append(args, ["--no-cache"]),
+      library_args(args),
       fetcher,
       osv_batch_fetcher,
       osv_detail_fetcher,
@@ -195,7 +202,7 @@ pub fn run_with_progress(
 ) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) =
     run_with_reporter(
-      list.append(args, ["--no-cache"]),
+      library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,
