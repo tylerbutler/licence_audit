@@ -537,30 +537,30 @@ fn write_sbom_output(
   json_str: String,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
-  case output {
-    option.None ->
-      case sbom_json.pretty_print(json_str) {
-        Ok(pretty_json) -> #(RunResult(0, pretty_json <> "\n"), reporter)
-        Error(reason) -> #(
-          RunResult(
-            2,
-            "Error: failed to format SBOM JSON: "
-              <> sbom_json.describe_error(reason)
-              <> "\n",
-          ),
-          reporter,
-        )
-      }
-    option.Some(path) ->
-      case simplifile.write(to: path, contents: json_str <> "\n") {
-        Ok(_) -> #(RunResult(0, ""), reporter)
-        Error(reason) -> #(
-          diagnostic(error.SbomWriteFailed(
-            path: path,
-            reason: simplifile.describe_error(reason),
-          )),
-          reporter,
-        )
+  case sbom_json.pretty_print(json_str) {
+    Error(reason) -> #(
+      RunResult(
+        2,
+        "Error: failed to format SBOM JSON: "
+          <> sbom_json.describe_error(reason)
+          <> "\n",
+      ),
+      reporter,
+    )
+    Ok(pretty_json) ->
+      case output {
+        option.None -> #(RunResult(0, pretty_json <> "\n"), reporter)
+        option.Some(path) ->
+          case simplifile.write(to: path, contents: pretty_json <> "\n") {
+            Ok(_) -> #(RunResult(0, ""), reporter)
+            Error(reason) -> #(
+              diagnostic(error.SbomWriteFailed(
+                path: path,
+                reason: simplifile.describe_error(reason),
+              )),
+              reporter,
+            )
+          }
       }
   }
 }
