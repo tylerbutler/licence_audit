@@ -1,11 +1,20 @@
 import gleam/bool
 import gleam/dict.{type Dict}
+import gleam/http.{Get, Https}
+import gleam/http/request.{type Request, Request}
+import gleam/http/response.{type Response}
+import gleam/httpc
+import gleam/int
 import gleam/list
+import gleam/option.{None}
 import gleam/order
 import gleam/result
 import gleam/string
 import licence_audit/manifest
 import licence_audit/source_archive
+import simplifile
+
+const source_fetch_timeout_ms = 8000
 
 pub type PackageSource {
   HexPackage(outer_checksum: String)
@@ -103,6 +112,44 @@ pub fn entries_from_sources(
   entries_from_sources_loop(packages, read_source, [], [])
 }
 
+pub fn read_remote_source(
+  package: NoticePackage,
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+  fetch_github_tarball: fn(String, String, String) ->
+    Result(BitArray, FetchError),
+) -> Result(List(source_archive.ArchiveFile), Error) {
+  case package.source {
+    HexPackage(outer_checksum) ->
+      read_hex_source(package, outer_checksum, fetch_hex_tarball)
+    GitHubPackage(repo, commit) ->
+      read_github_source(package, repo, commit, fetch_github_tarball)
+    PathPackage(path) -> read_path_source(package.name, path)
+  }
+}
+
+pub fn fetch_hex_tarball_from_hex(
+  name: String,
+  version: String,
+) -> Result(BitArray, FetchError) {
+  fetch_tarball(hex_tarball_request(name, version))
+}
+
+pub fn fetch_github_tarball_from_github(
+  owner: String,
+  repo: String,
+  commit: String,
+) -> Result(BitArray, FetchError) {
+  fetch_tarball(github_tarball_request(owner, repo, commit))
+}
+
+pub fn describe_fetch_error(error: FetchError) -> String {
+  case error {
+    FetchNetworkFailure -> "network failure"
+    FetchUnexpectedResponse(status) ->
+      "unexpected HTTP response " <> int.to_string(status)
+  }
+}
+
 pub fn render(
   entries: List(NoticeEntry),
   manifest_path manifest_path: String,
@@ -167,6 +214,156 @@ fn scope_for(
     Ok(scope) -> scope
     Error(_) -> manifest.Prod
   }
+}
+
+fn read_hex_source(
+  package: NoticePackage,
+  expected_checksum: String,
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+) -> Result(List(source_archive.ArchiveFile), Error) {
+  use bytes <- result.try(
+    fetch_hex_tarball(package.name, package.version)
+    |> result.map_error(fn(error) {
+      FetchFailed(package.name, describe_fetch_error(error))
+    }),
+  )
+  use actual_checksum <- result.try(
+    source_archive.sha256_hex(bytes)
+    |> result.map_error(fn(error) {
+      ArchiveFailed(package.name, source_archive.describe_error(error))
+    }),
+  )
+  use <- bool.guard(
+    when: string.uppercase(expected_checksum) != actual_checksum,
+    return: Error(ChecksumMismatch(
+      package.name,
+      expected_checksum,
+      actual_checksum,
+    )),
+  )
+  source_archive.extract_hex_contents(bytes)
+  |> result.map_error(fn(error) {
+    ArchiveFailed(package.name, source_archive.describe_error(error))
+  })
+}
+
+fn read_github_source(
+  package: NoticePackage,
+  repo: String,
+  commit: String,
+  fetch_github_tarball: fn(String, String, String) ->
+    Result(BitArray, FetchError),
+) -> Result(List(source_archive.ArchiveFile), Error) {
+  case parse_github_repo(repo) {
+    Error(_) -> Error(UnsupportedSource(package.name, "git", "repo: " <> repo))
+    Ok(#(owner, repo_name)) -> {
+      use bytes <- result.try(
+        fetch_github_tarball(owner, repo_name, commit)
+        |> result.map_error(fn(error) {
+          FetchFailed(package.name, describe_fetch_error(error))
+        }),
+      )
+      source_archive.extract_tar_gz(bytes)
+      |> result.map_error(fn(error) {
+        ArchiveFailed(package.name, source_archive.describe_error(error))
+      })
+    }
+  }
+}
+
+fn read_path_source(
+  package_name: String,
+  path: String,
+) -> Result(List(source_archive.ArchiveFile), Error) {
+  use files <- result.try(
+    simplifile.get_files(in: path)
+    |> result.map_error(fn(error) {
+      PathReadFailed(package_name, path, simplifile.describe_error(error))
+    }),
+  )
+
+  files
+  |> list.sort(string.compare)
+  |> list.try_map(read_path_file(package_name, path, _))
+}
+
+fn read_path_file(
+  package_name: String,
+  root: String,
+  file_path: String,
+) -> Result(source_archive.ArchiveFile, Error) {
+  use contents <- result.try(
+    simplifile.read_bits(from: file_path)
+    |> result.map_error(fn(error) {
+      PathReadFailed(package_name, file_path, simplifile.describe_error(error))
+    }),
+  )
+  Ok(source_archive.ArchiveFile(
+    path: relative_path(file_path, root),
+    contents: contents,
+  ))
+}
+
+fn relative_path(file_path: String, root: String) -> String {
+  let root_prefix = case string.ends_with(root, "/") {
+    True -> root
+    False -> root <> "/"
+  }
+  case string.starts_with(file_path, root_prefix) {
+    True -> string.drop_start(file_path, string.length(root_prefix))
+    False -> file_path
+  }
+}
+
+fn fetch_tarball(request: Request(BitArray)) -> Result(BitArray, FetchError) {
+  let request = request.set_header(request, "user-agent", "licence_audit")
+  case
+    httpc.configure()
+    |> httpc.timeout(source_fetch_timeout_ms)
+    |> httpc.dispatch_bits(request)
+  {
+    Ok(response) -> decode_fetch_response(response)
+    Error(_) -> Error(FetchNetworkFailure)
+  }
+}
+
+fn decode_fetch_response(
+  response: Response(BitArray),
+) -> Result(BitArray, FetchError) {
+  case response.status {
+    status if status >= 200 && status < 300 -> Ok(response.body)
+    status -> Error(FetchUnexpectedResponse(status))
+  }
+}
+
+fn hex_tarball_request(name: String, version: String) -> Request(BitArray) {
+  Request(
+    method: Get,
+    headers: [],
+    body: <<>>,
+    scheme: Https,
+    host: "repo.hex.pm",
+    port: None,
+    path: "/tarballs/" <> name <> "-" <> version <> ".tar",
+    query: None,
+  )
+}
+
+fn github_tarball_request(
+  owner: String,
+  repo: String,
+  commit: String,
+) -> Request(BitArray) {
+  Request(
+    method: Get,
+    headers: [],
+    body: <<>>,
+    scheme: Https,
+    host: "codeload.github.com",
+    port: None,
+    path: "/" <> owner <> "/" <> repo <> "/tar.gz/" <> commit,
+    query: None,
+  )
 }
 
 fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {

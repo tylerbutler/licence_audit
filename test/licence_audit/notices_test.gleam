@@ -7,6 +7,11 @@ import gleeunit/should
 import licence_audit/manifest
 import licence_audit/notices
 import licence_audit/source_archive
+import simplifile
+
+const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
+
+const tmp_dir = "build/tmp/notices_test"
 
 fn file(path: String, contents: String) -> source_archive.ArchiveFile {
   source_archive.ArchiveFile(
@@ -17,6 +22,14 @@ fn file(path: String, contents: String) -> source_archive.ArchiveFile {
 
 fn binary_file(path: String, contents: BitArray) -> source_archive.ArchiveFile {
   source_archive.ArchiveFile(path: path, contents: contents)
+}
+
+fn fresh_dir(name: String) -> String {
+  let _ = simplifile.create_directory_all(tmp_dir)
+  let path = tmp_dir <> "/" <> name
+  let _ = simplifile.delete(path)
+  let assert Ok(Nil) = simplifile.create_directory_all(path)
+  path
 }
 
 fn package(
@@ -70,6 +83,105 @@ fn fake_archive_files(
     "without_license" -> Ok([file("./README.md", "Readme\n")])
     _ -> Ok([file("./LICENSE", "Default text\n")])
   }
+}
+
+pub fn read_hex_source_rejects_checksum_mismatch_test() {
+  let pkg = package("hex_dep", notices.HexPackage(outer_checksum: "AAAA"))
+  let fetch_hex = fn(_name, _version) {
+    Ok(bit_array.from_string("not the expected bytes"))
+  }
+  let fetch_github = fn(_owner, _repo, _commit) {
+    Ok(bit_array.from_string("unused"))
+  }
+
+  let assert Error(notices.ChecksumMismatch("hex_dep", "AAAA", _actual)) =
+    notices.read_remote_source(pkg, fetch_hex, fetch_github)
+}
+
+pub fn fetch_error_description_is_human_readable_test() {
+  should.equal(
+    notices.describe_fetch_error(notices.FetchNetworkFailure),
+    "network failure",
+  )
+  should.equal(
+    notices.describe_fetch_error(notices.FetchUnexpectedResponse(500)),
+    "unexpected HTTP response 500",
+  )
+}
+
+pub fn read_path_source_returns_relative_binary_archive_files_test() {
+  let root = fresh_dir("path_source")
+  let assert Ok(Nil) = simplifile.create_directory_all(root <> "/src")
+  let assert Ok(Nil) =
+    simplifile.write(to: root <> "/LICENSE", contents: "Local licence\n")
+  let assert Ok(Nil) =
+    simplifile.write_bits(to: root <> "/src/image.bin", bits: <<0, 255>>)
+  let pkg = package("local_dep", notices.PathPackage(path: root))
+
+  let assert Ok(files) =
+    notices.read_remote_source(
+      pkg,
+      fn(_name, _version) { Error(notices.FetchNetworkFailure) },
+      fn(_owner, _repo, _commit) { Error(notices.FetchNetworkFailure) },
+    )
+
+  should.equal(
+    list.map(files, fn(file) { file.path }) |> list.sort(string.compare),
+    ["LICENSE", "src/image.bin"],
+  )
+  let assert [binary] =
+    list.filter(files, fn(file) { file.path == "src/image.bin" })
+  should.equal(binary.contents, <<0, 255>>)
+}
+
+pub fn read_github_source_uses_fetcher_and_extracts_archive_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits(archive_fixture_dir <> "/contents.tar.gz")
+  let pkg =
+    package(
+      "git_dep",
+      notices.GitHubPackage(
+        repo: "https://github.com/example/git_dep.git",
+        commit: "abc123",
+      ),
+    )
+  let fetch_github = fn(owner, repo, commit) {
+    should.equal(owner, "example")
+    should.equal(repo, "git_dep")
+    should.equal(commit, "abc123")
+    Ok(bits)
+  }
+
+  let assert Ok(files) =
+    notices.read_remote_source(
+      pkg,
+      fn(_name, _version) { Error(notices.FetchNetworkFailure) },
+      fetch_github,
+    )
+
+  let paths = list.map(files, fn(file) { file.path })
+  assert list.contains(paths, "./LICENSE")
+  assert list.contains(paths, "./NOTICE.txt")
+}
+
+pub fn read_hex_source_verifies_checksum_and_extracts_contents_test() {
+  let assert Ok(bits) = simplifile.read_bits(archive_fixture_dir <> "/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(bits)
+  let pkg = package("hex_dep", notices.HexPackage(outer_checksum: checksum))
+  let fetch_hex = fn(name, version) {
+    should.equal(name, "hex_dep")
+    should.equal(version, "1.0.0")
+    Ok(bits)
+  }
+
+  let assert Ok(files) =
+    notices.read_remote_source(pkg, fetch_hex, fn(_owner, _repo, _commit) {
+      Error(notices.FetchNetworkFailure)
+    })
+
+  let paths = list.map(files, fn(file) { file.path })
+  assert list.contains(paths, "./LICENSE")
+  assert list.contains(paths, "./NOTICE.txt")
 }
 
 pub fn entries_from_sources_fails_with_all_missing_license_text_test() {
