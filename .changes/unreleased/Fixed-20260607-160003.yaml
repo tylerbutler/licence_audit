@@ -1,3 +1,0 @@
-kind: Fixed
-body: OSV vulnerability queries now follow `next_page_token` pagination with a page-count guard so vulnerabilities are no longer under-reported for heavily-affected packages without risking unbounded pagination, and CVSS 4.0 plus bare CVSS 2.0 vectors are now mapped to a severity bucket instead of Unknown.
-time: 2026-06-07T16:00:03.000000-00:00
