@@ -46,6 +46,33 @@ pub fn licence_file_candidates_include_all_root_matches_test() {
   ])
 }
 
+pub fn licence_file_candidates_strip_common_archive_root_test() {
+  let files = [
+    file("repo-sha/README.md", "readme"),
+    file("repo-sha/vendor/LICENSE", "nested"),
+    file("repo-sha/LICENSE", "root"),
+  ]
+
+  let assert Ok(matches) = notices.licence_files(files)
+
+  should.equal(matches, [
+    notices.NoticeFile(path: "LICENSE", contents: "root"),
+  ])
+}
+
+pub fn nested_fallback_strips_common_archive_root_test() {
+  let files = [
+    file("repo-sha/README.md", "readme"),
+    file("repo-sha/vendor/LICENSE", "nested"),
+  ]
+
+  let assert Ok(matches) = notices.licence_files(files)
+
+  should.equal(matches, [
+    notices.NoticeFile(path: "vendor/LICENSE", contents: "nested"),
+  ])
+}
+
 pub fn licence_file_candidates_fall_back_to_nested_paths_test() {
   let files = [
     file("./README.md", "readme"),

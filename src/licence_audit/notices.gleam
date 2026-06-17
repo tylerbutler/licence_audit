@@ -40,10 +40,16 @@ pub type Error {
   OutputWriteFailed(path: String, reason: String)
 }
 
+type ArchiveRootPath {
+  ArchiveRootPath(root: String, path: String)
+  NoArchiveRootPath
+}
+
 pub fn licence_files(
   files: List(source_archive.ArchiveFile),
 ) -> Result(List(NoticeFile), source_archive.ArchiveError) {
   files
+  |> strip_common_archive_root
   |> matched_archive_files
   |> list.try_map(to_notice_file)
 }
@@ -118,6 +124,66 @@ fn matched_archive_files(
       |> list.filter(fn(file) { is_any_notice_file(file.path) })
       |> sort_archive_files
     _ -> root_matches
+  }
+}
+
+fn strip_common_archive_root(
+  files: List(source_archive.ArchiveFile),
+) -> List(source_archive.ArchiveFile) {
+  case common_archive_root(files) {
+    Ok(_) -> list.map(files, strip_archive_root)
+    Error(Nil) -> files
+  }
+}
+
+fn common_archive_root(
+  files: List(source_archive.ArchiveFile),
+) -> Result(String, Nil) {
+  case files {
+    [] -> Error(Nil)
+    [first, ..rest] ->
+      case archive_root_path(first.path) {
+        ArchiveRootPath(root: root, path: _) -> {
+          use <- bool.guard(
+            when: !list.all(rest, fn(file) { shares_archive_root(file, root) }),
+            return: Error(Nil),
+          )
+          Ok(root)
+        }
+        NoArchiveRootPath -> Error(Nil)
+      }
+  }
+}
+
+fn shares_archive_root(file: source_archive.ArchiveFile, root: String) -> Bool {
+  case archive_root_path(file.path) {
+    ArchiveRootPath(root: other, path: _) -> other == root
+    NoArchiveRootPath -> False
+  }
+}
+
+fn strip_archive_root(
+  file: source_archive.ArchiveFile,
+) -> source_archive.ArchiveFile {
+  case archive_root_path(file.path) {
+    ArchiveRootPath(root: _, path: path) ->
+      source_archive.ArchiveFile(path: path, contents: file.contents)
+    NoArchiveRootPath -> file
+  }
+}
+
+fn archive_root_path(path: String) -> ArchiveRootPath {
+  let normalized = drop_optional_current_dir(path)
+  case string.split(normalized, on: "/") {
+    [root, next, ..rest] -> {
+      let stripped_path = string.join([next, ..rest], "/")
+      use <- bool.guard(
+        when: root == "" || stripped_path == "",
+        return: NoArchiveRootPath,
+      )
+      ArchiveRootPath(root: root, path: stripped_path)
+    }
+    _ -> NoArchiveRootPath
   }
 }
 
