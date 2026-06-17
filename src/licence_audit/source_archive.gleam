@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/bool
 import gleam/list
 import gleam/result
 import gleam/string
@@ -10,7 +11,7 @@ pub type ArchiveError {
 }
 
 pub type ArchiveFile {
-  ArchiveFile(path: String, contents: String)
+  ArchiveFile(path: String, contents: BitArray)
 }
 
 @external(erlang, "source_archive_ffi", "extract_tar")
@@ -28,14 +29,14 @@ fn sha256(data: BitArray) -> BitArray
 
 pub fn extract_tar(data: BitArray) -> Result(List(ArchiveFile), ArchiveError) {
   use files <- result.try(extract_tar_raw(data))
-  files_to_text(files)
+  Ok(files_to_archive_files(files))
 }
 
 pub fn extract_tar_gz(
   data: BitArray,
 ) -> Result(List(ArchiveFile), ArchiveError) {
   use files <- result.try(extract_tar_gz_raw(data))
-  files_to_text(files)
+  Ok(files_to_archive_files(files))
 }
 
 pub fn extract_hex_contents(
@@ -46,21 +47,28 @@ pub fn extract_hex_contents(
   extract_tar_gz(contents)
 }
 
-pub fn sha256_hex(data: BitArray) -> String {
-  sha256(data)
-  |> bit_array.base16_encode
-  |> string.uppercase
+pub fn text_contents(file: ArchiveFile) -> Result(String, ArchiveError) {
+  case bit_array.to_string(file.contents) {
+    Ok(text) -> Ok(text)
+    Error(_) -> Error(InvalidText(path: file.path))
+  }
 }
 
-fn files_to_text(
+pub fn sha256_hex(data: BitArray) -> Result(String, ArchiveError) {
+  use <- bool.guard(
+    when: bit_array.bit_size(data) % 8 != 0,
+    return: Error(InvalidArchive),
+  )
+
+  Ok(sha256(data) |> bit_array.base16_encode |> string.uppercase)
+}
+
+fn files_to_archive_files(
   files: List(#(String, BitArray)),
-) -> Result(List(ArchiveFile), ArchiveError) {
-  list.try_map(files, fn(file) {
+) -> List(ArchiveFile) {
+  list.map(files, fn(file) {
     let #(path, contents) = file
-    case bit_array.to_string(contents) {
-      Ok(text) -> Ok(ArchiveFile(path: path, contents: text))
-      Error(_) -> Error(InvalidText(path: path))
-    }
+    ArchiveFile(path: path, contents: contents)
   })
 }
 
