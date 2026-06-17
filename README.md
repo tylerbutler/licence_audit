@@ -6,6 +6,7 @@ dependencies. Point it at a project, and it will:
 - 📋 **report** the licences declared by your locked Hex packages
 - 🚦 **preview or enforce** a licence allow/deny policy
 - 📦 **generate** a CycloneDX SBOM for your dependency tree
+- 📄 **bundle** release-ready third-party licence notices
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
 It reads `manifest.toml`, fetches licence metadata from Hex, and reports on the
@@ -69,7 +70,7 @@ Reports Hex package licence metadata. It displays a summary of the licences for 
 **Usage:**
 
 ```
-licence_audit (check | sbom | update | vulns) [--flags]
+licence_audit (check | notices | sbom | update | vulns) [--flags]
 ```
 
 **Flags:**
@@ -93,6 +94,7 @@ licence_audit (check | sbom | update | vulns) [--flags]
 ## Subcommands
 
 * [`licence_audit check`](docs/check.md) - Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+* [`licence_audit notices`](docs/notices.md) - Generate a release-ready third-party licence notices text file from locked dependencies.
 * [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
 * [`licence_audit update`](docs/update.md) - Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
@@ -193,6 +195,27 @@ Validation runs `cyclonedx-cli`, `sbom-utility`, and cdxgen's `cdx-validate`.
 Scoring (`sbom-tools`, `sbomqs`) is local-only; note `sbomqs` under-counts
 licences on CycloneDX 1.6, which is why schema validation — not any single
 quality score — is the strict validation check.
+
+## Generate release licence notices
+
+```sh
+licence_audit notices
+licence_audit notices --output=THIRD_PARTY_LICENSES.txt
+licence_audit notices --include-dev
+```
+
+`notices` creates a plain-text release artifact containing the licence and
+notice files shipped by locked dependencies. It defaults to production
+dependencies; pass `--include-dev` to include development-only dependencies.
+
+Use `notices` when you need a human-readable third-party licence bundle for a
+release. Use `sbom` when you need machine-readable CycloneDX JSON. It is
+similar to npm's `generate-license-file`.
+
+`notices` fails if selected dependencies lack a recognizable licence or notice
+file, if a dependency source is unsupported, or if a network, archive,
+checksum, or output write error occurs. Hex tarballs are verified against
+`outer_checksum`.
 
 ## Check for vulnerabilities
 

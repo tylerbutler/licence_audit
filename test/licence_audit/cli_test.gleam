@@ -204,6 +204,12 @@ pub fn notices_subcommand_is_listed_in_help_test() {
   assert string.contains(help, "notices")
 }
 
+pub fn notices_subcommand_help_describes_notice_output_test() {
+  let help = help_text(["notices", "--help"])
+
+  assert string.contains(help, "Write notices to PATH instead of stdout")
+}
+
 pub fn root_vulns_option_returns_usage_error_test() {
   let message = usage_error(["--vulns"])
 

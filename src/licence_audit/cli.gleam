@@ -390,10 +390,10 @@ fn update_command() -> glint.Command(CliAction) {
   }
 }
 
-fn output_flag() -> glint.Flag(String) {
+fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
   |> glint.flag_default(absent_string_flag)
-  |> glint.flag_help("Write SBOM to PATH instead of stdout")
+  |> glint.flag_help(help)
 }
 
 fn include_dev_flag() -> glint.Flag(Bool) {
@@ -434,7 +434,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   use verbose <- glint.flag(verbose_flag())
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.flag(cache_path_flag())
-  use output <- glint.flag(output_flag())
+  use output <- glint.flag(output_flag("Write SBOM to PATH instead of stdout"))
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
@@ -479,7 +479,9 @@ fn notices_command() -> glint.Command(CliAction) {
   use manifest <- glint.flag(manifest_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
-  use output <- glint.flag(output_flag())
+  use output <- glint.flag(output_flag(
+    "Write notices to PATH instead of stdout",
+  ))
   use include_dev <- glint.flag(include_dev_flag())
   use _, _, flags <- glint.command()
 
