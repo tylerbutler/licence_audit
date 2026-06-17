@@ -43,3 +43,15 @@ pub fn extract_tar_rejects_invalid_archive_test() {
 
   should.equal(result, Error(source_archive.InvalidArchive))
 }
+
+pub fn extract_tar_rejects_non_byte_aligned_bits_test() {
+  let result = source_archive.extract_tar(<<1:size(1)>>)
+
+  should.equal(result, Error(source_archive.InvalidArchive))
+}
+
+pub fn extract_tar_gz_rejects_non_byte_aligned_bits_test() {
+  let result = source_archive.extract_tar_gz(<<1:size(1)>>)
+
+  should.equal(result, Error(source_archive.InvalidArchive))
+}
