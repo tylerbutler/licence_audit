@@ -1,3 +1,0 @@
-kind: Changed
-body: The sbom command now writes formatted JSON to output files.
-time: 2026-06-16T17:45:52.574755443-07:00
