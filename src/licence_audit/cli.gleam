@@ -483,6 +483,9 @@ fn notices_command() -> glint.Command(CliAction) {
     "Write notices to PATH instead of stdout",
   ))
   use include_dev <- glint.flag(include_dev_flag())
+  // Accepted and ignored: library callers append --no-cache for commands that
+  // use Hex metadata, and notices does not use the metadata cache.
+  use _no_cache <- glint.flag(no_cache_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)

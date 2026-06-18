@@ -133,48 +133,7 @@ pub fn run(args: List(String)) -> RunResult {
 }
 
 fn library_args(args: List(String)) -> List(String) {
-  case is_notices_invocation(args) {
-    True -> args
-    False -> list.append(args, ["--no-cache"])
-  }
-}
-
-fn is_notices_invocation(args: List(String)) -> Bool {
-  case args {
-    [] -> False
-    ["notices", ..] -> True
-    [arg, ..rest] -> {
-      case string.starts_with(arg, "--") {
-        True -> {
-          case string.contains(arg, "=") {
-            True -> is_notices_invocation(rest)
-            False -> {
-              case flag_takes_value(arg), rest {
-                True, [_, ..after_value] -> is_notices_invocation(after_value)
-                _, _ -> is_notices_invocation(rest)
-              }
-            }
-          }
-        }
-        False -> False
-      }
-    }
-  }
-}
-
-fn flag_takes_value(arg: String) -> Bool {
-  case arg {
-    "--manifest"
-    | "--config"
-    | "--allow"
-    | "--deny"
-    | "--color"
-    | "--colour"
-    | "--cache-path"
-    | "--vuln-severity"
-    | "--output" -> True
-    _ -> False
-  }
+  list.append(args, ["--no-cache"])
 }
 
 pub fn run_with(

@@ -220,36 +220,6 @@ local_dep = { path = \"deps/local_dep\" }
   assert string.contains(result.output, "Path licence text")
 }
 
-pub fn notices_run_with_does_not_append_no_cache_test() {
-  let result =
-    licence_audit.run_with(
-      ["notices", "--manifest=build/tmp/notices-missing.toml"],
-      notice_metadata_fetcher,
-    )
-
-  should.equal(result.exit_code, 2)
-  assert string.contains(
-    result.output,
-    "Could not read build/tmp/notices-missing.toml",
-  )
-  assert !string.contains(result.output, "no-cache")
-}
-
-pub fn notices_run_with_accepts_manifest_before_command_test() {
-  let result =
-    licence_audit.run_with(
-      ["--manifest=build/tmp/notices-missing.toml", "notices"],
-      notice_metadata_fetcher,
-    )
-
-  should.equal(result.exit_code, 2)
-  assert string.contains(
-    result.output,
-    "Could not read build/tmp/notices-missing.toml",
-  )
-  assert !string.contains(result.output, "no-cache")
-}
-
 pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
   let cache_path = "build/tmp/run-with-notice-clients-cache.dets"
   let _ = simplifile.create_directory_all("build/tmp")

@@ -337,6 +337,12 @@ pub fn notices_subcommand_parses_supported_flags_test() {
   should.equal(options.verbosity, progress.Verbose)
 }
 
+pub fn notices_subcommand_accepts_ignored_no_cache_flag_test() {
+  let options = parse_notices_options(["notices", "--no-cache"])
+
+  should.equal(options.verbosity, progress.Normal)
+}
+
 pub fn notices_subcommand_rejects_quiet_and_verbose_test() {
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
     glint.execute(cli.app(), ["notices", "--quiet", "--verbose"])

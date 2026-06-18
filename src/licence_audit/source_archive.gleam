@@ -43,7 +43,10 @@ pub fn extract_hex_contents(
   data: BitArray,
 ) -> Result(List(ArchiveFile), ArchiveError) {
   use files <- result.try(extract_tar_raw(data))
-  use contents <- result.try(find_file_bits(files, "contents.tar.gz"))
+  use contents <- result.try(
+    list.key_find(files, "contents.tar.gz")
+    |> result.map_error(fn(_) { MissingContentsArchive }),
+  )
   extract_tar_gz(contents)
 }
 
@@ -70,22 +73,6 @@ fn files_to_archive_files(
     let #(path, contents) = file
     ArchiveFile(path: path, contents: contents)
   })
-}
-
-fn find_file_bits(
-  files: List(#(String, BitArray)),
-  wanted: String,
-) -> Result(BitArray, ArchiveError) {
-  case files {
-    [] -> Error(MissingContentsArchive)
-    [file, ..rest] -> {
-      let #(path, contents) = file
-      case path == wanted {
-        True -> Ok(contents)
-        False -> find_file_bits(rest, wanted)
-      }
-    }
-  }
 }
 
 pub fn describe_error(error: ArchiveError) -> String {
