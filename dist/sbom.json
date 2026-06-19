@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e76a2cc4-75a7-8833-9421-b79a97974ac7",
+  "serialNumber": "urn:uuid:e657d620-14af-8c5f-b2ba-211ff2a031a1",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -48,10 +48,10 @@
   },
   "components": [
     {
-      "bom-ref": "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
+      "bom-ref": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
       "type": "library",
       "name": "glint",
-      "purl": "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
+      "purl": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
       "version": "1.3.0",
       "properties": [
         {
@@ -282,11 +282,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/glance@6.0.0",
+      "bom-ref": "pkg:hex/glance@6.1.0",
       "type": "library",
       "name": "glance",
-      "purl": "pkg:hex/glance@6.0.0",
-      "version": "6.0.0",
+      "purl": "pkg:hex/glance@6.1.0",
+      "version": "6.1.0",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -298,7 +298,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "49e0ed4793bb3f56c3e5ed00528d70cae21d263f70a735604124b95c5f62e2db"
+          "content": "9037ebbad2a220cd46dadedcdf9dfac7406fd2959535334473e60c32f170622a"
         }
       ],
       "licenses": [
@@ -311,7 +311,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/glance-6.0.0.tar",
+          "url": "https://repo.hex.pm/tarballs/glance-6.1.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -936,11 +936,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleeunit@1.10.0",
+      "bom-ref": "pkg:hex/gleeunit@1.11.0",
       "type": "library",
       "name": "gleeunit",
-      "purl": "pkg:hex/gleeunit@1.10.0",
-      "version": "1.10.0",
+      "purl": "pkg:hex/gleeunit@1.11.0",
+      "version": "1.11.0",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -952,7 +952,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "254b697fe72eead7bf82e941723918e421317813ac49923ee76a18c788c61e72"
+          "content": "ec31aba74256aea531edf8169931d775bbb384fed0a8a1bdc4dd9354e3e21826"
         }
       ],
       "licenses": [
@@ -965,7 +965,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/gleeunit-1.10.0.tar",
+          "url": "https://repo.hex.pm/tarballs/gleeunit-1.11.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1087,11 +1087,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/glugify@2.0.1",
+      "bom-ref": "pkg:hex/glugify@2.0.3",
       "type": "library",
       "name": "glugify",
-      "purl": "pkg:hex/glugify@2.0.1",
-      "version": "2.0.1",
+      "purl": "pkg:hex/glugify@2.0.3",
+      "version": "2.0.3",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -1103,7 +1103,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "bfac84c1ca0184c856783ce0eff42eb5b38f5e86c52cc9c3197e8cb792b2c4a3"
+          "content": "03ad4c205d43cb055f03137173af8e94b4d98e8047a8fe51d7ed14512a797065"
         }
       ],
       "licenses": [
@@ -1116,7 +1116,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/glugify-2.0.1.tar",
+          "url": "https://repo.hex.pm/tarballs/glugify-2.0.3.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1665,11 +1665,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/tomlet@1.1.2",
+      "bom-ref": "pkg:hex/tomlet@1.3.0",
       "type": "library",
       "name": "tomlet",
-      "purl": "pkg:hex/tomlet@1.1.2",
-      "version": "1.1.2",
+      "purl": "pkg:hex/tomlet@1.3.0",
+      "version": "1.3.0",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -1681,7 +1681,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "8db6193e0be4f7224f5003d942875d18a163fbe0181c86e8140c09c81c5ce81a"
+          "content": "332e7e02253accc0341ee80efed5d6c5e8259919d6134e6a1e0fa47052a08722"
         }
       ],
       "licenses": [
@@ -1700,7 +1700,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/tomlet-1.1.2.tar",
+          "url": "https://repo.hex.pm/tarballs/tomlet-1.3.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1712,7 +1712,12 @@
         {
           "url": "https://toml.io/en/v1.0.0",
           "type": "other",
-          "comment": "TOML spec"
+          "comment": "TOML 1.0 spec"
+        },
+        {
+          "url": "https://toml.io/en/v1.1.0",
+          "type": "other",
+          "comment": "TOML 1.1 spec"
         }
       ],
       "properties": [
@@ -1723,11 +1728,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/tty@1.1.0",
+      "bom-ref": "pkg:hex/tty@1.1.1",
       "type": "library",
       "name": "tty",
-      "purl": "pkg:hex/tty@1.1.0",
-      "version": "1.1.0",
+      "purl": "pkg:hex/tty@1.1.1",
+      "version": "1.1.1",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -1739,7 +1744,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "4e6609bd8b12783c270b8cafdbc4f243c6e4516755c1332c665f70a31a4e2427"
+          "content": "07e644384e648c511232e0d87defcde200e0d48d2787eb02e4fbe2d43d3e137b"
         }
       ],
       "licenses": [
@@ -1758,7 +1763,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/tty-1.1.0.tar",
+          "url": "https://repo.hex.pm/tarballs/tty-1.1.1.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1779,13 +1784,80 @@
           "value": "prod"
         }
       ]
+    },
+    {
+      "bom-ref": "pkg:hex/william@1.0.1",
+      "type": "library",
+      "name": "william",
+      "purl": "pkg:hex/william@1.0.1",
+      "version": "1.0.1",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/william"
+        ]
+      },
+      "publisher": "yoshi-monster",
+      "description": "A TOML lexer and syntax highlighter for Gleam",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f5d71b18791b728387b08bc8d56ef73ef35e6450dedce151e071904b5a02d90c"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/william-1.0.1.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://gitlab.com/arkandos/william",
+          "type": "vcs",
+          "comment": "Repository"
+        },
+        {
+          "url": "https://hexdocs.pm/contour",
+          "type": "other",
+          "comment": "contour"
+        },
+        {
+          "url": "https://hexdocs.pm/just",
+          "type": "other",
+          "comment": "just"
+        },
+        {
+          "url": "https://hexdocs.pm/pearl",
+          "type": "other",
+          "comment": "pearl"
+        },
+        {
+          "url": "https://hexdocs.pm/tear",
+          "type": "other",
+          "comment": "tear"
+        }
+      ],
+      "properties": [
+        {
+          "name": "licence_audit:scope",
+          "value": "prod"
+        }
+      ]
     }
   ],
   "dependencies": [
     {
       "ref": "root",
       "dependsOn": [
-        "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
+        "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
         "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
         "pkg:hex/argv@1.1.0",
         "pkg:hex/etch@1.3.3",
@@ -1795,18 +1867,18 @@
         "pkg:hex/gleam_stdlib@1.0.3",
         "pkg:hex/gleam_time@1.8.0",
         "pkg:hex/gleescript@1.5.2",
-        "pkg:hex/gleeunit@1.10.0",
+        "pkg:hex/gleeunit@1.11.0",
         "pkg:hex/glinter@2.19.0",
         "pkg:hex/jsone@1.9.0",
         "pkg:hex/simplifile@2.4.0",
         "pkg:hex/slate@1.0.0",
         "pkg:hex/spruce@1.0.0",
-        "pkg:hex/tomlet@1.1.2",
-        "pkg:hex/tty@1.1.0"
+        "pkg:hex/tomlet@1.3.0",
+        "pkg:hex/tty@1.1.1"
       ]
     },
     {
-      "ref": "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
+      "ref": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
       "dependsOn": [
         "pkg:hex/gleam_community_ansi@1.5.0",
         "pkg:hex/gleam_community_colour@2.0.4",
@@ -1817,9 +1889,9 @@
     {
       "ref": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
       "dependsOn": [
-        "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
+        "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
         "pkg:hex/gleam_stdlib@1.0.3",
-        "pkg:hex/glugify@2.0.1",
+        "pkg:hex/glugify@2.0.3",
         "pkg:hex/simplifile@2.4.0"
       ]
     },
@@ -1848,7 +1920,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/glance@6.0.0",
+      "ref": "pkg:hex/glance@6.1.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.3",
         "pkg:hex/glexer@2.4.0"
@@ -1930,7 +2002,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/gleeunit@1.10.0",
+      "ref": "pkg:hex/gleeunit@1.11.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.3"
       ]
@@ -1946,7 +2018,7 @@
       "ref": "pkg:hex/glinter@2.19.0",
       "dependsOn": [
         "pkg:hex/argv@1.1.0",
-        "pkg:hex/glance@6.0.0",
+        "pkg:hex/glance@6.1.0",
         "pkg:hex/gleam_json@3.1.0",
         "pkg:hex/gleam_stdlib@1.0.3",
         "pkg:hex/simplifile@2.4.0",
@@ -1954,7 +2026,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/glugify@2.0.1",
+      "ref": "pkg:hex/glugify@2.0.3",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.3"
       ]
@@ -2017,7 +2089,7 @@
         "pkg:hex/gleam_stdlib@1.0.3",
         "pkg:hex/mork@1.12.1",
         "pkg:hex/smalto@3.0.0",
-        "pkg:hex/tty@1.1.0"
+        "pkg:hex/tty@1.1.1"
       ]
     },
     {
@@ -2028,15 +2100,25 @@
       ]
     },
     {
-      "ref": "pkg:hex/tomlet@1.1.2",
+      "ref": "pkg:hex/tomlet@1.3.0",
+      "dependsOn": [
+        "pkg:hex/gleam_stdlib@1.0.3",
+        "pkg:hex/william@1.0.1"
+      ]
+    },
+    {
+      "ref": "pkg:hex/tty@1.1.1",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.3"
       ]
     },
     {
-      "ref": "pkg:hex/tty@1.1.0",
+      "ref": "pkg:hex/william@1.0.1",
       "dependsOn": [
-        "pkg:hex/gleam_stdlib@1.0.3"
+        "pkg:hex/gleam_community_ansi@1.5.0",
+        "pkg:hex/gleam_stdlib@1.0.3",
+        "pkg:hex/houdini@1.2.1",
+        "pkg:hex/splitter@1.2.0"
       ]
     }
   ],
