@@ -29,6 +29,20 @@ glinter = ">= 2.19.0 and < 3.0.0"
 
 [tools]
 
+[tools.queso]
+entry = "licence_audit"
+targets = [
+  "aarch64-linux-glibc",
+  "aarch64-linux-musl",
+  "aarch64-linux-static",
+  "aarch64-macos",
+  "x86_64-linux-glibc",
+  "x86_64-linux-musl",
+  "x86_64-linux-static",
+  "x86_64-macos",
+  "x86_64-windows",
+]
+
 [tools.glinter]
 include = ["src/", "test/"]
 
