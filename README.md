@@ -14,6 +14,25 @@ the summary.
 
 ## Install
 
+### From a GitHub Release
+
+Prebuilt archives are attached to each
+[release](https://github.com/tylerbutler/licence_audit/releases).
+
+For most users, download the self-contained archive for your platform, extract
+it, and put `licence_audit` on your `PATH`. These Queso-built executables bundle
+the Erlang runtime, so Erlang/OTP does not need to be installed on the target
+machine.
+
+The release also keeps the original escript archive and bare `licence_audit`
+escript for compatibility. The escript runs on any platform with Erlang/OTP 28.x
+or newer. Older OTP releases cannot reattach stdin in raw mode, which breaks
+keyboard input for `licence_audit update`.
+
+Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
+explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
+archive for that target.
+
 ### With mise
 
 If you use [mise](https://mise.jdx.dev/), install `licence_audit` with the
@@ -23,21 +42,14 @@ If you use [mise](https://mise.jdx.dev/), install `licence_audit` with the
 mise use -g "github:tylerbutler/licence_audit@latest"
 ```
 
-Replace `latest` with a release tag, such as `v0.3.0`, to pin a version. For a
-project-local install, omit `-g`. The escript still needs Erlang/OTP 28.x or
-newer on your `PATH`; if you manage Erlang with mise, install it too:
+Replace `latest` with a release tag, such as `v0.6.0`, to pin a version. For a
+project-local install, omit `-g`. The mise install path uses the escript and
+still needs Erlang/OTP 28.x or newer on your `PATH`; if you manage Erlang with
+mise, install it too:
 
 ```sh
 mise use -g erlang@28
 ```
-
-### From a GitHub Release
-
-Prebuilt escript archives are attached to each
-[release](https://github.com/tylerbutler/licence_audit/releases). Download the
-archive, extract it, and put `licence_audit` on your `PATH`. It runs on any
-platform with Erlang/OTP 28.x or newer. Older OTP releases cannot reattach
-stdin in raw mode, which breaks keyboard input for `licence_audit update`.
 
 To build from source, see [DEV.md](./DEV.md).
 
