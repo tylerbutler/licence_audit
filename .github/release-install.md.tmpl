@@ -49,11 +49,12 @@ If you use [mise](https://mise.jdx.dev/), install this release with the
 `github:` provider:
 
 ```sh
-mise use -g "github:${REPO}@${REF_NAME}"
+mise use -g "github:${REPO}@${REF_NAME}[asset_pattern=licence_audit,bin=licence_audit]"
 ```
 
-For a project-local install, omit `-g`. The mise install path uses the escript
-and still needs Erlang/OTP 28.x or newer on your `PATH`; if you manage Erlang
+The `asset_pattern=licence_audit` option selects the bare escript asset, avoiding
+ambiguity with the per-arch Queso archives. For a project-local install, omit `-g`.
+This mise path uses the escript and still needs Erlang/OTP 28.x or newer on your `PATH`; if you manage Erlang
 with mise, install it too:
 
 ```sh

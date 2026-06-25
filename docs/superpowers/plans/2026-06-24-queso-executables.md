@@ -493,12 +493,13 @@ If you use [mise](https://mise.jdx.dev/), install `licence_audit` with the
 `github:` provider:
 
 ```sh
-mise use -g "github:tylerbutler/licence_audit@latest"
+mise use -g "github:tylerbutler/licence_audit@latest[asset_pattern=licence_audit,bin=licence_audit]"
 ```
 
-Replace `latest` with a release tag, such as `v0.6.0`, to pin a version. For a
-project-local install, omit `-g`. The mise install path uses the escript and
-still needs Erlang/OTP 28.x or newer on your `PATH`; if you manage Erlang with
+Replace `latest` with a release tag, such as `v0.6.0`, to pin a version. The
+`asset_pattern=licence_audit` option selects the bare escript asset, avoiding
+ambiguity with per-arch Queso archives. For a project-local install, omit `-g`.
+This mise path uses the escript and still needs Erlang/OTP 28.x or newer on your `PATH`; if you manage Erlang with
 mise, install it too:
 
 ```sh
