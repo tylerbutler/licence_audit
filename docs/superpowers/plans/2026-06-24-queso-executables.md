@@ -16,7 +16,8 @@
 - Add Queso packaging through a separate `just build-queso` recipe.
 - Pin Queso to version `0.3.0`.
 - Configure Queso with entry module `licence_audit`.
-- Build these Queso targets: `aarch64-linux-glibc`, `aarch64-linux-musl`, `aarch64-linux-static`, `aarch64-macos`, `x86_64-linux-glibc`, `x86_64-linux-musl`, `x86_64-linux-static`, `x86_64-macos`, and `x86_64-windows`.
+- Build these Queso targets: `aarch64-linux-glibc`, `aarch64-linux-musl`, `aarch64-macos`, `x86_64-linux-glibc`, `x86_64-linux-musl`, `x86_64-macos`, and `x86_64-windows`.
+- Exclude `aarch64-linux-static` and `x86_64-linux-static` because Queso static Linux binaries do not export NIF symbols (crypto/SSL) required by this CLI. Users on Linux should use glibc or musl archives instead.
 - Exclude `aarch64-windows` because Queso requires `--erts` for that target and there is no trustworthy pinned prebuilt OTP 28 Windows ARM64 ERTS archive.
 - Release one archive per Queso target: `.tar.gz` for Linux/macOS and `.zip` for Windows.
 - Each non-Windows Queso archive must contain an executable named `licence_audit`; each Windows Queso archive must contain `licence_audit.exe`.
@@ -93,17 +94,17 @@ entry = "licence_audit"
 targets = [
   "aarch64-linux-glibc",
   "aarch64-linux-musl",
-  "aarch64-linux-static",
+  # linux-static excluded: no NIF symbol exports (crypto/SSL)
   "aarch64-macos",
   "x86_64-linux-glibc",
   "x86_64-linux-musl",
-  "x86_64-linux-static",
+  # linux-static excluded: no NIF symbol exports (crypto/SSL)
   "x86_64-macos",
   "x86_64-windows",
 ]
 ```
 
-Do not include `aarch64-windows`.
+Do not include `aarch64-windows` or `linux-static` targets.
 
 - [ ] **Step 4: Add `build-queso` to `justfile`**
 
@@ -252,10 +253,15 @@ After the Queso build step, add:
         run: |
           set -euo pipefail
           version="${REF_NAME#v}"
-          ./build/queso/licence_audit-${version}-x86_64-linux-static --help >/dev/null
+          # Use glibc target: linux-static binaries do not export NIF symbols
+          # (crypto/SSL) that this CLI requires. glibc runs on the ubuntu runner.
+          binary="./build/queso/licence_audit-${version}-x86_64-linux-glibc"
+          "$binary" sbom --reproducible --offline --output=smoke-sbom.json
+          test -s smoke-sbom.json
 ```
 
-This validates a self-contained Linux executable on the Ubuntu runner.
+This validates a self-contained Linux executable on the Ubuntu runner, exercising
+crypto NIF (SBOM UUID hashing) without network access.
 
 - [ ] **Step 6: Replace artifact staging script**
 
@@ -281,11 +287,11 @@ cp licence_audit dist/
 targets=(
   aarch64-linux-glibc
   aarch64-linux-musl
-  aarch64-linux-static
+  # linux-static excluded: no NIF symbol exports (crypto/SSL)
   aarch64-macos
   x86_64-linux-glibc
   x86_64-linux-musl
-  x86_64-linux-static
+  # linux-static excluded: no NIF symbol exports (crypto/SSL)
   x86_64-macos
   x86_64-windows
 )
@@ -318,8 +324,10 @@ done
 test -f "dist/licence_audit-${REF_NAME}.tar.gz"
 test -f "dist/licence_audit-${REF_NAME}.zip"
 test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
-test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
 test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
+test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
 (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
 ls -la dist
@@ -351,11 +359,11 @@ The full workflow step should still be:
           targets=(
             aarch64-linux-glibc
             aarch64-linux-musl
-            aarch64-linux-static
+            # linux-static excluded: no NIF symbol exports (crypto/SSL)
             aarch64-macos
             x86_64-linux-glibc
             x86_64-linux-musl
-            x86_64-linux-static
+            # linux-static excluded: no NIF symbol exports (crypto/SSL)
             x86_64-macos
             x86_64-windows
           )
@@ -388,8 +396,10 @@ The full workflow step should still be:
           test -f "dist/licence_audit-${REF_NAME}.tar.gz"
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
-          test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+          test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
+          test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+          test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
           (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
@@ -455,7 +465,7 @@ Run:
 ```bash
 grep -n 'self-contained executable' README.md
 grep -n 'just build-queso' DEV.md
-grep -n 'x86_64-linux-static' .github/release-install.md.tmpl
+grep -n 'x86_64-linux-glibc' .github/release-install.md.tmpl
 test -f .changes/unreleased/queso-executables.md
 ```
 
@@ -564,11 +574,11 @@ Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
 explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
 archive for that target.
 
-### Linux x86_64 static
+### Linux x86_64 (glibc)
 
 ```sh
 curl -fsSL -o licence_audit.tar.gz \
-  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
 tar -xzf licence_audit.tar.gz --strip-components=1
 chmod +x licence_audit
 ./licence_audit --help
@@ -621,7 +631,7 @@ mise use -g erlang@28
 sha256sum -c checksums.txt
 
 # Build provenance + SBOM attestations for a native archive...
-gh attestation verify licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz --repo ${REPO}
+gh attestation verify licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz --repo ${REPO}
 
 # ...or for the bare escript binary
 gh attestation verify licence_audit --repo ${REPO}
@@ -634,7 +644,7 @@ Create `.changes/unreleased/queso-executables.md` with:
 
 ```markdown
 kind: Added
-body: Added self-contained Queso release archives for Linux, macOS, and Windows x86_64 targets while keeping the existing escript artifacts.
+body: Added self-contained Queso release archives for Linux (glibc and musl), macOS, and Windows x86_64 targets while keeping the existing escript artifacts. Linux static targets are excluded because Queso static binaries do not export the NIF symbols (crypto/SSL) required by this CLI.
 time: 2026-06-24T17:37:19.372-07:00
 ```
 
@@ -645,7 +655,7 @@ Run:
 ```bash
 grep -n 'self-contained archive' README.md
 grep -n 'just build-queso' DEV.md
-grep -n 'x86_64-linux-static' .github/release-install.md.tmpl
+grep -n 'x86_64-linux-glibc' .github/release-install.md.tmpl
 grep -n 'aarch64-windows' README.md DEV.md .github/release-install.md.tmpl
 test -f .changes/unreleased/queso-executables.md
 ```
@@ -727,11 +737,14 @@ Expected: output contains `queso 0.3.0`.
 Run:
 
 ```bash
-mise exec -- queso build --target x86_64-linux-static
-./build/queso/licence_audit-0.6.0-x86_64-linux-static --help >/dev/null
+mise exec -- queso build --target x86_64-linux-glibc
+./build/queso/licence_audit-0.6.0-x86_64-linux-glibc sbom --reproducible --offline --output=smoke-sbom.json
+test -s smoke-sbom.json
 ```
 
-Expected: both commands succeed on a Linux x86_64 machine with Rust and musl prerequisites installed.
+Expected: all commands succeed on a Linux x86_64 machine with Rust, Zig, musl-tools,
+and cargo-zigbuild installed. Use `glibc` (not `static`) because static Linux
+binaries do not export NIF symbols (crypto/SSL) that this CLI requires.
 
 If this fails only because Rust, `musl-tools`, Zig, or `cargo-zigbuild` is missing locally, record the missing prerequisite in the final handoff and rely on the release workflow setup from Task 2. Do not weaken the workflow.
 

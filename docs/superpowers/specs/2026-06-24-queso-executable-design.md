@@ -50,23 +50,23 @@ Queso release in the publish workflow and verify its checksum before use.
 
 ## Target policy
 
-The design aims to cover all Queso-supported targets:
+The design covers all Queso-supported targets except those that cannot support
+NIF dependencies:
 
 - `aarch64-linux-glibc`
 - `aarch64-linux-musl`
-- `aarch64-linux-static`
 - `aarch64-macos`
 - `x86_64-linux-glibc`
 - `x86_64-linux-musl`
-- `x86_64-linux-static`
 - `x86_64-macos`
 - `x86_64-windows`
-- `aarch64-windows`
 
-`aarch64-windows` needs special handling because Queso documents it as requiring
-`--erts`. The implementation must either supply an explicit ERTS input for that
-target or exclude it with a clear comment and release-note wording. It must not
-silently skip the target.
+**Excluded — Linux static (`aarch64-linux-static`, `x86_64-linux-static`):**
+Queso documents that Linux static binaries do not export the symbols required
+for NIF dependencies. This CLI uses Erlang's crypto and SSL NIFs for core
+behaviour (SBOM UUID hashing, HTTPS connections to Hex/OSV). Static Linux
+binaries would silently fail or crash at runtime. Users on Linux should use
+the glibc or musl archives instead.
 
 ## Release artifacts
 

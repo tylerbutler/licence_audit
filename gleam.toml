@@ -34,11 +34,12 @@ entry = "licence_audit"
 targets = [
   "aarch64-linux-glibc",
   "aarch64-linux-musl",
-  "aarch64-linux-static",
+  # linux-static targets are excluded: Queso static Linux binaries do not export
+  # symbols required for NIF dependencies (crypto/SSL), which this CLI uses for
+  # core behaviour. Use glibc or musl targets instead.
   "aarch64-macos",
   "x86_64-linux-glibc",
   "x86_64-linux-musl",
-  "x86_64-linux-static",
   "x86_64-macos",
   "x86_64-windows",
 ]

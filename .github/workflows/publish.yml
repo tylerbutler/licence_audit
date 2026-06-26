@@ -56,7 +56,11 @@ jobs:
         run: |
           set -euo pipefail
           version="${REF_NAME#v}"
-          ./build/queso/licence_audit-${version}-x86_64-linux-static --help >/dev/null
+          # Use glibc target: linux-static binaries do not export NIF symbols
+          # (crypto/SSL) that this CLI requires. glibc runs on the ubuntu runner.
+          binary="./build/queso/licence_audit-${version}-x86_64-linux-glibc"
+          "$binary" sbom --reproducible --offline --output=smoke-sbom.json
+          test -s smoke-sbom.json
 
       - name: Stage release artifacts
         env:
@@ -81,11 +85,11 @@ jobs:
           targets=(
             aarch64-linux-glibc
             aarch64-linux-musl
-            aarch64-linux-static
+            # linux-static excluded: no NIF symbol exports (crypto/SSL)
             aarch64-macos
             x86_64-linux-glibc
             x86_64-linux-musl
-            x86_64-linux-static
+            # linux-static excluded: no NIF symbol exports (crypto/SSL)
             x86_64-macos
             x86_64-windows
           )
@@ -118,8 +122,10 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.tar.gz"
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
-          test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+          test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
+          test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+          test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
           (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist

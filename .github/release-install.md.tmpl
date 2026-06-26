@@ -10,11 +10,11 @@ Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
 explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
 archive for that target.
 
-### Linux x86_64 static
+### Linux x86_64 (glibc)
 
 ```sh
 curl -fsSL -o licence_audit.tar.gz \
-  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
 tar -xzf licence_audit.tar.gz --strip-components=1
 chmod +x licence_audit
 ./licence_audit --help
@@ -68,7 +68,7 @@ mise use -g erlang@28
 sha256sum -c checksums.txt
 
 # Build provenance + SBOM attestations for a native archive...
-gh attestation verify licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz --repo ${REPO}
+gh attestation verify licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz --repo ${REPO}
 
 # ...or for the bare escript binary
 gh attestation verify licence_audit --repo ${REPO}
