@@ -76,7 +76,6 @@ backward compatibility. It will add one Queso archive per target:
 ```text
 licence_audit-<tag>-<target>.tar.gz
 licence_audit-<tag>-x86_64-windows.zip
-licence_audit-<tag>-aarch64-windows.zip
 ```
 
 Each target archive contains the self-contained executable and, where present,
