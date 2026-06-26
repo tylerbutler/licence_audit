@@ -8,15 +8,33 @@ jobs:
   test:
     uses: ./.github/workflows/ci.yml
 
-  build-escript:
+  build-release-artifacts:
     needs: test
     runs-on: ubuntu-latest
-    name: Build escript archive
+    name: Build release artifacts
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
 
       - name: Setup environment
         uses: ./.github/actions/setup
+
+      - name: Install Queso packaging dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          python3 -m pip install --user 'ziglang==0.14.1'
+          cargo install --locked cargo-zigbuild --version 0.20.1
+          rustup target add \
+            aarch64-apple-darwin \
+            aarch64-unknown-linux-gnu \
+            aarch64-unknown-linux-musl \
+            x86_64-apple-darwin \
+            x86_64-pc-windows-gnu \
+            x86_64-unknown-linux-musl
+          mise exec -- queso --version
+          python3 -m ziglang version
+          cargo zigbuild --version
 
       - name: Build escript
         run: just build-strict
@@ -29,22 +47,86 @@ jobs:
           mkdir -p dist
           ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
 
+      - name: Build Queso executables
+        run: just build-queso
+
+      - name: Smoke test Queso executable
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${REF_NAME#v}"
+          # Use glibc target: linux-static binaries do not export NIF symbols
+          # (crypto/SSL) that this CLI requires. glibc runs on the ubuntu runner.
+          binary="./build/queso/licence_audit-${version}-x86_64-linux-glibc"
+          "$binary" sbom --reproducible --offline --output=smoke-sbom.json
+          test -s smoke-sbom.json
+
       - name: Stage release artifacts
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          stage="licence_audit-${REF_NAME}"
-          mkdir -p "$stage"
-          cp licence_audit "$stage/"
-          [ -f LICENSE ] && cp LICENSE "$stage/" || true
-          [ -f README.md ] && cp README.md "$stage/" || true
-          tar -czf "dist/${stage}.tar.gz" "$stage"
-          (cd "$stage" && zip -qr "../dist/${stage}.zip" .)
+
+          version="${REF_NAME#v}"
+          escript_stage="licence_audit-${REF_NAME}"
+          mkdir -p "$escript_stage"
+          cp licence_audit "$escript_stage/"
+          [ -f LICENSE ] && cp LICENSE "$escript_stage/" || true
+          [ -f README.md ] && cp README.md "$escript_stage/" || true
+          tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
+          (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
+
           # Ship the bare escript alongside the archives so it can be attested
           # and downloaded directly.
           cp licence_audit dist/
+
+          targets=(
+            aarch64-linux-glibc
+            aarch64-linux-musl
+            # linux-static excluded: no NIF symbol exports (crypto/SSL)
+            aarch64-macos
+            x86_64-linux-glibc
+            x86_64-linux-musl
+            # linux-static excluded: no NIF symbol exports (crypto/SSL)
+            x86_64-macos
+            x86_64-windows
+          )
+
+          for target in "${targets[@]}"; do
+            archive_stage="licence_audit-${REF_NAME}-${target}"
+            mkdir -p "$archive_stage"
+
+            source_path="build/queso/licence_audit-${version}-${target}"
+            if [[ "$target" == *-windows ]]; then
+              source_path="${source_path}.exe"
+              test -f "$source_path"
+              cp "$source_path" "$archive_stage/licence_audit.exe"
+            else
+              test -f "$source_path"
+              cp "$source_path" "$archive_stage/licence_audit"
+              chmod +x "$archive_stage/licence_audit"
+            fi
+
+            [ -f LICENSE ] && cp LICENSE "$archive_stage/" || true
+            [ -f README.md ] && cp README.md "$archive_stage/" || true
+
+            if [[ "$target" == *-windows ]]; then
+              (cd "$archive_stage" && zip -qr "../dist/${archive_stage}.zip" .)
+            else
+              tar -czf "dist/${archive_stage}.tar.gz" "$archive_stage"
+            fi
+          done
+
+          test -f "dist/licence_audit-${REF_NAME}.tar.gz"
+          test -f "dist/licence_audit-${REF_NAME}.zip"
+          test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
+          test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
+          test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
+          test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
+          test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
+
           (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
@@ -55,7 +137,7 @@ jobs:
           path: dist/
 
   release:
-    needs: build-escript
+    needs: build-release-artifacts
     runs-on: ubuntu-latest
     permissions:
       contents: write

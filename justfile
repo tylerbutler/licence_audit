@@ -34,6 +34,10 @@ build-strict:
     mise exec -- gleam build --warnings-as-errors
     mise exec -- gleam run -m gleescript
 
+# Build self-contained native executables with Queso into `build/queso/`.
+build-queso:
+    mise exec -- queso build
+
 # Run tests
 test:
     mise exec -- gleam test
