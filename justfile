@@ -4,6 +4,10 @@
 # restore it between runs via actions/cache, cutting calls to the Hex API.
 hex_cache := ".hex-cache/hex-v2.dets"
 
+# OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
+ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
+ort_out := "ort-result"
+
 # === ALIASES ===
 alias b := build
 alias t := test
@@ -111,6 +115,61 @@ sbom-score: sbom-generate
 
 # Validate the SBOM schema and report its quality score
 sbom-check: sbom-validate sbom-score
+
+# === ORT (cross-check) ===
+# Generate a reference SBOM with the OSS Review Toolkit (the tool the Gleam guide
+# recommends) to cross-check ours. Requires Docker. Output lands in ./ort-result
+# (gitignored). See docs/sbom-comparison-ort.md for the analysis. The container
+# runs as the host user (-u) so it can write to the mounted output dir.
+#
+# Note: ORT exits non-zero when it finds unresolved issues (this repo's
+# test/fixtures/gleam.toml is a deliberately malformed manifest that ORT cannot
+# parse), so the recipes tolerate the exit code and instead assert that the
+# expected artifact was written.
+
+_ort *args:
+    mkdir -p {{ort_out}}
+    docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/workspace -w /workspace {{ort_image}} {{args}}
+
+# Resolve direct + transitive dependencies into ort-result/analyzer-result.yml.
+ort-analyze:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    mkdir -p {{ort_out}}
+    rm -f {{ort_out}}/analyzer-result.yml
+    docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/workspace -w /workspace \
+      {{ort_image}} analyze --input-dir /workspace --output-dir /workspace/{{ort_out}} || true
+    test -f {{ort_out}}/analyzer-result.yml || { echo "ORT analyze produced no analyzer-result.yml" >&2; exit 1; }
+
+# Render a CycloneDX 1.6 JSON SBOM from the analyzer result into
+# ort-result/bom.cyclonedx.json. Run `just ort-analyze` first.
+ort-report:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    rm -f {{ort_out}}/bom.cyclonedx.json
+    docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/workspace -w /workspace \
+      {{ort_image}} report --ort-file /workspace/{{ort_out}}/analyzer-result.yml \
+      --output-dir /workspace/{{ort_out}} -f CycloneDx -O CycloneDX=output.file.formats=json || true
+    test -f {{ort_out}}/bom.cyclonedx.json || { echo "ORT report produced no bom.cyclonedx.json" >&2; exit 1; }
+
+# Full ORT pipeline: analyze then report -> ort-result/bom.cyclonedx.json.
+ort-sbom: ort-analyze ort-report
+
+# Generate both SBOMs and print a purl coverage diff (ours vs ORT). Needs jq.
+ort-compare: sbom-generate ort-sbom
+    #!/usr/bin/env bash
+    set -euo pipefail
+    norm() { jq -r '.components[].purl' "$1" | sed -E 's/\?.*//;s#^pkg:[^/]+/##' | sort -u; }
+    echo "=== components: ours vs ORT ==="
+    echo "ours: $(jq '.components | length' dist/sbom.json)  ort: $(jq '.components | length' {{ort_out}}/bom.cyclonedx.json)"
+    echo "=== purls only in ours ==="
+    comm -23 <(norm dist/sbom.json) <(norm {{ort_out}}/bom.cyclonedx.json) || true
+    echo "=== purls only in ORT ==="
+    comm -13 <(norm dist/sbom.json) <(norm {{ort_out}}/bom.cyclonedx.json) || true
+
+# Remove ORT output.
+ort-clean:
+    rm -rf {{ort_out}}
 
 # === DOCS ===
 
