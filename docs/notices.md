@@ -17,4 +17,4 @@ licence_audit notices [--flags]
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
 | `--output` | `STRING` | `__licence_audit_absent_string_flag__` | Write notices to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

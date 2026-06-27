@@ -101,7 +101,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- rootstop -->
 
 <!-- commands -->
