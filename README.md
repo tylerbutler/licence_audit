@@ -314,8 +314,25 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 
 Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
 version-suffixed so cache format bumps ignore stale data instead of reading it
-back. Cache failures are non-fatal — they surface as stderr warnings and never
-block an audit. OSV advisories are not cached.
+back. Entries carry a 24h TTL.
+
+The `notices` command additionally caches the extracted licence/notice files it
+downloads from Hex and GitHub, so repeated runs don't re-download package
+sources:
+
+```
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v1.dets
+```
+
+This cache is keyed by content address (Hex `outer_checksum` or GitHub commit),
+so entries are immutable and never expire; path (local) dependencies are read
+live and not cached. `--no-cache` disables it along with the metadata cache.
+`--cache-path` overrides the metadata cache file only; the source cache keeps
+its own version-suffixed filename at the default location (relocate it with
+`XDG_CACHE_HOME`).
+
+Cache failures are non-fatal — they surface as stderr warnings and never block a
+run. OSV advisories are not cached.
 
 ## Troubleshooting
 

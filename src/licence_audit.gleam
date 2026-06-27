@@ -16,6 +16,7 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/notices
+import licence_audit/notices_cache
 import licence_audit/osv
 import licence_audit/policy
 import licence_audit/progress
@@ -359,11 +360,29 @@ fn run_notices_options(
   let reporter = progress.phase(reporter, "Generating licence notices")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
-  case manifest.load_sbom(manifest_path) {
-    Error(manifest_error) -> #(
-      diagnostic(error.from_manifest_error(manifest_error)),
-      reporter,
+  let #(metadata_cache_mode, source_cache_mode) = case options.no_cache {
+    True -> #(cache.Disabled, notices_cache.Disabled)
+    False -> #(
+      cache.Enabled(path: options.cache_path),
+      // `--cache-path` overrides a single file and applies to the metadata
+      // cache (as on every other command). The source cache keeps its own
+      // version-namespaced filename at the default location (still relocatable
+      // via XDG_CACHE_HOME) so format bumps invalidate it correctly.
+      notices_cache.Enabled(path: None),
     )
+  }
+  let metadata_cache = cache.open(metadata_cache_mode)
+  let source_cache = notices_cache.open(source_cache_mode)
+  let cached_fetcher = fn(name: String, version: String) {
+    cache.fetch_cached_quiet(metadata_cache, name, version, fetcher)
+  }
+
+  case manifest.load_sbom(manifest_path) {
+    Error(manifest_error) -> {
+      let _ = cache.close(metadata_cache)
+      let _ = notices_cache.close(source_cache)
+      #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
+    }
     Ok(sbom_manifest) -> {
       let reporter =
         progress.detail(
@@ -394,11 +413,15 @@ fn run_notices_options(
         )
       let reporter = progress.package_count(reporter, list.length(selected))
 
-      case notices.packages_from_entries(selected, scopes, fetcher) {
-        Error(notice_error) -> #(
-          diagnostic(error.Notices(notices.describe_error(notice_error))),
-          reporter,
-        )
+      case notices.packages_from_entries(selected, scopes, cached_fetcher) {
+        Error(notice_error) -> {
+          let _ = cache.close(metadata_cache)
+          let _ = notices_cache.close(source_cache)
+          #(
+            diagnostic(error.Notices(notices.describe_error(notice_error))),
+            reporter,
+          )
+        }
         Ok(packages) -> {
           let reporter =
             progress.detail(
@@ -407,18 +430,35 @@ fn run_notices_options(
                 <> int.to_string(list.length(packages))
                 <> " package(s)",
             )
-          build_notice_entries(
-            packages,
-            project_root,
-            manifest_path,
-            options.output,
-            hex_tarball_fetcher,
-            github_tarball_fetcher,
-            reporter,
-          )
+          let #(run_result, reporter) =
+            build_notice_entries(
+              packages,
+              project_root,
+              manifest_path,
+              options.output,
+              source_cache,
+              hex_tarball_fetcher,
+              github_tarball_fetcher,
+              reporter,
+            )
+          let metadata_warning = cache.close(metadata_cache)
+          let source_warning = notices_cache.close(source_cache)
+          let reporter = apply_cache_warning(reporter, metadata_warning)
+          let reporter = apply_cache_warning(reporter, source_warning)
+          #(run_result, reporter)
         }
       }
     }
+  }
+}
+
+fn apply_cache_warning(
+  reporter: progress.Reporter,
+  warning: option.Option(String),
+) -> progress.Reporter {
+  case warning {
+    Some(message) -> progress.defer_warn(reporter, message)
+    None -> reporter
   }
 }
 
@@ -427,6 +467,7 @@ fn build_notice_entries(
   project_root: String,
   manifest_path: String,
   output: option.Option(String),
+  source_cache: notices_cache.Cache,
   hex_tarball_fetcher: fn(String, String) ->
     Result(BitArray, notices.FetchError),
   github_tarball_fetcher: fn(String, String, String) ->
@@ -447,11 +488,13 @@ fn build_notice_entries(
     })
   let result =
     notices.entries_from_sources(packages, fn(package) {
-      notices.read_remote_source(
-        package_for_source_read(package, project_root),
-        hex_tarball_fetcher,
-        github_tarball_fetcher,
-      )
+      notices_cache.read_cached(source_cache, package, fn(package) {
+        notices.read_notice_files(
+          package_for_source_read(package, project_root),
+          hex_tarball_fetcher,
+          github_tarball_fetcher,
+        )
+      })
     })
 
   case result {

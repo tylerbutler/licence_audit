@@ -1,10 +1,12 @@
 import gleam/bool
 import gleam/dict.{type Dict}
+import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
 import gleam/httpc
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{None}
 import gleam/order
@@ -76,13 +78,13 @@ pub fn selected_entries(
 pub fn packages_from_entries(
   entries: List(manifest.SbomEntry),
   scopes: Dict(String, manifest.Scope),
-  fetch_metadata: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  fetch_metadata: fn(String, String) -> Result(hex.PackageMetadata, hex.Error),
 ) -> Result(List(NoticePackage), Error) {
   list.try_map(entries, fn(entry) {
     use source <- result.try(package_source(entry))
     let declared_licences = case entry.provenance {
       manifest.HexProvenance(_, _) ->
-        case fetch_metadata(entry.name) {
+        case fetch_metadata(entry.name, entry.version) {
           Ok(metadata) -> metadata.licences
           Error(_) -> []
         }
@@ -132,10 +134,67 @@ pub fn licence_files(
   |> list.try_map(to_notice_file)
 }
 
+/// Filter raw archive files down to the matched notice/licence files, mapping
+/// any extraction failure into a `notices.Error` tagged with `package_name`.
+pub fn notice_files_of(
+  package_name: String,
+  files: List(source_archive.ArchiveFile),
+) -> Result(List(NoticeFile), Error) {
+  licence_files(files)
+  |> result.map_error(fn(error) {
+    ArchiveFailed(
+      package: package_name,
+      reason: source_archive.describe_error(error),
+    )
+  })
+}
+
+/// Read a package's source and return only its notice/licence files. This is
+/// the cacheable unit consumed by `notices_cache`: the compact, extracted
+/// licence text rather than the full archive.
+pub fn read_notice_files(
+  package: NoticePackage,
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+  fetch_github_tarball: fn(String, String, String) ->
+    Result(BitArray, FetchError),
+) -> Result(List(NoticeFile), Error) {
+  use files <- result.try(read_remote_source(
+    package,
+    fetch_hex_tarball,
+    fetch_github_tarball,
+  ))
+  notice_files_of(package.name, files)
+}
+
+/// Serialise notice files for the on-disk cache as a JSON array of
+/// `{path, contents}` objects.
+pub fn encode_notice_files(files: List(NoticeFile)) -> String {
+  json.to_string(
+    json.array(files, fn(file) {
+      json.object([
+        #("path", json.string(file.path)),
+        #("contents", json.string(file.contents)),
+      ])
+    }),
+  )
+}
+
+/// Parse notice files written by `encode_notice_files`. Returns `Error(Nil)` on
+/// any malformed entry so the caller can treat it as a cache miss.
+pub fn decode_notice_files(encoded: String) -> Result(List(NoticeFile), Nil) {
+  json.parse(encoded, decode.list(notice_file_decoder()))
+  |> result.replace_error(Nil)
+}
+
+fn notice_file_decoder() -> decode.Decoder(NoticeFile) {
+  use path <- decode.field("path", decode.string)
+  use contents <- decode.field("contents", decode.string)
+  decode.success(NoticeFile(path: path, contents: contents))
+}
+
 pub fn entries_from_sources(
   packages: List(NoticePackage),
-  read_source: fn(NoticePackage) ->
-    Result(List(source_archive.ArchiveFile), Error),
+  read_source: fn(NoticePackage) -> Result(List(NoticeFile), Error),
 ) -> Result(List(NoticeEntry), Error) {
   entries_from_sources_loop(packages, read_source, [], [])
 }
@@ -430,8 +489,7 @@ fn github_tarball_request(
 
 fn entries_from_sources_loop(
   packages: List(NoticePackage),
-  read_source: fn(NoticePackage) ->
-    Result(List(source_archive.ArchiveFile), Error),
+  read_source: fn(NoticePackage) -> Result(List(NoticeFile), Error),
   entries: List(NoticeEntry),
   missing: List(String),
 ) -> Result(List(NoticeEntry), Error) {
@@ -444,26 +502,18 @@ fn entries_from_sources_loop(
     [package, ..rest] ->
       case read_source(package) {
         Error(error) -> Error(error)
-        Ok(files) ->
-          case licence_files(files) {
-            Error(error) ->
-              Error(ArchiveFailed(
-                package: package.name,
-                reason: source_archive.describe_error(error),
-              ))
-            Ok([]) ->
-              entries_from_sources_loop(rest, read_source, entries, [
-                package.name,
-                ..missing
-              ])
-            Ok(notice_files) ->
-              entries_from_sources_loop(
-                rest,
-                read_source,
-                [NoticeEntry(package: package, files: notice_files), ..entries],
-                missing,
-              )
-          }
+        Ok([]) ->
+          entries_from_sources_loop(rest, read_source, entries, [
+            package.name,
+            ..missing
+          ])
+        Ok(notice_files) ->
+          entries_from_sources_loop(
+            rest,
+            read_source,
+            [NoticeEntry(package: package, files: notice_files), ..entries],
+            missing,
+          )
       }
   }
 }

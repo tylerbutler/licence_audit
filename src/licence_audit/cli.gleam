@@ -67,6 +67,8 @@ pub type NoticesOptions {
     verbosity: progress.Verbosity,
     output: Option(String),
     include_dev: Bool,
+    no_cache: Bool,
+    cache_path: Option(String),
   )
 }
 
@@ -484,9 +486,8 @@ fn notices_command() -> glint.Command(CliAction) {
     "Write notices to PATH instead of stdout",
   ))
   use include_dev <- glint.flag(include_dev_flag())
-  // Accepted and ignored: library callers append --no-cache for commands that
-  // use Hex metadata, and notices does not use the metadata cache.
-  use _no_cache <- glint.flag(no_cache_flag())
+  use no_cache <- glint.flag(no_cache_flag())
+  use cache_path <- glint.flag(cache_path_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -494,6 +495,8 @@ fn notices_command() -> glint.Command(CliAction) {
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(output_value) = output(flags)
   let assert Ok(include_dev_value) = include_dev(flags)
+  let assert Ok(no_cache) = no_cache(flags)
+  let assert Ok(cache_path_value) = cache_path(flags)
 
   case verbosity(quiet, verbose) {
     Error(verbosity_error) ->
@@ -504,6 +507,8 @@ fn notices_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         output: optional_string(output_value),
         include_dev: include_dev_value,
+        no_cache: no_cache,
+        cache_path: optional_string(cache_path_value),
       ))
   }
 }

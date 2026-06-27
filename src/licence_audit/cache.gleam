@@ -7,15 +7,11 @@
 
 import gleam/dynamic/decode
 import gleam/int
-import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/result
-import gleam/string
-import simplifile
 import slate
 import slate/set as dets_set
 
-import licence_audit/env
+import licence_audit/cache_dir
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/progress
@@ -32,8 +28,6 @@ pub type Mode {
 pub opaque type Cache {
   Cache(table: Option(dets_set.Set(String, String)), warning: Option(String))
 }
-
-const cache_subdir = "licence_audit"
 
 const cache_entry_ttl_seconds = 86_400
 
@@ -65,13 +59,19 @@ pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
-      case resolve_path(path) {
+      case cache_dir.resolve_path(path, cache_filename()) {
         Error(error) ->
-          Cache(table: None, warning: Some(describe_path_error(error)))
+          Cache(
+            table: None,
+            warning: Some(cache_dir.describe_path_error(error)),
+          )
         Ok(resolved) ->
-          case ensure_parent_dir(resolved) {
+          case cache_dir.ensure_parent_dir(resolved) {
             Error(error) ->
-              Cache(table: None, warning: Some(describe_path_error(error)))
+              Cache(
+                table: None,
+                warning: Some(cache_dir.describe_path_error(error)),
+              )
             Ok(_) -> open_table(resolved)
           }
       }
@@ -132,6 +132,62 @@ pub fn wrap(
         }
     }
   }
+}
+
+/// Reporter-free read-through fetch keyed by `name@version`.
+///
+/// A variant of `wrap` for callers that have no progress reporter to thread
+/// (e.g. the `notices` metadata lookup). Consults the cache, falls through to
+/// `fetcher` on a miss, best-effort writes successful results back, and falls
+/// back to a stale entry when the upstream fetch fails. All cache failures are
+/// silent: the cache is purely an optimisation.
+pub fn fetch_cached_quiet(
+  cache: Cache,
+  name: String,
+  version: String,
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+) -> Result(hex.PackageMetadata, hex.Error) {
+  case cache.table {
+    None -> fetcher(name)
+    Some(table) -> {
+      let key = name <> "@" <> version
+      case lookup_entry(table, key) {
+        Ok(metadata) -> Ok(metadata)
+        Error(_) ->
+          case fetcher(name) {
+            Ok(metadata) -> {
+              store_quiet(table, key, metadata)
+              Ok(metadata)
+            }
+            Error(error) ->
+              case lookup_stale(table, key) {
+                Ok(metadata) -> Ok(metadata)
+                Error(_) -> Error(error)
+              }
+          }
+      }
+    }
+  }
+}
+
+fn store_quiet(
+  table: dets_set.Set(String, String),
+  key: String,
+  metadata: hex.PackageMetadata,
+) -> Nil {
+  let _ =
+    dets_set.insert(
+      into: table,
+      key: key,
+      value: hex.encode_cache_entry(metadata),
+    )
+  let _ =
+    dets_set.insert(
+      into: table,
+      key: cached_at_key(key),
+      value: int.to_string(now_seconds()),
+    )
+  Nil
 }
 
 /// Handle a cache miss: record the fetch result and, on success, best-effort
@@ -267,68 +323,6 @@ fn now_seconds() -> Int {
 
 @external(erlang, "erlang", "system_time")
 fn erlang_system_time(unit: TimeUnit) -> Int
-
-/// Why a cache file path could not be resolved or prepared.
-type PathError {
-  CacheDirUnknown
-  CacheDirCreateFailed(dir: String, reason: String)
-}
-
-fn describe_path_error(error: PathError) -> String {
-  case error {
-    CacheDirUnknown ->
-      "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set"
-    CacheDirCreateFailed(dir, reason) ->
-      "Unable to create licence cache directory " <> dir <> ": " <> reason
-  }
-}
-
-/// Resolve the cache file path, honouring an explicit override.
-fn resolve_path(override: Option(String)) -> Result(String, PathError) {
-  case override {
-    Some(path) -> Ok(path)
-    None -> default_path()
-  }
-}
-
-/// Default cache path:
-/// `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`.
-fn default_path() -> Result(String, PathError) {
-  case env.get("XDG_CACHE_HOME") {
-    Ok(dir) if dir != "" -> Ok(join_path(dir))
-    _ ->
-      case env.get("HOME") {
-        Ok(home) if home != "" -> Ok(join_path(home <> "/.cache"))
-        _ -> Error(CacheDirUnknown)
-      }
-  }
-}
-
-fn join_path(base: String) -> String {
-  base <> "/" <> cache_subdir <> "/" <> cache_filename()
-}
-
-fn ensure_parent_dir(path: String) -> Result(Nil, PathError) {
-  let parent = parent_directory(path)
-  case parent {
-    "" -> Ok(Nil)
-    dir ->
-      simplifile.create_directory_all(dir)
-      |> result.map_error(fn(err) {
-        CacheDirCreateFailed(dir: dir, reason: simplifile.describe_error(err))
-      })
-  }
-}
-
-fn parent_directory(path: String) -> String {
-  // Strip everything after the final '/'. Slate is Erlang-only so we
-  // only need POSIX semantics here.
-  case list.reverse(string.split(path, on: "/")) {
-    [] -> ""
-    [_] -> ""
-    [_, ..rest] -> string.join(list.reverse(rest), with: "/")
-  }
-}
 
 fn open_table(path: String) -> Cache {
   let key_decoder = decode.string

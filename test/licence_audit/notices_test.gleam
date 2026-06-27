@@ -232,8 +232,13 @@ pub fn entries_from_sources_fails_with_all_missing_license_text_test() {
   ]
   let read_source = fn(pkg: notices.NoticePackage) {
     case pkg.name {
-      "also_missing" -> Ok([file("./README.md", "Readme\n")])
-      _ -> fake_archive_files(pkg.name)
+      "also_missing" ->
+        notices.notice_files_of(pkg.name, [file("./README.md", "Readme\n")])
+      _ ->
+        case fake_archive_files(pkg.name) {
+          Ok(files) -> notices.notice_files_of(pkg.name, files)
+          Error(error) -> Error(error)
+        }
     }
   }
 
@@ -252,7 +257,10 @@ pub fn entries_from_sources_collects_notice_entries_test() {
 
   let assert Ok(entries) =
     notices.entries_from_sources(packages, fn(pkg) {
-      fake_archive_files(pkg.name)
+      case fake_archive_files(pkg.name) {
+        Ok(files) -> notices.notice_files_of(pkg.name, files)
+        Error(error) -> Error(error)
+      }
     })
 
   should.equal(list.length(entries), 1)
