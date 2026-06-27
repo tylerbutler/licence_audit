@@ -15,6 +15,8 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/notices
+import licence_audit/notices_cache
 import licence_audit/osv
 import licence_audit/policy
 import licence_audit/progress
@@ -110,6 +112,19 @@ fn handle_action(action: cli.CliAction) -> Nil {
       let _ = progress.flush(reporter)
       halt(exit_code)
     }
+    cli.RunNotices(options) -> {
+      let #(RunResult(exit_code, output), reporter) =
+        run_notices_options(
+          options,
+          hex.fetch_package_metadata_from_hex,
+          notices.fetch_hex_tarball_from_hex,
+          notices.fetch_github_tarball_from_github,
+          progress.enabled(options.verbosity, "notices"),
+        )
+      io.print(output)
+      let _ = progress.flush(reporter)
+      halt(exit_code)
+    }
     cli.GenDocsCompleted -> Nil
   }
 }
@@ -118,13 +133,17 @@ pub fn run(args: List(String)) -> RunResult {
   run_with(args, hex.fetch_package_metadata_from_hex)
 }
 
+fn library_args(args: List(String)) -> List(String) {
+  list.append(args, ["--no-cache"])
+}
+
 pub fn run_with(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
 ) -> RunResult {
   let #(result, _) =
     run_with_reporter(
-      list.append(args, ["--no-cache"]),
+      library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,
@@ -142,10 +161,32 @@ pub fn run_with_clients(
 ) -> RunResult {
   let #(result, _) =
     run_with_reporter(
-      list.append(args, ["--no-cache"]),
+      library_args(args),
       fetcher,
       osv_batch_fetcher,
       osv_detail_fetcher,
+      progress.disabled(),
+      color.for_enabled(False),
+    )
+  result
+}
+
+pub fn run_with_notice_clients(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+) -> RunResult {
+  let #(result, _) =
+    run_with_reporter_and_notices(
+      library_args(args),
+      fetcher,
+      osv.query_batch_from_osv,
+      osv.fetch_vulnerability_from_osv,
+      hex_tarball_fetcher,
+      github_tarball_fetcher,
       progress.disabled(),
       color.for_enabled(False),
     )
@@ -159,11 +200,34 @@ pub fn run_with_progress(
 ) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) =
     run_with_reporter(
-      list.append(args, ["--no-cache"]),
+      library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,
       progress.capturing(verbosity, "report"),
+      color.for_enabled(False),
+    )
+  #(result, progress.events(reporter))
+}
+
+pub fn run_with_notice_progress(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+  verbosity: progress.Verbosity,
+) -> #(RunResult, List(progress.Event)) {
+  let #(result, reporter) =
+    run_with_reporter_and_notices(
+      library_args(args),
+      fetcher,
+      osv.query_batch_from_osv,
+      osv.fetch_vulnerability_from_osv,
+      hex_tarball_fetcher,
+      github_tarball_fetcher,
+      progress.capturing(verbosity, "notices"),
       color.for_enabled(False),
     )
   #(result, progress.events(reporter))
@@ -174,6 +238,30 @@ fn run_with_reporter(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+  palette: color.Palette,
+) -> #(RunResult, progress.Reporter) {
+  run_with_reporter_and_notices(
+    args,
+    fetcher,
+    osv_batch_fetcher,
+    osv_detail_fetcher,
+    notices.fetch_hex_tarball_from_hex,
+    notices.fetch_github_tarball_from_github,
+    reporter,
+    palette,
+  )
+}
+
+fn run_with_reporter_and_notices(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
@@ -216,6 +304,14 @@ fn run_with_reporter(
         )
       #(result, reporter)
     }
+    Ok(glint.Out(cli.RunNotices(options))) ->
+      run_notices_options(
+        options,
+        fetcher,
+        hex_tarball_fetcher,
+        github_tarball_fetcher,
+        reporter,
+      )
     Ok(glint.Out(cli.GenDocsCompleted)) -> #(RunResult(0, ""), reporter)
     Error(message) -> #(RunResult(1, message <> "\n"), reporter)
   }
@@ -247,6 +343,266 @@ fn run_sbom_options(
         osv_detail_fetcher,
         reporter,
       )
+  }
+}
+
+fn run_notices_options(
+  options: cli.NoticesOptions,
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let project_root = project_root_for_manifest(manifest_path)
+  let reporter = progress.phase(reporter, "Generating licence notices")
+  let reporter = progress.detail(reporter, "Loading package manifest")
+
+  let #(metadata_cache_mode, source_cache_mode) = case options.no_cache {
+    True -> #(cache.Disabled, notices_cache.Disabled)
+    False -> #(
+      cache.Enabled(path: options.cache_path),
+      // `--cache-path` overrides a single file and applies to the metadata
+      // cache (as on every other command). The source cache keeps its own
+      // version-namespaced filename at the default location (still relocatable
+      // via XDG_CACHE_HOME) so format bumps invalidate it correctly.
+      notices_cache.Enabled(path: None),
+    )
+  }
+  let metadata_cache = cache.open(metadata_cache_mode)
+  let source_cache = notices_cache.open(source_cache_mode)
+  let cached_fetcher = fn(name: String, version: String) {
+    cache.fetch_cached_quiet(metadata_cache, name, version, fetcher)
+  }
+
+  case manifest.load_sbom(manifest_path) {
+    Error(manifest_error) -> {
+      let _ = cache.close(metadata_cache)
+      let _ = notices_cache.close(source_cache)
+      #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
+    }
+    Ok(sbom_manifest) -> {
+      let reporter =
+        progress.detail(
+          reporter,
+          "Loaded manifest with "
+            <> int.to_string(list.length(sbom_manifest.entries))
+            <> " total entries",
+        )
+      let scopes =
+        manifest.sbom_scopes(
+          sbom_manifest,
+          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+        )
+      let selected =
+        notices.selected_entries(
+          sbom_manifest,
+          scopes,
+          include_dev: options.include_dev,
+        )
+      let reporter =
+        progress.detail(
+          reporter,
+          "Selected "
+            <> int.to_string(list.length(selected))
+            <> " package(s) for notices (include_dev="
+            <> bool.to_string(options.include_dev)
+            <> ")",
+        )
+      let reporter = progress.package_count(reporter, list.length(selected))
+
+      case notices.packages_from_entries(selected, scopes, cached_fetcher) {
+        Error(notice_error) -> {
+          let _ = cache.close(metadata_cache)
+          let _ = notices_cache.close(source_cache)
+          #(
+            diagnostic(error.Notices(notices.describe_error(notice_error))),
+            reporter,
+          )
+        }
+        Ok(packages) -> {
+          let reporter =
+            progress.detail(
+              reporter,
+              "Resolved metadata for "
+                <> int.to_string(list.length(packages))
+                <> " package(s)",
+            )
+          let #(run_result, reporter) =
+            build_notice_entries(
+              packages,
+              project_root,
+              manifest_path,
+              options.output,
+              source_cache,
+              hex_tarball_fetcher,
+              github_tarball_fetcher,
+              reporter,
+            )
+          let metadata_warning = cache.close(metadata_cache)
+          let source_warning = notices_cache.close(source_cache)
+          let reporter = apply_cache_warning(reporter, metadata_warning)
+          let reporter = apply_cache_warning(reporter, source_warning)
+          #(run_result, reporter)
+        }
+      }
+    }
+  }
+}
+
+fn apply_cache_warning(
+  reporter: progress.Reporter,
+  warning: option.Option(String),
+) -> progress.Reporter {
+  case warning {
+    Some(message) -> progress.defer_warn(reporter, message)
+    None -> reporter
+  }
+}
+
+fn build_notice_entries(
+  packages: List(notices.NoticePackage),
+  project_root: String,
+  manifest_path: String,
+  output: option.Option(String),
+  source_cache: notices_cache.Cache,
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  let reporter =
+    list.fold(packages, reporter, fn(reporter, package) {
+      progress.detail(
+        reporter,
+        "Fetching "
+          <> package.name
+          <> "@"
+          <> package.version
+          <> " from "
+          <> describe_source(package.source),
+      )
+    })
+  let result =
+    notices.entries_from_sources(packages, fn(package) {
+      notices_cache.read_cached(source_cache, package, fn(package) {
+        notices.read_notice_files(
+          package_for_source_read(package, project_root),
+          hex_tarball_fetcher,
+          github_tarball_fetcher,
+        )
+      })
+    })
+
+  case result {
+    Error(notice_error) -> #(
+      diagnostic(error.Notices(notices.describe_error(notice_error))),
+      reporter,
+    )
+    Ok(entries) -> {
+      let reporter =
+        list.fold(entries, reporter, fn(reporter, entry) {
+          progress.detail(
+            reporter,
+            "Found "
+              <> int.to_string(list.length(entry.files))
+              <> " licence file(s) for "
+              <> entry.package.name,
+          )
+        })
+      let reporter = progress.detail(reporter, "Rendering notices output")
+      write_notice_output(
+        notices.render(entries, manifest_path: manifest_path),
+        output,
+        reporter,
+      )
+    }
+  }
+}
+
+fn describe_source(source: notices.PackageSource) -> String {
+  case source {
+    notices.HexPackage(_) -> "Hex"
+    notices.GitHubPackage(repo, _) -> "GitHub " <> repo
+    notices.PathPackage(path) -> "local path " <> path
+  }
+}
+
+fn package_for_source_read(
+  package: notices.NoticePackage,
+  project_root: String,
+) -> notices.NoticePackage {
+  case package.source {
+    notices.PathPackage(path) ->
+      notices.NoticePackage(
+        ..package,
+        source: notices.PathPackage(resolve_project_path(project_root, path)),
+      )
+    _ -> package
+  }
+}
+
+fn resolve_project_path(project_root: String, path: String) -> String {
+  case string.starts_with(path, "/"), project_root {
+    True, _ -> path
+    False, "." -> path
+    False, _ -> join_project_path(project_root, path)
+  }
+}
+
+fn join_project_path(parent: String, child: String) -> String {
+  case string.ends_with(parent, "/") {
+    True -> parent <> child
+    False -> parent <> "/" <> child
+  }
+}
+
+fn project_root_for_manifest(manifest_path: String) -> String {
+  case string.split(manifest_path, on: "/") |> list.reverse {
+    [] -> "."
+    [_] -> "."
+    [_, ..directory_parts_reversed] -> {
+      let directory =
+        directory_parts_reversed
+        |> list.reverse
+        |> string.join("/")
+
+      case directory, string.starts_with(manifest_path, "/") {
+        "", True -> "/"
+        "", False -> "."
+        _, _ -> directory
+      }
+    }
+  }
+}
+
+fn write_notice_output(
+  text: String,
+  output: option.Option(String),
+  reporter: progress.Reporter,
+) -> #(RunResult, progress.Reporter) {
+  case output {
+    None -> #(RunResult(0, text), reporter)
+    Some(path) -> {
+      let reporter = progress.detail(reporter, "Writing notices to " <> path)
+      case simplifile.write(to: path, contents: text) {
+        Ok(_) -> #(RunResult(0, ""), reporter)
+        Error(reason) -> #(
+          diagnostic(
+            error.Notices(
+              notices.describe_error(notices.OutputWriteFailed(
+                path,
+                simplifile.describe_error(reason),
+              )),
+            ),
+          ),
+          reporter,
+        )
+      }
+    }
   }
 }
 

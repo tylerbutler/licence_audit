@@ -6,11 +6,13 @@ dependencies. Point it at a project, and it will:
 - 📋 **report** the licences declared by your locked Hex packages
 - 🚦 **preview or enforce** a licence allow/deny policy
 - 📦 **generate** a CycloneDX SBOM for your dependency tree
+- 📄 **bundle** release-ready third-party licence notices
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
 It reads `manifest.toml`, fetches licence metadata from Hex, and reports on the
-full resolved dependency tree. Non-Hex dependencies are skipped and named in
-the summary.
+full resolved dependency tree. For audit reports, non-Hex dependencies are
+skipped and named in the summary; `notices` handles supported source archives
+and fails on unsupported sources.
 
 ## Install
 
@@ -82,7 +84,7 @@ Reports Hex package licence metadata. It displays a summary of the licences for 
 **Usage:**
 
 ```
-licence_audit (check | sbom | update | vulns) [--flags]
+licence_audit (check | notices | sbom | update | vulns) [--flags]
 ```
 
 **Flags:**
@@ -99,13 +101,14 @@ licence_audit (check | sbom | update | vulns) [--flags]
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- rootstop -->
 
 <!-- commands -->
 ## Subcommands
 
 * [`licence_audit check`](docs/check.md) - Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+* [`licence_audit notices`](docs/notices.md) - Generate a release-ready third-party licence notices text file from locked dependencies.
 * [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
 * [`licence_audit update`](docs/update.md) - Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
@@ -207,6 +210,28 @@ Scoring (`sbom-tools`, `sbomqs`) is local-only; note `sbomqs` under-counts
 licences on CycloneDX 1.6, which is why schema validation — not any single
 quality score — is the strict validation check.
 
+## Generate release licence notices
+
+```sh
+licence_audit notices
+licence_audit notices --output=THIRD_PARTY_LICENSES.txt
+licence_audit notices --include-dev
+```
+
+`notices` creates a plain-text release artifact containing the actual licence
+and notice files shipped by locked dependencies, not canonical SPDX text
+inferred from identifiers. It defaults to production dependencies; pass
+`--include-dev` to include development-only dependencies.
+
+Use `notices` when you need a human-readable third-party licence bundle for a
+release. Use `sbom` when you need machine-readable CycloneDX JSON. `notices` is
+similar to npm's `generate-license-file`.
+
+`notices` fails if selected dependencies lack a recognizable licence or notice
+file, if a dependency source is unsupported, or if a network, archive,
+checksum, or output write error occurs. Hex tarballs are verified against
+`outer_checksum`.
+
 ## Check for vulnerabilities
 
 ```sh
@@ -289,8 +314,25 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 
 Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
 version-suffixed so cache format bumps ignore stale data instead of reading it
-back. Cache failures are non-fatal — they surface as stderr warnings and never
-block an audit. OSV advisories are not cached.
+back. Entries carry a 24h TTL.
+
+The `notices` command additionally caches the extracted licence/notice files it
+downloads from Hex and GitHub, so repeated runs don't re-download package
+sources:
+
+```
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v1.dets
+```
+
+This cache is keyed by content address (Hex `outer_checksum` or GitHub commit),
+so entries are immutable and never expire; path (local) dependencies are read
+live and not cached. `--no-cache` disables it along with the metadata cache.
+`--cache-path` overrides the metadata cache file only; the source cache keeps
+its own version-suffixed filename at the default location (relocate it with
+`XDG_CACHE_HOME`).
+
+Cache failures are non-fatal — they surface as stderr warnings and never block a
+run. OSV advisories are not cached.
 
 ## Troubleshooting
 

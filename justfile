@@ -89,8 +89,13 @@ changelog:
 
 # === SBOM ===
 
+# Generate a release-ready third-party licence notices file into ./dist/NOTICES.txt
+notices: build
+    mkdir -p dist
+    ./licence_audit notices --output=dist/NOTICES.txt
+
 # Generate a reproducible CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
-sbom-generate: build
+sbom-generate: build notices
     mkdir -p dist
     ./licence_audit sbom --reproducible --output=dist/sbom.json --cache-path={{hex_cache}}
 

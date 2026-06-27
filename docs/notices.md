@@ -1,11 +1,11 @@
-# `licence_audit update`
+# `licence_audit notices`
 
-Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
+Generate a release-ready third-party licence notices text file from locked dependencies.
 
 **Usage:**
 
 ```
-licence_audit update [--flags]
+licence_audit notices [--flags]
 ```
 
 **Flags:**
@@ -13,10 +13,9 @@ licence_audit update [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache file location |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
-| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--include-dev` | `BOOL` | `false` | Include dev-only dependencies in the notice file |
 | `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
+| `--output` | `STRING` | `__licence_audit_absent_string_flag__` | Write notices to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

@@ -17,6 +17,7 @@ pub type Error {
   UnsupportedSourceForSbom(package: String, source: String, detail: String)
   SbomWriteFailed(path: String, reason: String)
   Osv(String)
+  Notices(String)
 }
 
 pub fn exit_code(error: Error) -> Int {
@@ -50,6 +51,7 @@ pub fn message(error: Error) -> String {
     SbomWriteFailed(path, reason) ->
       "Failed to write SBOM to " <> path <> ": " <> reason
     Osv(message) -> message
+    Notices(message) -> message
   }
 }
 
