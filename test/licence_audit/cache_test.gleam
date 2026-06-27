@@ -77,6 +77,16 @@ fn any_contains(values: List(String), needle: String) -> Bool {
   list.any(values, fn(value) { string.contains(value, needle) })
 }
 
+fn warning_messages(rep: progress.Reporter) -> List(String) {
+  progress.events(rep)
+  |> list.filter_map(fn(event) {
+    case event {
+      progress.Event(progress.Warning, message) -> Ok(message)
+      _ -> Error(Nil)
+    }
+  })
+}
+
 pub fn disabled_cache_bypasses_storage_test() {
   let handle = cache.open(cache.Disabled)
   let warning = cache.close(handle)
@@ -175,6 +185,44 @@ pub fn fetcher_errors_are_not_cached_test() {
     cache.wrap(handle, succeeding)(pkg("missing", "1.0.0"), reporter())
   let assert Ok(metadata) = result
   should.equal(metadata.licences, ["MIT"])
+  let assert None = cache.close(handle)
+}
+
+pub fn fetch_failure_falls_back_to_stale_entry_test() {
+  let path = fresh_path("stale_fallback")
+  // A legacy entry has no `cached_at` marker, so it is treated as expired
+  // (a miss) and forces a refetch.
+  write_legacy_cache_entry(
+    path,
+    "example@1.0.0",
+    metadata_with_publisher("cached-owner"),
+  )
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let failing = fn(_name) { Error(hex.NetworkFailure("connection refused")) }
+  let #(result, rep) =
+    cache.wrap(handle, failing)(pkg("example", "1.0.0"), reporter())
+
+  // The stale cached metadata is returned instead of dropping enrichment.
+  let assert Ok(metadata) = result
+  should.equal(metadata.publisher, Some("cached-owner"))
+  let assert True = any_contains(warning_messages(rep), "stale cached metadata")
+  let assert True = any_contains(warning_messages(rep), "connection refused")
+  let assert None = cache.close(handle)
+}
+
+pub fn fetch_failure_without_cache_entry_propagates_error_test() {
+  let path = fresh_path("no_stale_entry")
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let failing = fn(_name) { Error(hex.NotFound) }
+  let #(result, rep) =
+    cache.wrap(handle, failing)(pkg("missing", "1.0.0"), reporter())
+
+  // No stale entry exists, so the original error surfaces with no fallback
+  // warning (the caller is responsible for warning about absent metadata).
+  let assert Error(hex.NotFound) = result
+  should.equal(warning_messages(rep), [])
   let assert None = cache.close(handle)
 }
 

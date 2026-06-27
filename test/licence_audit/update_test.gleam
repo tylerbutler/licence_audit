@@ -33,7 +33,7 @@ fn successful_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
 
 fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
-    "lib_b" -> Error(hex.NetworkFailure)
+    "lib_b" -> Error(hex.NetworkFailure("connection refused"))
     _ -> successful_fetcher(name)
   }
 }

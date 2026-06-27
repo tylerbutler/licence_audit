@@ -26,6 +26,16 @@ just build
 `just build` compiles the Gleam project and produces the escript at
 `./licence_audit`.
 
+To build self-contained native executables with Queso, install Queso's
+package-time dependencies for your target and run:
+
+```sh
+just build-queso
+```
+
+Queso writes executables to `build/queso/`. The recipe is opt-in so normal local
+builds and PR CI stay fast.
+
 ## Common tasks
 
 ```sh
@@ -121,5 +131,10 @@ Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
 workflows; do not edit `CHANGELOG.md` or bump the version in `gleam.toml` by
 hand.
 
-For now, releases are escript-only GitHub release packages. The project is not
-set up to publish the Gleam package to Hex.
+Releases include the existing escript artifacts plus self-contained Queso
+archives for Linux (glibc and musl), macOS, and Windows x86_64 targets. Linux
+static targets are excluded because Queso static binaries do not export the NIF
+symbols (crypto/SSL) that this CLI requires — use glibc or musl archives on
+Linux instead. The `aarch64-windows` target is deferred because Queso requires
+an explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
+archive for that target.

@@ -1,9 +1,47 @@
 <!-- install-instructions -->
 ## Installation
 
-Download the archive for your platform, extract it, and place `licence_audit`
-somewhere on your `PATH`. The escript runs on any platform with a compatible
-Erlang/OTP runtime.
+Download the self-contained archive for your platform, extract it, and place
+`licence_audit` somewhere on your `PATH`. These Queso-built executables bundle
+the Erlang runtime, so Erlang/OTP does not need to be installed on the target
+machine.
+
+Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
+explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
+archive for that target.
+
+### Linux x86_64 (glibc)
+
+```sh
+curl -fsSL -o licence_audit.tar.gz \
+  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
+tar -xzf licence_audit.tar.gz --strip-components=1
+chmod +x licence_audit
+./licence_audit --help
+```
+
+### Windows x86_64
+
+```powershell
+Invoke-WebRequest `
+  -Uri "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}-x86_64-windows.zip" `
+  -OutFile licence_audit.zip
+Expand-Archive licence_audit.zip -DestinationPath .
+.\licence_audit.exe --help
+```
+
+### Escript compatibility install
+
+The release also keeps the original escript archive and bare `licence_audit`
+escript. The escript runs on any platform with Erlang/OTP 28.x or newer.
+
+```sh
+curl -fsSL -o licence_audit-escript.tar.gz \
+  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}.tar.gz"
+tar -xzf licence_audit-escript.tar.gz --strip-components=1
+chmod +x licence_audit
+./licence_audit --help
+```
 
 ### With mise
 
@@ -11,24 +49,16 @@ If you use [mise](https://mise.jdx.dev/), install this release with the
 `github:` provider:
 
 ```sh
-mise use -g "github:${REPO}@${REF_NAME}"
+mise use -g "github:${REPO}@${REF_NAME}[asset_pattern=licence_audit,bin=licence_audit]"
 ```
 
-For a project-local install, omit `-g`. The escript still needs Erlang/OTP 28.x
-or newer on your `PATH`; if you manage Erlang with mise, install it too:
+The `asset_pattern=licence_audit` option selects the bare escript asset, avoiding
+ambiguity with the per-arch Queso archives. For a project-local install, omit `-g`.
+This mise path uses the escript and still needs Erlang/OTP 28.x or newer on your `PATH`; if you manage Erlang
+with mise, install it too:
 
 ```sh
 mise use -g erlang@28
-```
-
-### Linux / macOS
-
-```sh
-curl -fsSL -o licence_audit.tar.gz \
-  "https://github.com/${REPO}/releases/download/${REF_NAME}/licence_audit-${REF_NAME}.tar.gz"
-tar -xzf licence_audit.tar.gz --strip-components=1
-chmod +x licence_audit
-./licence_audit --help
 ```
 
 ### Verify the download
@@ -37,9 +67,10 @@ chmod +x licence_audit
 # Checksums (run from the directory containing the artifacts)
 sha256sum -c checksums.txt
 
-# Build provenance + SBOM attestations for the archive...
-gh attestation verify licence_audit-${REF_NAME}.tar.gz --repo ${REPO}
+# Build provenance + SBOM attestations for a native archive...
+gh attestation verify licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz --repo ${REPO}
 
 # ...or for the bare escript binary
 gh attestation verify licence_audit --repo ${REPO}
 ```
+

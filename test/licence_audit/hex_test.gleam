@@ -149,11 +149,11 @@ pub fn unexpected_http_status_preserves_status_test() {
 }
 
 pub fn injected_network_failure_maps_to_network_failure_test() {
-  let client = fn(_req) { Error(hex.NetworkFailure) }
+  let client = fn(_req) { Error(hex.NetworkFailure("connection refused")) }
 
   let assert Error(error) = hex.fetch_package_metadata("example", client)
 
-  should.equal(error, hex.NetworkFailure)
+  should.equal(error, hex.NetworkFailure("connection refused"))
 }
 
 pub fn hex_metadata_fetch_returns_without_ipv6_fallback_delay_test() {

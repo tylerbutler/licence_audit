@@ -500,10 +500,14 @@ fn run_sbom_for_manifest(
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
 
-  let #(package_metadata, reporter) = case options.offline {
-    True -> #(dict.new(), reporter)
-    False -> fetch_package_metadata(sbom_manifest, cached_fetcher, reporter)
-  }
+  let #(package_metadata, reporter) =
+    fetch_package_metadata(
+      sbom_manifest,
+      project_root,
+      cached_fetcher,
+      options.offline,
+      reporter,
+    )
   let _ = cache.close(cache_handle)
 
   // Optionally query OSV and embed the results as a CycloneDX vulnerabilities
@@ -654,34 +658,177 @@ fn build_id_to_refs(
 
 fn fetch_package_metadata(
   manifest_value: manifest.SbomManifest,
+  project_root: String,
   fetcher: fn(manifest.Package, progress.Reporter) ->
     #(Result(hex.PackageMetadata, hex.Error), progress.Reporter),
+  offline: Bool,
   reporter: progress.Reporter,
 ) -> #(dict.Dict(String, hex.PackageMetadata), progress.Reporter) {
   list.fold(manifest_value.entries, #(dict.new(), reporter), fn(acc, entry) {
     let #(metadata_acc, rep) = acc
     case entry.provenance {
-      manifest.HexProvenance(_, _) -> {
-        let package =
-          manifest.Package(
-            name: entry.name,
-            version: entry.version,
-            source: manifest.Hex,
-            kind: entry.kind,
-            requirements: entry.requirements,
-          )
-        let #(result, rep) = fetcher(package, rep)
-        case result {
-          Ok(metadata) -> #(
-            dict.insert(metadata_acc, entry.name, metadata),
-            rep,
-          )
-          Error(_) -> #(metadata_acc, rep)
+      // Hex packages are enriched from the registry API (network), skipped
+      // silently in offline mode to preserve deterministic offline output.
+      manifest.HexProvenance(_, _) ->
+        case offline {
+          True -> #(metadata_acc, rep)
+          False -> fetch_hex_entry_metadata(entry, fetcher, metadata_acc, rep)
         }
-      }
+      // Git packages have no Hex metadata; enrich them from their locally
+      // checked-out source tree instead. This is filesystem-only, so it runs
+      // in offline mode too.
+      manifest.GitProvenance(repo, _commit) ->
+        enrich_git_entry_metadata(entry, repo, project_root, metadata_acc, rep)
       _ -> #(metadata_acc, rep)
     }
   })
+}
+
+/// Fetch enrichment metadata for a single Hex entry, inserting it on success.
+/// On failure the component is left unenriched and a deferred warning is
+/// recorded so the dropped fields are visible rather than silent.
+fn fetch_hex_entry_metadata(
+  entry: manifest.SbomEntry,
+  fetcher: fn(manifest.Package, progress.Reporter) ->
+    #(Result(hex.PackageMetadata, hex.Error), progress.Reporter),
+  metadata_acc: dict.Dict(String, hex.PackageMetadata),
+  reporter: progress.Reporter,
+) -> #(dict.Dict(String, hex.PackageMetadata), progress.Reporter) {
+  let package =
+    manifest.Package(
+      name: entry.name,
+      version: entry.version,
+      source: manifest.Hex,
+      kind: entry.kind,
+      requirements: entry.requirements,
+    )
+  let #(result, reporter) = fetcher(package, reporter)
+  case result {
+    Ok(metadata) -> #(dict.insert(metadata_acc, entry.name, metadata), reporter)
+    Error(error) -> {
+      let reporter =
+        progress.defer_warn(
+          reporter,
+          "No Hex metadata for "
+            <> entry.name
+            <> "@"
+            <> entry.version
+            <> " ("
+            <> hex.describe_error(error)
+            <> "); SBOM component will omit licences, description, publisher, and links",
+        )
+      #(metadata_acc, reporter)
+    }
+  }
+}
+
+/// Enrich a git-sourced entry from its locally checked-out `gleam.toml`
+/// (`build/packages/<name>/gleam.toml`). Git packages have no Hex registry
+/// metadata, but the manifest carries the repo URL and the source tree carries
+/// description, licences, and links. The repository is always emitted as a
+/// `vcs` link; the richer fields are added when the local gleam.toml is
+/// readable, otherwise a warning records what was omitted.
+fn enrich_git_entry_metadata(
+  entry: manifest.SbomEntry,
+  repo: String,
+  project_root: String,
+  metadata_acc: dict.Dict(String, hex.PackageMetadata),
+  reporter: progress.Reporter,
+) -> #(dict.Dict(String, hex.PackageMetadata), progress.Reporter) {
+  let repo_url = strip_git_suffix(repo)
+  let path = project_root <> "/build/packages/" <> entry.name <> "/gleam.toml"
+  case read_gleam_toml_metadata(path, repo_url) {
+    Ok(metadata) -> #(dict.insert(metadata_acc, entry.name, metadata), reporter)
+    Error(_) -> {
+      let metadata =
+        hex.PackageMetadata(
+          licences: [],
+          description: None,
+          links: [#("Repository", repo_url)],
+          publisher: None,
+        )
+      let reporter =
+        progress.defer_warn(
+          reporter,
+          "No local metadata for "
+            <> entry.name
+            <> "@"
+            <> entry.version
+            <> " ("
+            <> path
+            <> " unreadable); SBOM component will omit description and licences",
+        )
+      #(dict.insert(metadata_acc, entry.name, metadata), reporter)
+    }
+  }
+}
+
+fn read_gleam_toml_metadata(
+  path: String,
+  repo_url: String,
+) -> Result(hex.PackageMetadata, Nil) {
+  use contents <- result.try(
+    simplifile.read(from: path) |> result.replace_error(Nil),
+  )
+  package_metadata_from_gleam_toml(contents, repo_url)
+}
+
+/// Build package metadata from a dependency's `gleam.toml` contents, mirroring
+/// the fields Hex enrichment provides (minus publisher, which gleam.toml
+/// lacks). The repository link is the manifest-recorded git URL (`repo_url`)
+/// rather than gleam.toml's declared `repository`, so it always matches the
+/// component purl/provenance — important when a dependency is sourced from a
+/// fork whose gleam.toml still points at the upstream project.
+pub fn package_metadata_from_gleam_toml(
+  contents: String,
+  repo_url: String,
+) -> Result(hex.PackageMetadata, Nil) {
+  use doc <- result.try(toml.parse(contents))
+  let description = option.from_result(toml.get_string(doc, ["description"]))
+  let licences = case toml.get_array(doc, ["licences"]) {
+    Ok(items) -> list.filter_map(items, toml.as_string)
+    Error(_) -> []
+  }
+  let links = append_repo_link(gleam_toml_links(doc), repo_url)
+  Ok(hex.PackageMetadata(licences:, description:, links:, publisher: None))
+}
+
+/// Parse a gleam.toml `links = [{ title, href }]` array into `#(title, href)`
+/// pairs, skipping malformed entries.
+fn gleam_toml_links(doc: toml.Document) -> List(#(String, String)) {
+  case toml.get_array(doc, ["links"]) {
+    Ok(items) ->
+      list.filter_map(items, fn(value) {
+        use entry <- result.try(toml.as_table(value))
+        use title <- result.try(result.try(
+          toml.field(entry, "title"),
+          toml.as_string,
+        ))
+        use href <- result.try(result.try(
+          toml.field(entry, "href"),
+          toml.as_string,
+        ))
+        Ok(#(title, href))
+      })
+    Error(_) -> []
+  }
+}
+
+/// Append the repository link unless an equivalent URL is already present
+/// (comparing with any trailing `.git` stripped).
+fn append_repo_link(
+  links: List(#(String, String)),
+  repo_url: String,
+) -> List(#(String, String)) {
+  let already_present =
+    list.any(links, fn(pair) { strip_git_suffix(pair.1) == repo_url })
+  use <- bool.guard(when: already_present, return: links)
+  list.append(links, [#("Repository", repo_url)])
+}
+
+fn strip_git_suffix(url: String) -> String {
+  use <- bool.guard(when: !string.ends_with(url, ".git"), return: url)
+  string.drop_end(url, 4)
 }
 
 fn read_root_component(project_root: String) -> sbom.RootComponent {

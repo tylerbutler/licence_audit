@@ -4,6 +4,7 @@ import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
 import gleam/httpc
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -39,7 +40,22 @@ pub type Error {
   NotFound
   RateLimited
   UnexpectedResponse(status: Int)
-  NetworkFailure
+  NetworkFailure(reason: String)
+}
+
+/// Short, human-readable description of a fetch error, for surfacing in
+/// progress warnings (e.g. when a fetch fails and the cache falls back to a
+/// stale entry).
+pub fn describe_error(error: Error) -> String {
+  case error {
+    InvalidJson(message) -> "invalid JSON from Hex: " <> message
+    InvalidMetadata(message) -> "invalid Hex metadata: " <> message
+    NotFound -> "package not found on Hex"
+    RateLimited -> "Hex.pm rate limit exceeded"
+    UnexpectedResponse(status) ->
+      "Hex.pm returned HTTP " <> int.to_string(status)
+    NetworkFailure(reason) -> "Hex.pm request failed: " <> reason
+  }
 }
 
 pub fn decode_package(input: String) -> Result(PackageMetadata, Error) {
@@ -58,7 +74,7 @@ pub fn fetch_package_metadata(
   let request = package_request(name)
 
   case client(request) {
-    Error(_) -> Error(NetworkFailure)
+    Error(error) -> Error(error)
     Ok(response) -> decode_response(response)
   }
 }
@@ -79,7 +95,30 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
     |> httpc.dispatch(req)
   {
     Ok(response) -> Ok(response)
-    Error(_) -> Error(NetworkFailure)
+    Error(error) -> Error(NetworkFailure(describe_http_error(error)))
+  }
+}
+
+/// Render an `httpc` transport error into a concise reason string so callers
+/// can report *why* a Hex request failed (DNS/connection, TLS, or timeout)
+/// rather than a generic "request failed".
+fn describe_http_error(error: httpc.HttpError) -> String {
+  case error {
+    httpc.InvalidUtf8Response -> "response was not valid UTF-8"
+    httpc.ResponseTimeout -> "no response within 5s timeout"
+    httpc.FailedToConnect(ip4, ip6) ->
+      "could not connect (IPv4: "
+      <> describe_connect_error(ip4)
+      <> ", IPv6: "
+      <> describe_connect_error(ip6)
+      <> ")"
+  }
+}
+
+fn describe_connect_error(error: httpc.ConnectError) -> String {
+  case error {
+    httpc.Posix(code) -> code
+    httpc.TlsAlert(code, detail) -> "TLS " <> code <> " (" <> detail <> ")"
   }
 }
 
