@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   auto-tag:
-    uses: tylerbutler/actions/.github/workflows/auto-tag.yml@ee7def5950abcf0a519add705a95719ab345c05e # ratchet:tylerbutler/actions/.github/workflows/auto-tag.yml@main
+    uses: tylerbutler/actions/.github/workflows/auto-tag.yml@c3de10f5c576265f4910698528d949179081f25b # ratchet:tylerbutler/actions/.github/workflows/auto-tag.yml@main
     with:
       create-release: true
     secrets:

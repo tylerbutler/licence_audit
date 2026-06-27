@@ -6,11 +6,16 @@
 import gleam/int
 import gleam/list
 import gleam/string
-import tomlet.{type Document, type Value}
+import tomlet.{type Value}
 
 pub type Error {
   TomlError(message: String)
 }
+
+/// Re-export of tomlet's parsed-document type so callers depend only on this
+/// wrapper rather than importing `tomlet` directly.
+pub type Document =
+  tomlet.Document
 
 /// A table's entries as tomlet exposes them: an ordered assoc list of
 /// `#(dotted_key_path, value)`.

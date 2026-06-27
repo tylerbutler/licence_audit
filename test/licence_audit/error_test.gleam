@@ -120,8 +120,8 @@ pub fn hex_errors_map_to_app_errors_test() {
     error.Hex("Hex.pm returned 500"),
   )
   should.equal(
-    error.from_hex_error(hex.NetworkFailure),
-    error.Hex("Hex.pm request failed"),
+    error.from_hex_error(hex.NetworkFailure("connection refused")),
+    error.Hex("Hex.pm request failed: connection refused"),
   )
 }
 

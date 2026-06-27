@@ -164,7 +164,7 @@ fn fetch_and_store(
   reporter: progress.Reporter,
 ) -> #(Result(hex.PackageMetadata, hex.Error), progress.Reporter) {
   case fetched {
-    Error(error) -> #(Error(error), reporter)
+    Error(error) -> fall_back_to_stale(table, key, error, reporter)
     Ok(metadata) -> {
       let reporter = case
         dets_set.insert(
@@ -193,6 +193,47 @@ fn fetch_and_store(
       }
       #(Ok(metadata), reporter)
     }
+  }
+}
+
+/// When an upstream fetch fails, fall back to a stale (expired or unparseable
+/// TTL) cached entry if one is still present and decodable. This keeps SBOM
+/// enrichment (descriptions, publishers, licences, links) intact across
+/// transient Hex outages rather than silently dropping it. A deferred warning
+/// makes the fallback visible. If no usable stale entry exists, the original
+/// fetch error is returned so the caller can surface its own warning.
+fn fall_back_to_stale(
+  table: dets_set.Set(String, String),
+  key: String,
+  error: hex.Error,
+  reporter: progress.Reporter,
+) -> #(Result(hex.PackageMetadata, hex.Error), progress.Reporter) {
+  case lookup_stale(table, key) {
+    Ok(metadata) -> {
+      let reporter =
+        progress.defer_warn(
+          reporter,
+          "Hex metadata fetch failed for "
+            <> key
+            <> " ("
+            <> hex.describe_error(error)
+            <> "); using stale cached metadata",
+        )
+      #(Ok(metadata), reporter)
+    }
+    Error(_) -> #(Error(error), reporter)
+  }
+}
+
+/// Read a cached entry ignoring its TTL. Returns `Error(Nil)` when the entry is
+/// absent or no longer decodable.
+fn lookup_stale(
+  table: dets_set.Set(String, String),
+  key: String,
+) -> Result(hex.PackageMetadata, Nil) {
+  case dets_set.lookup(from: table, key: key) {
+    Ok(encoded) -> hex.decode_cache_entry(encoded)
+    Error(_) -> Error(Nil)
   }
 }
 
