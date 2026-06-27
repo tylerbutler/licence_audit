@@ -6,3 +6,6 @@
 /licence_audit
 erl_crash.dump
 /priv/
+
+# ORT SBOM comparison artifacts (not committed)
+ort-result/
