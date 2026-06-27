@@ -1,0 +1,3 @@
+kind: Fixed
+body: '`notices` source-archive fetches now allow 30s (up from 8s) and report a distinct "timed out after 30s" message instead of a generic "network failure", fixing spurious failures fetching GitHub-sourced packages (e.g. `codeload.github.com`) over slow IPv6 links.'
+time: 2026-06-27T10:00:27.926-07:00

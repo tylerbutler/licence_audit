@@ -16,7 +16,7 @@ import licence_audit/sbom
 import licence_audit/source_archive
 import simplifile
 
-const source_fetch_timeout_ms = 8000
+const source_fetch_timeout_ms = 30_000
 
 pub type PackageSource {
   HexPackage(outer_checksum: String)
@@ -26,6 +26,7 @@ pub type PackageSource {
 
 pub type FetchError {
   FetchNetworkFailure
+  FetchTimeout
   FetchUnexpectedResponse(status: Int)
 }
 
@@ -172,6 +173,8 @@ pub fn fetch_github_tarball_from_github(
 pub fn describe_fetch_error(error: FetchError) -> String {
   case error {
     FetchNetworkFailure -> "network failure"
+    FetchTimeout ->
+      "timed out after " <> int.to_string(source_fetch_timeout_ms / 1000) <> "s"
     FetchUnexpectedResponse(status) ->
       "unexpected HTTP response " <> int.to_string(status)
   }
@@ -381,6 +384,7 @@ fn fetch_tarball(request: Request(BitArray)) -> Result(BitArray, FetchError) {
     |> httpc.dispatch_bits(request)
   {
     Ok(response) -> decode_fetch_response(response)
+    Error(httpc.ResponseTimeout) -> Error(FetchTimeout)
     Error(_) -> Error(FetchNetworkFailure)
   }
 }

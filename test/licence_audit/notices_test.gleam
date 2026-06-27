@@ -107,6 +107,10 @@ pub fn fetch_error_description_is_human_readable_test() {
     notices.describe_fetch_error(notices.FetchUnexpectedResponse(500)),
     "unexpected HTTP response 500",
   )
+  should.equal(
+    notices.describe_fetch_error(notices.FetchTimeout),
+    "timed out after 30s",
+  )
 }
 
 pub fn read_path_source_returns_relative_binary_archive_files_test() {
