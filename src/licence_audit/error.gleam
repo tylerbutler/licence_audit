@@ -107,6 +107,6 @@ pub fn from_hex_error(error: hex.Error) -> Error {
     hex.RateLimited -> Hex("Hex.pm rate limit exceeded")
     hex.UnexpectedResponse(status) ->
       Hex("Hex.pm returned " <> int.to_string(status))
-    hex.NetworkFailure -> Hex("Hex.pm request failed")
+    hex.NetworkFailure(reason) -> Hex("Hex.pm request failed: " <> reason)
   }
 }

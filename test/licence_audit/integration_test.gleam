@@ -1,6 +1,7 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -610,4 +611,76 @@ pub fn check_prod_only_vulns_ignores_dev_dependency_advisory_test() {
   assert !string.contains(output, "gleeunit")
   assert !string.contains(output, "CVE-DEV-0001")
   assert !string.contains(output, "Vulnerability check failed")
+}
+
+pub fn gleam_toml_metadata_parses_fields_test() {
+  let contents =
+    "
+name = \"glint_markdown\"
+version = \"0.0.0\"
+description = \"Markdown for glint\"
+licences = [\"Apache-2.0\"]
+repository = { type = \"github\", user = \"upstream\", repo = \"glint_markdown\" }
+"
+  let assert Ok(meta) =
+    licence_audit.package_metadata_from_gleam_toml(
+      contents,
+      "https://github.com/tylerbutler/glint_markdown",
+    )
+  should.equal(meta.description, Some("Markdown for glint"))
+  should.equal(meta.licences, ["Apache-2.0"])
+  should.equal(meta.publisher, None)
+  // The repository link uses the manifest repo (the actual source), not the
+  // `repository` table in gleam.toml, which may point at an upstream project.
+  should.equal(meta.links, [
+    #("Repository", "https://github.com/tylerbutler/glint_markdown"),
+  ])
+}
+
+pub fn gleam_toml_metadata_includes_links_and_dedups_repo_test() {
+  let contents =
+    "
+links = [
+  { title = \"Hex\", href = \"https://hex.pm/packages/glint\" },
+  { title = \"Repository\", href = \"https://github.com/tylerbutler/glint.git\" },
+]
+"
+  let assert Ok(meta) =
+    licence_audit.package_metadata_from_gleam_toml(
+      contents,
+      "https://github.com/tylerbutler/glint",
+    )
+  // The explicit Hex link is preserved; the repository link is not duplicated
+  // because an existing link already points at it (ignoring a `.git` suffix).
+  should.equal(meta.links, [
+    #("Hex", "https://hex.pm/packages/glint"),
+    #("Repository", "https://github.com/tylerbutler/glint.git"),
+  ])
+}
+
+pub fn sbom_git_dep_without_local_source_falls_back_to_repo_link_test() {
+  let #(result, events) =
+    licence_audit.run_with_progress(
+      ["sbom", "--manifest=test/fixtures/manifest_github_git.toml"],
+      sbom_fetcher,
+      progress.Normal,
+    )
+  should.equal(result.exit_code, 0)
+  // gluegun has no local build/packages checkout, so enrichment falls back to a
+  // vcs reference built from the manifest repo URL.
+  let assert True =
+    string.contains(
+      result.output,
+      "\"url\": \"https://github.com/tylerbutler/gluegun\"",
+    )
+  let assert True = string.contains(result.output, "\"type\": \"vcs\"")
+  // ...and a warning records that the richer local metadata was unavailable.
+  let assert True =
+    list.any(events, fn(event) {
+      case event {
+        progress.Event(progress.Warning, message) ->
+          string.contains(message, "gluegun")
+        _ -> False
+      }
+    })
 }
