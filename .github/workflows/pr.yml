@@ -37,7 +37,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: tylerbutler/actions/changie-check@ee7def5950abcf0a519add705a95719ab345c05e # ratchet:tylerbutler/actions/changie-check@main
+      - uses: tylerbutler/actions/changie-check@c3de10f5c576265f4910698528d949179081f25b # ratchet:tylerbutler/actions/changie-check@main
         id: changelog
         with:
           base-sha: ${{ github.event.pull_request.base.sha }}
