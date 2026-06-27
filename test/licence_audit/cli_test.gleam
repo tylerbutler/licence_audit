@@ -94,6 +94,24 @@ pub fn verbose_option_sets_verbose_verbosity_test() {
   should.equal(options.verbosity, progress.Verbose)
 }
 
+pub fn short_verbose_option_normalizes_to_verbose_test() {
+  should.equal(cli.normalize_args(["-v"]), ["--verbose"])
+}
+
+pub fn short_verbose_option_sets_verbose_verbosity_test() {
+  let options = parse_options(["-v"])
+
+  should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn quiet_and_short_verbose_returns_invalid_usage_action_test() {
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), cli.normalize_args(["--quiet", "-v"]))
+
+  assert string.contains(message, "--quiet")
+  assert string.contains(message, "--verbose")
+}
+
 pub fn quiet_and_verbose_returns_invalid_usage_action_test() {
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
     glint.execute(cli.app(), ["--quiet", "--verbose"])

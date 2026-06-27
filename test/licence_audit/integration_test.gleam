@@ -104,6 +104,67 @@ gleam_stdlib = { version = \">= 1.0.0\" }
   assert string.contains(result.output, "Fixture licence text")
 }
 
+fn notices_progress_manifest_path() -> String {
+  let manifest_path = "build/tmp/notices-progress-manifest.toml"
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let _ = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+  manifest_path
+}
+
+pub fn notices_verbose_progress_includes_package_details_test() {
+  let manifest_path = notices_progress_manifest_path()
+  let #(licence_audit.RunResult(exit_code, _output), events) =
+    licence_audit.run_with_notice_progress(
+      ["notices", "--manifest=" <> manifest_path, "--verbose"],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+      progress.Verbose,
+    )
+
+  should.equal(exit_code, 0)
+  assert list.contains(
+    events,
+    progress.Event(progress.Detail, "Fetching gleam_stdlib@1.0.0 from Hex"),
+  )
+  assert list.any(events, fn(event) {
+    case event {
+      progress.Event(progress.Detail, message) ->
+        string.contains(message, "licence file(s) for gleam_stdlib")
+      _ -> False
+    }
+  })
+}
+
+pub fn notices_normal_progress_omits_package_details_test() {
+  let manifest_path = notices_progress_manifest_path()
+  let #(licence_audit.RunResult(exit_code, _output), events) =
+    licence_audit.run_with_notice_progress(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+      progress.Normal,
+    )
+
+  should.equal(exit_code, 0)
+  assert !list.any(events, fn(event) {
+    case event {
+      progress.Event(progress.Detail, _) -> True
+      _ -> False
+    }
+  })
+}
+
 pub fn notices_subcommand_writes_output_file_test() {
   let assert Ok(bits) =
     simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")

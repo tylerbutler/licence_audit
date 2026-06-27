@@ -108,6 +108,7 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   list.map(args, fn(arg) {
     case arg {
       "-h" -> "--help"
+      "-v" -> "--verbose"
       "--colour" -> "--color"
       other -> {
         case string.starts_with(other, "--colour=") {
@@ -271,7 +272,7 @@ fn quiet_flag() -> glint.Flag(Bool) {
 fn verbose_flag() -> glint.Flag(Bool) {
   glint.bool_flag("verbose")
   |> glint.flag_default(False)
-  |> glint.flag_help("Show detailed progress output")
+  |> glint.flag_help("Show detailed progress output (alias: -v)")
 }
 
 fn color_flag() -> glint.Flag(String) {

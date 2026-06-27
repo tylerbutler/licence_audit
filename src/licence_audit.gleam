@@ -209,6 +209,29 @@ pub fn run_with_progress(
   #(result, progress.events(reporter))
 }
 
+pub fn run_with_notice_progress(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  hex_tarball_fetcher: fn(String, String) ->
+    Result(BitArray, notices.FetchError),
+  github_tarball_fetcher: fn(String, String, String) ->
+    Result(BitArray, notices.FetchError),
+  verbosity: progress.Verbosity,
+) -> #(RunResult, List(progress.Event)) {
+  let #(result, reporter) =
+    run_with_reporter_and_notices(
+      library_args(args),
+      fetcher,
+      osv.query_batch_from_osv,
+      osv.fetch_vulnerability_from_osv,
+      hex_tarball_fetcher,
+      github_tarball_fetcher,
+      progress.capturing(verbosity, "notices"),
+      color.for_enabled(False),
+    )
+  #(result, progress.events(reporter))
+}
+
 fn run_with_reporter(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
@@ -342,6 +365,13 @@ fn run_notices_options(
       reporter,
     )
     Ok(sbom_manifest) -> {
+      let reporter =
+        progress.detail(
+          reporter,
+          "Loaded manifest with "
+            <> int.to_string(list.length(sbom_manifest.entries))
+            <> " total entries",
+        )
       let scopes =
         manifest.sbom_scopes(
           sbom_manifest,
@@ -353,6 +383,15 @@ fn run_notices_options(
           scopes,
           include_dev: options.include_dev,
         )
+      let reporter =
+        progress.detail(
+          reporter,
+          "Selected "
+            <> int.to_string(list.length(selected))
+            <> " package(s) for notices (include_dev="
+            <> bool.to_string(options.include_dev)
+            <> ")",
+        )
       let reporter = progress.package_count(reporter, list.length(selected))
 
       case notices.packages_from_entries(selected, scopes, fetcher) {
@@ -360,7 +399,14 @@ fn run_notices_options(
           diagnostic(error.Notices(notices.describe_error(notice_error))),
           reporter,
         )
-        Ok(packages) ->
+        Ok(packages) -> {
+          let reporter =
+            progress.detail(
+              reporter,
+              "Resolved metadata for "
+                <> int.to_string(list.length(packages))
+                <> " package(s)",
+            )
           build_notice_entries(
             packages,
             project_root,
@@ -370,6 +416,7 @@ fn run_notices_options(
             github_tarball_fetcher,
             reporter,
           )
+        }
       }
     }
   }
@@ -386,6 +433,18 @@ fn build_notice_entries(
     Result(BitArray, notices.FetchError),
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
+  let reporter =
+    list.fold(packages, reporter, fn(reporter, package) {
+      progress.detail(
+        reporter,
+        "Fetching "
+          <> package.name
+          <> "@"
+          <> package.version
+          <> " from "
+          <> describe_source(package.source),
+      )
+    })
   let result =
     notices.entries_from_sources(packages, fn(package) {
       notices.read_remote_source(
@@ -400,12 +459,32 @@ fn build_notice_entries(
       diagnostic(error.Notices(notices.describe_error(notice_error))),
       reporter,
     )
-    Ok(entries) ->
+    Ok(entries) -> {
+      let reporter =
+        list.fold(entries, reporter, fn(reporter, entry) {
+          progress.detail(
+            reporter,
+            "Found "
+              <> int.to_string(list.length(entry.files))
+              <> " licence file(s) for "
+              <> entry.package.name,
+          )
+        })
+      let reporter = progress.detail(reporter, "Rendering notices output")
       write_notice_output(
         notices.render(entries, manifest_path: manifest_path),
         output,
         reporter,
       )
+    }
+  }
+}
+
+fn describe_source(source: notices.PackageSource) -> String {
+  case source {
+    notices.HexPackage(_) -> "Hex"
+    notices.GitHubPackage(repo, _) -> "GitHub " <> repo
+    notices.PathPackage(path) -> "local path " <> path
   }
 }
 
@@ -464,7 +543,8 @@ fn write_notice_output(
 ) -> #(RunResult, progress.Reporter) {
   case output {
     None -> #(RunResult(0, text), reporter)
-    Some(path) ->
+    Some(path) -> {
+      let reporter = progress.detail(reporter, "Writing notices to " <> path)
       case simplifile.write(to: path, contents: text) {
         Ok(_) -> #(RunResult(0, ""), reporter)
         Error(reason) -> #(
@@ -479,6 +559,7 @@ fn write_notice_output(
           reporter,
         )
       }
+    }
   }
 }
 
