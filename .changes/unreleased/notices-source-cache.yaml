@@ -1,3 +1,0 @@
-kind: Added
-body: Added persistent caching to `notices` so repeated runs reuse downloaded licence and `NOTICE` material and Hex metadata. `--no-cache` bypasses the cache, and `--cache-path` selects the metadata cache file.
-time: 2026-06-27T10:54:00.000-07:00

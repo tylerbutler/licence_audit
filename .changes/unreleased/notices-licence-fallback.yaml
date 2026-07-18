@@ -1,3 +1,0 @@
-kind: Added
-body: '`notices` now falls back to declared GitHub, Codeberg, or GitLab repositories and then canonical SPDX text when a package archive lacks a licence file. It also supports direct Git dependencies from those hosts and preserves package `NOTICE` and `COPYING` content.'
-time: 2026-07-18T00:21:05.028-07:00

@@ -1,3 +1,0 @@
-kind: Fixed
-body: '`notices` is now more reliable on slow connections, allowing source downloads up to 30 seconds and reporting timeouts clearly instead of as generic network failures.'
-time: 2026-06-27T10:00:27.926-07:00

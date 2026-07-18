@@ -1,3 +1,3 @@
 kind: Added
-body: Added a `notices` command that generates a release-ready `THIRD_PARTY_NOTICES`-style file for locked dependencies, writing to stdout by default or a file with `--output PATH`.
+body: Added a `notices` command that generates a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies, grouping shared licence text while preserving package-specific `NOTICE` and `COPYING` content. It supports GitHub, Codeberg, and GitLab sources, falls back to canonical SPDX text when needed, caches results across runs, and writes to stdout or `--output PATH`; use `--no-cache` to bypass caching.
 time: 2026-06-26T23:14:45.728-07:00
