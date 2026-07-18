@@ -21,6 +21,7 @@ fn hex_package(name: String, checksum: String) -> notices.NoticePackage {
     name: name,
     version: "1.0.0",
     declared_licences: ["MIT"],
+    repo_links: [],
     source: notices.HexPackage(outer_checksum: checksum),
     scope: manifest.Prod,
   )
@@ -102,6 +103,7 @@ pub fn path_packages_are_not_cached_test() {
       name: "local",
       version: "0.1.0",
       declared_licences: [],
+      repo_links: [],
       source: notices.PathPackage(path: "./local"),
       scope: manifest.Prod,
     )

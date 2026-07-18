@@ -8,27 +8,45 @@ import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import licence_audit/manifest
-import licence_audit/sbom
+import licence_audit/repository
 import licence_audit/source_archive
+import licence_audit/spdx
 import simplifile
 
 const source_fetch_timeout_ms = 30_000
 
+/// Timeout for the small JSON metadata requests used by the fallback path
+/// (repository tag resolution and SPDX detail records).
+const metadata_fetch_timeout_ms = 10_000
+
 pub type PackageSource {
   HexPackage(outer_checksum: String)
-  GitHubPackage(repo: String, commit: String)
+  /// A dependency fetched directly from a git host at an immutable manifest
+  /// commit. `repository` is the normalized provider identity used to build the
+  /// archive request; `url` is the original manifest-recorded source URL,
+  /// preserved verbatim for rendering.
+  GitPackage(repository: repository.Repository, url: String, commit: String)
   PathPackage(path: String)
 }
 
 pub type FetchError {
   FetchNetworkFailure
+  /// A request timed out at the 30s source-archive default. Kept as a
+  /// nullary variant for source compatibility with existing callers/tests
+  /// that construct or match on `FetchTimeout` directly.
   FetchTimeout
+  /// A request timed out at a duration other than the 30s source-archive
+  /// default (e.g. the 10s metadata fetches used by the repository/SPDX
+  /// fallback). Carries the timeout in seconds so `describe_fetch_error`
+  /// reports the actual configured duration rather than assuming 30s.
+  FetchTimeoutAfter(seconds: Int)
   FetchUnexpectedResponse(status: Int)
 }
 
@@ -37,6 +55,10 @@ pub type NoticePackage {
     name: String,
     version: String,
     declared_licences: List(String),
+    /// Candidate source-repository URLs (from Hex `meta.links` or a local
+    /// `gleam.toml`), consulted by the repository fallback when the package's
+    /// own source archive ships no licence text.
+    repo_links: List(String),
     source: PackageSource,
     scope: manifest.Scope,
   )
@@ -50,13 +72,78 @@ pub type NoticeEntry {
   NoticeEntry(package: NoticePackage, files: List(NoticeFile))
 }
 
+/// Injected HTTP clients for every network operation the notices flow performs.
+/// Bundling them keeps call signatures stable as the fallback grows and lets
+/// tests substitute deterministic fakes without touching the network.
+pub type Clients {
+  Clients(
+    fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+    /// Fetch a git package's source archive at its immutable manifest commit.
+    /// Provider-agnostic: the `repository.Repository` carries the parsed
+    /// provider (GitHub, GitLab, or Codeberg) so the correct archive endpoint
+    /// is used. Never resolves tags or HEAD — the commit is fixed.
+    fetch_git_archive: fn(repository.Repository, String) ->
+      Result(BitArray, FetchError),
+    /// Resolve a repository tag to an immutable commit SHA. `Ok(Some(sha))`
+    /// resolved, `Ok(None)` tag not found (try the next candidate), `Error`
+    /// transient network/API failure (surface a warning and fall through).
+    resolve_commit: fn(repository.Repository, String) ->
+      Result(Option(String), FetchError),
+    fetch_repo_archive: fn(repository.Repository, String) ->
+      Result(BitArray, FetchError),
+    fetch_spdx_index: fn(spdx.IndexKind) -> Result(List(String), FetchError),
+    /// Fetch canonical SPDX text for a requirement. `Ok(Some(text))` resolved,
+    /// `Ok(None)` unknown identifier, `Error` transient network failure.
+    fetch_spdx: fn(spdx.Requirement) -> Result(Option(String), FetchError),
+  )
+}
+
+/// The default clients, wired to the real Hex, provider, and SPDX endpoints.
+pub fn default_clients() -> Clients {
+  Clients(
+    fetch_hex_tarball: fetch_hex_tarball_from_hex,
+    fetch_git_archive: fetch_git_archive_from_provider,
+    resolve_commit: resolve_commit_from_provider,
+    fetch_repo_archive: fetch_repo_archive_from_provider,
+    fetch_spdx_index: fetch_spdx_index,
+    fetch_spdx: fetch_spdx_text,
+  )
+}
+
+/// Build `Clients` from just a Hex tarball fetcher and a legacy GitHub tarball
+/// fetcher (`fn(owner, repo, commit)`), defaulting the fallback (repository +
+/// SPDX) clients to their real network implementations. Retained so existing
+/// callers that only override the tarball fetchers keep working; the GitHub
+/// fetcher is adapted to the provider-agnostic `fetch_git_archive` client by
+/// projecting the parsed repository's owner/repo, so it only serves GitHub git
+/// packages. The fully-injected/default flow supports every provider.
+pub fn clients_with_tarball_fetchers(
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+  fetch_github_tarball: fn(String, String, String) ->
+    Result(BitArray, FetchError),
+) -> Clients {
+  Clients(
+    ..default_clients(),
+    fetch_hex_tarball: fetch_hex_tarball,
+    fetch_git_archive: fn(repo: repository.Repository, commit: String) {
+      case repo.provider {
+        repository.GitHub -> fetch_github_tarball(repo.owner, repo.repo, commit)
+        repository.GitLab | repository.Codeberg ->
+          fetch_git_archive_from_provider(repo, commit)
+      }
+    },
+  )
+}
+
 pub type Error {
   MissingLicenceText(packages: List(String))
+  MetadataFailed(package: String, reason: String)
   UnsupportedSource(package: String, source: String, detail: String)
   FetchFailed(package: String, reason: String)
   ArchiveFailed(package: String, reason: String)
   ChecksumMismatch(package: String, expected: String, actual: String)
   PathReadFailed(package: String, path: String, reason: String)
+  SpdxFetchFailed(package: String, id: String, reason: String)
   OutputWriteFailed(path: String, reason: String)
 }
 
@@ -78,26 +165,41 @@ pub fn selected_entries(
 pub fn packages_from_entries(
   entries: List(manifest.SbomEntry),
   scopes: Dict(String, manifest.Scope),
-  fetch_metadata: fn(String, String) -> Result(hex.PackageMetadata, hex.Error),
+  metadata_for: fn(manifest.SbomEntry) -> Result(hex.PackageMetadata, Error),
 ) -> Result(List(NoticePackage), Error) {
   list.try_map(entries, fn(entry) {
     use source <- result.try(package_source(entry))
-    let declared_licences = case entry.provenance {
-      manifest.HexProvenance(_, _) ->
-        case fetch_metadata(entry.name, entry.version) {
-          Ok(metadata) -> metadata.licences
-          Error(_) -> []
-        }
-      _ -> []
-    }
+    use metadata <- result.try(metadata_for(entry))
     Ok(NoticePackage(
       name: entry.name,
       version: entry.version,
-      declared_licences: declared_licences,
+      declared_licences: metadata.licences,
+      repo_links: repo_link_urls(metadata.links),
       source: source,
       scope: scope_for(scopes, entry.name),
     ))
   })
+}
+
+/// Extract the URL of each metadata link, preserving order and de-duplicating.
+/// These become the candidate repositories the fallback follows.
+fn repo_link_urls(links: List(#(String, String))) -> List(String) {
+  links
+  |> list.filter(fn(pair) { is_repository_link_label(pair.0) })
+  |> list.fold([], fn(seen, pair) {
+    case list.contains(seen, pair.1) {
+      True -> seen
+      False -> [pair.1, ..seen]
+    }
+  })
+  |> list.reverse
+}
+
+fn is_repository_link_label(label: String) -> Bool {
+  list.contains(
+    ["repository", "source", "source code", "github", "gitlab", "codeberg"],
+    string.lowercase(string.trim(label)),
+  )
 }
 
 pub fn package_source(
@@ -107,8 +209,9 @@ pub fn package_source(
     manifest.HexProvenance(outer_checksum, _) -> Ok(HexPackage(outer_checksum))
     manifest.PathProvenance(path) -> Ok(PathPackage(path))
     manifest.GitProvenance(repo, commit) ->
-      case sbom.parse_github_repo(repo) {
-        Ok(_) -> Ok(GitHubPackage(repo: repo, commit: commit))
+      case repository.parse(repo) {
+        Ok(repository_value) ->
+          Ok(GitPackage(repository: repository_value, url: repo, commit: commit))
         Error(_) ->
           Error(UnsupportedSource(
             package: entry.name,
@@ -155,13 +258,13 @@ pub fn notice_files_of(
 pub fn read_notice_files(
   package: NoticePackage,
   fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
-  fetch_github_tarball: fn(String, String, String) ->
+  fetch_git_archive: fn(repository.Repository, String) ->
     Result(BitArray, FetchError),
 ) -> Result(List(NoticeFile), Error) {
   use files <- result.try(read_remote_source(
     package,
     fetch_hex_tarball,
-    fetch_github_tarball,
+    fetch_git_archive,
   ))
   notice_files_of(package.name, files)
 }
@@ -202,14 +305,14 @@ pub fn entries_from_sources(
 pub fn read_remote_source(
   package: NoticePackage,
   fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
-  fetch_github_tarball: fn(String, String, String) ->
+  fetch_git_archive: fn(repository.Repository, String) ->
     Result(BitArray, FetchError),
 ) -> Result(List(source_archive.ArchiveFile), Error) {
   case package.source {
     HexPackage(outer_checksum) ->
       read_hex_source(package, outer_checksum, fetch_hex_tarball)
-    GitHubPackage(repo, commit) ->
-      read_github_source(package, repo, commit, fetch_github_tarball)
+    GitPackage(repo, _url, commit) ->
+      read_git_source(package, repo, commit, fetch_git_archive)
     PathPackage(path) -> read_path_source(package.name, path)
   }
 }
@@ -221,12 +324,117 @@ pub fn fetch_hex_tarball_from_hex(
   fetch_tarball(hex_tarball_request(name, version))
 }
 
-pub fn fetch_github_tarball_from_github(
-  owner: String,
-  repo: String,
+/// Real `fetch_git_archive` client: download a git package's gzip tar archive
+/// directly from its provider at the immutable manifest commit. This is the
+/// provider-agnostic replacement for a GitHub-only tarball fetcher; the
+/// `repository.Repository` selects the correct host and archive path.
+pub fn fetch_git_archive_from_provider(
+  repo: repository.Repository,
   commit: String,
 ) -> Result(BitArray, FetchError) {
-  fetch_tarball(github_tarball_request(owner, repo, commit))
+  fetch_tarball(repository.archive_request(repo, commit))
+}
+
+/// Real `resolve_commit` client: query the provider's API to turn `tag` into an
+/// immutable commit SHA. A 404 means the tag doesn't exist (`Ok(None)`), so the
+/// caller can try the next candidate; other non-2xx and transport errors are
+/// transient failures.
+pub fn resolve_commit_from_provider(
+  repo: repository.Repository,
+  tag: String,
+) -> Result(Option(String), FetchError) {
+  use #(status, body) <- result.try(
+    fetch_json(repository.commit_request(repo, tag)),
+  )
+  commit_response(repo, status, body)
+}
+
+/// Pure mapping of a repository commit-resolution HTTP `#(status, body)` to an
+/// outcome, split out from the network call so status handling is testable
+/// without live traffic: 404 → tag not found, 2xx → decode the SHA (a missing
+/// field is also "not found"), any other status → transient failure.
+pub fn commit_response(
+  repo: repository.Repository,
+  status: Int,
+  body: String,
+) -> Result(Option(String), FetchError) {
+  case repo.provider, status {
+    _, 404 -> Ok(None)
+    // GitHub's commits API returns 422 when a syntactically valid ref does not
+    // resolve, so this is a tag miss rather than a transient provider failure.
+    repository.GitHub, 422 -> Ok(None)
+    _, status if status >= 200 && status < 300 ->
+      case repository.decode_commit(repo, body) {
+        Ok(sha) -> Ok(Some(sha))
+        Error(_) -> Ok(None)
+      }
+    _, status -> Error(FetchUnexpectedResponse(status))
+  }
+}
+
+/// Real `fetch_repo_archive` client: download the provider's gzip tar archive at
+/// an immutable commit.
+pub fn fetch_repo_archive_from_provider(
+  repo: repository.Repository,
+  commit: String,
+) -> Result(BitArray, FetchError) {
+  fetch_tarball(repository.archive_request(repo, commit))
+}
+
+/// Real `fetch_spdx` client: fetch a canonical SPDX detail record from the
+/// pinned License List revision. A 404 means the identifier is unknown
+/// (`Ok(None)`).
+pub fn fetch_spdx_text(
+  requirement: spdx.Requirement,
+) -> Result(Option(String), FetchError) {
+  use #(status, body) <- result.try(
+    fetch_json(spdx.detail_request(requirement)),
+  )
+  spdx_response(requirement, status, body)
+}
+
+pub fn fetch_spdx_index(
+  kind: spdx.IndexKind,
+) -> Result(List(String), FetchError) {
+  use #(status, body) <- result.try(fetch_json(spdx.index_request(kind)))
+  case status {
+    status if status >= 200 && status < 300 ->
+      spdx.decode_index(kind, body)
+      |> result.map_error(fn(_) { FetchUnexpectedResponse(status) })
+    status -> Error(FetchUnexpectedResponse(status))
+  }
+}
+
+/// Pure mapping of an SPDX detail-record HTTP `#(status, body)` to an outcome,
+/// split out from the network call so status handling is testable without live
+/// traffic: 404 → unknown identifier, 2xx → decode the canonical text (a
+/// missing field is also "unknown"), any other status → transient failure.
+pub fn spdx_response(
+  requirement: spdx.Requirement,
+  status: Int,
+  body: String,
+) -> Result(Option(String), FetchError) {
+  case status {
+    404 -> Ok(None)
+    status if status >= 200 && status < 300 ->
+      case spdx.decode_text(requirement, body) {
+        Ok(text) -> Ok(Some(text))
+        Error(_) -> Ok(None)
+      }
+    status -> Error(FetchUnexpectedResponse(status))
+  }
+}
+
+/// Dispatch a small JSON GET, returning `#(status, body)` or a transport
+/// error mapped onto `FetchError`.
+fn fetch_json(request: Request(String)) -> Result(#(Int, String), FetchError) {
+  let request = request.set_header(request, "user-agent", "licence_audit")
+  case httpc_adaptive.dispatch(request, timeout_ms: metadata_fetch_timeout_ms) {
+    Ok(response) -> Ok(#(response.status, response.body))
+    Error(httpc_adaptive.ResponseTimeout) ->
+      Error(FetchTimeoutAfter(metadata_fetch_timeout_ms / 1000))
+    Error(_) -> Error(FetchNetworkFailure)
+  }
 }
 
 pub fn describe_fetch_error(error: FetchError) -> String {
@@ -234,6 +442,8 @@ pub fn describe_fetch_error(error: FetchError) -> String {
     FetchNetworkFailure -> "network failure"
     FetchTimeout ->
       "timed out after " <> int.to_string(source_fetch_timeout_ms / 1000) <> "s"
+    FetchTimeoutAfter(seconds) ->
+      "timed out after " <> int.to_string(seconds) <> "s"
     FetchUnexpectedResponse(status) ->
       "unexpected HTTP response " <> int.to_string(status)
   }
@@ -264,6 +474,8 @@ pub fn describe_error(error: Error) -> String {
     MissingLicenceText(packages) ->
       "Missing licence text for packages: "
       <> string.join(list.sort(packages, by: string.compare), ", ")
+    MetadataFailed(package, reason) ->
+      "Failed to resolve licence metadata for " <> package <> ": " <> reason
     UnsupportedSource(package, source, detail) ->
       "Cannot generate notices for package `"
       <> package
@@ -289,6 +501,13 @@ pub fn describe_error(error: Error) -> String {
       <> " at "
       <> path
       <> ": "
+      <> reason
+    SpdxFetchFailed(package, id, reason) ->
+      "Failed to fetch canonical SPDX text for "
+      <> package
+      <> " ("
+      <> id
+      <> "): "
       <> reason
     OutputWriteFailed(path, reason) ->
       "Failed to write notices to " <> path <> ": " <> reason
@@ -336,28 +555,23 @@ fn read_hex_source(
   })
 }
 
-fn read_github_source(
+fn read_git_source(
   package: NoticePackage,
-  repo: String,
+  repo: repository.Repository,
   commit: String,
-  fetch_github_tarball: fn(String, String, String) ->
+  fetch_git_archive: fn(repository.Repository, String) ->
     Result(BitArray, FetchError),
 ) -> Result(List(source_archive.ArchiveFile), Error) {
-  case sbom.parse_github_repo(repo) {
-    Error(_) -> Error(UnsupportedSource(package.name, "git", "repo: " <> repo))
-    Ok(#(owner, repo_name)) -> {
-      use bytes <- result.try(
-        fetch_github_tarball(owner, repo_name, commit)
-        |> result.map_error(fn(error) {
-          FetchFailed(package.name, describe_fetch_error(error))
-        }),
-      )
-      source_archive.extract_tar_gz(bytes)
-      |> result.map_error(fn(error) {
-        ArchiveFailed(package.name, source_archive.describe_error(error))
-      })
-    }
-  }
+  use bytes <- result.try(
+    fetch_git_archive(repo, commit)
+    |> result.map_error(fn(error) {
+      FetchFailed(package.name, describe_fetch_error(error))
+    }),
+  )
+  source_archive.extract_tar_gz(bytes)
+  |> result.map_error(fn(error) {
+    ArchiveFailed(package.name, source_archive.describe_error(error))
+  })
 }
 
 fn read_path_source(
@@ -466,23 +680,6 @@ fn hex_tarball_request(name: String, version: String) -> Request(BitArray) {
     host: "repo.hex.pm",
     port: None,
     path: "/tarballs/" <> name <> "-" <> version <> ".tar",
-    query: None,
-  )
-}
-
-fn github_tarball_request(
-  owner: String,
-  repo: String,
-  commit: String,
-) -> Request(BitArray) {
-  Request(
-    method: Get,
-    headers: [],
-    body: <<>>,
-    scheme: Https,
-    host: "codeload.github.com",
-    port: None,
-    path: "/" <> owner <> "/" <> repo <> "/tar.gz/" <> commit,
     query: None,
   )
 }
@@ -637,14 +834,73 @@ fn basename(path: String) -> String {
 }
 
 fn is_notice_basename(name: String) -> Bool {
+  matches_basename(name, ["license", "licence", "copying", "notice"])
+}
+
+/// A licence-text file, as opposed to an ancillary NOTICE/attribution file.
+/// `COPYING` is the GNU convention for licence text, so it counts as a licence.
+fn is_licence_basename(name: String) -> Bool {
+  matches_basename(name, ["license", "licence", "copying"])
+}
+
+fn matches_basename(name: String, bases: List(String)) -> Bool {
   let lower = string.lowercase(name)
-  list.any(["license", "licence", "copying", "notice"], fn(base) {
+  list.any(bases, fn(base) {
     lower == base
     || lower == base <> ".txt"
     || lower == base <> ".md"
     || lower == base <> ".rst"
     || lower == base <> ".adoc"
   })
+}
+
+/// Whether `files` already contain an actual licence-text file (LICENSE,
+/// LICENCE, or COPYING). A package whose source ships only a NOTICE file — or
+/// nothing — returns `False` and must obtain its licence via the fallback.
+pub fn has_licence_file(files: List(NoticeFile)) -> Bool {
+  list.any(files, fn(file) {
+    file.path
+    |> drop_optional_current_dir
+    |> basename
+    |> is_licence_basename
+  })
+}
+
+/// Keep only the licence-text files from a list, dropping ancillary NOTICE
+/// files. Used to lift a licence out of a fallback repository archive without
+/// pulling in that repo's own NOTICE.
+pub fn licence_files_only(files: List(NoticeFile)) -> List(NoticeFile) {
+  list.filter(files, fn(file) {
+    file.path
+    |> drop_optional_current_dir
+    |> basename
+    |> is_licence_basename
+  })
+}
+
+/// Extract the licence-text files from a fallback repository's gzip tar
+/// archive. Ancillary NOTICE files from the repository are dropped; only the
+/// actual licence text is lifted. Extraction failures are tagged to
+/// `package_name`.
+pub fn repo_licence_files(
+  package_name: String,
+  bytes: BitArray,
+) -> Result(List(NoticeFile), Error) {
+  use files <- result.try(
+    source_archive.extract_tar_gz(bytes)
+    |> result.map_error(fn(error) {
+      ArchiveFailed(package_name, source_archive.describe_error(error))
+    }),
+  )
+  use notices <- result.try(notice_files_of(package_name, files))
+  Ok(licence_files_only(notices))
+}
+
+/// Build the synthetic notice file for a resolved SPDX record, labelling its
+/// origin via a `SPDX-License-List/<id>.txt` path. The canonical text is stored
+/// verbatim.
+pub fn spdx_file(requirement: spdx.Requirement, text: String) -> NoticeFile {
+  NoticeFile(path: spdx.synthetic_path(requirement), contents: text)
 }
 
 fn compare_package(a: NoticePackage, b: NoticePackage) -> order.Order {
@@ -689,7 +945,7 @@ fn render_files(files: List(NoticeFile)) -> String {
 fn source_text(source: PackageSource) -> String {
   case source {
     HexPackage(_) -> "hex"
-    GitHubPackage(repo, commit) -> "git " <> repo <> " @ " <> commit
+    GitPackage(_repo, url, commit) -> "git " <> url <> " @ " <> commit
     PathPackage(path) -> "path " <> path
   }
 }

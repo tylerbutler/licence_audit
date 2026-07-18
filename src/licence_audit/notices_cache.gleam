@@ -19,6 +19,7 @@ import slate/set as dets_set
 
 import licence_audit/cache_dir
 import licence_audit/notices
+import licence_audit/repository
 
 /// Configures how the cache behaves for a given run.
 pub type Mode {
@@ -33,16 +34,16 @@ pub opaque type Cache {
   Cache(table: Option(dets_set.Set(String, String)), warning: Option(String))
 }
 
-/// On-disk cache format version. Bump on any incompatible change to the cached
-/// value shape (see `notices.encode_notice_files`) **or** to the set of files
-/// considered notice/licence files (see `notices.licence_files`): a cached
-/// entry reflects the matching logic in effect when it was written, so changing
-/// which files are extracted requires a bump to avoid serving outdated results.
-/// The version is encoded into the filename so a file written by an older
-/// format is ignored rather than mis-decoded; `notices.decode_notice_files`
-/// also treats any unparseable entry as a miss, so forward-compatible drift
-/// self-heals without a bump.
-const cache_format_version = 1
+/// On-disk cache format version. Bumped to 3 for the fallback feature, which
+/// changes both the cached value shape and the namespaces stored in the table:
+/// alongside the final per-package materials, v3 also caches extracted source
+/// materials, repository tag→commit resolutions, repository-extracted licence
+/// files, pinned SPDX indexes, and canonical SPDX records shared across
+/// packages. The version is encoded into the
+/// filename so a file written by an older format is ignored rather than
+/// mis-decoded; `notices.decode_notice_files` also treats any unparseable entry
+/// as a miss, so forward-compatible drift self-heals without a bump.
+const cache_format_version = 3
 
 fn cache_filename() -> String {
   "notices-v" <> int.to_string(cache_format_version) <> ".dets"
@@ -125,8 +126,60 @@ fn cache_key(package: notices.NoticePackage) -> Result(String, Nil) {
   case package.source {
     notices.HexPackage(outer_checksum) ->
       Ok(base <> "hex:" <> string.uppercase(outer_checksum))
-    notices.GitHubPackage(_repo, commit) -> Ok(base <> "git:" <> commit)
+    notices.GitPackage(repo, _url, commit) ->
+      Ok(base <> "git:" <> repository.describe(repo) <> "@" <> commit)
     notices.PathPackage(_) -> Error(Nil)
+  }
+}
+
+/// Read a cached list of notice files stored under a namespaced `key`. Returns
+/// `Error(Nil)` on a miss, when the cache is disabled, or when the stored value
+/// no longer decodes (a corrupt entry is a miss so the caller refetches).
+pub fn get_files(
+  cache: Cache,
+  key: String,
+) -> Result(List(notices.NoticeFile), Nil) {
+  case cache.table {
+    None -> Error(Nil)
+    Some(table) -> lookup(table, key)
+  }
+}
+
+/// Best-effort write of notice files under `key`. A disabled cache or write
+/// failure is silently ignored: the cache is purely an optimisation.
+pub fn put_files(
+  cache: Cache,
+  key: String,
+  files: List(notices.NoticeFile),
+) -> Nil {
+  case cache.table {
+    None -> Nil
+    Some(table) -> store(table, key, files)
+  }
+}
+
+/// Read a cached plain-text value (e.g. a resolved commit SHA or canonical SPDX
+/// text) stored under `key`. An empty stored value is treated as a miss.
+pub fn get_text(cache: Cache, key: String) -> Result(String, Nil) {
+  case cache.table {
+    None -> Error(Nil)
+    Some(table) ->
+      case dets_set.lookup(from: table, key: key) {
+        Ok("") -> Error(Nil)
+        Ok(value) -> Ok(value)
+        Error(_) -> Error(Nil)
+      }
+  }
+}
+
+/// Best-effort write of a plain-text value under `key`.
+pub fn put_text(cache: Cache, key: String, value: String) -> Nil {
+  case cache.table {
+    None -> Nil
+    Some(table) -> {
+      let _ = dets_set.insert(into: table, key: key, value: value)
+      Nil
+    }
   }
 }
 

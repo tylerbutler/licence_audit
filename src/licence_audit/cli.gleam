@@ -474,7 +474,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   }
 }
 
-const notices_help = "Generate a release-ready third-party licence notices text file from locked dependencies."
+const notices_help = "Generate a release-ready third-party licence notices text file from locked dependencies. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text, preserving any NOTICE file found. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback."
 
 fn notices_command() -> glint.Command(CliAction) {
   use <- glint.command_help(notices_help)

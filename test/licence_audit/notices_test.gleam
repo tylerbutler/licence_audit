@@ -4,9 +4,12 @@ import gleam/list
 import gleam/option.{None}
 import gleam/string
 import gleeunit/should
+import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/notices
+import licence_audit/repository
 import licence_audit/source_archive
+import licence_audit/spdx
 import simplifile
 
 const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
@@ -40,6 +43,7 @@ fn package(
     name: name,
     version: "1.0.0",
     declared_licences: ["MIT"],
+    repo_links: [],
     source: source,
     scope: manifest.Prod,
   )
@@ -85,17 +89,36 @@ fn fake_archive_files(
   }
 }
 
+pub fn package_metadata_uses_only_repository_links_test() {
+  let entry =
+    manifest_entry("dep", "1.0.0", manifest.HexProvenance("AAAA", None), [])
+  let metadata =
+    hex.PackageMetadata(
+      licences: ["MIT"],
+      description: None,
+      links: [
+        #("Sponsor", "https://github.com/sponsors/example"),
+        #("Repository", "https://github.com/example/dep"),
+      ],
+      publisher: None,
+    )
+
+  let assert Ok([package]) =
+    notices.packages_from_entries([entry], dict.new(), fn(_entry) {
+      Ok(metadata)
+    })
+  should.equal(package.repo_links, ["https://github.com/example/dep"])
+}
+
 pub fn read_hex_source_rejects_checksum_mismatch_test() {
   let pkg = package("hex_dep", notices.HexPackage(outer_checksum: "AAAA"))
   let fetch_hex = fn(_name, _version) {
     Ok(bit_array.from_string("not the expected bytes"))
   }
-  let fetch_github = fn(_owner, _repo, _commit) {
-    Ok(bit_array.from_string("unused"))
-  }
+  let fetch_git = fn(_repo, _commit) { Ok(bit_array.from_string("unused")) }
 
   let assert Error(notices.ChecksumMismatch("hex_dep", "AAAA", _actual)) =
-    notices.read_remote_source(pkg, fetch_hex, fetch_github)
+    notices.read_remote_source(pkg, fetch_hex, fetch_git)
 }
 
 pub fn fetch_error_description_is_human_readable_test() {
@@ -110,6 +133,10 @@ pub fn fetch_error_description_is_human_readable_test() {
   should.equal(
     notices.describe_fetch_error(notices.FetchTimeout),
     "timed out after 30s",
+  )
+  should.equal(
+    notices.describe_fetch_error(notices.FetchTimeoutAfter(10)),
+    "timed out after 10s",
   )
 }
 
@@ -126,7 +153,7 @@ pub fn read_path_source_returns_relative_binary_archive_files_test() {
     notices.read_remote_source(
       pkg,
       fn(_name, _version) { Error(notices.FetchNetworkFailure) },
-      fn(_owner, _repo, _commit) { Error(notices.FetchNetworkFailure) },
+      fn(_repo, _commit) { Error(notices.FetchNetworkFailure) },
     )
 
   should.equal(
@@ -161,7 +188,7 @@ pub fn read_path_source_skips_symlink_targets_outside_root_test() {
     notices.read_remote_source(
       pkg,
       fn(_name, _version) { Error(notices.FetchNetworkFailure) },
-      fn(_owner, _repo, _commit) { Error(notices.FetchNetworkFailure) },
+      fn(_repo, _commit) { Error(notices.FetchNetworkFailure) },
     )
 
   let paths = list.map(files, fn(file) { file.path })
@@ -175,20 +202,21 @@ pub fn read_path_source_skips_symlink_targets_outside_root_test() {
   })
 }
 
-pub fn read_github_source_uses_fetcher_and_extracts_archive_test() {
+pub fn read_git_source_uses_fetcher_and_extracts_archive_test() {
   let assert Ok(bits) =
     simplifile.read_bits(archive_fixture_dir <> "/contents.tar.gz")
+  let repo = repository.Repository(repository.GitHub, "example", "git_dep")
   let pkg =
     package(
       "git_dep",
-      notices.GitHubPackage(
-        repo: "https://github.com/example/git_dep.git",
+      notices.GitPackage(
+        repository: repo,
+        url: "https://github.com/example/git_dep.git",
         commit: "abc123",
       ),
     )
-  let fetch_github = fn(owner, repo, commit) {
-    should.equal(owner, "example")
-    should.equal(repo, "git_dep")
+  let fetch_git = fn(fetched_repo, commit) {
+    should.equal(fetched_repo, repo)
     should.equal(commit, "abc123")
     Ok(bits)
   }
@@ -197,7 +225,7 @@ pub fn read_github_source_uses_fetcher_and_extracts_archive_test() {
     notices.read_remote_source(
       pkg,
       fn(_name, _version) { Error(notices.FetchNetworkFailure) },
-      fetch_github,
+      fetch_git,
     )
 
   let paths = list.map(files, fn(file) { file.path })
@@ -216,7 +244,7 @@ pub fn read_hex_source_verifies_checksum_and_extracts_contents_test() {
   }
 
   let assert Ok(files) =
-    notices.read_remote_source(pkg, fetch_hex, fn(_owner, _repo, _commit) {
+    notices.read_remote_source(pkg, fetch_hex, fn(_repo, _commit) {
       Error(notices.FetchNetworkFailure)
     })
 
@@ -475,24 +503,37 @@ pub fn selected_packages_treat_missing_scope_as_prod_test() {
   should.equal(list.map(selected, fn(entry) { entry.name }), ["missing_scope"])
 }
 
-pub fn github_source_rejects_non_github_repo_test() {
-  let entry =
+pub fn git_source_rejects_unsupported_repo_test() {
+  // An arbitrary host is not one of the supported git providers.
+  let unsupported =
     manifest_entry(
       "git_dep",
       "1.0.0",
       manifest.GitProvenance(
-        repo: "https://gitlab.com/example/git_dep",
+        repo: "https://example.com/example/git_dep",
         commit: "abc",
       ),
       [],
     )
+  let assert Error(notices.UnsupportedSource("git_dep", "git", _)) =
+    notices.package_source(unsupported)
 
-  let result = notices.package_source(entry)
-
-  let assert Error(notices.UnsupportedSource("git_dep", "git", _)) = result
+  // A non-HTTPS / SCP-style git URL is rejected outright.
+  let scp =
+    manifest_entry(
+      "git_dep",
+      "1.0.0",
+      manifest.GitProvenance(
+        repo: "git@github.com:example/git_dep.git",
+        commit: "abc",
+      ),
+      [],
+    )
+  let assert Error(notices.UnsupportedSource("git_dep", "git", _)) =
+    notices.package_source(scp)
 }
 
-pub fn github_source_accepts_github_repo_test() {
+pub fn git_source_accepts_github_repo_test() {
   let entry =
     manifest_entry(
       "git_dep",
@@ -504,10 +545,58 @@ pub fn github_source_accepts_github_repo_test() {
       [],
     )
 
-  let assert Ok(notices.GitHubPackage(repo, commit)) =
+  let assert Ok(notices.GitPackage(repo, url, commit)) =
     notices.package_source(entry)
-  should.equal(repo, "https://github.com/example/git_dep.git")
+  should.equal(
+    repo,
+    repository.Repository(repository.GitHub, "example", "git_dep"),
+  )
+  should.equal(url, "https://github.com/example/git_dep.git")
   should.equal(commit, "abc")
+}
+
+pub fn git_source_accepts_gitlab_repo_test() {
+  let entry =
+    manifest_entry(
+      "git_dep",
+      "1.0.0",
+      manifest.GitProvenance(
+        repo: "https://gitlab.com/example/git_dep",
+        commit: "def",
+      ),
+      [],
+    )
+
+  let assert Ok(notices.GitPackage(repo, url, commit)) =
+    notices.package_source(entry)
+  should.equal(
+    repo,
+    repository.Repository(repository.GitLab, "example", "git_dep"),
+  )
+  should.equal(url, "https://gitlab.com/example/git_dep")
+  should.equal(commit, "def")
+}
+
+pub fn git_source_accepts_codeberg_repo_test() {
+  let entry =
+    manifest_entry(
+      "git_dep",
+      "1.0.0",
+      manifest.GitProvenance(
+        repo: "https://codeberg.org/example/git_dep.git",
+        commit: "ghi",
+      ),
+      [],
+    )
+
+  let assert Ok(notices.GitPackage(repo, url, commit)) =
+    notices.package_source(entry)
+  should.equal(
+    repo,
+    repository.Repository(repository.Codeberg, "example", "git_dep"),
+  )
+  should.equal(url, "https://codeberg.org/example/git_dep.git")
+  should.equal(commit, "ghi")
 }
 
 pub fn path_source_returns_path_package_test() {
@@ -553,8 +642,13 @@ pub fn render_notice_entries_is_deterministic_test() {
     notices.NoticeEntry(
       package: package(
         "alpha",
-        notices.GitHubPackage(
-          repo: "https://github.com/example/alpha",
+        notices.GitPackage(
+          repository: repository.Repository(
+            repository.GitHub,
+            "example",
+            "alpha",
+          ),
+          url: "https://github.com/example/alpha",
           commit: "abc123",
         ),
       ),
@@ -604,6 +698,7 @@ pub fn render_unknown_declared_licences_test() {
         name: "local_dep",
         version: "0.1.0",
         declared_licences: [],
+        repo_links: [],
         source: notices.PathPackage(path: "../local_dep"),
         scope: manifest.Prod,
       ),
@@ -617,10 +712,45 @@ pub fn render_unknown_declared_licences_test() {
   assert string.ends_with(output, "\n")
 }
 
+pub fn has_licence_file_detects_licence_type_files_test() {
+  assert notices.has_licence_file([notices.NoticeFile("./LICENSE", "x")])
+  assert notices.has_licence_file([notices.NoticeFile("COPYING", "x")])
+  assert notices.has_licence_file([notices.NoticeFile("licence.md", "x")])
+  // A NOTICE-only set does not count as having a licence.
+  assert !notices.has_licence_file([notices.NoticeFile("./NOTICE.txt", "x")])
+  assert !notices.has_licence_file([notices.NoticeFile("README.md", "x")])
+}
+
+pub fn licence_files_only_drops_ancillary_notice_test() {
+  let files = [
+    notices.NoticeFile("LICENSE", "lic"),
+    notices.NoticeFile("NOTICE.txt", "notice"),
+    notices.NoticeFile("COPYING", "copying"),
+  ]
+  should.equal(notices.licence_files_only(files), [
+    notices.NoticeFile("LICENSE", "lic"),
+    notices.NoticeFile("COPYING", "copying"),
+  ])
+}
+
+pub fn spdx_file_labels_synthetic_origin_test() {
+  should.equal(
+    notices.spdx_file(spdx.LicenseRequirement("Apache-2.0"), "text"),
+    notices.NoticeFile("SPDX-License-List/Apache-2.0.txt", "text"),
+  )
+}
+
 pub fn describe_error_formats_all_variants_test() {
   should.equal(
     notices.describe_error(notices.MissingLicenceText(["beta", "alpha"])),
     "Missing licence text for packages: alpha, beta",
+  )
+  should.equal(
+    notices.describe_error(notices.MetadataFailed(
+      package: "gleam_stdlib",
+      reason: "package not found on Hex",
+    )),
+    "Failed to resolve licence metadata for gleam_stdlib: package not found on Hex",
   )
   should.equal(
     notices.describe_error(notices.UnsupportedSource(
@@ -661,10 +791,70 @@ pub fn describe_error_formats_all_variants_test() {
     "Failed to read path dependency local_dep at ../local_dep: enoent",
   )
   should.equal(
+    notices.describe_error(notices.SpdxFetchFailed(
+      package: "gleam_stdlib",
+      id: "Apache-2.0",
+      reason: "network failure",
+    )),
+    "Failed to fetch canonical SPDX text for gleam_stdlib (Apache-2.0): network failure",
+  )
+  should.equal(
     notices.describe_error(notices.OutputWriteFailed(
       path: "THIRD_PARTY_LICENSES.txt",
       reason: "eperm",
     )),
     "Failed to write notices to THIRD_PARTY_LICENSES.txt: eperm",
+  )
+}
+
+// --- Pure HTTP status → outcome mapping (network-free) -----------------------
+
+pub fn commit_response_maps_404_to_not_found_test() {
+  let repo = repository.Repository(repository.GitHub, "o", "r")
+  should.equal(notices.commit_response(repo, 404, ""), Ok(None))
+}
+
+pub fn commit_response_maps_github_422_to_not_found_test() {
+  let repo = repository.Repository(repository.GitHub, "o", "r")
+  should.equal(notices.commit_response(repo, 422, ""), Ok(None))
+}
+
+pub fn commit_response_decodes_sha_on_2xx_test() {
+  let repo = repository.Repository(repository.GitHub, "o", "r")
+  should.equal(
+    notices.commit_response(repo, 200, "{\"sha\":\"abc123\"}"),
+    Ok(option.Some("abc123")),
+  )
+  // A 2xx body missing the provider's SHA field is treated as "not found".
+  should.equal(notices.commit_response(repo, 200, "{}"), Ok(None))
+}
+
+pub fn commit_response_maps_other_status_to_transient_test() {
+  let repo = repository.Repository(repository.GitLab, "o", "r")
+  should.equal(
+    notices.commit_response(repo, 500, ""),
+    Error(notices.FetchUnexpectedResponse(500)),
+  )
+}
+
+pub fn spdx_response_maps_404_to_unknown_test() {
+  let requirement = spdx.LicenseRequirement("MIT")
+  should.equal(notices.spdx_response(requirement, 404, ""), Ok(None))
+}
+
+pub fn spdx_response_decodes_text_on_2xx_test() {
+  let requirement = spdx.LicenseRequirement("MIT")
+  should.equal(
+    notices.spdx_response(requirement, 200, "{\"licenseText\":\"MIT text\"}"),
+    Ok(option.Some("MIT text")),
+  )
+  should.equal(notices.spdx_response(requirement, 200, "{}"), Ok(None))
+}
+
+pub fn spdx_response_maps_other_status_to_transient_test() {
+  let requirement = spdx.ExceptionRequirement("LLVM-exception")
+  should.equal(
+    notices.spdx_response(requirement, 503, ""),
+    Error(notices.FetchUnexpectedResponse(503)),
   )
 }

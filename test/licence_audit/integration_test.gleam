@@ -9,7 +9,9 @@ import licence_audit/hex
 import licence_audit/notices
 import licence_audit/osv
 import licence_audit/progress
+import licence_audit/repository
 import licence_audit/source_archive
+import licence_audit/spdx
 import simplifile
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
@@ -53,6 +55,49 @@ fn unused_github_tarball(
   _commit: String,
 ) -> Result(BitArray, notices.FetchError) {
   Error(notices.FetchNetworkFailure)
+}
+
+fn unused_git_archive(
+  _repo: repository.Repository,
+  _commit: String,
+) -> Result(BitArray, notices.FetchError) {
+  Error(notices.FetchNetworkFailure)
+}
+
+fn notice_only_hex_tarball(
+  _name: String,
+  _version: String,
+) -> Result(BitArray, notices.FetchError) {
+  case
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
+    )
+  {
+    Ok(bits) -> Ok(bits)
+    Error(_) -> Error(notices.FetchNetworkFailure)
+  }
+}
+
+/// Full client bundle whose Hex source ships only a NOTICE file, no repository
+/// tag resolves, and every SPDX record returns synthesized canonical text.
+fn spdx_fallback_clients() -> notices.Clients {
+  notices.Clients(
+    fetch_hex_tarball: notice_only_hex_tarball,
+    fetch_git_archive: unused_git_archive,
+    resolve_commit: fn(_repo, _tag) { Ok(None) },
+    fetch_repo_archive: fn(_repo, _commit) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_spdx_index: fn(kind) {
+      case kind {
+        spdx.LicenceIndex -> Ok(["Apache-2.0"])
+        spdx.ExceptionIndex -> Ok([])
+      }
+    },
+    fetch_spdx: fn(_requirement) {
+      Ok(Some("SYNTHESIZED APACHE-2.0 CANONICAL TEXT"))
+    },
+  )
 }
 
 fn manifest_args(extra: List(String)) -> List(String) {
@@ -102,6 +147,36 @@ gleam_stdlib = { version = \">= 1.0.0\" }
   assert string.contains(result.output, "gleam_stdlib 1.0.0")
   assert string.contains(result.output, "Declared licences: Apache-2.0")
   assert string.contains(result.output, "Fixture licence text")
+}
+
+pub fn notices_falls_back_to_spdx_when_source_lacks_licence_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
+    )
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = "build/tmp/notices-spdx-fallback-manifest.toml"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_full_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      spdx_fallback_clients(),
+    )
+
+  should.equal(result.exit_code, 0)
+  // The source NOTICE is preserved and canonical SPDX text is synthesized.
+  assert string.contains(result.output, "SPDX-License-List/Apache-2.0.txt")
+  assert string.contains(result.output, "SYNTHESIZED APACHE-2.0 CANONICAL TEXT")
+  assert string.contains(result.output, "NOTICE.txt")
 }
 
 fn notices_progress_manifest_path() -> String {
@@ -937,4 +1012,127 @@ pub fn sbom_git_dep_without_local_source_falls_back_to_repo_link_test() {
         _ -> False
       }
     })
+}
+
+// --- Direct command metadata resolution for local git/path gleam.toml --------
+
+/// Clients whose SPDX fallback synthesizes MIT text; git/hex/repository fetchers
+/// are supplied per test. Used to prove declared licences read from a local
+/// `gleam.toml` drive the SPDX fallback for git and path dependencies.
+fn mit_spdx_clients(
+  git_archive: fn(repository.Repository, String) ->
+    Result(BitArray, notices.FetchError),
+) -> notices.Clients {
+  notices.Clients(
+    fetch_hex_tarball: fn(_name, _version) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_git_archive: git_archive,
+    resolve_commit: fn(_repo, _tag) { Ok(None) },
+    fetch_repo_archive: fn(_repo, _commit) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_spdx_index: fn(kind) {
+      case kind {
+        spdx.LicenceIndex -> Ok(["MIT"])
+        spdx.ExceptionIndex -> Ok([])
+      }
+    },
+    fetch_spdx: fn(_requirement) { Ok(Some("SYNTHESIZED MIT CANONICAL TEXT")) },
+  )
+}
+
+pub fn notices_path_dep_uses_declared_licence_from_gleam_toml_test() {
+  let root = "build/tmp/notices-path-meta"
+  let _ = simplifile.delete(root)
+  let assert Ok(Nil) = simplifile.create_directory_all(root <> "/local_dep")
+  // The path dependency ships only a NOTICE file — no licence text — so the
+  // declared licence in its gleam.toml must drive the SPDX fallback.
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/local_dep/NOTICE.txt",
+      contents: "Local notice\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/local_dep/gleam.toml",
+      contents: "name = \"local_dep\"\nlicences = [\"MIT\"]\n",
+    )
+  let manifest_path = root <> "/manifest.toml"
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"local_dep\" },
+]
+
+[requirements]
+local_dep = { version = \">= 0.0.0\" }
+",
+    )
+
+  let result =
+    licence_audit.run_with_full_notice_clients(
+      ["notices", "--manifest=" <> manifest_path, "--no-cache"],
+      notice_metadata_fetcher,
+      mit_spdx_clients(unused_git_archive),
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Declared licences: MIT")
+  assert string.contains(result.output, "SPDX-License-List/MIT.txt")
+  assert string.contains(result.output, "SYNTHESIZED MIT CANONICAL TEXT")
+  assert string.contains(result.output, "NOTICE.txt")
+}
+
+pub fn notices_git_dep_uses_declared_licence_from_gleam_toml_test() {
+  let assert Ok(git_source) =
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/git_notice_only.tar.gz",
+    )
+  let root = "build/tmp/notices-git-meta"
+  let _ = simplifile.delete(root)
+  // Git dependency metadata is read from the checked-out
+  // build/packages/<name>/gleam.toml relative to the manifest's project root.
+  let assert Ok(Nil) =
+    simplifile.create_directory_all(root <> "/build/packages/git_dep")
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/build/packages/git_dep/gleam.toml",
+      contents: "name = \"git_dep\"\nlicences = [\"MIT\"]\n",
+    )
+  let manifest_path = root <> "/manifest.toml"
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abc\" },
+]
+
+[requirements]
+git_dep = { version = \">= 0.0.0\" }
+",
+    )
+
+  let git_archive = fn(repo: repository.Repository, commit: String) {
+    should.equal(
+      repo,
+      repository.Repository(repository.GitHub, "example", "git_dep"),
+    )
+    should.equal(commit, "abc")
+    Ok(git_source)
+  }
+
+  let result =
+    licence_audit.run_with_full_notice_clients(
+      ["notices", "--manifest=" <> manifest_path, "--no-cache"],
+      notice_metadata_fetcher,
+      mit_spdx_clients(git_archive),
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Declared licences: MIT")
+  assert string.contains(result.output, "SPDX-License-List/MIT.txt")
+  assert string.contains(result.output, "SYNTHESIZED MIT CANONICAL TEXT")
+  assert string.contains(result.output, "NOTICE.txt")
 }

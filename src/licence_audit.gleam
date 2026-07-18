@@ -13,15 +13,18 @@ import licence_audit/cli
 import licence_audit/color
 import licence_audit/config
 import licence_audit/error
+import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/manifest
 import licence_audit/notices
 import licence_audit/notices_cache
+import licence_audit/notices_resolve
 import licence_audit/osv
 import licence_audit/policy
 import licence_audit/progress
 import licence_audit/report
+import licence_audit/repository
 import licence_audit/sbom
 import licence_audit/sbom_json
 import licence_audit/sbom_uuid
@@ -123,8 +126,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
         run_notices_options(
           options,
           hex.fetch_package_metadata_from_hex,
-          notices.fetch_hex_tarball_from_hex,
-          notices.fetch_github_tarball_from_github,
+          notices.default_clients(),
           progress.enabled(options.verbosity, "notices"),
         )
       io.print(output)
@@ -147,7 +149,10 @@ pub fn run(args: List(String)) -> RunResult {
 }
 
 fn library_args(args: List(String)) -> List(String) {
-  list.append(args, ["--no-cache"])
+  case list.contains(args, "--no-cache") {
+    True -> args
+    False -> list.append(args, ["--no-cache"])
+  }
 }
 
 pub fn run_with(
@@ -192,14 +197,30 @@ pub fn run_with_notice_clients(
   github_tarball_fetcher: fn(String, String, String) ->
     Result(BitArray, notices.FetchError),
 ) -> RunResult {
+  run_with_full_notice_clients(
+    args,
+    fetcher,
+    notices.clients_with_tarball_fetchers(
+      hex_tarball_fetcher,
+      github_tarball_fetcher,
+    ),
+  )
+}
+
+/// Run with a fully-injected notices client bundle, for exercising the
+/// repository/SPDX fallback with deterministic fakes.
+pub fn run_with_full_notice_clients(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  clients: notices.Clients,
+) -> RunResult {
   let #(result, _) =
     run_with_reporter_and_notices(
       library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,
-      hex_tarball_fetcher,
-      github_tarball_fetcher,
+      clients,
       progress.disabled(),
       color.for_enabled(False),
     )
@@ -232,14 +253,31 @@ pub fn run_with_notice_progress(
     Result(BitArray, notices.FetchError),
   verbosity: progress.Verbosity,
 ) -> #(RunResult, List(progress.Event)) {
+  run_with_full_notice_progress(
+    args,
+    fetcher,
+    notices.clients_with_tarball_fetchers(
+      hex_tarball_fetcher,
+      github_tarball_fetcher,
+    ),
+    verbosity,
+  )
+}
+
+/// Progress-capturing variant of `run_with_full_notice_clients`.
+fn run_with_full_notice_progress(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  clients: notices.Clients,
+  verbosity: progress.Verbosity,
+) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) =
     run_with_reporter_and_notices(
       library_args(args),
       fetcher,
       osv.query_batch_from_osv,
       osv.fetch_vulnerability_from_osv,
-      hex_tarball_fetcher,
-      github_tarball_fetcher,
+      clients,
       progress.capturing(verbosity, "notices"),
       color.for_enabled(False),
     )
@@ -259,8 +297,7 @@ fn run_with_reporter(
     fetcher,
     osv_batch_fetcher,
     osv_detail_fetcher,
-    notices.fetch_hex_tarball_from_hex,
-    notices.fetch_github_tarball_from_github,
+    notices.default_clients(),
     reporter,
     palette,
   )
@@ -271,10 +308,7 @@ fn run_with_reporter_and_notices(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  hex_tarball_fetcher: fn(String, String) ->
-    Result(BitArray, notices.FetchError),
-  github_tarball_fetcher: fn(String, String, String) ->
-    Result(BitArray, notices.FetchError),
+  notice_clients: notices.Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
@@ -318,13 +352,7 @@ fn run_with_reporter_and_notices(
       #(result, reporter)
     }
     Ok(glint.Out(cli.RunNotices(options))) ->
-      run_notices_options(
-        options,
-        fetcher,
-        hex_tarball_fetcher,
-        github_tarball_fetcher,
-        reporter,
-      )
+      run_notices_options(options, fetcher, notice_clients, reporter)
     Ok(glint.Out(cli.GenDocsCompleted)) -> #(RunResult(0, ""), reporter)
     Error(message) -> #(RunResult(1, message <> "\n"), reporter)
   }
@@ -362,10 +390,7 @@ fn run_sbom_options(
 fn run_notices_options(
   options: cli.NoticesOptions,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  hex_tarball_fetcher: fn(String, String) ->
-    Result(BitArray, notices.FetchError),
-  github_tarball_fetcher: fn(String, String, String) ->
-    Result(BitArray, notices.FetchError),
+  clients: notices.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
@@ -426,7 +451,10 @@ fn run_notices_options(
         )
       let reporter = progress.package_count(reporter, list.length(selected))
 
-      case notices.packages_from_entries(selected, scopes, cached_fetcher) {
+      let metadata_for = fn(entry: manifest.SbomEntry) {
+        notice_metadata_for_entry(entry, project_root, cached_fetcher)
+      }
+      case notices.packages_from_entries(selected, scopes, metadata_for) {
         Error(notice_error) -> {
           let _ = cache.close(metadata_cache)
           let _ = notices_cache.close(source_cache)
@@ -450,8 +478,7 @@ fn run_notices_options(
               manifest_path,
               options.output,
               source_cache,
-              hex_tarball_fetcher,
-              github_tarball_fetcher,
+              clients,
               reporter,
             )
           let metadata_warning = cache.close(metadata_cache)
@@ -481,10 +508,7 @@ fn build_notice_entries(
   manifest_path: String,
   output: option.Option(String),
   source_cache: notices_cache.Cache,
-  hex_tarball_fetcher: fn(String, String) ->
-    Result(BitArray, notices.FetchError),
-  github_tarball_fetcher: fn(String, String, String) ->
-    Result(BitArray, notices.FetchError),
+  clients: notices.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let reporter =
@@ -499,15 +523,11 @@ fn build_notice_entries(
           <> describe_source(package.source),
       )
     })
-  let result =
-    notices.entries_from_sources(packages, fn(package) {
-      notices_cache.read_cached(source_cache, package, fn(package) {
-        notices.read_notice_files(
-          package_for_source_read(package, project_root),
-          hex_tarball_fetcher,
-          github_tarball_fetcher,
-        )
-      })
+  let #(result, warnings) =
+    resolve_notice_entries(packages, project_root, source_cache, clients)
+  let reporter =
+    list.fold(warnings, reporter, fn(reporter, warning) {
+      progress.defer_warn(reporter, warning)
     })
 
   case result {
@@ -536,10 +556,147 @@ fn build_notice_entries(
   }
 }
 
+/// Resolve every selected package's licence materials through the fallback
+/// chain, aggregating packages that could not be resolved into a single
+/// `MissingLicenceText` error and collecting all deferred warnings. A hard
+/// error (fetch/checksum/SPDX-network failure) aborts and is returned directly.
+fn resolve_notice_entries(
+  packages: List(notices.NoticePackage),
+  project_root: String,
+  source_cache: notices_cache.Cache,
+  clients: notices.Clients,
+) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
+  resolve_notice_entries_loop(
+    packages,
+    project_root,
+    source_cache,
+    clients,
+    [],
+    [],
+    [],
+  )
+}
+
+fn resolve_notice_entries_loop(
+  packages: List(notices.NoticePackage),
+  project_root: String,
+  source_cache: notices_cache.Cache,
+  clients: notices.Clients,
+  entries: List(notices.NoticeEntry),
+  missing: List(String),
+  warnings: List(String),
+) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
+  case packages {
+    [] ->
+      case list.reverse(missing) {
+        [] -> #(Ok(list.reverse(entries)), warnings)
+        missing_packages -> #(
+          Error(notices.MissingLicenceText(missing_packages)),
+          warnings,
+        )
+      }
+    [package, ..rest] -> {
+      let source_package = package_for_source_read(package, project_root)
+      case notices_resolve.resolve(source_cache, source_package, clients) {
+        Error(error) -> #(Error(error), warnings)
+        Ok(resolution) -> {
+          let warnings = list.append(warnings, resolution.warnings)
+          case resolution.outcome {
+            notices_resolve.Resolved(files) ->
+              resolve_notice_entries_loop(
+                rest,
+                project_root,
+                source_cache,
+                clients,
+                [notices.NoticeEntry(package: package, files: files), ..entries],
+                missing,
+                warnings,
+              )
+            notices_resolve.Missing ->
+              resolve_notice_entries_loop(
+                rest,
+                project_root,
+                source_cache,
+                clients,
+                entries,
+                [package.name, ..missing],
+                warnings,
+              )
+          }
+        }
+      }
+    }
+  }
+}
+
+/// Resolve the metadata (declared licences + repository links) for a notices
+/// package. Hex packages use the shared metadata cache; git and path packages
+/// read their locally checked-out `gleam.toml`.
+fn notice_metadata_for_entry(
+  entry: manifest.SbomEntry,
+  project_root: String,
+  cached_fetcher: fn(String, String) -> Result(hex.PackageMetadata, hex.Error),
+) -> Result(hex.PackageMetadata, notices.Error) {
+  case entry.provenance {
+    manifest.HexProvenance(_, _) ->
+      case cached_fetcher(entry.name, entry.version) {
+        Ok(metadata) -> Ok(metadata)
+        Error(fetch_error) ->
+          Error(notices.MetadataFailed(
+            package: entry.name,
+            reason: hex.describe_error(fetch_error),
+          ))
+      }
+    manifest.GitProvenance(repo, _commit) -> {
+      let repo_url = strip_git_suffix(repo)
+      let path =
+        project_root <> "/build/packages/" <> entry.name <> "/gleam.toml"
+      case read_gleam_toml_metadata(path, repo_url) {
+        Ok(metadata) -> Ok(metadata)
+        Error(_) ->
+          Ok(hex.PackageMetadata(
+            licences: [],
+            description: None,
+            links: [#("Repository", repo_url)],
+            publisher: None,
+          ))
+      }
+    }
+    manifest.PathProvenance(path) ->
+      case
+        read_path_gleam_toml_metadata(resolve_project_path(project_root, path))
+      {
+        Ok(metadata) -> Ok(metadata)
+        Error(_) -> Ok(hex.licences_only([]))
+      }
+    manifest.UnknownProvenance(_) -> Ok(hex.licences_only([]))
+  }
+}
+
+/// Read declared licences and links from a path dependency's `gleam.toml` at
+/// `<dependency_root>/gleam.toml`.
+fn read_path_gleam_toml_metadata(
+  dependency_root: String,
+) -> Result(hex.PackageMetadata, Nil) {
+  use contents <- result.try(
+    simplifile.read(from: dependency_root <> "/gleam.toml")
+    |> result.replace_error(Nil),
+  )
+  use doc <- result.try(toml.parse(contents))
+  let description = option.from_result(toml.get_string(doc, ["description"]))
+  Ok(hex.PackageMetadata(
+    licences: gleam_toml.declared_licences(doc),
+    description: description,
+    links: gleam_toml.links(doc),
+    publisher: None,
+  ))
+}
+
 fn describe_source(source: notices.PackageSource) -> String {
   case source {
     notices.HexPackage(_) -> "Hex"
-    notices.GitHubPackage(repo, _) -> "GitHub " <> repo
+    notices.GitPackage(repo, _url, _commit) ->
+      "git " <> repository.describe(repo)
     notices.PathPackage(path) -> "local path " <> path
   }
 }
@@ -910,62 +1067,21 @@ fn read_gleam_toml_metadata(
   package_metadata_from_gleam_toml(contents, repo_url)
 }
 
-/// Build package metadata from a dependency's `gleam.toml` contents, mirroring
-/// the fields Hex enrichment provides (minus publisher, which gleam.toml
-/// lacks). The repository link is the manifest-recorded git URL (`repo_url`)
-/// rather than gleam.toml's declared `repository`, so it always matches the
-/// component purl/provenance — important when a dependency is sourced from a
-/// fork whose gleam.toml still points at the upstream project.
+/// Build package metadata from a dependency's `gleam.toml` contents. The
+/// repository link is the manifest-recorded git URL (`repo_url`) rather than
+/// gleam.toml's declared `repository`, so it always matches the component
+/// purl/provenance — important when a dependency is sourced from a fork whose
+/// gleam.toml still points at the upstream project. This is a thin wrapper over
+/// `gleam_toml.package_metadata`, retained for backwards compatibility.
 pub fn package_metadata_from_gleam_toml(
   contents: String,
   repo_url: String,
 ) -> Result(hex.PackageMetadata, Nil) {
-  use doc <- result.try(toml.parse(contents))
-  let description = option.from_result(toml.get_string(doc, ["description"]))
-  let licences = case toml.get_array(doc, ["licences"]) {
-    Ok(items) -> list.filter_map(items, toml.as_string)
-    Error(_) -> []
-  }
-  let links = append_repo_link(gleam_toml_links(doc), repo_url)
-  Ok(hex.PackageMetadata(licences:, description:, links:, publisher: None))
-}
-
-/// Parse a gleam.toml `links = [{ title, href }]` array into `#(title, href)`
-/// pairs, skipping malformed entries.
-fn gleam_toml_links(doc: toml.Document) -> List(#(String, String)) {
-  case toml.get_array(doc, ["links"]) {
-    Ok(items) ->
-      list.filter_map(items, fn(value) {
-        use entry <- result.try(toml.as_table(value))
-        use title <- result.try(result.try(
-          toml.field(entry, "title"),
-          toml.as_string,
-        ))
-        use href <- result.try(result.try(
-          toml.field(entry, "href"),
-          toml.as_string,
-        ))
-        Ok(#(title, href))
-      })
-    Error(_) -> []
-  }
-}
-
-/// Append the repository link unless an equivalent URL is already present
-/// (comparing with any trailing `.git` stripped).
-fn append_repo_link(
-  links: List(#(String, String)),
-  repo_url: String,
-) -> List(#(String, String)) {
-  let already_present =
-    list.any(links, fn(pair) { strip_git_suffix(pair.1) == repo_url })
-  use <- bool.guard(when: already_present, return: links)
-  list.append(links, [#("Repository", repo_url)])
+  gleam_toml.package_metadata(contents, repo_url)
 }
 
 fn strip_git_suffix(url: String) -> String {
-  use <- bool.guard(when: !string.ends_with(url, ".git"), return: url)
-  string.drop_end(url, 4)
+  gleam_toml.strip_git_suffix(url)
 }
 
 fn read_root_component(project_root: String) -> sbom.RootComponent {
