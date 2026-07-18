@@ -92,7 +92,7 @@ changelog:
 # Generate a release-ready third-party licence notices file into ./dist/NOTICES.txt
 notices: build
     mkdir -p dist
-    ./licence_audit notices --output=dist/NOTICES.txt
+    ./licence_audit notices --output=THIRD_PARTY_NOTICES.txt
 
 # Generate a reproducible CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
 sbom-generate: build notices

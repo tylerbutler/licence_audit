@@ -1001,10 +1001,9 @@ fn ancillary_notice_entries(entries: List(NoticeEntry)) -> List(NoticeEntry) {
 }
 
 fn is_licence_file(file: NoticeFile) -> Bool {
-  file.path
-  |> drop_optional_current_dir
-  |> basename
-  |> is_licence_basename
+  let path = drop_optional_current_dir(file.path)
+  string.starts_with(path, "SPDX-License-List/")
+  || path |> basename |> is_licence_basename
 }
 
 fn render_licence_group(group: LicenceGroup) -> String {

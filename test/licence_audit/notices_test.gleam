@@ -733,6 +733,48 @@ pub fn render_groups_products_with_identical_licence_text_test() {
   assert string.contains(output, "Beta notice\n")
 }
 
+pub fn render_groups_identical_spdx_fallback_text_test() {
+  let entries = [
+    notices.NoticeEntry(
+      package: package("beta", notices.HexPackage(outer_checksum: "BBBB")),
+      files: [
+        notices.spdx_file(
+          spdx.LicenseRequirement("Apache-2.0"),
+          "Canonical Apache text\n",
+        ),
+        notices.NoticeFile(path: "./NOTICE.txt", contents: "Beta notice\n"),
+      ],
+    ),
+    notices.NoticeEntry(
+      package: package("alpha", notices.HexPackage(outer_checksum: "AAAA")),
+      files: [
+        notices.spdx_file(
+          spdx.LicenseRequirement("Apache-2.0"),
+          "Canonical Apache text",
+        ),
+      ],
+    ),
+  ]
+
+  let output = notices.render(entries, manifest_path: "manifest.toml")
+
+  should.equal(
+    list.length(string.split(output, on: "Canonical Apache text\n")),
+    2,
+  )
+  should.equal(
+    list.length(string.split(output, on: "Products using this licence:\n")),
+    2,
+  )
+  assert string.contains(
+    output,
+    "Licence files: SPDX-License-List/Apache-2.0.txt",
+  )
+  assert !string.contains(output, "Additional notices for alpha")
+  assert string.contains(output, "Additional notices for beta 1.0.0")
+  assert string.contains(output, "Notice files: ./NOTICE.txt")
+}
+
 pub fn render_unknown_declared_licences_test() {
   let entry =
     notices.NoticeEntry(
