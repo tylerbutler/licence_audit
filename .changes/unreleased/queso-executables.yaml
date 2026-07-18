@@ -1,3 +1,0 @@
-kind: Added
-body: Added self-contained release archives for Linux (glibc and musl), macOS, and Windows x86_64 alongside the existing escript artifacts.
-time: 2026-06-24T17:37:19.372-07:00

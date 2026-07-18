@@ -1,3 +1,0 @@
-kind: Added
-body: SBOM generation now enriches git-sourced dependencies with descriptions, licences, and repository links, and warns when package metadata is unavailable.
-time: 2026-06-26T20:05:00.000-07:00

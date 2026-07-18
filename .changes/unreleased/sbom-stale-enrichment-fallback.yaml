@@ -1,3 +1,0 @@
-kind: Fixed
-body: SBOM generation now preserves cached package metadata during transient Hex failures and warns when metadata is stale or unavailable.
-time: 2026-06-26T18:45:00.000-07:00
