@@ -3,13 +3,13 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
-import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import licence_audit/httpc_adaptive
 
 pub type PackageMetadata {
   PackageMetadata(
@@ -89,11 +89,7 @@ pub fn fetch_package_metadata_from_hex(
 /// built-in `httpc` (TLS verified by default).
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req = request.set_header(req, "user-agent", "licence_audit")
-  case
-    httpc.configure()
-    |> httpc.timeout(5000)
-    |> httpc.dispatch(req)
-  {
+  case httpc_adaptive.dispatch(req, timeout_ms: 5000) {
     Ok(response) -> Ok(response)
     Error(error) -> Error(NetworkFailure(describe_http_error(error)))
   }
@@ -102,23 +98,11 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
 /// Render an `httpc` transport error into a concise reason string so callers
 /// can report *why* a Hex request failed (DNS/connection, TLS, or timeout)
 /// rather than a generic "request failed".
-fn describe_http_error(error: httpc.HttpError) -> String {
+fn describe_http_error(error: httpc_adaptive.Error) -> String {
   case error {
-    httpc.InvalidUtf8Response -> "response was not valid UTF-8"
-    httpc.ResponseTimeout -> "no response within 5s timeout"
-    httpc.FailedToConnect(ip4, ip6) ->
-      "could not connect (IPv4: "
-      <> describe_connect_error(ip4)
-      <> ", IPv6: "
-      <> describe_connect_error(ip6)
-      <> ")"
-  }
-}
-
-fn describe_connect_error(error: httpc.ConnectError) -> String {
-  case error {
-    httpc.Posix(code) -> code
-    httpc.TlsAlert(code, detail) -> "TLS " <> code <> " (" <> detail <> ")"
+    httpc_adaptive.InvalidUtf8Response -> "response was not valid UTF-8"
+    httpc_adaptive.ResponseTimeout -> "no response within 5s timeout"
+    httpc_adaptive.FailedToConnect(reason) -> "could not connect: " <> reason
   }
 }
 

@@ -14,6 +14,7 @@ import licence_audit/color
 import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import licence_audit/manifest
 import licence_audit/osv
 import licence_audit/policy
@@ -65,18 +66,21 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, command),
           palette,
         )
+      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
     }
     cli.UpdateConfig(options) -> {
-      let #(update_cmd.UpdateResult(exit_code, output), _) =
+      let #(update_cmd.UpdateResult(exit_code, output), reporter) =
         run_update_options(
           options,
           hex.fetch_package_metadata_from_hex,
           progress.enabled(options.verbosity, "update"),
         )
+      let reporter = apply_http_warning(reporter)
       io.print(output)
+      let _ = progress.flush(reporter)
       halt(exit_code)
     }
     cli.InvalidUsage(message) -> {
@@ -92,6 +96,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
           osv.fetch_vulnerability_from_osv,
           progress.enabled(options.verbosity, "sbom"),
         )
+      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
@@ -106,11 +111,19 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, "vulns"),
           palette,
         )
+      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
     }
     cli.GenDocsCompleted -> Nil
+  }
+}
+
+fn apply_http_warning(reporter: progress.Reporter) -> progress.Reporter {
+  case httpc_adaptive.take_warning() {
+    Some(message) -> progress.defer_warn(reporter, message)
+    None -> reporter
   }
 }
 
