@@ -15,12 +15,12 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Https, Post}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
-import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import licence_audit/httpc_adaptive
 
 pub type Severity {
   Low
@@ -133,11 +133,7 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
     Post -> request.set_header(req, "content-type", "application/json")
     _ -> req
   }
-  case
-    httpc.configure()
-    |> httpc.timeout(osv_timeout_ms)
-    |> httpc.dispatch(req)
-  {
+  case httpc_adaptive.dispatch(req, timeout_ms: osv_timeout_ms) {
     Ok(response) -> Ok(response)
     Error(_) -> Error(NetworkFailure)
   }
