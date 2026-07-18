@@ -1,0 +1,3 @@
+kind: Changed
+body: The `notices` command now groups products with identical licence text and emits that shared text once while keeping package-specific NOTICE content separate.
+time: 2026-07-18T10:41:41.162-07:00
