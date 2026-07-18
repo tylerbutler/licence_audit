@@ -1,3 +1,3 @@
 kind: Added
-body: '`notices` now caches the extracted licence/notice files it downloads from Hex and GitHub in `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v1.dets`, so repeated runs don''t re-download package sources. The cache is keyed by content address (Hex `outer_checksum` or GitHub commit) and never expires; path dependencies are read live. `notices` also now shares the Hex metadata cache and honours `--no-cache` (previously accepted but ignored) and `--cache-path` (which overrides the metadata cache file).'
+body: Added persistent caching to `notices` so repeated runs reuse downloaded licence and `NOTICE` material and Hex metadata. `--no-cache` bypasses the cache, and `--cache-path` selects the metadata cache file.
 time: 2026-06-27T10:54:00.000-07:00

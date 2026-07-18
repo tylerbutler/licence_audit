@@ -1,3 +1,3 @@
 kind: Added
-body: Added `-v` as a short alias for `--verbose`, and the `notices` command now emits detailed verbose progress (per-package fetch source, licence-file counts, and phase steps) when run with `--verbose`/`-v`.
+body: Added `-v` as an alias for `--verbose`; verbose `notices` runs now show per-package source selection, licence-file discovery, and processing progress.
 time: 2026-06-27T08:38:13.136-07:00

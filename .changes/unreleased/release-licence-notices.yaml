@@ -1,3 +1,3 @@
 kind: Added
-body: Added a `notices` command that generates a release-ready third-party licence notices text file from locked dependencies, extracting each package's licence text from its source archive. Use `--output PATH` to write to a file instead of stdout.
+body: Added a `notices` command that generates a release-ready `THIRD_PARTY_NOTICES`-style file for locked dependencies, writing to stdout by default or a file with `--output PATH`.
 time: 2026-06-26T23:14:45.728-07:00
