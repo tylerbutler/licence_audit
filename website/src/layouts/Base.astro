@@ -4,6 +4,7 @@ import "@fontsource-variable/hanken-grotesk";
 import "@fontsource-variable/jetbrains-mono";
 import "../styles/tokens.css";
 import "../styles/global.css";
+import ReleaseBar from "../components/ReleaseBar.astro";
 import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
 
@@ -44,6 +45,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
   </head>
   <body>
     <a href="#main" class="skip-link">Skip to content</a>
+    <ReleaseBar />
     <Nav />
     <main id="main">
       <slot />

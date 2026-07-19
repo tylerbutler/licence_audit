@@ -51,6 +51,7 @@ exits non-zero on a policy violation.
 | Command | What it does |
 |---|---|
 | [`check`](/docs/check) | Report metadata **and** enforce the licence policy, exiting non-zero on violations. |
+| [`notices`](/docs/notices) | Bundle a release-ready third-party licence notices file. Does not evaluate policy. |
 | [`sbom`](/docs/sbom) | Generate a CycloneDX 1.6 JSON SBOM. Does not evaluate policy. |
 | [`update`](/docs/update) | Interactively review licences and write a policy into `gleam.toml`. |
 | [`vulns`](/docs/vulns) | Report known vulnerabilities from OSV.dev. Does not evaluate policy. |
