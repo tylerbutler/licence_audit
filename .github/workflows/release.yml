@@ -38,7 +38,7 @@ jobs:
           version-files: |
             gleam.toml:version
           pr-title-template: 'release: {version}'
-          post-batch-command: just sbom-generate
+          post-batch-command: just sbom-generate notices
 
       - name: Summary
         if: steps.release.outputs.skipped != 'true'

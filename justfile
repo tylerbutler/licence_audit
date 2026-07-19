@@ -95,7 +95,7 @@ notices: build
     ./licence_audit notices --output=THIRD_PARTY_NOTICES.txt
 
 # Generate a reproducible CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
-sbom-generate: build notices
+sbom-generate: build
     mkdir -p dist
     ./licence_audit sbom --reproducible --output=dist/sbom.json --cache-path={{hex_cache}}
 

@@ -67,7 +67,7 @@ discarded_result = "off"
 [tools.licence_audit]
 # any license types not listed here will be treated as unknown and will
 # cause an audit check to fail
-allow = ["Apache-2.0", "ISC", "MIT"] # add more here as needed
+allow = ["Apache-2.0", "BSD-3-Clause", "ISC", "MIT"] # add more here as needed
 
 # license types listed here will cause an audit check to fail if they 
 # are found in the locked dependencies
