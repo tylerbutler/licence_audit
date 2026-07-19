@@ -36,23 +36,23 @@ colors:
   term-muted: "oklch(0.66 0.012 320)"
 typography:
   display:
-    fontFamily: "Bricolage Grotesque Variable, system-ui, sans-serif"
+    fontFamily: "Fraunces Variable, Georgia, serif"
     fontSize: "clamp(2.5rem, 1.55rem + 4.4vw, 4.5rem)"
     fontWeight: 700
     lineHeight: 1.08
-    letterSpacing: "-0.02em"
+    letterSpacing: "-0.01em"
   headline:
-    fontFamily: "Bricolage Grotesque Variable, system-ui, sans-serif"
+    fontFamily: "Fraunces Variable, Georgia, serif"
     fontSize: "clamp(1.6rem, 1.34rem + 1.25vw, 2.25rem)"
     fontWeight: 700
     lineHeight: 1.08
-    letterSpacing: "-0.02em"
+    letterSpacing: "-0.01em"
   title:
-    fontFamily: "Bricolage Grotesque Variable, system-ui, sans-serif"
+    fontFamily: "Fraunces Variable, Georgia, serif"
     fontSize: "clamp(1.25rem, 1.14rem + 0.5vw, 1.5rem)"
     fontWeight: 700
     lineHeight: 1.25
-    letterSpacing: "-0.01em"
+    letterSpacing: "normal"
   body:
     fontFamily: "Hanken Grotesk Variable, system-ui, sans-serif"
     fontSize: "1.0625rem"
@@ -200,20 +200,21 @@ terminal (hero, Expressive Code blocks). Everything else is flat and light.
 
 ## 3. Typography
 
-**Display Font:** Bricolage Grotesque Variable (with `system-ui` fallback)
+**Display Font:** Fraunces Variable (with `Georgia`/serif fallback), optical sizing on
 **Body Font:** Hanken Grotesk Variable (with `system-ui` fallback)
 **Mono Font:** JetBrains Mono Variable (with `ui-monospace` fallback)
 
-**Character:** An expressive, slightly quirky grotesque (Bricolage) carries the
-brand voice and headings; a clean, neutral humanist sans (Hanken) does the
-reading work — a deliberate expressive-display / neutral-body contrast, not two
-similar sans. Monospace appears only where output, commands, and code are
-literal — it is honest here, never costume.
+**Character:** A soft, characterful display serif (Fraunces — with its `opsz`,
+`SOFT`, and `WONK` axes) carries the brand voice and headings; a clean, neutral
+humanist sans (Hanken) does the reading work — a deliberate expressive-serif /
+neutral-sans contrast that reads crafted and honest, not generic-SaaS. Monospace
+appears only where output, commands, and code are literal — it is honest here,
+never costume.
 
 ### Hierarchy
-- **Display** (Bricolage 700, `clamp(2.5rem, 1.55rem + 4.4vw, 4.5rem)`, lh 1.08, ls −0.02em): the hero headline; one per page.
-- **Headline** (Bricolage 700, `clamp(1.6rem, … , 2.25rem)`): section headings (`h2`).
-- **Title** (Bricolage 700, `clamp(1.25rem, … , 1.5rem)`, lh 1.25): sub-section and step headings (`h3`).
+- **Display** (Fraunces 700, `clamp(2.5rem, 1.55rem + 4.4vw, 4.5rem)`, lh 1.08, ls −0.01em, optical sizing auto): the hero headline; one per page.
+- **Headline** (Fraunces 700, `clamp(1.6rem, … , 2.25rem)`, ls −0.01em): section headings (`h2`).
+- **Title** (Fraunces 700, `clamp(1.25rem, … , 1.5rem)`, lh 1.25, ls normal): sub-section and step headings (`h3`).
 - **Body** (Hanken 400, `1.0625rem`/17px, lh 1.62): prose, capped at 65–75ch (`.docs__main` 48rem, section text 42–46ch).
 - **Label** (Hanken 700, `0.8125rem`, ls 0.09em, uppercase): footer and docs nav group headers only.
 - **Mono / Data** (JetBrains 400, `0.9rem`, lh 1.75): terminal output, commands, code, package names. Tabular-nums on version columns.
@@ -223,7 +224,7 @@ literal — it is honest here, never costume.
 code or terminal output. If it's brand copy, it's the sans. Mono as decoration
 is prohibited.
 
-**The Two-Voice Rule.** Bricolage speaks (display, personality); Hanken reads
+**The Two-Voice Rule.** Fraunces speaks (display, personality); Hanken reads
 (body, UI). They never swap roles.
 
 ## 4. Elevation
