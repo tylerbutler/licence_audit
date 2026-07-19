@@ -1,0 +1,81 @@
+---
+/**
+ * A dark terminal window — the one dark surface in the system (DESIGN.md:
+ * The Flat-By-Default Rule allows the hero terminal its lift).
+ * Renders window chrome + a horizontally-scrollable body. Content via slot.
+ */
+interface Props {
+  title?: string;
+  lift?: boolean;
+  class?: string;
+  bodyId?: string;
+}
+const { title, lift = false, class: klass, bodyId } = Astro.props;
+---
+
+<div class:list={["term", { "term--lift": lift }, klass]}>
+  <div class="term__bar">
+    <span class="term__dots" aria-hidden="true">
+      <i class="term__dot term__dot--pink"></i>
+      <i class="term__dot"></i>
+      <i class="term__dot"></i>
+    </span>
+    {title && <span class="term__title">{title}</span>}
+    <span class="term__spacer" aria-hidden="true"></span>
+  </div>
+  <div class="term__body" id={bodyId}>
+    <slot />
+  </div>
+</div>
+
+<style>
+  .term {
+    background: var(--term-bg);
+    border: 1px solid var(--term-border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+  }
+  .term--lift {
+    box-shadow: var(--shadow-term);
+  }
+  .term__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1rem;
+    background: var(--term-bar);
+    border-bottom: 1px solid var(--term-border);
+  }
+  .term__dots {
+    display: inline-flex;
+    gap: 0.45rem;
+    flex: none;
+  }
+  .term__dot {
+    width: 0.72rem;
+    height: 0.72rem;
+    border-radius: var(--r-full);
+    background: color-mix(in oklch, var(--term-fg) 22%, transparent);
+  }
+  .term__dot--pink {
+    background: var(--pink);
+  }
+  .term__title {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--term-dim);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .term__spacer {
+    flex: 1;
+  }
+  .term__body {
+    padding: 1.1rem clamp(1rem, 0.6rem + 1.2vw, 1.6rem) 1.35rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+</style>

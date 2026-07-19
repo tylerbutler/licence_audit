@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-18T00:00:00Z",
+  "title": "Design System: licence_audit",
+  "extensions": {
+    "colorMeta": {
+      "pink": {
+        "role": "primary",
+        "displayName": "Warm Pink",
+        "canonical": "oklch(0.66 0.19 352)",
+        "tonalRamp": [
+          "oklch(0.18 0.09 352)",
+          "oklch(0.28 0.14 352)",
+          "oklch(0.38 0.18 352)",
+          "oklch(0.48 0.20 352)",
+          "oklch(0.58 0.20 352)",
+          "oklch(0.66 0.19 352)",
+          "oklch(0.80 0.12 352)",
+          "oklch(0.94 0.045 352)"
+        ]
+      },
+      "pass-ink": {
+        "role": "secondary",
+        "displayName": "Pass Green",
+        "canonical": "oklch(0.50 0.13 155)",
+        "tonalRamp": [
+          "oklch(0.20 0.06 153)",
+          "oklch(0.30 0.09 153)",
+          "oklch(0.40 0.11 154)",
+          "oklch(0.50 0.13 155)",
+          "oklch(0.62 0.15 152)",
+          "oklch(0.72 0.16 150)",
+          "oklch(0.84 0.12 150)",
+          "oklch(0.94 0.05 152)"
+        ]
+      },
+      "deny-ink": {
+        "role": "secondary",
+        "displayName": "Deny Red",
+        "canonical": "oklch(0.515 0.21 25)",
+        "tonalRamp": [
+          "oklch(0.22 0.09 25)",
+          "oklch(0.32 0.14 25)",
+          "oklch(0.42 0.18 25)",
+          "oklch(0.515 0.21 25)",
+          "oklch(0.62 0.21 24)",
+          "oklch(0.72 0.19 22)",
+          "oklch(0.84 0.12 22)",
+          "oklch(0.945 0.05 25)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Plum Ink",
+        "canonical": "oklch(0.25 0.02 335)",
+        "tonalRamp": [
+          "oklch(0.20 0.02 335)",
+          "oklch(0.25 0.02 335)",
+          "oklch(0.40 0.018 335)",
+          "oklch(0.505 0.016 335)",
+          "oklch(0.62 0.012 338)",
+          "oklch(0.75 0.01 340)",
+          "oklch(0.905 0.008 340)",
+          "oklch(0.985 0.004 340)"
+        ]
+      },
+      "term-bg": {
+        "role": "neutral",
+        "displayName": "Terminal Plum-Black",
+        "canonical": "oklch(0.215 0.022 320)",
+        "tonalRamp": [
+          "oklch(0.18 0.02 320)",
+          "oklch(0.215 0.022 320)",
+          "oklch(0.275 0.022 320)",
+          "oklch(0.33 0.02 320)",
+          "oklch(0.50 0.016 320)",
+          "oklch(0.68 0.012 320)",
+          "oklch(0.83 0.01 320)",
+          "oklch(0.925 0.008 320)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Hero headline and section headings — Bricolage Grotesque, expressive and warm."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Prose and UI — Hanken Grotesk, neutral humanist, does the reading work."
+      },
+      "mono": {
+        "displayName": "Mono / Data",
+        "purpose": "Literal terminal output, commands, code, package names — JetBrains Mono only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-card",
+        "value": "0 1px 2px oklch(0.3 0.03 320 / 0.05), 0 6px 18px -12px oklch(0.3 0.05 320 / 0.14)",
+        "purpose": "Quiet lift on secondary buttons, the GitHub nav pill, and Expressive Code frames."
+      },
+      {
+        "name": "shadow-term",
+        "value": "0 2px 6px oklch(0.25 0.04 320 / 0.16), 0 34px 64px -26px oklch(0.55 0.16 350 / 0.42), 0 14px 30px -18px oklch(0.3 0.05 320 / 0.28)",
+        "purpose": "The hero terminal only — a warm pink-tinted glow lifting the signature object."
+      },
+      {
+        "name": "shadow-pop",
+        "value": "0 12px 32px -10px oklch(0.3 0.05 320 / 0.22)",
+        "purpose": "Reserved for future overlays / popovers."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quart",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Default easing for hovers and state transitions."
+      },
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Longer, more dramatic reveals."
+      },
+      { "name": "dur-fast", "value": "130ms", "purpose": "Hover / colour changes." },
+      { "name": "dur", "value": "220ms", "purpose": "Standard transition." },
+      { "name": "dur-slow", "value": "420ms", "purpose": "Reveals." }
+    ],
+    "breakpoints": [
+      { "name": "xs", "value": "34rem" },
+      { "name": "sm", "value": "40rem" },
+      { "name": "docs", "value": "52rem" },
+      { "name": "md", "value": "60rem" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Pink pill with dark ink text — the main CTA (View on GitHub).",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">View on GitHub</a>",
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; gap:0.5rem; font-family:var(--font-sans); font-weight:600; font-size:1.0625rem; text-decoration:none; padding:0.85rem 1.5rem; border-radius:var(--r-full); background:var(--pink); color:oklch(0.2 0.02 335); box-shadow:0 1px 0 oklch(1 0 0 / 0.35) inset, 0 8px 20px -10px oklch(0.6 0.19 352 / 0.7); transition:transform 130ms cubic-bezier(0.25,1,0.5,1), background-color 130ms, box-shadow 220ms; } .ds-btn-primary:hover { background:var(--pink-hover); transform:translateY(-2px); } .ds-btn-primary:focus-visible { outline:2.5px solid var(--pink-link); outline-offset:2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Surface pill with a hairline that borders pink on hover.",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Read the docs</a>",
+      "css": ".ds-btn-secondary { display:inline-flex; align-items:center; gap:0.5rem; font-family:var(--font-sans); font-weight:600; font-size:1.0625rem; text-decoration:none; padding:0.85rem 1.5rem; border-radius:var(--r-full); background:var(--surface); color:var(--ink); border:1px solid var(--border-strong); box-shadow:0 1px 2px oklch(0.3 0.03 320 / 0.05), 0 6px 18px -12px oklch(0.3 0.05 320 / 0.14); transition:border-color 130ms, transform 130ms cubic-bezier(0.25,1,0.5,1); } .ds-btn-secondary:hover { border-color:var(--pink); transform:translateY(-2px); } .ds-btn-secondary:focus-visible { outline:2.5px solid var(--pink-link); outline-offset:2px; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Pink-soft pill with a leading icon; kicker for the hero and sections.",
+      "html": "<span class=\"ds-badge\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"4 17 10 11 4 5\"/><line x1=\"12\" x2=\"20\" y1=\"19\" y2=\"19\"/></svg>Gleam supply-chain auditing</span>",
+      "css": ".ds-badge { display:inline-flex; align-items:center; gap:0.45rem; font-family:var(--font-sans); font-size:0.9375rem; font-weight:600; color:var(--pink-link); background:var(--pink-soft); border:1px solid color-mix(in oklch, var(--pink) 25%, transparent); padding:0.35rem 0.75rem 0.35rem 0.6rem; border-radius:var(--r-full); }"
+    },
+    {
+      "name": "GitHub Nav Pill",
+      "kind": "nav",
+      "refersTo": "nav-github",
+      "description": "Bordered surface pill in the sticky nav; lifts on hover.",
+      "html": "<a class=\"ds-navgh\" href=\"#\"><svg viewBox=\"0 0 16 16\" width=\"17\" height=\"17\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z\"/></svg><span>GitHub</span></a>",
+      "css": ".ds-navgh { display:inline-flex; align-items:center; gap:0.45rem; font-family:var(--font-sans); font-weight:600; font-size:0.9375rem; color:var(--ink); text-decoration:none; padding:0.5rem 0.85rem; border:1px solid var(--border-strong); border-radius:var(--r-full); background:var(--surface); transition:border-color 130ms, transform 130ms cubic-bezier(0.25,1,0.5,1), box-shadow 130ms; } .ds-navgh:hover { border-color:var(--pink); transform:translateY(-1px); box-shadow:0 1px 2px oklch(0.3 0.03 320 / 0.05), 0 6px 18px -12px oklch(0.3 0.05 320 / 0.14); }"
+    },
+    {
+      "name": "Active Docs Link",
+      "kind": "nav",
+      "refersTo": "nav-link-active",
+      "description": "Sidebar item in its active state — a pink-soft pill, no side-stripe.",
+      "html": "<a class=\"ds-docslink is-active\" href=\"#\"><span class=\"ds-mono\">check</span></a>",
+      "css": ".ds-docslink { display:block; padding:0.4rem 0.7rem; border-radius:var(--r-sm); color:var(--ink-2); text-decoration:none; font-family:var(--font-sans); font-size:0.9375rem; font-weight:500; } .ds-docslink .ds-mono { font-family:var(--font-mono); font-size:0.92em; } .ds-docslink:hover { background:var(--bg-sunken); color:var(--ink); } .ds-docslink.is-active { background:var(--pink-soft); color:var(--pink-link); font-weight:600; }"
+    },
+    {
+      "name": "Terminal Window",
+      "kind": "custom",
+      "refersTo": "terminal",
+      "description": "The signature dark terminal — window chrome + a mono body.",
+      "html": "<div class=\"ds-term\"><div class=\"ds-term-bar\"><span class=\"ds-dot ds-dot-pink\"></span><span class=\"ds-dot\"></span><span class=\"ds-dot\"></span><span class=\"ds-term-title\">licence_audit — check</span></div><pre class=\"ds-term-body\"><span class=\"ds-sig\">$</span> licence_audit check</pre></div>",
+      "css": ".ds-term { background:var(--term-bg); border:1px solid var(--term-border); border-radius:var(--r-lg); overflow:hidden; box-shadow:0 2px 6px oklch(0.25 0.04 320 / 0.16), 0 34px 64px -26px oklch(0.55 0.16 350 / 0.42); } .ds-term-bar { display:flex; align-items:center; gap:0.75rem; padding:0.7rem 1rem; background:var(--term-bar); border-bottom:1px solid var(--term-border); } .ds-dot { width:0.72rem; height:0.72rem; border-radius:var(--r-full); background:color-mix(in oklch, var(--term-fg) 22%, transparent); } .ds-dot-pink { background:var(--pink); } .ds-term-title { font-family:var(--font-mono); font-size:0.78rem; color:var(--term-dim); } .ds-term-body { margin:0; padding:1.1rem 1.4rem; font-family:var(--font-mono); font-size:0.9rem; line-height:1.75; color:var(--term-fg); } .ds-sig { color:var(--pink-bright); font-weight:700; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Honest Terminal",
+    "overview": "licence_audit tells you the truth about your dependencies, warmly — and the website is that same terminal rendered as a page. A calm off-white ground, a single dark terminal as the hero, a warm pink that nods to Gleam without impersonating it, and a status palette lifted straight from the CLI's own report glyphs (green = allowed, red = denied, grey = skipped/unknown). The design demonstrates the product instead of describing it. The voice is playful and approachable but never sloppy; confidence comes from being clear and correct, in the spirit of Charm's warmth and Bun/Biome's code-forward directness.",
+    "keyCharacteristics": [
+      "Warm pink (oklch(0.66 0.19 352)) as a deliberate Gleam nod, used as accent — never drenching.",
+      "A semantic status palette (pass green / deny red / muted grey) drawn from the CLI's glyphs.",
+      "Real terminal output as the hero, not abstract feature copy.",
+      "One dark terminal surface on an otherwise flat, off-white page.",
+      "Playful, approachable display type over an exacting, high-contrast reading experience."
+    ],
+    "rules": [
+      { "name": "The Report-Truth Rule", "body": "Status colours mean exactly what they mean in the CLI. Never use deny-red decoratively or pass-green for a non-passing thing; the palette is documentation, so keep it honest.", "section": "colors" },
+      { "name": "The Pink-Nod Rule", "body": "Pink signals kinship with Gleam, never identity theft. It carries accents, one CTA field, and the mark — never a drenched surface.", "section": "colors" },
+      { "name": "The One-Terminal Rule", "body": "There is exactly one family of dark surface: the terminal (hero, Expressive Code blocks). Everything else is flat and light.", "section": "colors" },
+      { "name": "The Mono-Is-Real Rule", "body": "Monospace is reserved for things that are literally code or terminal output. If it's brand copy, it's the sans.", "section": "typography" },
+      { "name": "The Two-Voice Rule", "body": "Bricolage speaks (display, personality); Hanken reads (body, UI). They never swap roles.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. The hero terminal is the single sanctioned exception; depth elsewhere is tone and spacing, not shadow.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do put real audit output on the page — the actual ✓ ✗ ? · glyphs, tree indentation, and status colours — as the hero. Show, don't tell.",
+      "Do keep status colours semantically honest: green = allowed, red = denied, grey = skipped/unknown.",
+      "Do reserve monospace for literal terminal output, commands, and code.",
+      "Do lead with the install command and the GitHub CTA.",
+      "Do hold body text to 65–75ch and verify every text colour clears WCAG AA.",
+      "Do keep motion to one signature hero moment plus quiet feedback; ship an already-visible default and give every animation a reduced-motion path.",
+      "Do add min-width: 0 to any grid item holding a code block so it scrolls internally instead of blowing out the track."
+    ],
+    "donts": [
+      "Don't build a generic SaaS landing page: no gradient hero, no three identical feature cards, no big-number stat band, no purple-blue gradients.",
+      "Don't reach for the corporate enterprise-security look: no navy-and-gold compliance theatre, no stock photos of locks or shields, no fear-based selling.",
+      "Don't let pink drench the surface or impersonate Gleam's identity — it's an accent and a nod.",
+      "Don't use a warm-tinted cream/sand background; the ground is a calm, true off-white (oklch(0.985 0.004 340)).",
+      "Don't use monospace as shorthand for 'technical.' If it isn't real code or output, it's the sans.",
+      "Don't use border-left/right > 1px as a coloured accent stripe; use a pink-soft fill, a full border, or a leading glyph.",
+      "Don't gate content visibility on a class-triggered reveal; the report must render even when the animation never fires."
+    ]
+  }
+}
