@@ -15,7 +15,7 @@ Products using this licence:
     Source: hex
     Declared licences: Apache-2.0
     Licence files: SPDX-License-List/Apache-2.0.txt
-  gleam_javascript 1.0.0
+  gleam_javascript 1.0.1
     Source: hex
     Declared licences: Apache-2.0
     Licence files: SPDX-License-List/Apache-2.0.txt
@@ -35,7 +35,7 @@ Products using this licence:
     Source: hex
     Declared licences: Apache-2.0
     Licence files: SPDX-License-List/Apache-2.0.txt
-  simplifile 2.4.0
+  simplifile 2.6.0
     Source: hex
     Declared licences: Apache-2.0
     Licence files: SPDX-License-List/Apache-2.0.txt
@@ -1164,7 +1164,7 @@ Products using this licence:
 ================================================================================
 Products using this licence:
   glint 1.3.0
-    Source: git https://github.com/tylerbutler/glint.git @ c082b4afef5dc35bacaf03a2921284c527e6afeb
+    Source: git https://github.com/tylerbutler/glint.git @ 6b72c59f2ae7a09672650d6dd2295ec9930c4ebe
     Declared licences: Apache-2.0
     Licence files: LICENSE
 --------------------------------------------------------------------------------
