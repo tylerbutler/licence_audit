@@ -13,7 +13,7 @@
     "@fontsource-variable/fraunces": "^5.2.9",
     "@fontsource-variable/hanken-grotesk": "^5.2.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.0",
-    "astro": "^5.13.0",
+    "astro": "^6.4.6",
     "astro-expressive-code": "^0.44.0"
   }
 }
