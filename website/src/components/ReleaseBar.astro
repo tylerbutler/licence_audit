@@ -1,13 +1,13 @@
 ---
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 // Announces the most recent release. The version is read from the project's
 // gleam.toml at build time, so a release bump flows through automatically.
-const gleamToml = readFileSync(
-  fileURLToPath(new URL("../../../gleam.toml", import.meta.url)),
-  "utf8",
-);
+// Resolved from process.cwd() (the website/ dir) rather than import.meta.url:
+// Vite relocates this component into dist/.prerender/chunks/ during build,
+// which would change the relative path from the source location.
+const gleamToml = readFileSync(join(process.cwd(), "..", "gleam.toml"), "utf8");
 const versionMatch = gleamToml.match(/^\s*version\s*=\s*"([^"]+)"/m);
 if (!versionMatch) {
   throw new Error("Could not read version from gleam.toml");
