@@ -1,0 +1,67 @@
+---
+/**
+ * licence_audit logo.
+ * The mark: a rounded "package" with a checkmark — a verified dependency.
+ * Warm pink (a nod to Gleam) with a round-capped, slightly jaunty check.
+ * variant="full" adds the wordmark, with the underscore picked out in pink
+ * (the name is a literal command, so the mono-flavoured underscore is honest).
+ */
+interface Props {
+  size?: number;
+  variant?: "mark" | "full";
+  class?: string;
+}
+const { size = 30, variant = "full", class: klass } = Astro.props;
+---
+
+<span class:list={["logo", klass]} data-variant={variant}>
+  <svg
+    class="logo__mark"
+    width={size}
+    height={size}
+    viewBox="0 0 32 32"
+    fill="none"
+    role="img"
+    aria-label={variant === "mark" ? "licence_audit" : undefined}
+    aria-hidden={variant === "full" ? "true" : undefined}
+  >
+    <rect x="2" y="2" width="28" height="28" rx="8.5" fill="var(--pink)"></rect>
+    <path
+      d="M9.5 16.6 L14 21.2 L22.8 10.6"
+      stroke="#fff"
+      stroke-width="3.3"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    ></path>
+  </svg>
+  {
+    variant === "full" && (
+      <span class="logo__word">
+        licence<span class="logo__us">_</span>audit
+      </span>
+    )
+  }
+</span>
+
+<style>
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    line-height: 1;
+  }
+  .logo__mark {
+    flex: none;
+    filter: drop-shadow(0 2px 6px oklch(0.6 0.17 350 / 0.28));
+  }
+  .logo__word {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.18rem;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .logo__us {
+    color: var(--pink-link);
+  }
+</style>

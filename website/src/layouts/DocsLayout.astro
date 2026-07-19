@@ -1,0 +1,339 @@
+---
+import Base from "./Base.astro";
+import Icon from "../components/Icon.astro";
+
+interface Props {
+  frontmatter?: { title?: string; description?: string };
+  title?: string;
+  description?: string;
+}
+const fm = Astro.props.frontmatter ?? {};
+const title = fm.title ?? Astro.props.title ?? "Documentation";
+const description = fm.description ?? Astro.props.description;
+const repo = "https://github.com/tylerbutler/licence_audit";
+const { pathname } = Astro.url;
+const here = pathname.replace(/\/$/, "") || "/docs";
+
+const nav = [
+  {
+    label: "Overview",
+    items: [{ href: "/docs", text: "Quick start", mono: false }],
+  },
+  {
+    label: "Commands",
+    items: [
+      { href: "/docs/check", text: "check", mono: true },
+      { href: "/docs/sbom", text: "sbom", mono: true },
+      { href: "/docs/update", text: "update", mono: true },
+      { href: "/docs/vulns", text: "vulns", mono: true },
+    ],
+  },
+];
+---
+
+<Base title={`${title} — licence_audit`} description={description}>
+  <div class="docs container">
+    <aside class="docs__side" aria-label="Documentation">
+      <nav class="docs__nav">
+        {
+          nav.map((group) => (
+            <div class="docs__group">
+              <p class="docs__group-h">{group.label}</p>
+              <ul>
+                {group.items.map((it) => {
+                  const active = here === it.href;
+                  return (
+                    <li>
+                      <a
+                        href={it.href}
+                        class:list={["docs__link", { "is-active": active }]}
+                        aria-current={active ? "page" : undefined}
+                      >
+                        <span class:list={{ "docs__mono": it.mono }}>{it.text}</span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))
+        }
+      </nav>
+    </aside>
+
+    <article class="docs__main">
+      <header class="docs__head">
+        <nav class="docs__crumb" aria-label="Breadcrumb">
+          <a href="/">Home</a>
+          <span aria-hidden="true">/</span>
+          <a href="/docs">Docs</a>
+        </nav>
+        <h1>{title}</h1>
+        {description && <p class="docs__lead">{description}</p>}
+      </header>
+
+      <div class="prose">
+        <slot />
+      </div>
+
+      <footer class="docs__foot">
+        <a href={`${repo}/blob/main/README.md`} rel="noopener" class="docs__edit">
+          <Icon name="arrowRight" size={15} />
+          Full reference in the README
+        </a>
+      </footer>
+    </article>
+  </div>
+</Base>
+
+<style>
+  .docs {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: clamp(1.5rem, 0.5rem + 3vw, 4rem);
+    padding-top: clamp(1.75rem, 1rem + 2vw, 3rem);
+    align-items: start;
+  }
+  .docs__side {
+    position: sticky;
+    top: 5.5rem;
+    align-self: start;
+  }
+  .docs__group + .docs__group {
+    margin-top: 1.5rem;
+  }
+  .docs__group-h {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-muted);
+    margin-bottom: 0.5rem;
+  }
+  .docs__nav ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .docs__link {
+    display: block;
+    padding: 0.4rem 0.7rem;
+    border-radius: var(--r-sm);
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    transition:
+      background-color var(--dur-fast) var(--ease-out-quart),
+      color var(--dur-fast) var(--ease-out-quart);
+  }
+  .docs__link:hover {
+    background: var(--bg-sunken);
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .docs__link.is-active {
+    background: var(--pink-soft);
+    color: var(--pink-link);
+    font-weight: 600;
+  }
+  .docs__mono {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+  }
+
+  .docs__main {
+    min-width: 0;
+    max-width: 48rem;
+    padding-bottom: 2rem;
+  }
+  .docs__crumb {
+    display: flex;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+    color: var(--ink-muted);
+    margin-bottom: 0.85rem;
+  }
+  .docs__crumb a {
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+  .docs__crumb a:hover {
+    color: var(--pink-link);
+  }
+  .docs__head h1 {
+    font-size: var(--fs-h1);
+  }
+  .docs__lead {
+    margin-top: 0.85rem;
+    font-size: var(--fs-lead);
+    color: var(--ink-2);
+    line-height: 1.5;
+    max-width: 60ch;
+  }
+  .docs__head {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .docs__foot {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+  .docs__edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  /* mobile: sidebar becomes a scrollable pill row on top */
+  @media (max-width: 52rem) {
+    .docs {
+      grid-template-columns: 1fr;
+    }
+    .docs__side {
+      position: static;
+      top: auto;
+      margin-inline: calc(-1 * var(--gutter));
+      padding-inline: var(--gutter);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.85rem;
+      overflow-x: auto;
+    }
+    .docs__nav {
+      display: flex;
+      gap: 1.25rem;
+      min-width: max-content;
+    }
+    .docs__group + .docs__group {
+      margin-top: 0;
+    }
+    .docs__group {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .docs__group-h {
+      margin-bottom: 0;
+      white-space: nowrap;
+    }
+    .docs__nav ul {
+      flex-direction: row;
+      gap: 0.35rem;
+    }
+    .docs__link {
+      border-left: none;
+      white-space: nowrap;
+      background: var(--bg-sunken);
+    }
+  }
+</style>
+
+<style is:global>
+  /* ---- Prose (markdown content) ---- */
+  .prose {
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    color: var(--ink);
+  }
+  .prose > * + * {
+    margin-top: 1.1rem;
+  }
+  .prose h2 {
+    font-size: var(--fs-h3);
+    margin-top: 2.75rem;
+    padding-top: 0.25rem;
+    scroll-margin-top: 5.5rem;
+  }
+  .prose h3 {
+    font-size: 1.2rem;
+    margin-top: 2rem;
+    scroll-margin-top: 5.5rem;
+  }
+  .prose h2 + *,
+  .prose h3 + * {
+    margin-top: 0.75rem;
+  }
+  .prose p,
+  .prose li {
+    color: var(--ink-2);
+  }
+  .prose strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .prose ul,
+  .prose ol {
+    padding-left: 1.3rem;
+  }
+  .prose li + li {
+    margin-top: 0.4rem;
+  }
+  .prose li::marker {
+    color: var(--pink-link);
+  }
+  .prose a {
+    font-weight: 500;
+  }
+  .prose :not(pre) > code {
+    font-size: 0.88em;
+    background: var(--pink-softer);
+    border: 1px solid var(--border);
+    padding: 0.08em 0.36em;
+    border-radius: var(--r-sm);
+    color: var(--ink);
+  }
+  /* code blocks (expressive-code) get breathing room */
+  .prose .expressive-code {
+    margin-top: 1.35rem;
+    margin-bottom: 1.35rem;
+  }
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+    margin-top: 1.25rem;
+  }
+  .prose th,
+  .prose td {
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .prose thead th {
+    color: var(--ink);
+    font-weight: 700;
+    border-bottom: 2px solid var(--border-strong);
+    background: var(--bg-sunken);
+  }
+  .prose tbody td:first-child code,
+  .prose tbody td:first-child {
+    white-space: nowrap;
+  }
+  .prose blockquote {
+    margin-top: 1.25rem;
+    padding: 0.9rem 1.1rem;
+    background: var(--pink-softer);
+    border: 1px solid color-mix(in oklch, var(--pink) 22%, transparent);
+    border-radius: var(--r-md);
+    color: var(--ink-2);
+  }
+  .prose blockquote p {
+    margin-top: 0;
+  }
+  .prose blockquote strong:first-child {
+    color: var(--pink-link);
+  }
+  .prose hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin-block: 2rem;
+  }
+</style>

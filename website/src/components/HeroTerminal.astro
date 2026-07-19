@@ -1,0 +1,225 @@
+---
+import Terminal from "./Terminal.astro";
+
+/** A realistic, mixed `licence_audit check` report — it catches a denial,
+ *  an unknown, and a skipped path dep, so it shows the tool doing its job. */
+const rows = [
+  { tree: "", name: "gleam_stdlib", ver: "0.60.0", lic: "Apache-2.0", st: "allowed", glyph: "✓" },
+  { tree: "├─", name: "gleam_json", ver: "3.1.0", lic: "Apache-2.0", st: "allowed", glyph: "✓" },
+  { tree: "├─", name: "gleam_http", ver: "4.3.0", lic: "Apache-2.0", st: "allowed", glyph: "✓" },
+  { tree: "├─", name: "simplifile", ver: "2.4.0", lic: "MIT", st: "allowed", glyph: "✓" },
+  { tree: "├─", name: "argv", ver: "1.1.0", lic: "Apache-2.0", st: "allowed", glyph: "✓" },
+  { tree: "├─", name: "cowsay_gpl", ver: "1.2.0", lic: "GPL-3.0-only", st: "denied", glyph: "✗" },
+  { tree: "├─", name: "tls_native", ver: "0.5.0", lic: "(none)", st: "unknown", glyph: "?" },
+  { tree: "└─", name: "local_helper", ver: "—", lic: "—", st: "skipped", glyph: "·" },
+] as const;
+---
+
+<script is:inline>
+  // Arm the stream-in only when motion is welcome. If this never runs (no JS)
+  // or motion is reduced, the report stays fully visible — never blank.
+  (function () {
+    var d = document.documentElement;
+    try {
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      d.classList.add("term-anim");
+      // failsafe: reveal everything if the animation module never loads
+      setTimeout(function () {
+        d.classList.add("term-anim-failsafe");
+      }, 6000);
+    } catch (e) {}
+  })();
+</script>
+
+<Terminal title="licence_audit — check" lift class="hero-term">
+  <pre class="report" data-term-report aria-label="Example licence_audit check output"><span class="tl tl--prompt"><span class="p-sig">$</span> <span data-type>licence_audit check</span><span class="caret" data-caret></span></span>
+<span class="tl tl--blank"> </span><span class="tl tl--head"><span>Package</span><span>Version</span><span>Licences</span><span>Status</span></span>{rows.map((r) => (
+  <span class:list={["tl", "tl--row", `is-${r.st}`]}><span class="c-name"><span class="c-tree">{r.tree}</span>{r.name}</span><span class="c-ver">{r.ver}</span><span class="c-lic">{r.lic}</span><span class="c-st"><span class="g">{r.glyph}</span> {r.st}</span></span>
+))}<span class="tl tl--blank"> </span><span class="tl tl--sum"><span class="g g-deny">✗</span> Policy check failed — denied dependency in tree.</span><span class="tl tl--tally">   <span class="t-deny">1 denied</span> · <span class="t-muted">1 unknown</span> · <span class="t-muted">1 skipped</span> · <span class="t-pass">5 allowed</span></span><span class="tl tl--exit"># licence_audit check exited 1</span></pre>
+</Terminal>
+
+<style>
+  .report {
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    line-height: 1.75;
+    color: var(--term-fg);
+    margin: 0;
+    min-width: 44ch;
+    tab-size: 2;
+  }
+  .tl {
+    display: block;
+  }
+  .tl--blank {
+    line-height: 0.9;
+  }
+
+  /* prompt / command */
+  .p-sig {
+    color: var(--pink-bright);
+    font-weight: 700;
+  }
+  .tl--prompt {
+    color: var(--term-fg);
+  }
+  .caret {
+    display: none;
+    width: 0.6ch;
+    height: 1.05em;
+    background: var(--pink-bright);
+    vertical-align: -0.16em;
+    margin-left: 0.1ch;
+    animation: caret-blink 1s steps(1) infinite;
+  }
+  html.term-anim .caret[data-caret] {
+    display: inline-block;
+  }
+  @keyframes caret-blink {
+    0%,
+    50% {
+      opacity: 1;
+    }
+    50.01%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* table rows */
+  .tl--head,
+  .tl--row {
+    display: grid;
+    grid-template-columns: 15ch 8ch 16ch 14ch;
+    gap: 0 0.75rem;
+  }
+  .tl--head {
+    color: var(--term-dim);
+    text-transform: none;
+    margin-top: 0.1rem;
+  }
+  .c-tree {
+    color: var(--term-dim);
+    margin-right: 0.5ch;
+  }
+  .c-ver {
+    color: var(--term-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .c-lic {
+    color: var(--term-fg);
+  }
+  .is-denied .c-lic {
+    color: var(--term-deny);
+  }
+  .is-unknown .c-lic,
+  .is-skipped .c-lic {
+    color: var(--term-muted);
+  }
+  .c-st .g {
+    font-weight: 700;
+  }
+  .is-allowed .c-st {
+    color: var(--term-pass);
+  }
+  .is-denied .c-st {
+    color: var(--term-deny);
+  }
+  .is-unknown .c-st,
+  .is-skipped .c-st {
+    color: var(--term-muted);
+  }
+
+  /* summary */
+  .tl--sum {
+    margin-top: 0.1rem;
+    color: var(--term-fg);
+  }
+  .g-deny {
+    color: var(--term-deny);
+    font-weight: 700;
+  }
+  .t-pass {
+    color: var(--term-pass);
+  }
+  .t-deny {
+    color: var(--term-deny);
+  }
+  .t-muted {
+    color: var(--term-muted);
+  }
+  .tl--exit {
+    color: var(--term-dim);
+    margin-top: 0.15rem;
+  }
+
+  /* stream-in: hidden only while armed; revealed per-line by the module */
+  html.term-anim .report .tl {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  html.term-anim .report .tl {
+    transition:
+      opacity 0.26s var(--ease-out-quart),
+      transform 0.26s var(--ease-out-quart);
+  }
+  html.term-anim.term-anim-failsafe .report .tl {
+    opacity: 1;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caret {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  const root = document.documentElement;
+  if (root.classList.contains("term-anim")) {
+    const report = document.querySelector<HTMLElement>("[data-term-report]");
+    const typeEl = report?.querySelector<HTMLElement>("[data-type]");
+    const caret = report?.querySelector<HTMLElement>("[data-caret]");
+    const lines = report ? Array.from(report.querySelectorAll<HTMLElement>(".tl")) : [];
+
+    const reveal = (el?: HTMLElement) => {
+      if (!el) return;
+      el.style.opacity = "1";
+      el.style.transform = "none";
+    };
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    async function run() {
+      if (!report || !typeEl) return;
+      const cmd = typeEl.textContent ?? "";
+      typeEl.textContent = "";
+      // reveal the prompt line, then type the command
+      reveal(lines[0]);
+      await wait(320);
+      for (let i = 0; i < cmd.length; i++) {
+        typeEl.textContent += cmd[i];
+        await wait(46 + Math.random() * 34);
+      }
+      await wait(360);
+      // hide the prompt caret; stream the output line by line
+      caret?.style.setProperty("display", "none");
+      for (let i = 1; i < lines.length; i++) {
+        reveal(lines[i]);
+        const cls = lines[i].className;
+        const gap = cls.includes("tl--blank")
+          ? 40
+          : cls.includes("tl--sum") || cls.includes("tl--tally") || cls.includes("tl--exit")
+            ? 240
+            : 92;
+        await wait(gap);
+      }
+      root.classList.add("term-anim-done");
+    }
+
+    // If anything goes wrong, reveal everything.
+    run().catch(() => {
+      lines.forEach(reveal);
+      if (typeEl && !typeEl.textContent) typeEl.textContent = "licence_audit check";
+    });
+  }
+</script>

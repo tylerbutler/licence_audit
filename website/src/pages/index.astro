@@ -1,0 +1,694 @@
+---
+import { Code } from "astro-expressive-code/components";
+import Base from "../layouts/Base.astro";
+import Button from "../components/Button.astro";
+import Icon from "../components/Icon.astro";
+import HeroTerminal from "../components/HeroTerminal.astro";
+
+const repo = "https://github.com/tylerbutler/licence_audit";
+
+const installCmd =
+  'mise use -g "github:tylerbutler/licence_audit@latest[asset_pattern=licence_audit,bin=licence_audit]"';
+
+const policyToml = `[tools.licence_audit]
+allow = ["Apache-2.0", "ISC", "MIT"]
+deny  = ["AGPL-3.0", "GPL-3.0-only"]`;
+
+const sbomJson = `{
+  "bom-ref": "pkg:hex/gleam_stdlib@0.60.0",
+  "type": "library",
+  "name": "gleam_stdlib",
+  "version": "0.60.0",
+  "purl": "pkg:hex/gleam_stdlib@0.60.0",
+  "licenses": [
+    { "license": { "id": "Apache-2.0", "acknowledgement": "declared" } }
+  ],
+  "hashes": [{ "alg": "SHA-256", "content": "3e2c…9f" }]
+}`;
+
+const vulnsOut = `$ licence_audit vulns
+
+  ✗ tls_native 0.5.0
+    └─ GHSA-7f4c-9m2q-x8vp  high   DoS via malformed handshake
+  · legacy_helper  skipped (path dep)
+
+  16 checked · 1 affected · 15 clean`;
+
+const ciYaml = `name: licence audit
+on: [pull_request]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tylerbutler/actions/setup-gleam@v1
+      - uses: tylerbutler/actions/setup-licence-audit@v1
+      - run: licence_audit check`;
+
+const quickStart = `# 1. resolve deps so manifest.toml exists
+gleam deps download
+
+# 2. see every licence in your tree (reports only)
+licence_audit
+
+# 3. capture a policy, then enforce it
+licence_audit update
+licence_audit check`;
+
+const checks = [
+  {
+    icon: "scale",
+    kicker: "licences",
+    title: "Licence policy",
+    body: "Fetches licence metadata from Hex for every locked package and holds it against your allow / deny policy. An allow-list means only those licences pass; a deny-list rejects matches.",
+    code: policyToml,
+    lang: "toml",
+    frameTitle: "gleam.toml",
+    frame: "code",
+  },
+  {
+    icon: "package",
+    kicker: "sbom",
+    title: "CycloneDX SBOM",
+    body: "Emit a CycloneDX 1.6 document — package URLs, SHA-256 hashes, declared licences, external references, and the full dependency graph. Pass --reproducible for byte-stable output you can commit and diff.",
+    code: sbomJson,
+    lang: "json",
+    frameTitle: "sbom.json",
+    frame: "code",
+  },
+  {
+    icon: "bug",
+    kicker: "vulns",
+    title: "Known vulnerabilities",
+    body: "Query OSV.dev for advisories across your Hex and GitHub dependencies. Report them, or gate CI with --vuln-severity — unknown-severity advisories are shown but never fail the build.",
+    code: vulnsOut,
+    lang: "ansi",
+    frameTitle: undefined,
+    frame: "terminal",
+  },
+] as const;
+
+const workflow = [
+  {
+    n: "01",
+    title: "Inspect",
+    body: "Run it with no arguments to see every licence in your resolved tree. The bare command only reports — it never fails.",
+    code: "gleam deps download\nlicence_audit",
+  },
+  {
+    n: "02",
+    title: "Capture a policy",
+    body: "Review the discovered licences interactively and write a [tools.licence_audit] policy straight into gleam.toml — comments preserved.",
+    code: "licence_audit update",
+  },
+  {
+    n: "03",
+    title: "Enforce",
+    body: "Fail the build on any violation. Add --vulns to also fail on advisories at or above a severity you choose.",
+    code: "licence_audit check --vulns",
+  },
+] as const;
+
+const trust = [
+  {
+    icon: "zap",
+    title: "Dependency-free binary",
+    body: "Queso-built executables bundle the Erlang runtime — nothing to install on the target machine, including CI runners.",
+  },
+  {
+    icon: "checkCheck",
+    title: "Honest exit codes",
+    body: "0 success · 1 policy failure · 2 input error · 130 cancelled. Nothing surprising in a pipeline.",
+  },
+  {
+    icon: "refresh",
+    title: "Reproducible SBOMs",
+    body: "--reproducible makes the serial number a content hash and the timestamp SOURCE_DATE_EPOCH, so diffs catch real drift.",
+  },
+  {
+    icon: "gitBranch",
+    title: "Gleam-native",
+    body: "Reads manifest.toml and gleam.toml directly. Non-Hex deps are skipped and named, never silently dropped.",
+  },
+] as const;
+---
+
+<Base>
+  <!-- ===================== HERO ===================== -->
+  <section class="hero">
+    <div class="hero__grid container">
+      <div class="hero__lede">
+        <p class="hero__badge">
+          <Icon name="terminal" size={15} />
+          Gleam supply-chain auditing
+        </p>
+        <h1 class="hero__title">
+          Keep your Gleam dependencies <span class="tw">honest</span>.
+        </h1>
+        <p class="hero__sub">
+          <strong>licence_audit</strong> reports the licences, generates a
+          CycloneDX SBOM, and checks for known vulnerabilities across your
+          locked Hex dependencies — one small CLI you can wire into CI and
+          forget.
+        </p>
+
+        <div class="hero__install">
+          <Code code={installCmd} lang="sh" frame="terminal" wrap />
+        </div>
+
+        <div class="hero__cta">
+          <Button href={repo} size="lg" rel="noopener">
+            <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"
+              ><path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+              ></path></svg
+            >
+            View on GitHub
+          </Button>
+          <Button href="/docs" variant="secondary" size="lg">
+            Read the docs
+            <Icon name="arrowRight" size={17} />
+          </Button>
+        </div>
+
+        <ul class="hero__meta" aria-label="Highlights">
+          <li>Gleam-native</li>
+          <li>CycloneDX 1.6</li>
+          <li>OSV.dev</li>
+          <li>Apache-2.0</li>
+        </ul>
+      </div>
+
+      <div class="hero__demo">
+        <HeroTerminal />
+        <p class="hero__demo-cap">
+          A real <code>check</code> run — it catches a denial, an unknown, and a
+          skipped path dep.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== WORKFLOW ===================== -->
+  <section class="section workflow" aria-labelledby="workflow-h">
+    <div class="container">
+      <header class="sec-head">
+        <h2 id="workflow-h">Inspect, capture a policy, enforce.</h2>
+        <p>
+          Three commands, in order. Start by looking; commit to a policy when
+          you're ready; gate the build only when you mean it.
+        </p>
+      </header>
+
+      <ol class="steps">
+        {
+          workflow.map((s) => (
+            <li class="step">
+              <div class="step__text">
+                <span class="step__n">{s.n}</span>
+                <h3 class="step__title">{s.title}</h3>
+                <p>{s.body}</p>
+              </div>
+              <div class="step__code">
+                <Code code={s.code} lang="sh" frame="terminal" />
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== WHAT IT CHECKS ===================== -->
+  <section class="section checks" aria-labelledby="checks-h">
+    <div class="container">
+      <header class="sec-head">
+        <h2 id="checks-h">Three checks, one pass over your tree.</h2>
+        <p>
+          licence_audit reads your locked dependencies once and answers three
+          questions about them — with real output, not a dashboard.
+        </p>
+      </header>
+
+      <div class="check-list">
+        {
+          checks.map((c, i) => (
+            <article class="check" data-flip={i % 2 === 1 ? "true" : undefined}>
+              <div class="check__text">
+                <span class="check__kicker" data-k={c.kicker}>
+                  <Icon name={c.icon} size={18} />
+                  {c.kicker}
+                </span>
+                <h3>{c.title}</h3>
+                <p>{c.body}</p>
+              </div>
+              <div class="check__code">
+                <Code
+                  code={c.code}
+                  lang={c.lang}
+                  title={c.frameTitle}
+                  frame={c.frame}
+                />
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TRUST ===================== -->
+  <section class="section trust" aria-labelledby="trust-h">
+    <div class="container trust__grid">
+      <div class="trust__intro">
+        <h2 id="trust-h">Built to be trusted in CI.</h2>
+        <p>
+          A tool about rigour should behave rigorously. licence_audit is a
+          single binary with predictable exits and reproducible output — drop it
+          into a pipeline and it stays out of your way until something's wrong.
+        </p>
+        <div class="trust__ci">
+          <Code code={ciYaml} lang="yaml" title=".github/workflows/licence-audit.yml" frame="code" />
+        </div>
+      </div>
+
+      <ul class="trust__points">
+        {
+          trust.map((t) => (
+            <li class="tpoint">
+              <span class="tpoint__ic">
+                <Icon name={t.icon} size={20} />
+              </span>
+              <div>
+                <h3>{t.title}</h3>
+                <p>{t.body}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== GET STARTED ===================== -->
+  <section class="section install" id="install" aria-labelledby="install-h">
+    <div class="container install__grid">
+      <div class="install__col">
+        <header class="sec-head sec-head--left">
+          <h2 id="install-h">Get started.</h2>
+          <p>
+            Install a prebuilt binary, then point it at any Gleam project with a
+            resolved dependency tree.
+          </p>
+        </header>
+
+        <h3 class="install__h">Install with mise</h3>
+        <Code code={installCmd} lang="sh" frame="terminal" wrap />
+        <p class="install__note">
+          Prefer a plain download? Grab a self-contained archive from the
+          <a href={`${repo}/releases`} rel="noopener">releases page</a> and put
+          <code>licence_audit</code> on your <code>PATH</code>. Building from source
+          is covered in <a href={`${repo}/blob/main/DEV.md`} rel="noopener">DEV.md</a>.
+        </p>
+      </div>
+
+      <div class="install__col">
+        <h3 class="install__h">The typical run</h3>
+        <Code code={quickStart} lang="sh" frame="terminal" title="bash" />
+        <div class="install__cta">
+          <Button href={repo} rel="noopener">
+            <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"
+              ><path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+              ></path></svg
+            >
+            Star on GitHub
+          </Button>
+          <Button href="/docs" variant="ghost">
+            Browse the docs
+            <Icon name="arrowRight" size={16} />
+          </Button>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  /* ---------- HERO ---------- */
+  .hero {
+    position: relative;
+    padding-block: clamp(2.5rem, 1rem + 6vw, 5.5rem) 0;
+    overflow: clip;
+  }
+  .hero::before {
+    /* soft brand glow behind the terminal, upper-right */
+    content: "";
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: min(60rem, 90%);
+    height: 42rem;
+    background: radial-gradient(
+      55% 55% at 70% 30%,
+      oklch(0.9 0.08 350 / 0.55),
+      transparent 70%
+    );
+    z-index: -1;
+    pointer-events: none;
+  }
+  .hero__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+    gap: clamp(2rem, 0.5rem + 5vw, 4.5rem);
+    align-items: center;
+  }
+  .hero__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--pink-link);
+    background: var(--pink-soft);
+    border: 1px solid color-mix(in oklch, var(--pink) 25%, transparent);
+    padding: 0.35rem 0.75rem 0.35rem 0.6rem;
+    border-radius: var(--r-full);
+  }
+  .hero__badge :global(svg) {
+    color: var(--pink-link);
+  }
+  .hero__title {
+    font-size: var(--fs-display);
+    margin-top: 1.1rem;
+    max-width: 15ch;
+  }
+  .hero__title .tw {
+    color: var(--pink-link);
+    position: relative;
+    white-space: nowrap;
+  }
+  .hero__title .tw::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.06em;
+    height: 0.12em;
+    background: var(--pink);
+    border-radius: 2px;
+    opacity: 0.35;
+  }
+  .hero__sub {
+    margin-top: 1.35rem;
+    font-size: var(--fs-lead);
+    color: var(--ink-2);
+    max-width: 46ch;
+    line-height: 1.55;
+  }
+  .hero__sub strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .hero__install {
+    margin-top: 1.75rem;
+    max-width: 40rem;
+  }
+  .hero__cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    margin-top: 1.5rem;
+  }
+  .hero__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.4rem;
+    list-style: none;
+    padding: 0;
+    margin-top: 1.75rem;
+  }
+  .hero__meta li {
+    position: relative;
+    font-size: var(--fs-sm);
+    color: var(--ink-muted);
+    font-weight: 500;
+    padding-left: 1.05rem;
+  }
+  .hero__meta li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: var(--pink);
+  }
+  .hero__demo {
+    min-width: 0;
+  }
+  .hero__demo-cap {
+    margin-top: 0.9rem;
+    font-size: var(--fs-sm);
+    color: var(--ink-muted);
+    text-align: center;
+    max-width: 42ch;
+    margin-inline: auto;
+  }
+
+  /* ---------- shared section heads ---------- */
+  .sec-head {
+    max-width: 40ch;
+    margin-bottom: clamp(2rem, 1rem + 3vw, 3.5rem);
+  }
+  .sec-head h2 {
+    font-size: var(--fs-h2);
+  }
+  .sec-head p {
+    margin-top: 0.85rem;
+    color: var(--ink-2);
+    font-size: var(--fs-lead);
+    line-height: 1.5;
+  }
+  .sec-head--left {
+    margin-bottom: 1.75rem;
+  }
+
+  /* ---------- WORKFLOW ---------- */
+  .workflow {
+    background: var(--bg-sunken);
+    border-block: 1px solid var(--border);
+  }
+  .steps {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1.5rem, 0.5rem + 2.5vw, 2.75rem);
+  }
+  .step {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: clamp(1rem, 0.3rem + 2.5vw, 3rem);
+    align-items: center;
+  }
+  .step__n {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--pink-link);
+    background: var(--pink-soft);
+    padding: 0.15rem 0.6rem;
+    border-radius: var(--r-full);
+    letter-spacing: 0.02em;
+  }
+  .step__title {
+    font-size: var(--fs-h3);
+    margin-top: 0.75rem;
+  }
+  .step__text p {
+    margin-top: 0.55rem;
+    color: var(--ink-2);
+    max-width: 42ch;
+  }
+  .step__code {
+    min-width: 0;
+  }
+
+  /* ---------- CHECKS ---------- */
+  .check-list {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2.25rem, 1rem + 4vw, 4rem);
+  }
+  .check {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: clamp(1.25rem, 0.4rem + 3vw, 3.5rem);
+    align-items: center;
+  }
+  .check[data-flip] .check__text {
+    order: 2;
+  }
+  .check__text h3 {
+    font-size: var(--fs-h3);
+    margin-top: 0.7rem;
+  }
+  .check__text p {
+    margin-top: 0.65rem;
+    color: var(--ink-2);
+    max-width: 44ch;
+  }
+  .check__kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+  }
+  .check__kicker[data-k="licences"] {
+    color: var(--pass-ink);
+  }
+  .check__kicker[data-k="sbom"] {
+    color: var(--pink-link);
+  }
+  .check__kicker[data-k="vulns"] {
+    color: var(--deny-ink);
+  }
+  .check__code {
+    min-width: 0;
+  }
+
+  /* ---------- TRUST ---------- */
+  .trust__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: clamp(2rem, 0.5rem + 5vw, 4.5rem);
+    align-items: start;
+  }
+  .trust__intro {
+    min-width: 0;
+  }
+  .trust__intro h2 {
+    font-size: var(--fs-h2);
+  }
+  .trust__intro > p {
+    margin-top: 0.9rem;
+    color: var(--ink-2);
+    font-size: var(--fs-lead);
+    line-height: 1.5;
+    max-width: 44ch;
+  }
+  .trust__ci {
+    margin-top: 1.75rem;
+  }
+  .trust__points {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+    min-width: 0;
+  }
+  .tpoint {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1rem;
+    padding-bottom: 1.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .tpoint:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .tpoint__ic {
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--r-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--pink-link);
+    flex: none;
+  }
+  .tpoint h3 {
+    font-size: 1.05rem;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .tpoint p {
+    margin-top: 0.3rem;
+    color: var(--ink-2);
+    font-size: var(--fs-sm);
+  }
+  .tpoint code {
+    font-size: 0.85em;
+  }
+
+  /* ---------- INSTALL ---------- */
+  .install__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(2rem, 0.5rem + 5vw, 4rem);
+    align-items: start;
+  }
+  .install__col {
+    min-width: 0;
+  }
+  .install__h {
+    font-size: 1.05rem;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    margin-bottom: 0.8rem;
+    margin-top: 0.5rem;
+  }
+  .install__note {
+    margin-top: 1rem;
+    color: var(--ink-2);
+    font-size: var(--fs-sm);
+    max-width: 46ch;
+  }
+  .install__cta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.85rem;
+    margin-top: 1.5rem;
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 60rem) {
+    .hero__grid {
+      grid-template-columns: 1fr;
+    }
+    .hero__demo {
+      order: 2;
+    }
+    .step,
+    .check,
+    .trust__grid,
+    .install__grid {
+      grid-template-columns: 1fr;
+    }
+    .check[data-flip] .check__text {
+      order: 0;
+    }
+    .step__code,
+    .check__code {
+      order: 2;
+    }
+  }
+  @media (max-width: 40rem) {
+    .hero__title {
+      max-width: none;
+    }
+  }
+</style>

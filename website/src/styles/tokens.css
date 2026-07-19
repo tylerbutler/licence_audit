@@ -1,0 +1,122 @@
+/*
+  licence_audit — design tokens
+  "The Honest Terminal": a warm, off-white page with one dark terminal,
+  a warm-pink brand voice (a nod to Gleam), and semantic status colours
+  drawn straight from the CLI's own report glyphs (✓ ✗ · ?).
+  All colour in OKLCH.
+*/
+
+:root {
+  /* ---- Brand: warm pink (the Gleam nod, deeper for contrast) ---- */
+  --pink: oklch(0.66 0.19 352);          /* CTAs, mark, key accents */
+  --pink-hover: oklch(0.60 0.205 352);   /* button hover */
+  --pink-link: oklch(0.52 0.205 353);    /* link text on light (AA) */
+  --pink-soft: oklch(0.94 0.045 350);    /* soft wash: badges, highlights */
+  --pink-softer: oklch(0.975 0.02 350);  /* faintest section wash */
+  --pink-bright: oklch(0.82 0.13 350);   /* pink on the dark terminal */
+
+  /* ---- Ground: calm true off-white (NOT warm cream) ---- */
+  --bg: oklch(0.985 0.004 340);
+  --bg-sunken: oklch(0.966 0.007 340);   /* recessed sections */
+  --surface: oklch(1 0 0);               /* lifted cards */
+  --border: oklch(0.905 0.008 340);      /* hairline */
+  --border-strong: oklch(0.83 0.012 340);
+
+  /* ---- Ink: near-black with a whisper of plum ---- */
+  --ink: oklch(0.25 0.02 335);           /* headings, body */
+  --ink-2: oklch(0.40 0.018 335);        /* strong secondary */
+  --ink-muted: oklch(0.505 0.016 335);   /* muted (≥4.5:1 on --bg) */
+
+  /* ---- Semantic status roles (echo the CLI glyphs) ---- */
+  /* light-surface variants: darker, for text + badges (AA on --bg) */
+  --pass-ink: oklch(0.50 0.13 155);      /* ✓ allowed */
+  --deny-ink: oklch(0.515 0.21 25);      /* ✗ denied */
+  --muted-ink: oklch(0.52 0.015 320);    /* · skipped / ? unknown */
+  --pass-soft: oklch(0.94 0.05 155);
+  --deny-soft: oklch(0.945 0.05 25);
+
+  /* ---- Terminal: the one dark surface ---- */
+  --term-bg: oklch(0.215 0.022 320);
+  --term-bar: oklch(0.275 0.022 320);
+  --term-border: oklch(0.33 0.02 320);
+  --term-fg: oklch(0.925 0.008 320);
+  --term-dim: oklch(0.68 0.012 320);     /* tree lines, comments */
+  /* bright status glyphs on the terminal */
+  --term-pass: oklch(0.82 0.16 150);
+  --term-deny: oklch(0.72 0.19 22);
+  --term-muted: oklch(0.66 0.012 320);
+  --term-warn: oklch(0.83 0.14 85);
+
+  /* ---- Typography ---- */
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque",
+    system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk Variable", "Hanken Grotesk", system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
+    "SF Mono", "Cascadia Code", Menlo, monospace;
+
+  /* fluid display/heading scale (clamp max ≤ 4.5rem, ratio ~1.25) */
+  --fs-display: clamp(2.5rem, 1.55rem + 4.4vw, 4.5rem);
+  --fs-h1: clamp(2rem, 1.55rem + 2.1vw, 3rem);
+  --fs-h2: clamp(1.6rem, 1.34rem + 1.25vw, 2.25rem);
+  --fs-h3: clamp(1.25rem, 1.14rem + 0.5vw, 1.5rem);
+  --fs-lead: clamp(1.15rem, 1.06rem + 0.4vw, 1.35rem);
+  /* fixed body scale */
+  --fs-body: 1.0625rem;   /* 17px */
+  --fs-sm: 0.9375rem;     /* 15px */
+  --fs-xs: 0.8125rem;     /* 13px */
+  --fs-mono: 0.9rem;
+
+  --lh-tight: 1.08;
+  --lh-snug: 1.25;
+  --lh-body: 1.62;
+
+  /* ---- Spacing scale (rem, with rhythm) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+  --space-10: 8rem;
+  --section-y: clamp(4rem, 2.5rem + 6vw, 7.5rem);
+
+  /* ---- Radius ---- */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-full: 999px;
+
+  /* ---- Layout ---- */
+  --container: 72rem;      /* 1152px */
+  --container-narrow: 46rem;
+  --gutter: clamp(1.25rem, 0.7rem + 2.5vw, 2.5rem);
+
+  /* ---- Elevation (flat by default; terminal is the exception) ---- */
+  --shadow-card: 0 1px 2px oklch(0.3 0.03 320 / 0.05),
+    0 6px 18px -12px oklch(0.3 0.05 320 / 0.14);
+  --shadow-term: 0 2px 6px oklch(0.25 0.04 320 / 0.16),
+    0 34px 64px -26px oklch(0.55 0.16 350 / 0.42),
+    0 14px 30px -18px oklch(0.3 0.05 320 / 0.28);
+  --shadow-pop: 0 12px 32px -10px oklch(0.3 0.05 320 / 0.22);
+
+  /* ---- Motion ---- */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 130ms;
+  --dur: 220ms;
+  --dur-slow: 420ms;
+
+  /* ---- z-index scale (semantic) ---- */
+  --z-base: 1;
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}
