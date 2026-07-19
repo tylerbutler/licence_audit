@@ -48,8 +48,8 @@
   --term-warn: oklch(0.83 0.14 85);
 
   /* ---- Typography ---- */
-  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque",
-    system-ui, sans-serif;
+  --font-display: "Fraunces Variable", "Fraunces", Georgia, "Times New Roman",
+    serif;
   --font-sans: "Hanken Grotesk Variable", "Hanken Grotesk", system-ui,
     -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,

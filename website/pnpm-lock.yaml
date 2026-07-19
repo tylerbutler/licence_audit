@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@fontsource-variable/bricolage-grotesque':
-        specifier: ^5.2.0
-        version: 5.2.10
+      '@fontsource-variable/fraunces':
+        specifier: ^5.2.9
+        version: 5.2.9
       '@fontsource-variable/hanken-grotesk':
         specifier: ^5.2.0
         version: 5.2.8
@@ -395,8 +395,8 @@ packages:
   '@expressive-code/plugin-text-markers@0.44.0':
     resolution: {integrity: sha512-0/m3A5b+lz2upyNq+wzZ1S69HRoJmyFs5LsR42lVZ9pmGRlBiSBYQpvqlji4DBj1+Riamxc0AvcCr5kuzOQeWA==}
 
-  '@fontsource-variable/bricolage-grotesque@5.2.10':
-    resolution: {integrity: sha512-5EDsCqgGpKVcJWE4sg9ydli+t5WM97mISYw5lla/Ev4z71FwXh1oN0YUU8xjkRW9+wBCGD9R+ntAvI8G4bUFJg==}
+  '@fontsource-variable/fraunces@5.2.9':
+    resolution: {integrity: sha512-Y6IjunlN9Ni723np+GIgAaKzCDBrPRrqNi01TZxHs5wtHYROWFM9W6yiT+/gGwSjWIRD18oX17kD/BRWekc/Lw==}
 
   '@fontsource-variable/hanken-grotesk@5.2.8':
     resolution: {integrity: sha512-K7hu09ZKReBc7EifRLeM4K94NZBrxFEg0nGcISmVwlFQOJo4EmYkLXTWEwr5JcNW4z2hr5zy8vLS2sxC8JDmrQ==}
@@ -2042,7 +2042,7 @@ snapshots:
     dependencies:
       '@expressive-code/core': 0.44.0
 
-  '@fontsource-variable/bricolage-grotesque@5.2.10': {}
+  '@fontsource-variable/fraunces@5.2.9': {}
 
   '@fontsource-variable/hanken-grotesk@5.2.8': {}
 

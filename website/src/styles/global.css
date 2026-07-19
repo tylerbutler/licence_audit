@@ -83,15 +83,18 @@ h4 {
   font-family: var(--font-display);
   color: var(--ink);
   line-height: var(--lh-tight);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   font-weight: 700;
+  font-optical-sizing: auto;
+  /* Fraunces character: WONK maxed (1); SOFT rounds terminals for more quirk */
+  font-variation-settings: "WONK" 1, "SOFT" 24;
   text-wrap: balance;
 }
 
 h3,
 h4 {
   line-height: var(--lh-snug);
-  letter-spacing: -0.01em;
+  letter-spacing: normal;
 }
 
 p {

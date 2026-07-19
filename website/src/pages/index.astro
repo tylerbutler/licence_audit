@@ -149,8 +149,8 @@ const trust = [
         <p class="hero__sub">
           <strong>licence_audit</strong> reports the licences, generates a
           CycloneDX SBOM, and checks for known vulnerabilities across your
-          locked Hex dependencies — one small CLI you can wire into CI and
-          forget.
+          locked Hex dependencies — one small CLI you can run locally or in
+          CI.
         </p>
 
         <div class="hero__install">
@@ -197,8 +197,8 @@ const trust = [
       <header class="sec-head">
         <h2 id="workflow-h">Inspect, capture a policy, enforce.</h2>
         <p>
-          Three commands, in order. Start by looking; commit to a policy when
-          you're ready; gate the build only when you mean it.
+          Three commands, meant to be adopted in order: inspect what you have,
+          capture a policy when you're ready, then enforce it in CI.
         </p>
       </header>
 
@@ -228,7 +228,7 @@ const trust = [
         <h2 id="checks-h">Three checks, one pass over your tree.</h2>
         <p>
           licence_audit reads your locked dependencies once and answers three
-          questions about them — with real output, not a dashboard.
+          questions about them, as plain terminal output you can read in a log.
         </p>
       </header>
 
@@ -265,9 +265,9 @@ const trust = [
       <div class="trust__intro">
         <h2 id="trust-h">Built to be trusted in CI.</h2>
         <p>
-          A tool about rigour should behave rigorously. licence_audit is a
-          single binary with predictable exits and reproducible output — drop it
-          into a pipeline and it stays out of your way until something's wrong.
+          licence_audit is a single binary with predictable exit codes and
+          reproducible output. It runs quietly in a pipeline and reports only
+          when a check fails.
         </p>
         <div class="trust__ci">
           <Code code={ciYaml} lang="yaml" title=".github/workflows/licence-audit.yml" frame="code" />
