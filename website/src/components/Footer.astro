@@ -1,0 +1,109 @@
+---
+import Logo from "./Logo.astro";
+const repo = "https://github.com/tylerbutler/licence_audit";
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="footer__inner container">
+    <div class="footer__brand">
+      <Logo />
+      <p class="footer__tag">
+        Audit your Gleam dependencies' licences, SBOM, and vulns — one small CLI.
+      </p>
+      <p class="footer__meta">
+        Licensed <a href={`${repo}/blob/main/gleam.toml`} rel="noopener">Apache-2.0</a>.
+        Built for the Gleam ecosystem.
+      </p>
+    </div>
+
+    <nav class="footer__col" aria-label="Documentation">
+      <h2 class="footer__h">Docs</h2>
+      <a href="/docs">Quick start</a>
+      <a href="/docs/check">check</a>
+      <a href="/docs/sbom">sbom</a>
+      <a href="/docs/update">update</a>
+      <a href="/docs/vulns">vulns</a>
+    </nav>
+
+    <nav class="footer__col" aria-label="Project">
+      <h2 class="footer__h">Project</h2>
+      <a href={repo} rel="noopener">GitHub</a>
+      <a href={`${repo}/releases`} rel="noopener">Releases</a>
+      <a href={`${repo}/blob/main/CHANGELOG.md`} rel="noopener">Changelog</a>
+      <a href={`${repo}/issues`} rel="noopener">Issues</a>
+    </nav>
+  </div>
+
+  <div class="footer__base container">
+    <span>© {year} Tyler Butler</span>
+    <span class="footer__note">Not affiliated with the Gleam project.</span>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    background: var(--bg-sunken);
+    border-top: 1px solid var(--border);
+    padding-block: var(--space-8) var(--space-6);
+    margin-top: var(--space-9);
+  }
+  .footer__inner {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr 1fr;
+    gap: clamp(2rem, 1rem + 4vw, 4rem);
+  }
+  .footer__tag {
+    margin-top: 1rem;
+    color: var(--ink-2);
+    font-size: var(--fs-sm);
+    max-width: 34ch;
+  }
+  .footer__meta {
+    margin-top: 0.75rem;
+    color: var(--ink-muted);
+    font-size: var(--fs-xs);
+  }
+  .footer__col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .footer__h {
+    font-family: var(--font-sans);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-muted);
+    margin-bottom: 0.35rem;
+  }
+  .footer__col a {
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+    width: fit-content;
+  }
+  .footer__col a:hover {
+    color: var(--pink-link);
+  }
+  .footer__base {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 1.5rem;
+    margin-top: var(--space-7);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border);
+    font-size: var(--fs-xs);
+    color: var(--ink-muted);
+  }
+  @media (max-width: 44rem) {
+    .footer__inner {
+      grid-template-columns: 1fr 1fr;
+    }
+    .footer__brand {
+      grid-column: 1 / -1;
+    }
+  }
+</style>
