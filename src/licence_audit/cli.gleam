@@ -61,11 +61,23 @@ pub type VulnsOptions {
   )
 }
 
+pub type NoticesOptions {
+  NoticesOptions(
+    manifest_path: Option(String),
+    verbosity: progress.Verbosity,
+    output: Option(String),
+    include_dev: Bool,
+    no_cache: Bool,
+    cache_path: Option(String),
+  )
+}
+
 pub type CliAction {
   RunAudit(Options)
   UpdateConfig(UpdateOptions)
   RunSbom(SbomOptions)
   RunVulns(VulnsOptions)
+  RunNotices(NoticesOptions)
   GenDocsCompleted
   InvalidUsage(String)
 }
@@ -81,6 +93,7 @@ pub fn app() -> glint.Glint(CliAction) {
     |> glint.add(at: ["update"], do: update_command())
     |> glint.add(at: ["sbom"], do: sbom_command())
     |> glint.add(at: ["vulns"], do: vulns_command())
+    |> glint.add(at: ["notices"], do: notices_command())
 
   // Document the app *before* adding `gen-docs` so the subcommand does not
   // appear in its own rendered output. Bridge the `Glint(Nil)` command into
@@ -97,6 +110,7 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   list.map(args, fn(arg) {
     case arg {
       "-h" -> "--help"
+      "-v" -> "--verbose"
       "--colour" -> "--color"
       other -> {
         case string.starts_with(other, "--colour=") {
@@ -260,7 +274,7 @@ fn quiet_flag() -> glint.Flag(Bool) {
 fn verbose_flag() -> glint.Flag(Bool) {
   glint.bool_flag("verbose")
   |> glint.flag_default(False)
-  |> glint.flag_help("Show detailed progress output")
+  |> glint.flag_help("Show detailed progress output (alias: -v)")
 }
 
 fn color_flag() -> glint.Flag(String) {
@@ -379,10 +393,16 @@ fn update_command() -> glint.Command(CliAction) {
   }
 }
 
-fn output_flag() -> glint.Flag(String) {
+fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
   |> glint.flag_default(absent_string_flag)
-  |> glint.flag_help("Write SBOM to PATH instead of stdout")
+  |> glint.flag_help(help)
+}
+
+fn include_dev_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("include-dev")
+  |> glint.flag_default(False)
+  |> glint.flag_help("Include dev-only dependencies in the notice file")
 }
 
 fn offline_flag() -> glint.Flag(Bool) {
@@ -417,7 +437,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   use verbose <- glint.flag(verbose_flag())
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.flag(cache_path_flag())
-  use output <- glint.flag(output_flag())
+  use output <- glint.flag(output_flag("Write SBOM to PATH instead of stdout"))
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
@@ -450,6 +470,45 @@ fn sbom_command() -> glint.Command(CliAction) {
         offline: offline_value,
         reproducible: reproducible_value,
         with_vulns: with_vulns_value,
+      ))
+  }
+}
+
+const notices_help = "Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies. The output inventories each product, includes its applicable licence text, and preserves package-specific NOTICE attribution. Products with identical licence text are grouped so the shared text is emitted once. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback."
+
+fn notices_command() -> glint.Command(CliAction) {
+  use <- glint.command_help(notices_help)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use manifest <- glint.flag(manifest_flag())
+  use quiet <- glint.flag(quiet_flag())
+  use verbose <- glint.flag(verbose_flag())
+  use output <- glint.flag(output_flag(
+    "Write notices to PATH instead of stdout",
+  ))
+  use include_dev <- glint.flag(include_dev_flag())
+  use no_cache <- glint.flag(no_cache_flag())
+  use cache_path <- glint.flag(cache_path_flag())
+  use _, _, flags <- glint.command()
+
+  let assert Ok(manifest_path) = manifest(flags)
+  let assert Ok(quiet) = quiet(flags)
+  let assert Ok(verbose) = verbose(flags)
+  let assert Ok(output_value) = output(flags)
+  let assert Ok(include_dev_value) = include_dev(flags)
+  let assert Ok(no_cache) = no_cache(flags)
+  let assert Ok(cache_path_value) = cache_path(flags)
+
+  case verbosity(quiet, verbose) {
+    Error(verbosity_error) ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    Ok(verbosity) ->
+      RunNotices(NoticesOptions(
+        manifest_path: optional_string(manifest_path),
+        verbosity: verbosity,
+        output: optional_string(output_value),
+        include_dev: include_dev_value,
+        no_cache: no_cache,
+        cache_path: optional_string(cache_path_value),
       ))
   }
 }

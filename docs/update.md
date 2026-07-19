@@ -19,4 +19,4 @@ licence_audit update [--flags]
 | `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

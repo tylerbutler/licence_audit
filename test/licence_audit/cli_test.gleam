@@ -19,6 +19,12 @@ fn parse_update_options(args: List(String)) -> cli.UpdateOptions {
   options
 }
 
+fn parse_notices_options(args: List(String)) -> cli.NoticesOptions {
+  let assert Ok(glint.Out(cli.RunNotices(options))) =
+    glint.execute(cli.app(), cli.normalize_args(args))
+  options
+}
+
 fn help_text(args: List(String)) -> String {
   let assert Ok(glint.Help(help)) =
     glint.execute(cli.app(), cli.normalize_args(args))
@@ -86,6 +92,24 @@ pub fn verbose_option_sets_verbose_verbosity_test() {
   let options = parse_options(["--verbose"])
 
   should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn short_verbose_option_normalizes_to_verbose_test() {
+  should.equal(cli.normalize_args(["-v"]), ["--verbose"])
+}
+
+pub fn short_verbose_option_sets_verbose_verbosity_test() {
+  let options = parse_options(["-v"])
+
+  should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn quiet_and_short_verbose_returns_invalid_usage_action_test() {
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), cli.normalize_args(["--quiet", "-v"]))
+
+  assert string.contains(message, "--quiet")
+  assert string.contains(message, "--verbose")
 }
 
 pub fn quiet_and_verbose_returns_invalid_usage_action_test() {
@@ -192,6 +216,18 @@ pub fn update_subcommand_is_listed_in_help_test() {
   assert string.contains(help, "update")
 }
 
+pub fn notices_subcommand_is_listed_in_help_test() {
+  let help = help_text(["--help"])
+
+  assert string.contains(help, "notices")
+}
+
+pub fn notices_subcommand_help_describes_notice_output_test() {
+  let help = help_text(["notices", "--help"])
+
+  assert string.contains(help, "Write notices to PATH instead of stdout")
+}
+
 pub fn root_vulns_option_returns_usage_error_test() {
   let message = usage_error(["--vulns"])
 
@@ -292,6 +328,51 @@ pub fn update_subcommand_accepts_colour_alias_test() {
   let options = parse_update_options(["update", "--colour=never"])
 
   should.equal(options.color, color.Never)
+}
+
+pub fn notices_subcommand_parses_defaults_test() {
+  let options = parse_notices_options(["notices"])
+
+  should.equal(options.manifest_path, None)
+  should.equal(options.output, None)
+  should.equal(options.include_dev, False)
+  should.equal(options.verbosity, progress.Normal)
+}
+
+pub fn notices_subcommand_parses_supported_flags_test() {
+  let options =
+    parse_notices_options([
+      "notices",
+      "--manifest=locked.toml",
+      "--output=THIRD_PARTY_LICENSES.txt",
+      "--include-dev",
+      "--verbose",
+    ])
+
+  should.equal(options.manifest_path, Some("locked.toml"))
+  should.equal(options.output, Some("THIRD_PARTY_LICENSES.txt"))
+  should.equal(options.include_dev, True)
+  should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn notices_subcommand_accepts_ignored_no_cache_flag_test() {
+  let options = parse_notices_options(["notices", "--no-cache"])
+
+  should.equal(options.verbosity, progress.Normal)
+}
+
+pub fn notices_subcommand_rejects_quiet_and_verbose_test() {
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), ["notices", "--quiet", "--verbose"])
+
+  assert string.contains(message, "--quiet")
+  assert string.contains(message, "--verbose")
+}
+
+pub fn notices_subcommand_rejects_config_flag_test() {
+  let message = usage_error(["notices", "--config=gleam.toml"])
+
+  assert string.contains(message, "config")
 }
 
 pub fn invalid_color_value_returns_invalid_usage_action_test() {

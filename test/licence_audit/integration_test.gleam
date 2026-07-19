@@ -6,8 +6,12 @@ import gleam/string
 import gleeunit/should
 import licence_audit
 import licence_audit/hex
+import licence_audit/notices
 import licence_audit/osv
 import licence_audit/progress
+import licence_audit/repository
+import licence_audit/source_archive
+import licence_audit/spdx
 import simplifile
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
@@ -23,6 +27,77 @@ fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
     "argv" -> Error(hex.NotFound)
     _ -> fake_fetcher(name)
   }
+}
+
+fn notice_metadata_fetcher(
+  name: String,
+) -> Result(hex.PackageMetadata, hex.Error) {
+  case name {
+    "gleam_stdlib" -> Ok(hex.licences_only(["Apache-2.0"]))
+    "argv" -> Ok(hex.licences_only(["Apache-2.0"]))
+    _ -> Ok(hex.licences_only([]))
+  }
+}
+
+fn fixture_hex_tarball(
+  _name: String,
+  _version: String,
+) -> Result(BitArray, notices.FetchError) {
+  case simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar") {
+    Ok(bits) -> Ok(bits)
+    Error(_) -> Error(notices.FetchNetworkFailure)
+  }
+}
+
+fn unused_github_tarball(
+  _owner: String,
+  _repo: String,
+  _commit: String,
+) -> Result(BitArray, notices.FetchError) {
+  Error(notices.FetchNetworkFailure)
+}
+
+fn unused_git_archive(
+  _repo: repository.Repository,
+  _commit: String,
+) -> Result(BitArray, notices.FetchError) {
+  Error(notices.FetchNetworkFailure)
+}
+
+fn notice_only_hex_tarball(
+  _name: String,
+  _version: String,
+) -> Result(BitArray, notices.FetchError) {
+  case
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
+    )
+  {
+    Ok(bits) -> Ok(bits)
+    Error(_) -> Error(notices.FetchNetworkFailure)
+  }
+}
+
+/// Full client bundle whose Hex source ships only a NOTICE file, no repository
+/// tag resolves, and every SPDX record returns synthesized canonical text.
+fn spdx_fallback_clients() -> notices.Clients {
+  notices.Clients(
+    fetch_hex_tarball: notice_only_hex_tarball,
+    fetch_git_archive: unused_git_archive,
+    resolve_commit: fn(_repo, _tag) { Ok(None) },
+    fetch_repo_archive: fn(_repo, _commit) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_spdx_index: fn(kind) {
+      case kind {
+        spdx.LicenceIndex -> Ok(["Apache-2.0"])
+        spdx.ExceptionIndex -> Ok([])
+      }
+    },
+    fetch_spdx: fn(_requirement) {
+      Ok(Some("SYNTHESIZED APACHE-2.0 CANONICAL TEXT"))
+    },
+  )
 }
 
 fn manifest_args(extra: List(String)) -> List(String) {
@@ -43,6 +118,260 @@ pub fn default_report_succeeds_without_policy_test() {
   assert string.contains(output, "argv")
   assert string.contains(output, "Apache-2.0")
   assert !string.contains(output, "Status")
+}
+
+pub fn notices_subcommand_prints_release_notice_text_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = "build/tmp/notices-manifest.toml"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Third-party licences")
+  assert string.contains(result.output, "gleam_stdlib 1.0.0")
+  assert string.contains(result.output, "Declared licences: Apache-2.0")
+  assert string.contains(result.output, "Fixture licence text")
+}
+
+pub fn notices_falls_back_to_spdx_when_source_lacks_licence_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
+    )
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = "build/tmp/notices-spdx-fallback-manifest.toml"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_full_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      spdx_fallback_clients(),
+    )
+
+  should.equal(result.exit_code, 0)
+  // The source NOTICE is preserved and canonical SPDX text is synthesized.
+  assert string.contains(result.output, "SPDX-License-List/Apache-2.0.txt")
+  assert string.contains(result.output, "SYNTHESIZED APACHE-2.0 CANONICAL TEXT")
+  assert string.contains(result.output, "NOTICE.txt")
+}
+
+fn notices_progress_manifest_path() -> String {
+  let manifest_path = "build/tmp/notices-progress-manifest.toml"
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let _ = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+  manifest_path
+}
+
+pub fn notices_verbose_progress_includes_package_details_test() {
+  let manifest_path = notices_progress_manifest_path()
+  let #(licence_audit.RunResult(exit_code, _output), events) =
+    licence_audit.run_with_notice_progress(
+      ["notices", "--manifest=" <> manifest_path, "--verbose"],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+      progress.Verbose,
+    )
+
+  should.equal(exit_code, 0)
+  assert list.contains(
+    events,
+    progress.Event(progress.Detail, "Fetching gleam_stdlib@1.0.0 from Hex"),
+  )
+  assert list.any(events, fn(event) {
+    case event {
+      progress.Event(progress.Detail, message) ->
+        string.contains(message, "licence file(s) for gleam_stdlib")
+      _ -> False
+    }
+  })
+}
+
+pub fn notices_normal_progress_omits_package_details_test() {
+  let manifest_path = notices_progress_manifest_path()
+  let #(licence_audit.RunResult(exit_code, _output), events) =
+    licence_audit.run_with_notice_progress(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+      progress.Normal,
+    )
+
+  should.equal(exit_code, 0)
+  assert !list.any(events, fn(event) {
+    case event {
+      progress.Event(progress.Detail, _) -> True
+      _ -> False
+    }
+  })
+}
+
+pub fn notices_subcommand_writes_output_file_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = "build/tmp/notices-output-manifest.toml"
+  let output_path = "build/tmp/THIRD_PARTY_LICENSES.txt"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let _ = simplifile.delete(output_path)
+  let assert Ok(_) = simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+gleam_stdlib = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      [
+        "notices",
+        "--manifest=" <> manifest_path,
+        "--output=" <> output_path,
+      ],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+  let assert Ok(contents) = simplifile.read(from: output_path)
+
+  should.equal(result.exit_code, 0)
+  should.equal(result.output, "")
+  assert string.contains(contents, "Fixture licence text")
+}
+
+pub fn notices_manifest_path_uses_manifest_project_for_scope_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(fixture_checksum) = source_archive.sha256_hex(bits)
+  let project_root = "build/tmp/notices-scope-project"
+  let manifest_path = project_root <> "/manifest.toml"
+  let assert Ok(Nil) = simplifile.create_directory_all(project_root)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_root <> "/gleam.toml",
+      contents: "[dependencies]
+prod_dep = \">= 1.0.0\"
+
+[dev-dependencies]
+dev_dep = \">= 1.0.0\"
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"prod_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+  { name = \"dev_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> fixture_checksum <> "\" },
+]
+
+[requirements]
+prod_dep = { version = \">= 1.0.0\" }
+dev_dep = { version = \">= 1.0.0\" }
+")
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "prod_dep 1.0.0")
+  assert !string.contains(result.output, "dev_dep 1.0.0")
+}
+
+pub fn notices_path_dependencies_resolve_relative_to_manifest_project_test() {
+  let project_root = "build/tmp/notices-path-project"
+  let local_dep = project_root <> "/deps/local_dep"
+  let manifest_path = project_root <> "/manifest.toml"
+  let assert Ok(Nil) = simplifile.create_directory_all(local_dep)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: local_dep <> "/LICENSE",
+      contents: "Path licence text\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_root <> "/gleam.toml",
+      contents: "[dependencies]
+local_dep = { path = \"deps/local_dep\" }
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"deps/local_dep\" },
+]
+
+[requirements]
+local_dep = { path = \"deps/local_dep\" }
+",
+    )
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      ["notices", "--manifest=" <> manifest_path],
+      notice_metadata_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "local_dep 0.1.0")
+  assert string.contains(result.output, "Path licence text")
+}
+
+pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
+  let cache_path = "build/tmp/run-with-notice-clients-cache.dets"
+  let _ = simplifile.create_directory_all("build/tmp")
+  let _ = simplifile.delete(cache_path)
+
+  let result =
+    licence_audit.run_with_notice_clients(
+      manifest_args(["--cache-path=" <> cache_path]),
+      fake_fetcher,
+      fixture_hex_tarball,
+      unused_github_tarball,
+    )
+
+  should.equal(result.exit_code, 0)
+  let assert Error(_) = simplifile.read_bits(cache_path)
 }
 
 pub fn normal_progress_reports_audit_phases_without_package_details_test() {
@@ -683,4 +1012,127 @@ pub fn sbom_git_dep_without_local_source_falls_back_to_repo_link_test() {
         _ -> False
       }
     })
+}
+
+// --- Direct command metadata resolution for local git/path gleam.toml --------
+
+/// Clients whose SPDX fallback synthesizes MIT text; git/hex/repository fetchers
+/// are supplied per test. Used to prove declared licences read from a local
+/// `gleam.toml` drive the SPDX fallback for git and path dependencies.
+fn mit_spdx_clients(
+  git_archive: fn(repository.Repository, String) ->
+    Result(BitArray, notices.FetchError),
+) -> notices.Clients {
+  notices.Clients(
+    fetch_hex_tarball: fn(_name, _version) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_git_archive: git_archive,
+    resolve_commit: fn(_repo, _tag) { Ok(None) },
+    fetch_repo_archive: fn(_repo, _commit) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_spdx_index: fn(kind) {
+      case kind {
+        spdx.LicenceIndex -> Ok(["MIT"])
+        spdx.ExceptionIndex -> Ok([])
+      }
+    },
+    fetch_spdx: fn(_requirement) { Ok(Some("SYNTHESIZED MIT CANONICAL TEXT")) },
+  )
+}
+
+pub fn notices_path_dep_uses_declared_licence_from_gleam_toml_test() {
+  let root = "build/tmp/notices-path-meta"
+  let _ = simplifile.delete(root)
+  let assert Ok(Nil) = simplifile.create_directory_all(root <> "/local_dep")
+  // The path dependency ships only a NOTICE file — no licence text — so the
+  // declared licence in its gleam.toml must drive the SPDX fallback.
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/local_dep/NOTICE.txt",
+      contents: "Local notice\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/local_dep/gleam.toml",
+      contents: "name = \"local_dep\"\nlicences = [\"MIT\"]\n",
+    )
+  let manifest_path = root <> "/manifest.toml"
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"local_dep\" },
+]
+
+[requirements]
+local_dep = { version = \">= 0.0.0\" }
+",
+    )
+
+  let result =
+    licence_audit.run_with_full_notice_clients(
+      ["notices", "--manifest=" <> manifest_path, "--no-cache"],
+      notice_metadata_fetcher,
+      mit_spdx_clients(unused_git_archive),
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Declared licences: MIT")
+  assert string.contains(result.output, "SPDX-License-List/MIT.txt")
+  assert string.contains(result.output, "SYNTHESIZED MIT CANONICAL TEXT")
+  assert string.contains(result.output, "NOTICE.txt")
+}
+
+pub fn notices_git_dep_uses_declared_licence_from_gleam_toml_test() {
+  let assert Ok(git_source) =
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/git_notice_only.tar.gz",
+    )
+  let root = "build/tmp/notices-git-meta"
+  let _ = simplifile.delete(root)
+  // Git dependency metadata is read from the checked-out
+  // build/packages/<name>/gleam.toml relative to the manifest's project root.
+  let assert Ok(Nil) =
+    simplifile.create_directory_all(root <> "/build/packages/git_dep")
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/build/packages/git_dep/gleam.toml",
+      contents: "name = \"git_dep\"\nlicences = [\"MIT\"]\n",
+    )
+  let manifest_path = root <> "/manifest.toml"
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abc\" },
+]
+
+[requirements]
+git_dep = { version = \">= 0.0.0\" }
+",
+    )
+
+  let git_archive = fn(repo: repository.Repository, commit: String) {
+    should.equal(
+      repo,
+      repository.Repository(repository.GitHub, "example", "git_dep"),
+    )
+    should.equal(commit, "abc")
+    Ok(git_source)
+  }
+
+  let result =
+    licence_audit.run_with_full_notice_clients(
+      ["notices", "--manifest=" <> manifest_path, "--no-cache"],
+      notice_metadata_fetcher,
+      mit_spdx_clients(git_archive),
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Declared licences: MIT")
+  assert string.contains(result.output, "SPDX-License-List/MIT.txt")
+  assert string.contains(result.output, "SYNTHESIZED MIT CANONICAL TEXT")
+  assert string.contains(result.output, "NOTICE.txt")
 }

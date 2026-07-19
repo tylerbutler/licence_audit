@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:dcbdfe33-f87c-826c-bd05-1059ae9d8e19",
+  "serialNumber": "urn:uuid:e54e8cbb-ec3a-8de1-a389-4b3133b1c2d0",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -48,10 +48,10 @@
   },
   "components": [
     {
-      "bom-ref": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
+      "bom-ref": "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
       "type": "library",
       "name": "glint",
-      "purl": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
+      "purl": "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
       "version": "1.3.0",
       "description": "Gleam command-line argument parsing with flags and automated help text generation.",
       "licenses": [
@@ -646,11 +646,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleam_javascript@1.0.0",
+      "bom-ref": "pkg:hex/gleam_javascript@1.0.1",
       "type": "library",
       "name": "gleam_javascript",
-      "purl": "pkg:hex/gleam_javascript@1.0.0",
-      "version": "1.0.0",
+      "purl": "pkg:hex/gleam_javascript@1.0.1",
+      "version": "1.0.1",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -662,7 +662,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "ef6c77a506f026c6fb37941889477cd5e4234fcd4337ff0e9384e297cb8f97eb"
+          "content": "d542c4b4f40e942f5d3372d524419fa521a7bb92d621af696cc286e89d882d55"
         }
       ],
       "licenses": [
@@ -675,7 +675,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/gleam_javascript-1.0.0.tar",
+          "url": "https://repo.hex.pm/tarballs/gleam_javascript-1.0.1.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1342,11 +1342,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/simplifile@2.4.0",
+      "bom-ref": "pkg:hex/simplifile@2.6.0",
       "type": "library",
       "name": "simplifile",
-      "purl": "pkg:hex/simplifile@2.4.0",
-      "version": "2.4.0",
+      "purl": "pkg:hex/simplifile@2.6.0",
+      "version": "2.6.0",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -1358,7 +1358,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "7c18afa4fed0b4ce1fa5b0b4bac1fa1744427054ea993565f6f3f82e5453170d"
+          "content": "a33c345f0a4ffb91dccd4220114534a58c387964a5f17b3e472cebd1ada9ffb4"
         }
       ],
       "licenses": [
@@ -1371,7 +1371,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/simplifile-2.4.0.tar",
+          "url": "https://repo.hex.pm/tarballs/simplifile-2.6.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1899,7 +1899,7 @@
     {
       "ref": "root",
       "dependsOn": [
-        "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
+        "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
         "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
         "pkg:hex/argv@1.1.0",
         "pkg:hex/etch@1.3.3",
@@ -1912,7 +1912,7 @@
         "pkg:hex/gleeunit@1.11.0",
         "pkg:hex/glinter@2.19.1",
         "pkg:hex/jsone@1.9.0",
-        "pkg:hex/simplifile@2.4.0",
+        "pkg:hex/simplifile@2.6.0",
         "pkg:hex/slate@1.0.0",
         "pkg:hex/spruce@1.0.0",
         "pkg:hex/tomlet@1.3.0",
@@ -1920,7 +1920,7 @@
       ]
     },
     {
-      "ref": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
+      "ref": "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
       "dependsOn": [
         "pkg:hex/gleam_community_ansi@1.5.0",
         "pkg:hex/gleam_community_colour@2.0.4",
@@ -1931,10 +1931,10 @@
     {
       "ref": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
       "dependsOn": [
-        "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
+        "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
         "pkg:hex/gleam_stdlib@1.0.3",
         "pkg:hex/glugify@2.0.3",
-        "pkg:hex/simplifile@2.4.0"
+        "pkg:hex/simplifile@2.6.0"
       ]
     },
     {
@@ -1951,7 +1951,7 @@
       "ref": "pkg:hex/etch@1.3.3",
       "dependsOn": [
         "pkg:hex/gleam_erlang@1.3.0",
-        "pkg:hex/gleam_javascript@1.0.0",
+        "pkg:hex/gleam_javascript@1.0.1",
         "pkg:hex/gleam_stdlib@1.0.3"
       ]
     },
@@ -2004,7 +2004,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/gleam_javascript@1.0.0",
+      "ref": "pkg:hex/gleam_javascript@1.0.1",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.3"
       ]
@@ -2038,7 +2038,7 @@
         "pkg:hex/filepath@1.1.2",
         "pkg:hex/gleam_erlang@1.3.0",
         "pkg:hex/gleam_stdlib@1.0.3",
-        "pkg:hex/simplifile@2.4.0",
+        "pkg:hex/simplifile@2.6.0",
         "pkg:hex/snag@1.2.0",
         "pkg:hex/tom@2.1.0"
       ]
@@ -2063,7 +2063,7 @@
         "pkg:hex/glance@6.1.0",
         "pkg:hex/gleam_json@3.1.0",
         "pkg:hex/gleam_stdlib@1.0.3",
-        "pkg:hex/simplifile@2.4.0",
+        "pkg:hex/simplifile@2.6.0",
         "pkg:hex/tom@2.1.0"
       ]
     },
@@ -2091,7 +2091,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/simplifile@2.4.0",
+      "ref": "pkg:hex/simplifile@2.6.0",
       "dependsOn": [
         "pkg:hex/filepath@1.1.2",
         "pkg:hex/gleam_stdlib@1.0.3"

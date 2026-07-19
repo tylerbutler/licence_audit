@@ -1,0 +1,3 @@
+kind: Added
+body: Added `-v` as an alias for the global `--verbose` flag and detailed `notices` progress showing per-package source selection, licence-file discovery, and processing steps.
+time: 2026-06-27T08:38:13.136-07:00

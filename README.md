@@ -6,11 +6,13 @@ dependencies. Point it at a project, and it will:
 - 📋 **report** the licences declared by your locked Hex packages
 - 🚦 **preview or enforce** a licence allow/deny policy
 - 📦 **generate** a CycloneDX SBOM for your dependency tree
+- 📄 **bundle** release-ready third-party licence notices
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
 It reads `manifest.toml`, fetches licence metadata from Hex, and reports on the
-full resolved dependency tree. Non-Hex dependencies are skipped and named in
-the summary.
+full resolved dependency tree. For audit reports, non-Hex dependencies are
+skipped and named in the summary; `notices` handles supported source archives
+and fails on unsupported sources.
 
 ## Install
 
@@ -82,7 +84,7 @@ Reports Hex package licence metadata. It displays a summary of the licences for 
 **Usage:**
 
 ```
-licence_audit (check | sbom | update | vulns) [--flags]
+licence_audit (check | notices | sbom | update | vulns) [--flags]
 ```
 
 **Flags:**
@@ -99,13 +101,14 @@ licence_audit (check | sbom | update | vulns) [--flags]
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- rootstop -->
 
 <!-- commands -->
 ## Subcommands
 
 * [`licence_audit check`](docs/check.md) - Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+* [`licence_audit notices`](docs/notices.md) - Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies. The output inventories each product, includes its applicable licence text, and preserves package-specific NOTICE attribution. Products with identical licence text are grouped so the shared text is emitted once. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback.
 * [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
 * [`licence_audit update`](docs/update.md) - Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
@@ -207,6 +210,47 @@ Scoring (`sbom-tools`, `sbomqs`) is local-only; note `sbomqs` under-counts
 licences on CycloneDX 1.6, which is why schema validation — not any single
 quality score — is the strict validation check.
 
+## Generate release licence notices
+
+```sh
+licence_audit notices
+licence_audit notices --output=THIRD_PARTY_LICENSES.txt
+licence_audit notices --include-dev
+```
+
+`notices` creates a plain-text release artifact containing licence and notice
+material for locked dependencies. It preserves files shipped by dependencies
+and clearly labels canonical SPDX text used as a fallback. It defaults to
+production dependencies; pass `--include-dev` to include development-only
+dependencies.
+
+Use `notices` when you need a human-readable third-party licence bundle for a
+release. Use `sbom` when you need machine-readable CycloneDX JSON. `notices` is
+similar to npm's `generate-license-file`.
+
+**Licence fallback.** When a dependency's own source archive ships no licence
+text (for example a Hex tarball that includes only a `NOTICE` file, or nothing),
+`notices` recovers one without discarding what the source *did* ship:
+
+1. **Source archive** (highest priority). Any `LICENSE`/`LICENCE`/`COPYING`
+   found there is used as-is, and any `NOTICE` is always preserved.
+2. **Repository** (Hex packages only). The declared repository links are
+   followed for `github.com`, `codeberg.org`, and `gitlab.com`. A deterministic
+   tag (`v<version>` then `<version>`) is resolved to an immutable commit SHA and
+   the archive at that commit is fetched — never a moving branch or `HEAD`.
+3. **Canonical SPDX text**. The declared SPDX identifiers/expressions are
+   expanded to canonical text from a pinned SPDX License List revision. These
+   entries are clearly labelled under synthetic `SPDX-License-List/<id>.txt`
+   paths. Expressions with `AND`/`OR`/`WITH`/`(…)`/trailing `+` are supported;
+   for `OR`, every alternative is included.
+
+`notices` fails if selected dependencies still lack a recognizable licence after
+the fallback (including `LicenseRef-` custom licences that have no canonical
+text), if a dependency source is unsupported, or if a network, archive,
+checksum, SPDX, or output write error occurs. A repository fallback that fails
+transiently is non-fatal: it warns and continues to the SPDX fallback. Hex
+tarballs are verified against `outer_checksum`.
+
 ## Check for vulnerabilities
 
 ```sh
@@ -289,8 +333,29 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 
 Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
 version-suffixed so cache format bumps ignore stale data instead of reading it
-back. Cache failures are non-fatal — they surface as stderr warnings and never
-block an audit. OSV advisories are not cached.
+back. Entries carry a 24h TTL.
+
+The `notices` command additionally caches the licence materials it resolves, so
+repeated runs don't re-download package sources or re-resolve fallbacks:
+
+```
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.dets
+```
+
+This cache is keyed by immutable content addresses and holds several
+namespaces: extracted source materials, final per-package materials keyed by
+source plus declared metadata and the pinned SPDX revision, repository
+tag→commit resolutions, repository-extracted licence files, and canonical SPDX
+records shared by identifier (so `Apache-2.0` is fetched at most once across
+every package that declares it). Entries never expire; path (local)
+dependencies are read live and not cached. `--no-cache` disables it along with
+the metadata cache. `--cache-path` overrides the metadata cache file
+only; the source cache keeps its own version-suffixed filename at the default
+location (relocate it with `XDG_CACHE_HOME`). A corrupt cached value is treated
+as a miss, and transient network failures are never cached as successes.
+
+Cache failures are non-fatal — they surface as stderr warnings and never block a
+run. OSV advisories are not cached.
 
 ## Troubleshooting
 

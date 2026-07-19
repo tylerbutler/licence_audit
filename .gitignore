@@ -7,5 +7,10 @@
 erl_crash.dump
 /priv/
 
+# Source-archive fixtures used by notices fallback tests.
+!test/fixtures/notices/archive_fixture/git_notice_only.tar.gz
+!test/fixtures/notices/archive_fixture/notice_only_hex.tar
+!test/fixtures/notices/archive_fixture/repo_with_license.tar.gz
+
 # ORT SBOM comparison artifacts (not committed)
 ort-result/

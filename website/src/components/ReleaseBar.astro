@@ -1,0 +1,82 @@
+---
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+// Announces the most recent release. The version is read from the project's
+// gleam.toml at build time, so a release bump flows through automatically.
+const gleamToml = readFileSync(
+  fileURLToPath(new URL("../../../gleam.toml", import.meta.url)),
+  "utf8",
+);
+const versionMatch = gleamToml.match(/^\s*version\s*=\s*"([^"]+)"/m);
+if (!versionMatch) {
+  throw new Error("Could not read version from gleam.toml");
+}
+const version = versionMatch[1];
+const repo = "https://github.com/tylerbutler/licence_audit";
+const notesUrl = `${repo}/releases/tag/v${version}`;
+---
+
+<div class="relbar">
+  <p class="relbar__inner container">
+    <span class="relbar__tag">New</span>
+    <span class="relbar__text">
+      Current release: <strong>licence_audit {version}</strong>
+    </span>
+    <a href={notesUrl} class="relbar__link" rel="noopener">
+      Release notes
+      <span aria-hidden="true">→</span>
+    </a>
+  </p>
+</div>
+
+<style>
+  .relbar {
+    background: var(--pink-soft);
+    border-bottom: 1px solid color-mix(in oklch, var(--pink) 24%, transparent);
+  }
+  .relbar__inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.7rem;
+    min-height: 2.5rem;
+    padding-block: 0.4rem;
+    font-size: var(--fs-sm);
+    color: var(--ink-2);
+    text-align: center;
+  }
+  .relbar__tag {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--surface);
+    background: var(--pink);
+    padding: 0.1rem 0.5rem;
+    border-radius: var(--r-full);
+  }
+  .relbar__text strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .relbar__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-weight: 600;
+    color: var(--pink-link);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .relbar__link:hover {
+    text-decoration: underline;
+  }
+  .relbar__link span {
+    transition: transform var(--dur-fast) var(--ease-out-quart);
+  }
+  .relbar__link:hover span {
+    transform: translateX(2px);
+  }
+</style>
