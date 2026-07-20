@@ -3,10 +3,21 @@ name: Publish
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
+    with:
+      checkout_ref: ${{ inputs.tag || github.ref_name }}
 
   build-release-artifacts:
     needs: test
@@ -14,6 +25,8 @@ jobs:
     name: Build release artifacts
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup environment
         uses: ./.github/actions/setup
@@ -22,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y musl-tools
+          sudo apt-get install -y binutils-mingw-w64-x86-64 musl-tools
           python3 -m pip install --user 'ziglang==0.14.1'
           cargo install --locked cargo-zigbuild --version 0.20.1
           rustup target add \
@@ -41,7 +54,7 @@ jobs:
 
       - name: Generate CycloneDX SBOM
         env:
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -52,7 +65,7 @@ jobs:
 
       - name: Smoke test Queso executable
         env:
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           version="${REF_NAME#v}"
@@ -64,7 +77,7 @@ jobs:
 
       - name: Stage release artifacts
         env:
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -146,6 +159,8 @@ jobs:
       artifact-metadata: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
@@ -169,12 +184,12 @@ jobs:
             dist/licence_audit
             dist/*.tar.gz
             dist/*.zip
-          sbom-path: dist/licence_audit-${{ github.ref_name }}.cdx.json
+          sbom-path: dist/licence_audit-${{ env.RELEASE_TAG }}.cdx.json
 
       - name: Attach assets to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           # The release is created by auto-tag.yml; retry briefly in case it
@@ -191,7 +206,7 @@ jobs:
       - name: Add install instructions to release body
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ env.RELEASE_TAG }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
