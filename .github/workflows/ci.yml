@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_call:
+    inputs:
+      checkout_ref:
+        description: Git ref to test
+        required: false
+        type: string
+        default: ''
 
 jobs:
   test:
@@ -13,6 +19,8 @@ jobs:
     name: Test
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
 
       - name: Setup environment
         uses: ./.github/actions/setup
