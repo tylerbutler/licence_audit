@@ -149,10 +149,8 @@ pub fn run(args: List(String)) -> RunResult {
 }
 
 fn library_args(args: List(String)) -> List(String) {
-  case list.contains(args, "--no-cache") {
-    True -> args
-    False -> list.append(args, ["--no-cache"])
-  }
+  use <- bool.guard(when: list.contains(args, "--no-cache"), return: args)
+  list.append(args, ["--no-cache"])
 }
 
 pub fn run_with(
@@ -587,45 +585,61 @@ fn resolve_notice_entries_loop(
   warnings: List(String),
 ) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
   case packages {
-    [] ->
-      case list.reverse(missing) {
-        [] -> #(Ok(list.reverse(entries)), warnings)
-        missing_packages -> #(
-          Error(notices.MissingLicenceText(missing_packages)),
-          warnings,
-        )
-      }
+    [] -> finalize_notice_entries(entries, missing, warnings)
     [package, ..rest] -> {
       let source_package = package_for_source_read(package, project_root)
       case notices_resolve.resolve(source_cache, source_package, clients) {
         Error(error) -> #(Error(error), warnings)
         Ok(resolution) -> {
           let warnings = list.append(warnings, resolution.warnings)
-          case resolution.outcome {
-            notices_resolve.Resolved(files) ->
-              resolve_notice_entries_loop(
-                rest,
-                project_root,
-                source_cache,
-                clients,
-                [notices.NoticeEntry(package: package, files: files), ..entries],
-                missing,
-                warnings,
-              )
-            notices_resolve.Missing ->
-              resolve_notice_entries_loop(
-                rest,
-                project_root,
-                source_cache,
-                clients,
-                entries,
-                [package.name, ..missing],
-                warnings,
-              )
-          }
+          let #(entries, missing) =
+            accumulate_notice_outcome(
+              package,
+              resolution.outcome,
+              entries,
+              missing,
+            )
+          resolve_notice_entries_loop(
+            rest,
+            project_root,
+            source_cache,
+            clients,
+            entries,
+            missing,
+            warnings,
+          )
         }
       }
     }
+  }
+}
+
+fn finalize_notice_entries(
+  entries: List(notices.NoticeEntry),
+  missing: List(String),
+  warnings: List(String),
+) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
+  case list.reverse(missing) {
+    [] -> #(Ok(list.reverse(entries)), warnings)
+    missing_packages -> #(
+      Error(notices.MissingLicenceText(missing_packages)),
+      warnings,
+    )
+  }
+}
+
+fn accumulate_notice_outcome(
+  package: notices.NoticePackage,
+  outcome: notices_resolve.Outcome,
+  entries: List(notices.NoticeEntry),
+  missing: List(String),
+) -> #(List(notices.NoticeEntry), List(String)) {
+  case outcome {
+    notices_resolve.Resolved(files) -> #(
+      [notices.NoticeEntry(package: package, files: files), ..entries],
+      missing,
+    )
+    notices_resolve.Missing -> #(entries, [package.name, ..missing])
   }
 }
 

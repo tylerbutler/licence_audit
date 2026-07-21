@@ -44,7 +44,7 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   }
 }
 
-pub fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
+fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
   use path <- result.try(github_repo_path(repo))
   case string.split(drop_suffix(drop_suffix(path, "/"), ".git"), on: "/") {
     [owner, name] if owner != "" && name != "" -> Ok(#(owner, name))
@@ -417,13 +417,14 @@ fn build_component(
       #("purl", json.string(purl)),
     ]
     |> append_version(entry.version)
+    |> append_scope(entry, scopes)
     |> append_supplier(entry, metadata)
     |> append_publisher(metadata)
     |> append_description(metadata)
     |> append_hashes(entry)
     |> append_licenses(metadata)
     |> append_external_references(entry, metadata)
-    |> append_properties(entry, scopes)
+    |> append_properties(entry)
 
   Ok(json.object(fields))
 }
@@ -553,35 +554,44 @@ fn append_external_references(
   }
 }
 
-fn append_properties(
+/// Emit the native CycloneDX `scope` field: packages in the production
+/// dependency tree are `required`, dev-only packages are `optional`. Packages
+/// missing from the scope map are treated as production out of caution.
+fn append_scope(
   fields: List(Field),
   entry: manifest.SbomEntry,
   scopes: Dict(String, manifest.Scope),
 ) -> List(Field) {
   let scope = case dict.get(scopes, entry.name) {
-    Ok(scope) -> scope
-    Error(_) -> manifest.Prod
+    Ok(manifest.Dev) -> "optional"
+    Ok(manifest.Prod) | Error(_) -> "required"
   }
-  let scope_property =
-    json.object([
-      #("name", json.string("licence_audit:scope")),
-      #("value", json.string(manifest.scope_label(scope))),
-    ])
+  list.append(fields, [#("scope", json.string(scope))])
+}
+
+fn append_properties(
+  fields: List(Field),
+  entry: manifest.SbomEntry,
+) -> List(Field) {
   // CycloneDX `hashes` cannot distinguish two SHA-256 entries (the schema
   // only allows `alg`/`content`), so the Hex inner checksum is surfaced as a
   // labelled property when present. The outer checksum stays in `hashes`
   // because that is the canonical artefact hash consumers verify against.
-  let properties = case entry.provenance {
-    manifest.HexProvenance(_, option.Some(inner)) -> [
-      scope_property,
-      json.object([
-        #("name", json.string("licence_audit:hex_inner_checksum")),
-        #("value", json.string(string.lowercase(inner))),
-      ]),
-    ]
-    _ -> [scope_property]
+  case entry.provenance {
+    manifest.HexProvenance(_, option.Some(inner)) ->
+      list.append(fields, [
+        #(
+          "properties",
+          json.preprocessed_array([
+            json.object([
+              #("name", json.string("licence_audit:hex_inner_checksum")),
+              #("value", json.string(string.lowercase(inner))),
+            ]),
+          ]),
+        ),
+      ])
+    _ -> fields
   }
-  list.append(fields, [#("properties", json.preprocessed_array(properties))])
 }
 
 /// Build CycloneDX `externalReferences` for a component: the Hex tarball as a

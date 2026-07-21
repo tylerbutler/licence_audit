@@ -153,20 +153,30 @@ pub fn fetch_cached_quiet(
       let key = name <> "@" <> version
       case lookup_entry(table, key) {
         Ok(metadata) -> Ok(metadata)
-        Error(_) ->
-          case fetcher(name) {
-            Ok(metadata) -> {
-              store_quiet(table, key, metadata)
-              Ok(metadata)
-            }
-            Error(error) ->
-              case lookup_stale(table, key) {
-                Ok(metadata) -> Ok(metadata)
-                Error(_) -> Error(error)
-              }
-          }
+        Error(_) -> fetch_and_store_quiet(table, key, fetcher(name))
       }
     }
+  }
+}
+
+/// Reporter-free counterpart to `fetch_and_store`: record a cache-miss fetch
+/// result and, on success, best-effort write it back to `table`. On failure,
+/// fall back to a stale cached entry if one is still present and decodable.
+fn fetch_and_store_quiet(
+  table: dets_set.Set(String, String),
+  key: String,
+  fetched: Result(hex.PackageMetadata, hex.Error),
+) -> Result(hex.PackageMetadata, hex.Error) {
+  case fetched {
+    Ok(metadata) -> {
+      store_quiet(table, key, metadata)
+      Ok(metadata)
+    }
+    Error(error) ->
+      case lookup_stale(table, key) {
+        Ok(metadata) -> Ok(metadata)
+        Error(_) -> Error(error)
+      }
   }
 }
 

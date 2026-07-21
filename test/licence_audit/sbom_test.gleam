@@ -716,7 +716,7 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
   assert !string.contains(out, "\"method\":")
 }
 
-pub fn render_emits_scope_property_test() {
+pub fn render_emits_optional_scope_for_dev_dependencies_test() {
   let input =
     sbom.SbomInput(
       ..minimal_input(),
@@ -724,8 +724,16 @@ pub fn render_emits_scope_property_test() {
     )
   let output = sbom.render(input)
 
-  assert string.contains(output, "licence_audit:scope")
-  assert string.contains(output, "\"value\":\"dev\"")
+  assert string.contains(output, "\"scope\":\"optional\"")
+  assert !string.contains(output, "licence_audit:scope")
+}
+
+pub fn render_defaults_scope_to_required_test() {
+  // minimal_input has no scopes entry for birch, so it falls back to Prod.
+  let output = sbom.render(minimal_input())
+
+  assert string.contains(output, "\"scope\":\"required\"")
+  assert !string.contains(output, "licence_audit:scope")
 }
 
 pub fn render_emits_publisher_when_metadata_has_one_test() {
@@ -820,8 +828,11 @@ pub fn render_emits_inner_checksum_property_when_present_test() {
   assert string.contains(output, "\"value\":\"cafebabe\"")
 }
 
-pub fn render_omits_inner_checksum_property_when_absent_test() {
+pub fn render_omits_properties_when_no_inner_checksum_test() {
+  // With the scope surfaced as a native field, the inner checksum is the only
+  // remaining custom property; without it the array is omitted entirely.
   let output = sbom.render(minimal_input())
 
   assert !string.contains(output, "licence_audit:hex_inner_checksum")
+  assert !string.contains(output, "\"properties\":")
 }

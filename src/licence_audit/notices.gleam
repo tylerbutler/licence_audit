@@ -260,23 +260,6 @@ pub fn notice_files_of(
   })
 }
 
-/// Read a package's source and return only its notice/licence files. This is
-/// the cacheable unit consumed by `notices_cache`: the compact, extracted
-/// licence text rather than the full archive.
-pub fn read_notice_files(
-  package: NoticePackage,
-  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
-  fetch_git_archive: fn(repository.Repository, String) ->
-    Result(BitArray, FetchError),
-) -> Result(List(NoticeFile), Error) {
-  use files <- result.try(read_remote_source(
-    package,
-    fetch_hex_tarball,
-    fetch_git_archive,
-  ))
-  notice_files_of(package.name, files)
-}
-
 /// Serialise notice files for the on-disk cache as a JSON array of
 /// `{path, contents}` objects.
 pub fn encode_notice_files(files: List(NoticeFile)) -> String {
@@ -325,7 +308,7 @@ pub fn read_remote_source(
   }
 }
 
-pub fn fetch_hex_tarball_from_hex(
+fn fetch_hex_tarball_from_hex(
   name: String,
   version: String,
 ) -> Result(BitArray, FetchError) {
@@ -336,7 +319,7 @@ pub fn fetch_hex_tarball_from_hex(
 /// directly from its provider at the immutable manifest commit. This is the
 /// provider-agnostic replacement for a GitHub-only tarball fetcher; the
 /// `repository.Repository` selects the correct host and archive path.
-pub fn fetch_git_archive_from_provider(
+fn fetch_git_archive_from_provider(
   repo: repository.Repository,
   commit: String,
 ) -> Result(BitArray, FetchError) {
@@ -347,7 +330,7 @@ pub fn fetch_git_archive_from_provider(
 /// immutable commit SHA. A 404 means the tag doesn't exist (`Ok(None)`), so the
 /// caller can try the next candidate; other non-2xx and transport errors are
 /// transient failures.
-pub fn resolve_commit_from_provider(
+fn resolve_commit_from_provider(
   repo: repository.Repository,
   tag: String,
 ) -> Result(Option(String), FetchError) {
@@ -382,7 +365,7 @@ pub fn commit_response(
 
 /// Real `fetch_repo_archive` client: download the provider's gzip tar archive at
 /// an immutable commit.
-pub fn fetch_repo_archive_from_provider(
+fn fetch_repo_archive_from_provider(
   repo: repository.Repository,
   commit: String,
 ) -> Result(BitArray, FetchError) {
@@ -392,7 +375,7 @@ pub fn fetch_repo_archive_from_provider(
 /// Real `fetch_spdx` client: fetch a canonical SPDX detail record from the
 /// pinned License List revision. A 404 means the identifier is unknown
 /// (`Ok(None)`).
-pub fn fetch_spdx_text(
+fn fetch_spdx_text(
   requirement: spdx.Requirement,
 ) -> Result(Option(String), FetchError) {
   use #(status, body) <- result.try(
@@ -401,14 +384,12 @@ pub fn fetch_spdx_text(
   spdx_response(requirement, status, body)
 }
 
-pub fn fetch_spdx_index(
-  kind: spdx.IndexKind,
-) -> Result(List(String), FetchError) {
+fn fetch_spdx_index(kind: spdx.IndexKind) -> Result(List(String), FetchError) {
   use #(status, body) <- result.try(fetch_json(spdx.index_request(kind)))
   case status {
     status if status >= 200 && status < 300 ->
       spdx.decode_index(kind, body)
-      |> result.map_error(fn(_) { FetchUnexpectedResponse(status) })
+      |> result.replace_error(FetchUnexpectedResponse(status))
     status -> Error(FetchUnexpectedResponse(status))
   }
 }
