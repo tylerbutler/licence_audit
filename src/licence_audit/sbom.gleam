@@ -44,7 +44,7 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   }
 }
 
-pub fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
+fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
   use path <- result.try(github_repo_path(repo))
   case string.split(drop_suffix(drop_suffix(path, "/"), ".git"), on: "/") {
     [owner, name] if owner != "" && name != "" -> Ok(#(owner, name))

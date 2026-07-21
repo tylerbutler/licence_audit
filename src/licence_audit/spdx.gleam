@@ -16,6 +16,7 @@
 //// obviously needs all operands. `LicenseRef-*`/`DocumentRef-*` custom
 //// references have no canonical text and make an expression unresolvable.
 
+import gleam/bool
 import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
@@ -25,11 +26,9 @@ import gleam/option.{None}
 import gleam/result
 import gleam/string
 
-/// SPDX License List data release the canonical text is pinned to.
-pub const license_list_version = "v3.28.0"
-
-/// Immutable commit in `spdx/license-list-data` for `license_list_version`.
-/// Pinning to a commit (not a tag) guarantees the fetched text can never drift.
+/// Immutable commit in `spdx/license-list-data`, pinned to the v3.28.0
+/// release. Pinning to a commit (not a tag) guarantees the fetched text can
+/// never drift.
 pub const license_list_commit = "c4a7237ec8f4654e867546f9f409749300f1bf4c"
 
 /// An identifier referenced by a declared licence expression.
@@ -112,10 +111,8 @@ fn tokenize(expression: String) -> List(String) {
 }
 
 fn drop_trailing_plus(id: String) -> String {
-  case string.ends_with(id, "+") {
-    True -> string.drop_end(id, 1)
-    False -> id
-  }
+  use <- bool.guard(when: !string.ends_with(id, "+"), return: id)
+  string.drop_end(id, 1)
 }
 
 fn dedupe(items: List(Requirement)) -> List(Requirement) {

@@ -45,7 +45,7 @@ pub fn extract_hex_contents(
   use files <- result.try(extract_tar_raw(data))
   use contents <- result.try(
     list.key_find(files, "contents.tar.gz")
-    |> result.map_error(fn(_) { MissingContentsArchive }),
+    |> result.replace_error(MissingContentsArchive),
   )
   extract_tar_gz(contents)
 }
