@@ -14,3 +14,7 @@ erl_crash.dump
 
 # ORT SBOM comparison artifacts (not committed)
 ort-result/
+
+
+# APM dependencies
+apm_modules/
