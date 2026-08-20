@@ -1,0 +1,68 @@
+---
+import Terminal from "./Terminal.astro";
+
+/** A hand-authored `licence_audit vulns` report so the status colours stay
+ *  semantically honest (DESIGN.md: The Report-Truth Rule) — the affected
+ *  package reads as denied, the clean count as passing, never flat grey. */
+---
+
+<Terminal title="licence_audit — vulns">
+  <pre class="vout" aria-label="Example licence_audit vulns output"><span class="vl"><span class="ps">$</span> licence_audit vulns</span>
+<span class="vl vl--blank"> </span>
+<span class="vl">  <span class="hit">✗ tls_native</span> <span class="dim">0.5.0</span></span>
+<span class="vl">    <span class="dim">└─ GHSA-7f4c-9m2q-x8vp</span>  <span class="sev">high</span>   DoS via malformed handshake</span>
+<span class="vl vl--skip">  · legacy_helper  skipped (path dep)</span>
+<span class="vl vl--blank"> </span>
+<span class="vl">  16 checked · <span class="aff">1 affected</span> · <span class="cln">15 clean</span></span></pre>
+</Terminal>
+
+<style>
+  .vout {
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    line-height: 1.75;
+    color: var(--term-fg);
+    margin: 0;
+  }
+  .vl {
+    display: block;
+  }
+  .vl--blank {
+    line-height: 0.9;
+  }
+  .ps {
+    color: var(--pink-bright);
+    font-weight: 700;
+  }
+  .hit {
+    color: var(--term-deny);
+    font-weight: 700;
+  }
+  .sev {
+    color: var(--term-warn);
+    font-weight: 700;
+  }
+  .dim {
+    color: var(--term-dim);
+  }
+  .vl--skip {
+    color: var(--term-muted);
+  }
+  .aff {
+    color: var(--term-deny);
+  }
+  .cln {
+    color: var(--term-pass);
+  }
+
+  /* Narrow phones: wrap the advisory description instead of hiding the
+     verdict behind a horizontal scroll. */
+  @media (max-width: 30rem) {
+    .vout {
+      font-size: 0.8rem;
+    }
+    .vl {
+      white-space: pre-wrap;
+    }
+  }
+</style>

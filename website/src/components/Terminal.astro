@@ -23,7 +23,13 @@ const { title, lift = false, class: klass, bodyId } = Astro.props;
     {title && <span class="term__title">{title}</span>}
     <span class="term__spacer" aria-hidden="true"></span>
   </div>
-  <div class="term__body" id={bodyId}>
+  <div
+    class="term__body"
+    id={bodyId}
+    tabindex="0"
+    role="region"
+    aria-label={title ?? "Terminal output"}
+  >
     <slot />
   </div>
 </div>
@@ -63,7 +69,7 @@ const { title, lift = false, class: klass, bodyId } = Astro.props;
   }
   .term__title {
     font-family: var(--font-mono);
-    font-size: 0.78rem;
+    font-size: var(--fs-xs);
     color: var(--term-dim);
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -77,5 +83,12 @@ const { title, lift = false, class: klass, bodyId } = Astro.props;
     padding: 1.1rem clamp(1rem, 0.6rem + 1.2vw, 1.6rem) 1.35rem;
     overflow-x: auto;
     overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--term-fg) 25%, transparent)
+      transparent;
+  }
+  .term__body:focus-visible {
+    outline: 2.5px solid var(--pink-bright);
+    outline-offset: -2.5px;
   }
 </style>
