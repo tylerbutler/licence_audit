@@ -8,7 +8,12 @@ const onDocs = pathname.startsWith("/docs");
 
 <header class="nav">
   <div class="nav__inner container">
-    <a href="/" class="nav__brand" aria-label="licence_audit home">
+    <a
+      href="/"
+      class="nav__brand"
+      aria-label="licence_audit home"
+      aria-current={pathname === "/" ? "page" : undefined}
+    >
       <Logo />
     </a>
 

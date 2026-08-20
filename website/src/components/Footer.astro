@@ -18,7 +18,7 @@ const year = new Date().getFullYear();
     </div>
 
     <nav class="footer__col" aria-label="Documentation">
-      <h2 class="footer__h">Docs</h2>
+      <p class="footer__h" aria-hidden="true">Docs</p>
       <a href="/docs">Quick start</a>
       <a href="/docs/check">check</a>
       <a href="/docs/sbom">sbom</a>
@@ -27,7 +27,7 @@ const year = new Date().getFullYear();
     </nav>
 
     <nav class="footer__col" aria-label="Project">
-      <h2 class="footer__h">Project</h2>
+      <p class="footer__h" aria-hidden="true">Project</p>
       <a href={repo} rel="noopener">GitHub</a>
       <a href={`${repo}/releases`} rel="noopener">Releases</a>
       <a href={`${repo}/blob/main/CHANGELOG.md`} rel="noopener">Changelog</a>
@@ -104,6 +104,14 @@ const year = new Date().getFullYear();
     }
     .footer__brand {
       grid-column: 1 / -1;
+    }
+  }
+  @media (pointer: coarse) {
+    .footer__col {
+      gap: 0.35rem;
+    }
+    .footer__col a {
+      padding-block: 0.45rem;
     }
   }
 </style>
