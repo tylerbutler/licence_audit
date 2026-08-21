@@ -112,6 +112,7 @@ pub fn config_policy_can_be_converted_to_policy_test() {
       allow: ["MIT", "MIT"],
       deny: ["GPL-3.0-only"],
       vuln_severity: None,
+      vuln_block_unknown: False,
     )
 
   let assert Ok(audit_policy) =

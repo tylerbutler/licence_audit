@@ -54,6 +54,13 @@ pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
   should.equal(options.check, True)
+  should.equal(options.vuln_block_unknown, False)
+}
+
+pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
+  let options = parse_options(["check", "--vuln-block-unknown"])
+
+  should.equal(options.vuln_block_unknown, True)
 }
 
 pub fn comma_separated_allow_options_are_preserved_test() {
@@ -238,6 +245,18 @@ pub fn root_vuln_severity_option_returns_usage_error_test() {
   let message = usage_error(["--vuln-severity=medium"])
 
   assert string.contains(message, "vuln-severity")
+}
+
+pub fn root_vuln_block_unknown_option_returns_usage_error_test() {
+  let message = usage_error(["--vuln-block-unknown"])
+
+  assert string.contains(message, "vuln-block-unknown")
+}
+
+pub fn vulns_vuln_block_unknown_option_returns_usage_error_test() {
+  let message = usage_error(["vulns", "--vuln-block-unknown"])
+
+  assert string.contains(message, "vuln-block-unknown")
 }
 
 pub fn invalid_check_vuln_severity_returns_usage_error_test() {

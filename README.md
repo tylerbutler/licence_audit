@@ -280,18 +280,27 @@ To fail when vulnerabilities meet a severity threshold, add `--vulns` to
 ```sh
 licence_audit check --vulns
 licence_audit check --vulns --vuln-severity=medium
+licence_audit check --vulns --vuln-block-unknown
 ```
 
 This runs the licence audit, then queries OSV.dev and fails when any advisory's
 severity meets or exceeds the threshold (`low`/`medium`/`high` (default)/
-`critical`). Unknown-severity advisories are reported but never fail. It also
-fails if OSV.dev can't be reached, since the vulnerability check couldn't complete. The
-threshold can also live in config (CLI flags win):
+`critical`). Unknown-severity advisories are reported but do not fail by default;
+use `--vuln-block-unknown` to include them in the gate. It also fails if OSV.dev
+can't be reached, since the vulnerability check couldn't complete. Both settings
+can live in config:
 
 ```toml
 [tools.licence_audit]
 vuln_severity = "high"
+vuln_block_unknown = true
 ```
+
+`--vuln-severity` overrides the configured threshold. `--vuln-block-unknown` is
+enable-only: omitting it preserves a configured `true`; there is no CLI flag that
+turns the setting off. Use `--ignore-config` to ignore both configured
+vulnerability settings and return to CLI-only defaults, where unknown severity is
+non-blocking.
 
 ## Output, colours & exit codes
 
@@ -327,7 +336,7 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 | Code | Meaning |
 | ---- | ------- |
 | `0` | Success (the default report uses `0` even when statuses show denials). |
-| `1` | Enforced check failed (`check` violation, or `check --vulns` advisory at/above threshold), invalid usage, or `update` couldn't run non-interactively. |
+| `1` | Enforced check failed (`check` violation, or a blocking `check --vulns` advisory), invalid usage, or `update` couldn't run non-interactively. |
 | `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
 | `130` | `update` cancelled by the user. |
 

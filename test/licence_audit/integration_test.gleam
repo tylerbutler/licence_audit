@@ -673,6 +673,184 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
   )
 }
 
+fn unknown_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
+  Ok(
+    osv.Vulnerability(
+      id: id,
+      summary: "severity unavailable",
+      severity: osv.UnknownSeverity,
+      scores: [],
+    ),
+  )
+}
+
+fn vulnerability_with_severity(
+  severity: osv.Severity,
+) -> fn(String) -> Result(osv.Vulnerability, osv.Error) {
+  fn(id) {
+    Ok(
+      osv.Vulnerability(
+        id: id,
+        summary: "known severity",
+        severity: severity,
+        scores: [],
+      ),
+    )
+  }
+}
+
+pub fn check_vulns_unknown_severity_is_non_blocking_by_default_test() {
+  let result =
+    licence_audit.run_with_clients(
+      manifest_args(["check", "--allow=MIT,Apache-2.0", "--vulns"]),
+      fake_fetcher,
+      one_vuln_batch,
+      unknown_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "·  [UNKNOWN ]  CVE-2024-0001")
+  assert string.contains(
+    result.output,
+    "0 advisory/advisories at or above high",
+  )
+}
+
+pub fn check_vulns_unknown_severity_blocks_when_enabled_test() {
+  let result =
+    licence_audit.run_with_clients(
+      manifest_args([
+        "check",
+        "--allow=MIT,Apache-2.0",
+        "--vulns",
+        "--vuln-block-unknown",
+      ]),
+      fake_fetcher,
+      one_vuln_batch,
+      unknown_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "✗  [UNKNOWN ]  CVE-2024-0001")
+  assert string.contains(result.output, "blocking advisory/advisories")
+  assert string.contains(result.output, "or unknown severity")
+  assert string.contains(result.output, "unknown-severity blocking rule")
+}
+
+pub fn check_vulns_unknown_detail_placeholder_blocks_when_enabled_test() {
+  let result =
+    licence_audit.run_with_clients(
+      manifest_args([
+        "check",
+        "--allow=MIT,Apache-2.0",
+        "--vulns",
+        "--vuln-block-unknown",
+      ]),
+      fake_fetcher,
+      one_vuln_batch,
+      unused_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "✗  [UNKNOWN ]  CVE-2024-0001")
+}
+
+pub fn check_vulns_config_and_ignore_config_control_unknown_gate_test() {
+  let config_path = "build/tmp/vuln-block-unknown.toml"
+  let assert Ok(Nil) = simplifile.create_directory_all("build/tmp")
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: config_path,
+      contents: "[tools.licence_audit]
+allow = [\"MIT\", \"Apache-2.0\"]
+vuln_block_unknown = true
+",
+    )
+  let configured =
+    licence_audit.run_with_clients(
+      [
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> config_path,
+        "check",
+        "--vulns",
+      ],
+      fake_fetcher,
+      one_vuln_batch,
+      unknown_vuln_detail,
+    )
+  let ignored =
+    licence_audit.run_with_clients(
+      [
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> config_path,
+        "--ignore-config",
+        "check",
+        "--allow=MIT,Apache-2.0",
+        "--vulns",
+      ],
+      fake_fetcher,
+      one_vuln_batch,
+      unknown_vuln_detail,
+    )
+
+  should.equal(configured.exit_code, 1)
+  should.equal(ignored.exit_code, 0)
+  assert string.contains(configured.output, "✗  [UNKNOWN ]  CVE-2024-0001")
+  assert string.contains(ignored.output, "·  [UNKNOWN ]  CVE-2024-0001")
+}
+
+pub fn check_vulns_known_severity_thresholds_are_unchanged_test() {
+  [
+    #(osv.Low, "low", 1),
+    #(osv.Low, "medium", 0),
+    #(osv.Low, "high", 0),
+    #(osv.Low, "critical", 0),
+    #(osv.Medium, "low", 1),
+    #(osv.Medium, "medium", 1),
+    #(osv.Medium, "high", 0),
+    #(osv.Medium, "critical", 0),
+    #(osv.High, "low", 1),
+    #(osv.High, "medium", 1),
+    #(osv.High, "high", 1),
+    #(osv.High, "critical", 0),
+    #(osv.Critical, "low", 1),
+    #(osv.Critical, "medium", 1),
+    #(osv.Critical, "high", 1),
+    #(osv.Critical, "critical", 1),
+  ]
+  |> list.each(fn(test_case) {
+    let #(severity, threshold, expected_exit) = test_case
+    let result =
+      licence_audit.run_with_clients(
+        manifest_args([
+          "check",
+          "--allow=MIT,Apache-2.0",
+          "--vulns",
+          "--vuln-severity=" <> threshold,
+        ]),
+        fake_fetcher,
+        one_vuln_batch,
+        vulnerability_with_severity(severity),
+      )
+
+    should.equal(result.exit_code, expected_exit)
+  })
+}
+
+pub fn vulns_unknown_severity_remains_descriptive_test() {
+  let result =
+    licence_audit.run_with_clients(
+      ["vulns", "--manifest=test/fixtures/manifest_github_git.toml"],
+      fake_fetcher,
+      one_vuln_batch,
+      unknown_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "[UNKNOWN ]")
+  assert string.contains(result.output, "CVE-2024-0001")
+}
+
 fn sbom_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
     "gleam_stdlib" -> Ok(hex.licences_only(["Apache-2.0"]))

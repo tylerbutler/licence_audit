@@ -229,7 +229,13 @@ fn load_existing_policy(
   ignore_config: Bool,
 ) -> config.Policy {
   case ignore_config {
-    True -> config.Policy(allow: [], deny: [], vuln_severity: None)
+    True ->
+      config.Policy(
+        allow: [],
+        deny: [],
+        vuln_severity: None,
+        vuln_block_unknown: False,
+      )
     False -> {
       let load_result =
         config.load(config.LoadOptions(
@@ -238,12 +244,19 @@ fn load_existing_policy(
           allow_licences: [],
           deny_licences: [],
           vuln_severity: None,
+          vuln_block_unknown: False,
           ignore_config: False,
           check: False,
         ))
       case load_result {
         Ok(policy) -> policy
-        Error(_) -> config.Policy(allow: [], deny: [], vuln_severity: None)
+        Error(_) ->
+          config.Policy(
+            allow: [],
+            deny: [],
+            vuln_severity: None,
+            vuln_block_unknown: False,
+          )
       }
     }
   }

@@ -8,7 +8,12 @@ import simplifile
 import tomlet.{type Value}
 
 pub type Policy {
-  Policy(allow: List(String), deny: List(String), vuln_severity: Option(String))
+  Policy(
+    allow: List(String),
+    deny: List(String),
+    vuln_severity: Option(String),
+    vuln_block_unknown: Bool,
+  )
 }
 
 pub type LoadOptions {
@@ -18,6 +23,7 @@ pub type LoadOptions {
     allow_licences: List(String),
     deny_licences: List(String),
     vuln_severity: Option(String),
+    vuln_block_unknown: Bool,
     ignore_config: Bool,
     check: Bool,
   )
@@ -37,6 +43,7 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
       allow: options.allow_licences,
       deny: options.deny_licences,
       vuln_severity: options.vuln_severity,
+      vuln_block_unknown: options.vuln_block_unknown,
     )
 
   use <- bool.guard(when: options.ignore_config, return: validate(cli_policy))
@@ -76,6 +83,8 @@ pub fn merge(file_policy: Policy, cli_policy: Policy) -> Result(Policy, Error) {
     allow: list.unique(list.append(file_policy.allow, cli_policy.allow)),
     deny: list.unique(list.append(file_policy.deny, cli_policy.deny)),
     vuln_severity: resolved_severity,
+    vuln_block_unknown: file_policy.vuln_block_unknown
+      || cli_policy.vuln_block_unknown,
   )
   |> validate
 }
@@ -134,7 +143,24 @@ fn parse_policy_section(section: toml.Entry) -> Result(Policy, Error) {
   use allow <- result.try(optional_string_list(section, "allow"))
   use deny <- result.try(optional_string_list(section, "deny"))
   use severity <- result.try(optional_string(section, "vuln_severity"))
-  validate(Policy(allow: allow, deny: deny, vuln_severity: severity))
+  use block_unknown <- result.try(optional_bool(section, "vuln_block_unknown"))
+  validate(Policy(
+    allow: allow,
+    deny: deny,
+    vuln_severity: severity,
+    vuln_block_unknown: block_unknown,
+  ))
+}
+
+fn optional_bool(section: toml.Entry, field: String) -> Result(Bool, Error) {
+  case toml.field(section, field) {
+    Error(_) -> Ok(False)
+    Ok(value) ->
+      case toml.as_bool(value) {
+        Error(_) -> Error(InvalidField(field: field, expected: "Bool"))
+        Ok(value) -> Ok(value)
+      }
+  }
 }
 
 fn optional_string(
@@ -212,5 +238,8 @@ fn has_empty_identifier(licences: List(String)) -> Bool {
 }
 
 fn is_empty(policy: Policy) -> Bool {
-  policy.allow == [] && policy.deny == [] && policy.vuln_severity == None
+  policy.allow == []
+  && policy.deny == []
+  && policy.vuln_severity == None
+  && !policy.vuln_block_unknown
 }
