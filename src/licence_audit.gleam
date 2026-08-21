@@ -1,4 +1,3 @@
-import argv
 import gleam/bool
 import gleam/dict
 import gleam/int
@@ -15,7 +14,6 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/gleam_toml
 import licence_audit/hex
-import licence_audit/httpc_adaptive
 import licence_audit/manifest
 import licence_audit/notices
 import licence_audit/notices_cache
@@ -36,6 +34,9 @@ pub type RunResult {
   RunResult(exit_code: Int, output: String)
 }
 
+@external(erlang, "args_ffi", "arguments")
+fn arguments() -> List(String)
+
 type FetchResult {
   FetchResult(
     rows: List(report.Row),
@@ -46,7 +47,7 @@ type FetchResult {
 }
 
 pub fn main() -> Nil {
-  case glint.execute(cli.app(), cli.normalize_args(argv.load().arguments)) {
+  case glint.execute(cli.app(), cli.normalize_args(arguments())) {
     Error(message) -> {
       io.println_error(message)
       halt(1)
@@ -71,7 +72,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, command),
           palette,
         )
-      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
@@ -83,7 +83,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
           hex.fetch_package_metadata_from_hex,
           progress.enabled(options.verbosity, "update"),
         )
-      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
@@ -101,7 +100,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
           osv.fetch_vulnerability_from_osv,
           progress.enabled(options.verbosity, "sbom"),
         )
-      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
@@ -116,7 +114,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, "vulns"),
           palette,
         )
-      let reporter = apply_http_warning(reporter)
       io.print(output)
       let _ = progress.flush(reporter)
       halt(exit_code)
@@ -134,13 +131,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
       halt(exit_code)
     }
     cli.GenDocsCompleted -> Nil
-  }
-}
-
-fn apply_http_warning(reporter: progress.Reporter) -> progress.Reporter {
-  case httpc_adaptive.take_warning() {
-    Some(message) -> progress.defer_warn(reporter, message)
-    None -> reporter
   }
 }
 
@@ -192,26 +182,6 @@ pub fn run_with_clients(
 pub fn run_with_notice_clients(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  hex_tarball_fetcher: fn(String, String) ->
-    Result(BitArray, notices.FetchError),
-  github_tarball_fetcher: fn(String, String, String) ->
-    Result(BitArray, notices.FetchError),
-) -> RunResult {
-  run_with_full_notice_clients(
-    args,
-    fetcher,
-    notices.clients_with_tarball_fetchers(
-      hex_tarball_fetcher,
-      github_tarball_fetcher,
-    ),
-  )
-}
-
-/// Run with a fully-injected notices client bundle, for exercising the
-/// repository/SPDX fallback with deterministic fakes.
-pub fn run_with_full_notice_clients(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   clients: notices.Clients,
 ) -> RunResult {
   let #(result, _) =
@@ -245,27 +215,6 @@ pub fn run_with_progress(
 }
 
 pub fn run_with_notice_progress(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  hex_tarball_fetcher: fn(String, String) ->
-    Result(BitArray, notices.FetchError),
-  github_tarball_fetcher: fn(String, String, String) ->
-    Result(BitArray, notices.FetchError),
-  verbosity: progress.Verbosity,
-) -> #(RunResult, List(progress.Event)) {
-  run_with_full_notice_progress(
-    args,
-    fetcher,
-    notices.clients_with_tarball_fetchers(
-      hex_tarball_fetcher,
-      github_tarball_fetcher,
-    ),
-    verbosity,
-  )
-}
-
-/// Progress-capturing variant of `run_with_full_notice_clients`.
-fn run_with_full_notice_progress(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   clients: notices.Clients,
@@ -1064,19 +1013,6 @@ fn read_gleam_toml_metadata(
   use contents <- result.try(
     simplifile.read(from: path) |> result.replace_error(Nil),
   )
-  package_metadata_from_gleam_toml(contents, repo_url)
-}
-
-/// Build package metadata from a dependency's `gleam.toml` contents. The
-/// repository link is the manifest-recorded git URL (`repo_url`) rather than
-/// gleam.toml's declared `repository`, so it always matches the component
-/// purl/provenance — important when a dependency is sourced from a fork whose
-/// gleam.toml still points at the upstream project. This is a thin wrapper over
-/// `gleam_toml.package_metadata`, retained for backwards compatibility.
-pub fn package_metadata_from_gleam_toml(
-  contents: String,
-  repo_url: String,
-) -> Result(hex.PackageMetadata, Nil) {
   gleam_toml.package_metadata(contents, repo_url)
 }
 
