@@ -1,3 +1,0 @@
-kind: Removed
-body: Removed the legacy notices client adapters and `package_metadata_from_gleam_toml`; use `notices.Clients` and `gleam_toml.package_metadata` directly.
-time: 2026-08-21T14:20:38.194-07:00
