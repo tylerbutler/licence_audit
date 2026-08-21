@@ -2,14 +2,21 @@
 -export([pretty_print/1]).
 
 pretty_print(Json) when is_binary(Json) ->
-    case jsone:try_decode(Json, [{object_format, proplist}]) of
-        {ok, Term, <<>>} -> encode_pretty(Term);
-        {ok, _Term, _Remaining} -> {error, trailing_content};
-        {error, _Reason} -> {error, invalid_json}
+    Decoders = #{
+        object_finish => fun(Acc, OldAcc) ->
+            {{object, lists:reverse(Acc)}, OldAcc}
+        end
+    },
+    try
+        {Term, _, <<>>} = json:decode(Json, ok, Decoders),
+        Pretty =
+            iolist_to_binary(json:format(Term, fun format/3, #{max => 0})),
+        {ok, binary:part(Pretty, 0, byte_size(Pretty) - 1)}
+    catch
+        error:_ -> {error, invalid_json}
     end.
 
-encode_pretty(Term) ->
-    case jsone:try_encode(Term, [native_forward_slash, {indent, 2}, {space, 1}]) of
-        {ok, Pretty} -> {ok, Pretty};
-        {error, _Reason} -> {error, encode_failed}
-    end.
+format({object, Pairs}, Encoder, State) ->
+    json:format_key_value_list(Pairs, Encoder, State);
+format(Value, Encoder, State) ->
+    json:format_value(Value, Encoder, State).

@@ -13,7 +13,6 @@ import gleam/order
 import gleam/result
 import gleam/string
 import licence_audit/hex
-import licence_audit/httpc_adaptive
 import licence_audit/manifest
 import licence_audit/repository
 import licence_audit/source_archive
@@ -115,31 +114,6 @@ pub fn default_clients() -> Clients {
     fetch_repo_archive: fetch_repo_archive_from_provider,
     fetch_spdx_index: fetch_spdx_index,
     fetch_spdx: fetch_spdx_text,
-  )
-}
-
-/// Build `Clients` from just a Hex tarball fetcher and a legacy GitHub tarball
-/// fetcher (`fn(owner, repo, commit)`), defaulting the fallback (repository +
-/// SPDX) clients to their real network implementations. Retained so existing
-/// callers that only override the tarball fetchers keep working; the GitHub
-/// fetcher is adapted to the provider-agnostic `fetch_git_archive` client by
-/// projecting the parsed repository's owner/repo, so it only serves GitHub git
-/// packages. The fully-injected/default flow supports every provider.
-pub fn clients_with_tarball_fetchers(
-  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
-  fetch_github_tarball: fn(String, String, String) ->
-    Result(BitArray, FetchError),
-) -> Clients {
-  Clients(
-    ..default_clients(),
-    fetch_hex_tarball: fetch_hex_tarball,
-    fetch_git_archive: fn(repo: repository.Repository, commit: String) {
-      case repo.provider {
-        repository.GitHub -> fetch_github_tarball(repo.owner, repo.repo, commit)
-        repository.GitLab | repository.Codeberg ->
-          fetch_git_archive_from_provider(repo, commit)
-      }
-    },
   )
 }
 
@@ -437,9 +411,13 @@ pub fn spdx_response(
 /// error mapped onto `FetchError`.
 fn fetch_json(request: Request(String)) -> Result(#(Int, String), FetchError) {
   let request = request.set_header(request, "user-agent", "licence_audit")
-  case httpc_adaptive.dispatch(request, timeout_ms: metadata_fetch_timeout_ms) {
+  case
+    httpc.configure()
+    |> httpc.timeout(metadata_fetch_timeout_ms)
+    |> httpc.dispatch(request)
+  {
     Ok(response) -> Ok(#(response.status, response.body))
-    Error(httpc_adaptive.ResponseTimeout) ->
+    Error(httpc.ResponseTimeout) ->
       Error(FetchTimeoutAfter(metadata_fetch_timeout_ms / 1000))
     Error(_) -> Error(FetchNetworkFailure)
   }
