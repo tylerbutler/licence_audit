@@ -2,14 +2,12 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:45b0a7f0-7911-8a0f-a357-c4d63620969b",
+  "serialNumber": "urn:uuid:2312208b-bce9-8960-b4d2-18e1a575685d",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
     "lifecycles": [
-      {
-        "phase": "build"
-      }
+      { "phase": "build" }
     ],
     "tools": [
       {
@@ -19,9 +17,7 @@
       }
     ],
     "authors": [
-      {
-        "name": "tylerbutler"
-      }
+      { "name": "tylerbutler" }
     ],
     "component": {
       "bom-ref": "root",
@@ -168,7 +164,7 @@
       "properties": [
         {
           "name": "licence_audit:scope",
-          "value": "prod"
+          "value": "dev"
         }
       ]
     },
@@ -1198,7 +1194,7 @@
         ]
       },
       "publisher": "giacomocavalieri",
-      "description": "\ud83e\ude84 Fast HTML escaping",
+      "description": "🪄 Fast HTML escaping",
       "hashes": [
         {
           "alg": "SHA-256",
@@ -1223,53 +1219,6 @@
           "url": "https://github.com/giacomocavalieri/houdini",
           "type": "vcs",
           "comment": "Repository"
-        }
-      ],
-      "properties": [
-        {
-          "name": "licence_audit:scope",
-          "value": "prod"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:hex/jsone@1.9.0",
-      "type": "library",
-      "name": "jsone",
-      "purl": "pkg:hex/jsone@1.9.0",
-      "version": "1.9.0",
-      "supplier": {
-        "name": "Hex",
-        "url": [
-          "https://hex.pm/packages/jsone"
-        ]
-      },
-      "publisher": "sile",
-      "description": "Erlang JSON Library",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "6863dcf95a7fc26094eaaff0d72522d58fe22719b4758afb75a21735bc92646d"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://repo.hex.pm/tarballs/jsone-1.9.0.tar",
-          "type": "distribution",
-          "comment": "Hex package tarball"
-        },
-        {
-          "url": "https://github.com/sile/jsone",
-          "type": "vcs",
-          "comment": "GitHub"
         }
       ],
       "properties": [
@@ -1901,7 +1850,6 @@
       "dependsOn": [
         "pkg:github/tylerbutler/glint@6b72c59f2ae7a09672650d6dd2295ec9930c4ebe",
         "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-        "pkg:hex/argv@1.1.0",
         "pkg:hex/etch@1.3.3",
         "pkg:hex/gleam_http@4.3.0",
         "pkg:hex/gleam_httpc@5.0.0",
@@ -1911,7 +1859,6 @@
         "pkg:hex/gleescript@1.5.2",
         "pkg:hex/gleeunit@1.11.0",
         "pkg:hex/glinter@2.19.1",
-        "pkg:hex/jsone@1.9.0",
         "pkg:hex/simplifile@2.6.0",
         "pkg:hex/slate@1.0.0",
         "pkg:hex/spruce@1.0.0",
@@ -2075,10 +2022,6 @@
     },
     {
       "ref": "pkg:hex/houdini@1.2.1",
-      "dependsOn": []
-    },
-    {
-      "ref": "pkg:hex/jsone@1.9.0",
       "dependsOn": []
     },
     {
