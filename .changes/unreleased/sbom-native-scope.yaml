@@ -1,0 +1,3 @@
+kind: Fixed
+body: Fixed `sbom` output to emit dependency scope through the native CycloneDX `scope` field instead of a custom property.
+time: 2026-08-21T13:50:57.265-07:00

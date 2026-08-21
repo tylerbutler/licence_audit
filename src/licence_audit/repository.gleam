@@ -264,22 +264,19 @@ fn contains_any(value: String, needles: List(String)) -> Bool {
 }
 
 fn strip_prefix(value: String, prefix: String) -> Result(String, Nil) {
-  case string.starts_with(value, prefix) {
-    True -> Ok(string.drop_start(value, string.length(prefix)))
-    False -> Error(Nil)
-  }
+  use <- bool.guard(
+    when: !string.starts_with(value, prefix),
+    return: Error(Nil),
+  )
+  Ok(string.drop_start(value, string.length(prefix)))
 }
 
 fn drop_trailing_slash(value: String) -> String {
-  case string.ends_with(value, "/") {
-    True -> string.drop_end(value, 1)
-    False -> value
-  }
+  use <- bool.guard(when: !string.ends_with(value, "/"), return: value)
+  string.drop_end(value, 1)
 }
 
 fn drop_suffix(value: String, suffix: String) -> String {
-  case string.ends_with(value, suffix) {
-    True -> string.drop_end(value, string.length(suffix))
-    False -> value
-  }
+  use <- bool.guard(when: !string.ends_with(value, suffix), return: value)
+  string.drop_end(value, string.length(suffix))
 }

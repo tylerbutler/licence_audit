@@ -36,7 +36,7 @@ Generated for `tylerbutler/licence_audit` on 2026-06-26.
 - 26 Hex packages in common.
 - **Only in ours (9):** `glance`, `gleam_time`, `gleescript`, `gleeunit`, `glexer`,
   `glinter`, `tom`, plus the two git deps below. These are dev/test-scope deps — ORT omits
-  them from components; we include them tagged `licence_audit:scope: dev`.
+  them from components; we include them with the native `scope: optional` field.
 - **Git deps diverge (provenance precision, not correctness):**
   - Ours: `pkg:github/tylerbutler/glint@c082b4af...` — pins the **exact git commit**.
   - ORT: `pkg:otp/glint@1.3.0`, `pkg:otp/glint_markdown@0.0.0`.
@@ -58,12 +58,11 @@ Generated for `tylerbutler/licence_audit` on 2026-06-26.
 | hashes (SHA-256) | yes (outer Hex checksum) | yes (same value) |
 | licence | id `Apache-2.0` + `acknowledgement: declared` | id `Apache-2.0` + **full licence text** + `ort:origin` property |
 | externalReferences | tarball (distribution) + repo (vcs) + sponsor + website | website only |
-| scope | property `licence_audit:scope: prod` | `scope: required` (native CycloneDX field) |
+| scope | `scope: required` (native CycloneDX field) | `scope: required` (native CycloneDX field) |
 | extra | `licence_audit:hex_inner_checksum` property | `ort:dependencyType`, `group`, `modified` |
 
 **Where ORT is richer:**
 - Embeds the **full licence text** in each component (`licenses[].license.text`).
-- Uses the native CycloneDX `scope` field (`required`/`optional`) instead of a custom property.
 
 **Where we are richer:**
 - More `externalReferences` (tarball distribution, VCS repo, website, sponsor) vs ORT's single website.
@@ -97,7 +96,7 @@ The metadata and format improvements selected for `licence_audit` have tracking 
 
 | Gap | Issue |
 |-----|-------|
-| Native CycloneDX `scope` field vs our custom `licence_audit:scope` property | [#37](https://github.com/tylerbutler/licence_audit/issues/37) |
+| ~~Native CycloneDX `scope` field vs our custom `licence_audit:scope` property~~ (resolved: we now emit native `scope`) | [#37](https://github.com/tylerbutler/licence_audit/issues/37) |
 | Embed licence text in `licenses[].license.text` | [#38](https://github.com/tylerbutler/licence_audit/issues/38) |
 | Optional SPDX output format | [#39](https://github.com/tylerbutler/licence_audit/issues/39) |
 
@@ -109,9 +108,9 @@ The metadata and format improvements selected for `licence_audit` have tracking 
 2. **Keep source scanning outside `licence_audit`.** The SBOM reports metadata-derived
    *declared* licences. Consumers who need *concluded* licences or copyright evidence should
    pair it with a dedicated source scanner.
-3. **Adopt the portable ORT-native ideas** tracked in
-   [#37](https://github.com/tylerbutler/licence_audit/issues/37) (native `scope`) and
-   [#38](https://github.com/tylerbutler/licence_audit/issues/38) (licence text).
+3. **Adopt the portable ORT-native ideas**: native `scope`
+   ([#37](https://github.com/tylerbutler/licence_audit/issues/37), done) and licence text
+   ([#38](https://github.com/tylerbutler/licence_audit/issues/38)).
 4. **SPDX output** is the one format the guide produces that we don't —
    [#39](https://github.com/tylerbutler/licence_audit/issues/39).
 
@@ -174,12 +173,13 @@ Claims about where we win or where ORT diverges, with sources.
   the git origin is not recoverable from the purl. (`0.0.0` for glint_markdown appears in both
   outputs; it is a manifest value, not an ORT artefact.)
 
-### `scope` as a native field (ORT) vs custom property (ours)
+### `scope` as a native field (resolved — both native now)
 - **Spec:** CycloneDX 1.6 `component.scope` enum `["required","optional","excluded"]`, default
   `required` (`definitions.component.properties.scope`). ORT emits this natively
-  (`gleam_stdlib.scope="required"`); we emit `properties[].name="licence_audit:scope"` instead
-  (`src/licence_audit/sbom.gleam:556-585`). This one is a point *for* ORT / a portability gap
-  in ours.
+  (`gleam_stdlib.scope="required"`). We originally emitted a custom
+  `properties[].name="licence_audit:scope"` property; since
+  [#37](https://github.com/tylerbutler/licence_audit/issues/37) we emit the native field too
+  (prod -> `required`, dev -> `optional`; `append_scope` in `src/licence_audit/sbom.gleam`).
 
 ### More externalReferences
 - **Ours (evidence):** `gleam_stdlib` has 4 refs (distribution tarball, vcs repo, sponsor,

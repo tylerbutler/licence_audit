@@ -382,7 +382,7 @@ pub fn fetch_spdx_index(
   case status {
     status if status >= 200 && status < 300 ->
       spdx.decode_index(kind, body)
-      |> result.map_error(fn(_) { FetchUnexpectedResponse(status) })
+      |> result.replace_error(FetchUnexpectedResponse(status))
     status -> Error(FetchUnexpectedResponse(status))
   }
 }

@@ -235,6 +235,48 @@ fn try_repos(
   }
 }
 
+/// A non-fatal failure encountered while following one repository fallback
+/// candidate. Carries the data needed to describe the failure (rather than a
+/// pre-formatted `String`) so callers other than `try_repo` could match on the
+/// cause without re-parsing a message.
+type RepoFallbackError {
+  TagResolutionFailed(
+    package: notices.NoticePackage,
+    repo: repository.Repository,
+    tag: String,
+    reason: notices.FetchError,
+  )
+  RepoArchiveFetchFailed(
+    package: notices.NoticePackage,
+    repo: repository.Repository,
+    reason: notices.FetchError,
+  )
+  RepoArchiveExtractFailed(
+    package: notices.NoticePackage,
+    repo: repository.Repository,
+    reason: notices.Error,
+  )
+}
+
+fn describe_repo_fallback_error(error: RepoFallbackError) -> String {
+  case error {
+    TagResolutionFailed(package, repo, tag, reason) ->
+      "Repository fallback for "
+      <> package.name
+      <> ": could not resolve tag "
+      <> tag
+      <> " at "
+      <> repository.describe(repo)
+      <> " ("
+      <> notices.describe_fetch_error(reason)
+      <> "); trying declared SPDX licences"
+    RepoArchiveFetchFailed(package, repo, reason) ->
+      repo_warning(package, repo, notices.describe_fetch_error(reason))
+    RepoArchiveExtractFailed(package, repo, reason) ->
+      repo_warning(package, repo, notices.describe_error(reason))
+  }
+}
+
 fn try_repo(
   cache: notices_cache.Cache,
   package: notices.NoticePackage,
@@ -242,11 +284,11 @@ fn try_repo(
   clients: notices.Clients,
 ) -> #(Option(List(notices.NoticeFile)), List(String)) {
   case resolve_commit(cache, package, repo, clients) {
-    Error(warning) -> #(None, [warning])
+    Error(error) -> #(None, [describe_repo_fallback_error(error)])
     Ok(None) -> #(None, [])
     Ok(Some(commit)) ->
       case repo_licence_files(cache, package, repo, commit, clients) {
-        Error(warning) -> #(None, [warning])
+        Error(error) -> #(None, [describe_repo_fallback_error(error)])
         Ok([]) -> #(None, [])
         Ok(licence_files) -> #(Some(licence_files), [])
       }
@@ -254,14 +296,14 @@ fn try_repo(
 }
 
 /// Resolve the first tag candidate that maps to a commit. `Ok(Some(sha))` on
-/// success, `Ok(None)` when no candidate tag exists, `Error(warning)` on a
+/// success, `Ok(None)` when no candidate tag exists, `Error(error)` on a
 /// transient failure (the warning is surfaced and the caller continues).
 fn resolve_commit(
   cache: notices_cache.Cache,
   package: notices.NoticePackage,
   repo: repository.Repository,
   clients: notices.Clients,
-) -> Result(Option(String), String) {
+) -> Result(Option(String), RepoFallbackError) {
   resolve_commit_loop(
     cache,
     package,
@@ -277,7 +319,7 @@ fn resolve_commit_loop(
   repo: repository.Repository,
   tags: List(String),
   clients: notices.Clients,
-) -> Result(Option(String), String) {
+) -> Result(Option(String), RepoFallbackError) {
   case tags {
     [] -> Ok(None)
     [tag, ..rest] -> {
@@ -285,32 +327,34 @@ fn resolve_commit_loop(
       case notices_cache.get_text(cache, key) {
         Ok(commit) -> Ok(Some(commit))
         Error(_) ->
-          case clients.resolve_commit(repo, tag) {
-            Ok(Some(commit)) -> {
-              notices_cache.put_text(cache, key, commit)
-              Ok(Some(commit))
-            }
-            Ok(None) -> resolve_commit_loop(cache, package, repo, rest, clients)
-            Error(fetch_error) ->
-              Error(
-                "Repository fallback for "
-                <> package.name
-                <> ": could not resolve tag "
-                <> tag
-                <> " at "
-                <> repository.describe(repo)
-                <> " ("
-                <> notices.describe_fetch_error(fetch_error)
-                <> "); trying declared SPDX licences",
-              )
-          }
+          resolve_commit_tag(cache, package, repo, tag, rest, clients, key)
       }
     }
   }
 }
 
+fn resolve_commit_tag(
+  cache: notices_cache.Cache,
+  package: notices.NoticePackage,
+  repo: repository.Repository,
+  tag: String,
+  rest: List(String),
+  clients: notices.Clients,
+  key: String,
+) -> Result(Option(String), RepoFallbackError) {
+  case clients.resolve_commit(repo, tag) {
+    Ok(Some(commit)) -> {
+      notices_cache.put_text(cache, key, commit)
+      Ok(Some(commit))
+    }
+    Ok(None) -> resolve_commit_loop(cache, package, repo, rest, clients)
+    Error(fetch_error) ->
+      Error(TagResolutionFailed(package, repo, tag, fetch_error))
+  }
+}
+
 /// Fetch (or read from cache) the licence-text files from a repository archive
-/// at an immutable commit. `Error(warning)` on a transient network or archive
+/// at an immutable commit. `Error(error)` on a transient network or archive
 /// failure.
 fn repo_licence_files(
   cache: notices_cache.Cache,
@@ -318,18 +362,14 @@ fn repo_licence_files(
   repo: repository.Repository,
   commit: String,
   clients: notices.Clients,
-) -> Result(List(notices.NoticeFile), String) {
+) -> Result(List(notices.NoticeFile), RepoFallbackError) {
   let key = "repo:" <> repository.describe(repo) <> "@" <> commit
   case notices_cache.get_files(cache, key) {
     Ok(files) -> Ok(files)
     Error(_) ->
       case clients.fetch_repo_archive(repo, commit) {
         Error(fetch_error) ->
-          Error(repo_warning(
-            package,
-            repo,
-            notices.describe_fetch_error(fetch_error),
-          ))
+          Error(RepoArchiveFetchFailed(package, repo, fetch_error))
         Ok(bytes) ->
           case notices.repo_licence_files(package.name, bytes) {
             Ok(files) -> {
@@ -337,7 +377,7 @@ fn repo_licence_files(
               Ok(files)
             }
             Error(error) ->
-              Error(repo_warning(package, repo, notices.describe_error(error)))
+              Error(RepoArchiveExtractFailed(package, repo, error))
           }
       }
   }
