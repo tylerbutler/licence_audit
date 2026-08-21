@@ -1,3 +1,0 @@
-kind: Changed
-body: Documented that `licence_audit sbom` reports metadata-derived declared licences and delegates concluded licence and copyright evidence to dedicated source scanners.
-time: 2026-08-21T13:58:59.417-07:00
