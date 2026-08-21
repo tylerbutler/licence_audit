@@ -14,9 +14,9 @@ interface Props {
 }
 
 const {
-  title = "licence_audit — audit your Gleam dependencies",
+  title = "licence_audit: audit your Gleam dependencies",
   description =
-    "One small CLI that audits the licences, generates a CycloneDX SBOM, and checks for known vulnerabilities across your Gleam project's locked Hex dependencies.",
+    "A small CLI that reports licence metadata, creates a CycloneDX SBOM, and checks your Gleam project's locked dependencies for known vulnerabilities.",
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site);

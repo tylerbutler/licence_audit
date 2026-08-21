@@ -1,13 +1,13 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: update
-description: Interactively review the discovered licences and write a policy into your gleam.toml.
+description: Select the discovered licences and write a policy to your Gleam configuration.
 ---
 
-`update` is the friendly way to create a policy. It fetches licence metadata,
-shows you every licence in your tree, preselects any entries already in your
-config, and writes your choices back to `[tools.licence_audit]` in `gleam.toml`
-— comments preserved.
+Use `update` to create a policy. It gets licence metadata and shows each
+licence in the dependency tree. It selects entries that are already in your
+configuration. It then writes your choices to `[tools.licence_audit]` in
+`gleam.toml` and preserves comments.
 
 ```sh
 licence_audit update
@@ -15,25 +15,25 @@ licence_audit update
 
 ## What it does
 
-1. Resolves your dependency tree and fetches licence metadata from Hex.
-2. Presents an interactive picker of the discovered licences, with existing
-   allow / deny entries preselected.
-3. Writes the result back into `gleam.toml` without disturbing your existing
-   comments or formatting.
+1. Resolves the dependency tree and gets licence metadata from Hex.
+2. Shows an interactive list of the licences. The list selects existing allow
+   and deny entries.
+3. Writes the result to `gleam.toml` without changing existing comments or
+   formatting.
 
-## It needs a real terminal
+## Terminal requirement
 
-`update` is interactive, so it needs a TTY:
+`update` is interactive and requires a TTY:
 
 - It exits `1` on non-interactive stdin (for example, in CI).
 - It exits `130` if you cancel.
 
-> **Heads up** — the interactive picker needs Erlang/OTP **28.x or newer**.
-> Earlier releases can't reattach stdin in raw mode, so the picker won't receive
-> keyboard input. If `update` doesn't react to keystrokes, check your OTP
-> version.
+> **Note:** The interactive list requires Erlang/OTP **28.x or newer**.
+> Earlier releases cannot reattach stdin in raw mode. As a result, the list
+> does not receive keyboard input. If `update` does not respond to keyboard
+> input, check your OTP version.
 
-Once you've captured a policy, enforce it with [`licence_audit
+After you create a policy, enforce it with [`licence_audit
 check`](/docs/check).
 
 ## Flags

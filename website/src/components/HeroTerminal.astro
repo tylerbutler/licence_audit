@@ -35,7 +35,7 @@ const rows = [
   <pre class="report" data-term-report aria-label="Example licence_audit check output"><span class="tl tl--prompt"><span class="p-sig">$</span> <span data-type>licence_audit check</span><span class="caret" data-caret></span></span>
 <span class="tl tl--blank"> </span><span class="tl tl--head"><span>Package</span><span>Version</span><span>Licences</span><span>Status</span></span>{rows.map((r) => (
   <span class:list={["tl", "tl--row", `is-${r.st}`]}><span class="c-name"><span class="c-tree">{r.tree}</span>{r.name}</span><span class="c-ver">{r.ver}</span><span class="c-lic">{r.lic}</span><span class="c-st"><span class="g">{r.glyph}</span> {r.st}</span></span>
-))}<span class="tl tl--blank"> </span><span class="tl tl--sum"><span class="g g-deny">✗</span> Policy check failed — denied dependency in tree.</span><span class="tl tl--tally">   <span class="t-deny">1 denied</span> · <span class="t-muted">1 unknown</span> · <span class="t-muted">1 skipped</span> · <span class="t-pass">5 allowed</span></span><span class="tl tl--exit"># licence_audit check exited 1</span></pre>
+))}<span class="tl tl--blank"> </span><span class="tl tl--sum"><span class="g g-deny">✗</span> Policy check failed: denied dependency in tree.</span><span class="tl tl--tally">   <span class="t-deny">1 denied</span> · <span class="t-muted">1 unknown</span> · <span class="t-muted">1 skipped</span> · <span class="t-pass">5 allowed</span></span><span class="tl tl--exit"># licence_audit check exited 1</span></pre>
 </Terminal>
 
 <style>

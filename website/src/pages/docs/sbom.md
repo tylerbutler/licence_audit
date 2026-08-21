@@ -1,11 +1,11 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: sbom
-description: Generate a CycloneDX 1.6 JSON SBOM from your locked dependency tree. Does not evaluate licence policy.
+description: Create a CycloneDX 1.6 JSON SBOM from your locked dependency tree. Does not evaluate licence policy.
 ---
 
-`sbom` emits a [CycloneDX 1.6][cyclonedx] document describing every locked
-dependency. It does **not** evaluate licence policy.
+`sbom` creates a [CycloneDX 1.6][cyclonedx] document that describes all locked
+dependencies. It does **not** evaluate licence policy.
 
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
@@ -15,42 +15,47 @@ licence_audit sbom --reproducible      # deterministic output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
 ```
 
-## What's in the document
+## Document contents
 
-Every locked dependency becomes a component with a package URL (`pkg:hex/…` for
-Hex, `pkg:github/owner/repo@<commit>` for GitHub git deps), a SHA-256 hash for
-Hex packages, the package description, declared licences, and external
-references (tarball, source, homepage, docs). The root component is enriched
-from `gleam.toml`, and a `dependencies` graph mirrors the tree.
+For each locked dependency, `sbom` creates a component with this information:
+a package URL, a SHA-256 hash for Hex packages, the package description,
+declared licences, and external references. The package URL is `pkg:hex/...`
+for Hex and `pkg:github/owner/repo@<commit>` for GitHub git dependencies. The
+external references can identify the tarball, source, home page, and
+documentation. Data from `gleam.toml` supplies information for the root
+component. A `dependencies` graph represents the dependency tree.
 
-Licences are tagged `acknowledgement: "declared"` — they come from package
-metadata, not source scanning. A package declaring **multiple** licences emits
-one entry each; Hex doesn't say whether the relationship is AND or OR, so no
-SPDX expression is synthesised.
+Each licence has the property `acknowledgement: "declared"` because the data
+comes from package metadata, not a source scan. If a package declares multiple
+licences, `sbom` creates one entry for each licence. Hex does not specify an
+`AND` or `OR` relationship. Therefore, `sbom` does not create an SPDX
+expression.
 
 ## Supported sources
 
-`sbom` **fails** on any dependency whose source can't become a clean purl (path
-deps, non-GitHub git deps); only `hex` and GitHub `git` are supported.
-`--offline` skips licence fetches but still validates purls. (Contrast with
-[`vulns`](/docs/vulns), which silently skips unsupported sources.)
+`sbom` supports only `hex` and GitHub `git` sources. It **fails** on a
+dependency source that it cannot convert to a valid purl. Unsupported sources
+include path dependencies and non-GitHub git dependencies. `--offline` skips
+licence requests but continues to validate purls. The [`vulns`](/docs/vulns)
+command has different behavior: it identifies and skips unsupported sources.
 
 ## Embedded vulnerabilities
 
-`--vulns` queries OSV.dev and embeds the results into the document's CycloneDX
-`vulnerabilities` array — one entry per advisory, each with its `id`, an `OSV`
-source link, ratings, and an `affects` list referencing the affected components
-by `bom-ref` / purl. The result is a single VEX-style document that tools like
-[Dependency-Track][dt] can ingest directly. Because it needs the network,
-`--vulns` cannot be combined with `--offline`.
+`--vulns` queries OSV.dev and adds the results to the CycloneDX
+`vulnerabilities` array. Each advisory has an `id`, an `OSV` source link,
+ratings, and an `affects` list. The list refers to affected components by
+`bom-ref` or purl. Tools such as [Dependency-Track][dt] can read the resultant
+VEX-style document. This operation requires a network connection. Therefore,
+you cannot use `--vulns` with `--offline`.
 
 ## Reproducible output
 
-By default the `serialNumber` is random and the `timestamp` is wall-clock, so
-two runs never byte-match. `--reproducible` makes the `serialNumber` a content
-hash and takes the timestamp from [`SOURCE_DATE_EPOCH`][sde] (falling back to
-the Unix epoch) — so you can commit the SBOM and diff it over time to catch
-dependency or licence drift.
+By default, `sbom` uses a random `serialNumber` and the current time for
+`timestamp`. Thus, the output from two runs is different. With
+`--reproducible`, the command uses a content hash for `serialNumber`. It gets
+the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if the
+variable is not set. You can commit and compare reproducible SBOM files to
+find dependency or licence changes.
 
 ## Flags
 

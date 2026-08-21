@@ -1,14 +1,13 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: notices
-description: Bundle a release-ready third-party licence notices file from your locked dependencies, with automatic fallbacks when a package ships no licence text.
+description: Create a third-party licence notices file from your locked dependencies. Use fallback sources when a package contains no licence text.
 ---
 
-`notices` produces a plain-text third-party licence bundle for a release. It
-inventories each locked dependency, includes its applicable licence text, and
-preserves any package-specific `NOTICE` attribution. It's the human-readable
-counterpart to [`sbom`](/docs/sbom) — similar in spirit to npm's
-`generate-license-file`.
+`notices` creates a plain-text third-party licence bundle for a release. It
+lists each locked dependency and includes its applicable licence text. It also
+preserves package-specific `NOTICE` attribution. Use [`sbom`](/docs/sbom) to
+create the related machine-readable data.
 
 ```sh
 licence_audit notices                              # to stdout
@@ -16,73 +15,75 @@ licence_audit notices --output=THIRD_PARTY_LICENSES.txt
 licence_audit notices --include-dev
 ```
 
-By default only **production** dependencies are included; pass `--include-dev`
-to add development-only dependencies.
+By default, `notices` includes only **production** dependencies. Use
+`--include-dev` to add development dependencies.
 
 ## What the file contains
 
-The output opens with a header naming the `manifest.toml` it was generated from,
-then two kinds of sections:
+The output starts with a header that identifies the source `manifest.toml`
+file. Two types of sections follow:
 
-- **Licence groups.** Each distinct licence text is emitted once, followed by
-  the list of products that use it. Dependencies with **identical** licence text
-  are grouped so a shared licence (say, the MIT text) isn't repeated per package.
-- **Notice sections.** Any package-specific `NOTICE`/attribution file a
-  dependency ships is preserved verbatim in its own section.
+- **Licence groups.** `notices` writes each distinct licence text one time.
+  Then, it lists the products that use the text. It groups dependencies that
+  have identical licence text. Thus, the file does not repeat shared text for
+  each package.
+- **Notice sections.** `notices` copies each package-specific `NOTICE` or
+  attribution file without changes into a separate section.
 
 ## Where licence text comes from
 
-When a dependency's own source archive ships no licence text — for example a Hex
-tarball with only a `NOTICE` file, or nothing — `notices` recovers one without
-discarding what the source *did* ship. It tries these sources in order:
+If a dependency source archive contains no licence text, `notices` uses
+fallback sources. It preserves applicable files from the source archive. The
+command uses these sources in sequence:
 
-1. **Source archive** (highest priority). Any `LICENSE`/`LICENCE`/`COPYING`
-   found in the package's own archive is used as-is, and any `NOTICE` is always
-   preserved.
-2. **Declared repository** (Hex packages only). The declared repository links
-   are followed for `github.com`, `codeberg.org`, and `gitlab.com`. A
-   deterministic tag (`v<version>`, then `<version>`) is resolved to an
-   immutable commit SHA and the archive at that commit is fetched — never a
-   moving branch or `HEAD`. A repository's own ancillary `NOTICE` files are
-   dropped; only the licence text is taken.
-3. **Canonical SPDX text**. The declared SPDX identifiers/expressions are
-   expanded to canonical text from a pinned SPDX License List revision. These
-   entries are clearly labelled under synthetic `SPDX-License-List/<id>.txt`
-   paths. Expressions with `AND`/`OR`/`WITH`/`(…)`/trailing `+` are supported;
-   for `OR`, every alternative is included.
+1. **Source archive** (highest priority). The command uses each
+   `LICENSE`, `LICENCE`, or `COPYING` file in the package archive without
+   changes. It also preserves each `NOTICE` file.
+2. **Declared repository** (Hex packages only). The command follows declared
+   repository links for `github.com`, `codeberg.org`, and `gitlab.com`. It
+   resolves a version tag, first `v<version>` and then `<version>`, to an
+   immutable commit SHA. It gets the archive for that commit, not a branch or
+   `HEAD`. The command uses only the licence text from this repository. It does
+   not include ancillary `NOTICE` files from the repository.
+3. **Canonical SPDX text.** The command converts declared SPDX identifiers and
+   expressions to canonical text from a fixed SPDX License List revision. It
+   labels these entries with synthetic `SPDX-License-List/<id>.txt` paths. It
+   supports expressions with `AND`, `OR`, `WITH`, parentheses, or a final `+`.
+   For `OR`, the command includes each alternative.
 
-A repository fallback that fails *transiently* is non-fatal: `notices` warns and
-continues to the SPDX fallback.
+If a temporary error occurs during a repository fallback, `notices` writes a
+warning and continues to the SPDX fallback.
 
 ## When it fails
 
-Unlike the bare report, `notices` exits non-zero when it can't produce a
-faithful bundle. It fails if:
+`notices` returns a nonzero exit code if it cannot create a complete bundle. It
+fails in these conditions:
 
-- a selected dependency still lacks recognizable licence text after every
-  fallback — including `LicenseRef-` custom licences that have no canonical text;
-- a dependency's source is unsupported;
-- a network, archive, checksum, SPDX, or output-write error occurs.
+- A selected dependency has no recognized licence text after all fallbacks.
+  This condition includes custom `LicenseRef-` licences that have no canonical
+  text.
+- `notices` does not support the source of a dependency.
+- A network, archive, checksum, SPDX, or output write error occurs.
 
-Hex tarballs are verified against their `outer_checksum` before use, so a
-corrupted or tampered download is caught rather than silently bundled.
+Before use, `notices` compares each Hex tarball with its `outer_checksum`. The
+command stops if the download is corrupt or has changed.
 
 ## Caching
 
-Beyond the shared Hex metadata cache, `notices` keeps its own cache of the
-licence materials it resolves so repeated runs don't re-download sources or
-re-resolve fallbacks:
+In addition to the shared Hex metadata cache, `notices` keeps a cache of
+resolved licence materials. The cache prevents repeated downloads and fallback
+operations:
 
 ```
 ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.dets
 ```
 
-It's keyed by immutable content addresses and holds several namespaces:
-extracted source materials, final per-package materials, repository tag→commit
-resolutions, repository-extracted licence files, and canonical SPDX records
-shared by identifier (so `Apache-2.0` is fetched at most once across every
-package that declares it). Entries never expire. Override the location with
-`--cache-path=PATH` or bypass it with `--no-cache`.
+Immutable content addresses are the cache keys. The cache contains extracted
+source materials, final package materials, repository tag-to-commit results,
+licence files from repositories, and canonical SPDX records. Packages that
+declare the same identifier share one SPDX record. Cache entries do not expire.
+Use `--cache-path=PATH` to change the location, or use `--no-cache` to bypass
+the cache.
 
 ## Flags
 
