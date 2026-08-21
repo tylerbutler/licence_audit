@@ -5,6 +5,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/notices
 import licence_audit/osv
@@ -49,19 +50,26 @@ fn fixture_hex_tarball(
   }
 }
 
-fn unused_github_tarball(
-  _owner: String,
-  _repo: String,
-  _commit: String,
-) -> Result(BitArray, notices.FetchError) {
-  Error(notices.FetchNetworkFailure)
-}
-
 fn unused_git_archive(
   _repo: repository.Repository,
   _commit: String,
 ) -> Result(BitArray, notices.FetchError) {
   Error(notices.FetchNetworkFailure)
+}
+
+fn notice_clients(
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, notices.FetchError),
+) -> notices.Clients {
+  notices.Clients(
+    fetch_hex_tarball:,
+    fetch_git_archive: unused_git_archive,
+    resolve_commit: fn(_repo, _tag) { Ok(None) },
+    fetch_repo_archive: fn(_repo, _commit) {
+      Error(notices.FetchNetworkFailure)
+    },
+    fetch_spdx_index: fn(_kind) { Error(notices.FetchNetworkFailure) },
+    fetch_spdx: fn(_requirement) { Error(notices.FetchNetworkFailure) },
+  )
 }
 
 fn notice_only_hex_tarball(
@@ -138,8 +146,7 @@ gleam_stdlib = { version = \">= 1.0.0\" }
     licence_audit.run_with_notice_clients(
       ["notices", "--manifest=" <> manifest_path],
       notice_metadata_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
     )
 
   should.equal(result.exit_code, 0)
@@ -166,7 +173,7 @@ gleam_stdlib = { version = \">= 1.0.0\" }
 ")
 
   let result =
-    licence_audit.run_with_full_notice_clients(
+    licence_audit.run_with_notice_clients(
       ["notices", "--manifest=" <> manifest_path],
       notice_metadata_fetcher,
       spdx_fallback_clients(),
@@ -201,8 +208,7 @@ pub fn notices_verbose_progress_includes_package_details_test() {
     licence_audit.run_with_notice_progress(
       ["notices", "--manifest=" <> manifest_path, "--verbose"],
       notice_metadata_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
       progress.Verbose,
     )
 
@@ -226,8 +232,7 @@ pub fn notices_normal_progress_omits_package_details_test() {
     licence_audit.run_with_notice_progress(
       ["notices", "--manifest=" <> manifest_path],
       notice_metadata_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
       progress.Normal,
     )
 
@@ -264,8 +269,7 @@ gleam_stdlib = { version = \">= 1.0.0\" }
         "--output=" <> output_path,
       ],
       notice_metadata_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
     )
   let assert Ok(contents) = simplifile.read(from: output_path)
 
@@ -306,8 +310,7 @@ dev_dep = { version = \">= 1.0.0\" }
     licence_audit.run_with_notice_clients(
       ["notices", "--manifest=" <> manifest_path],
       notice_metadata_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
     )
 
   should.equal(result.exit_code, 0)
@@ -348,8 +351,7 @@ local_dep = { path = \"deps/local_dep\" }
     licence_audit.run_with_notice_clients(
       ["notices", "--manifest=" <> manifest_path],
       notice_metadata_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
     )
 
   should.equal(result.exit_code, 0)
@@ -366,8 +368,7 @@ pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
     licence_audit.run_with_notice_clients(
       manifest_args(["--cache-path=" <> cache_path]),
       fake_fetcher,
-      fixture_hex_tarball,
-      unused_github_tarball,
+      notice_clients(fixture_hex_tarball),
     )
 
   should.equal(result.exit_code, 0)
@@ -952,7 +953,7 @@ licences = [\"Apache-2.0\"]
 repository = { type = \"github\", user = \"upstream\", repo = \"glint_markdown\" }
 "
   let assert Ok(meta) =
-    licence_audit.package_metadata_from_gleam_toml(
+    gleam_toml.package_metadata(
       contents,
       "https://github.com/tylerbutler/glint_markdown",
     )
@@ -975,7 +976,7 @@ links = [
 ]
 "
   let assert Ok(meta) =
-    licence_audit.package_metadata_from_gleam_toml(
+    gleam_toml.package_metadata(
       contents,
       "https://github.com/tylerbutler/glint",
     )
@@ -1072,7 +1073,7 @@ local_dep = { version = \">= 0.0.0\" }
     )
 
   let result =
-    licence_audit.run_with_full_notice_clients(
+    licence_audit.run_with_notice_clients(
       ["notices", "--manifest=" <> manifest_path, "--no-cache"],
       notice_metadata_fetcher,
       mit_spdx_clients(unused_git_archive),
@@ -1124,7 +1125,7 @@ git_dep = { version = \">= 0.0.0\" }
   }
 
   let result =
-    licence_audit.run_with_full_notice_clients(
+    licence_audit.run_with_notice_clients(
       ["notices", "--manifest=" <> manifest_path, "--no-cache"],
       notice_metadata_fetcher,
       mit_spdx_clients(git_archive),
