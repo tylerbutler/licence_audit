@@ -1352,19 +1352,25 @@ fn audit_locked(
 
   // Vulnerability gate: only when running `check` with --vulns.
   // Threshold resolution: CLI flag > config key > "high".
-  let #(vulns_output, vuln_failed, vuln_query_failed, vuln_reporter) = case
-    options.check && options.check_vulns
-  {
-    False -> #("", False, False, result.reporter)
+  let #(
+    vulns_output,
+    vuln_failed,
+    vuln_unknown_failed,
+    vuln_query_failed,
+    vuln_reporter,
+  ) = case options.check && options.check_vulns {
+    False -> #("", False, False, False, result.reporter)
     True -> {
       let threshold =
         resolve_vuln_threshold(
           options.vuln_severity,
           config_policy.vuln_severity,
         )
+      let block_unknown = config_policy.vuln_block_unknown
       run_vuln_check_for_audit(
         active_packages,
         threshold,
+        block_unknown,
         osv_batch_fetcher,
         osv_detail_fetcher,
         result.reporter,
@@ -1382,6 +1388,7 @@ fn audit_locked(
       vuln_query_failed,
       result.policy_failed,
       vuln_failed,
+      vuln_unknown_failed,
       output,
       vuln_reporter,
     )
@@ -1401,6 +1408,7 @@ fn finalize_audit(
   vuln_query_failed: Bool,
   policy_failed: Bool,
   vuln_failed: Bool,
+  vuln_unknown_failed: Bool,
   output: String,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
@@ -1429,12 +1437,18 @@ fn finalize_audit(
     RunResult(
       1,
       output
-        <> "Vulnerability check failed: one or more advisories at or above threshold severity.\n",
+        <> case vuln_unknown_failed {
+        True ->
+          "Vulnerability check failed: one or more advisories met the severity threshold or the unknown-severity blocking rule.\n"
+        False ->
+          "Vulnerability check failed: one or more advisories at or above threshold severity.\n"
+      },
     ),
-    progress.defer_error(
-      reporter,
-      "Vulnerability check failed: advisories at or above threshold",
-    ),
+    progress.defer_error(reporter, case vuln_unknown_failed {
+      True ->
+        "Vulnerability check failed: threshold or unknown-severity blockers detected"
+      False -> "Vulnerability check failed: advisories at or above threshold"
+    }),
   ))
   #(
     RunResult(0, output),
@@ -1554,6 +1568,7 @@ fn load_policy(
     allow_licences: options.allow_licences,
     deny_licences: options.deny_licences,
     vuln_severity: options.vuln_severity,
+    vuln_block_unknown: options.vuln_block_unknown,
     ignore_config: options.ignore_config,
     check: options.check,
   ))
@@ -1960,11 +1975,12 @@ fn resolve_vuln_threshold(
 fn run_vuln_check_for_audit(
   packages: List(manifest.Package),
   threshold: osv.Severity,
+  block_unknown: Bool,
   batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(String, Bool, Bool, progress.Reporter) {
+) -> #(String, Bool, Bool, Bool, progress.Reporter) {
   let purl_pairs =
     list.map(packages, fn(pkg) {
       #(pkg, "pkg:hex/" <> pkg.name <> "@" <> pkg.version)
@@ -1972,12 +1988,13 @@ fn run_vuln_check_for_audit(
   let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
   case purls {
-    [] -> #("", False, False, reporter)
+    [] -> #("", False, False, False, reporter)
     _ ->
       query_vuln_gate(
         purls,
         packages,
         threshold,
+        block_unknown,
         batch_fetcher,
         detail_fetcher,
         reporter,
@@ -1987,16 +2004,17 @@ fn run_vuln_check_for_audit(
 }
 
 /// Query OSV and evaluate the `check --vulns` gate. Returns
-/// `#(report_text, gate_failed, query_failed, reporter)`.
+/// `#(report_text, gate_failed, unknown_failed, query_failed, reporter)`.
 fn query_vuln_gate(
   purls: List(String),
   packages: List(manifest.Package),
   threshold: osv.Severity,
+  block_unknown: Bool,
   batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(String, Bool, Bool, progress.Reporter) {
+) -> #(String, Bool, Bool, Bool, progress.Reporter) {
   let reporter =
     progress.detail(
       reporter,
@@ -2014,6 +2032,7 @@ fn query_vuln_gate(
       #(
         "\nVulnerability check failed: OSV request failed.\n",
         False,
+        False,
         True,
         reporter,
       )
@@ -2025,17 +2044,20 @@ fn query_vuln_gate(
         fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
       let triggering =
         list.filter(vulns, fn(vuln) {
-          severity_meets_or_exceeds(vuln.severity, threshold)
+          advisory_blocks(vuln.severity, threshold, block_unknown)
         })
+      let unknown_failed =
+        list.any(triggering, fn(vuln) { vuln.severity == osv.UnknownSeverity })
       let report_text =
         format_vuln_gate_output(
           vulns,
           triggering,
           threshold,
+          block_unknown,
           id_to_pkg,
           palette,
         )
-      #(report_text, triggering != [], False, reporter)
+      #(report_text, triggering != [], unknown_failed, False, reporter)
     }
   }
 }
@@ -2071,12 +2093,15 @@ fn unique_vuln_ids(entries: List(osv.BatchEntry)) -> List(String) {
   dict.keys(seen)
 }
 
-fn severity_meets_or_exceeds(
+fn advisory_blocks(
   actual: osv.Severity,
   threshold: osv.Severity,
+  block_unknown: Bool,
 ) -> Bool {
-  severity_rank(actual) >= severity_rank(threshold)
-  && actual != osv.UnknownSeverity
+  case actual {
+    osv.UnknownSeverity -> block_unknown
+    _ -> severity_rank(actual) >= severity_rank(threshold)
+  }
 }
 
 fn severity_rank(severity: osv.Severity) -> Int {
@@ -2093,6 +2118,7 @@ fn format_vuln_gate_output(
   all_vulns: List(osv.Vulnerability),
   triggering: List(osv.Vulnerability),
   threshold: osv.Severity,
+  block_unknown: Bool,
   id_to_pkg: dict.Dict(String, List(String)),
   palette: color.Palette,
 ) -> String {
@@ -2106,7 +2132,7 @@ fn format_vuln_gate_output(
             Error(_) -> "(unknown)"
           }
           let marker = case
-            severity_meets_or_exceeds(vuln.severity, threshold)
+            advisory_blocks(vuln.severity, threshold, block_unknown)
           {
             True -> color.red(palette, "✗")
             False -> color.dim(palette, "·")
@@ -2120,16 +2146,34 @@ fn format_vuln_gate_output(
           <> color.dim(palette, label)
         })
         |> string.join(with: "\n")
-      let summary =
-        int.to_string(list.length(triggering))
-        <> " advisory/advisories at or above "
-        <> osv.severity_to_string(threshold)
-        <> " (of "
-        <> int.to_string(list.length(all_vulns))
-        <> " total reported)."
+      let trigger_count = int.to_string(list.length(triggering))
+      let total_count = int.to_string(list.length(all_vulns))
+      let unknown_triggered =
+        list.any(triggering, fn(vuln) { vuln.severity == osv.UnknownSeverity })
+      let summary = case unknown_triggered {
+        True ->
+          trigger_count
+          <> " blocking advisory/advisories: known severity at or above "
+          <> osv.severity_to_string(threshold)
+          <> " or unknown severity (of "
+          <> total_count
+          <> " total reported)."
+        False ->
+          trigger_count
+          <> " advisory/advisories at or above "
+          <> osv.severity_to_string(threshold)
+          <> " (of "
+          <> total_count
+          <> " total reported)."
+      }
 
       let title =
-        "Vulnerability check · threshold: " <> osv.severity_to_string(threshold)
+        "Vulnerability check · threshold: "
+        <> osv.severity_to_string(threshold)
+        <> case block_unknown {
+          True -> " · unknown: block"
+          False -> ""
+        }
 
       "\n" <> color.boxed(palette, title, lines) <> "\n" <> summary <> "\n"
     }

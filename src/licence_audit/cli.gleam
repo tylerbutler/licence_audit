@@ -24,6 +24,7 @@ pub type Options {
     cache_path: Option(String),
     check_vulns: Bool,
     vuln_severity: Option(String),
+    vuln_block_unknown: Bool,
     prod_only: Bool,
   )
 }
@@ -175,6 +176,7 @@ fn audit_command(
         cache_path: optional_string(cache_path_value),
         check_vulns: False,
         vuln_severity: None,
+        vuln_block_unknown: False,
         prod_only: prod_only_value,
       ))
   }
@@ -196,6 +198,7 @@ fn check_command() -> glint.Command(CliAction) {
   use prod_only <- glint.flag(prod_only_flag())
   use check_vulns <- glint.flag(check_vulns_flag())
   use vuln_severity <- glint.flag(vuln_severity_flag())
+  use vuln_block_unknown <- glint.flag(vuln_block_unknown_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -211,6 +214,7 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(prod_only_value) = prod_only(flags)
   let assert Ok(check_vulns_value) = check_vulns(flags)
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
+  let assert Ok(vuln_block_unknown_value) = vuln_block_unknown(flags)
 
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
@@ -230,6 +234,7 @@ fn check_command() -> glint.Command(CliAction) {
         cache_path: optional_string(cache_path_value),
         check_vulns: check_vulns_value,
         vuln_severity: optional_string(vuln_severity_value),
+        vuln_block_unknown: vuln_block_unknown_value,
         prod_only: prod_only_value,
       ))
   }
@@ -324,6 +329,14 @@ fn vuln_severity_flag() -> glint.Flag(String) {
   })
   |> glint.flag_help(
     "Minimum severity that triggers `check --vulns` failure: low|medium|high|critical (default high)",
+  )
+}
+
+fn vuln_block_unknown_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("vuln-block-unknown")
+  |> glint.flag_default(False)
+  |> glint.flag_help(
+    "Fail `check --vulns` on advisories whose severity is unknown",
   )
 }
 

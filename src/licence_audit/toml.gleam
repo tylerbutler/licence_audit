@@ -103,6 +103,14 @@ pub fn as_string(value: Value) -> Result(String, Nil) {
   }
 }
 
+/// Value -> Bool.
+pub fn as_bool(value: Value) -> Result(Bool, Nil) {
+  case tomlet.as_bool(value) {
+    Ok(value) -> Ok(value)
+    Error(_) -> Error(Nil)
+  }
+}
+
 /// Value -> array item list.
 pub fn as_array(value: Value) -> Result(List(Value), Nil) {
   case value {
