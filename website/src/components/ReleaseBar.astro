@@ -52,8 +52,9 @@ const notesUrl = `${repo}/releases/tag/v${version}`;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--surface);
-    background: var(--pink);
+    color: var(--pink-link);
+    background: var(--surface);
+    border: 1px solid color-mix(in oklch, var(--pink) 35%, transparent);
     padding: 0.1rem 0.5rem;
     border-radius: var(--r-full);
   }

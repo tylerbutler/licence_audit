@@ -13,7 +13,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
-  scroll-padding-top: 5.5rem;
+  scroll-padding-top: 7rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -186,4 +186,23 @@ ol {
 .skip-link:focus {
   transform: translate(-50%, 0);
   color: var(--bg);
+}
+
+/* ---- Expressive Code integration ---- */
+
+/* One focus vocabulary on the page: the copy button sits on the dark
+   terminal, so it takes the terminal-bright variant of the site ring. */
+.expressive-code .copy button:focus-visible {
+  outline: 2.5px solid var(--pink-bright);
+  outline-offset: 2px;
+}
+
+/* Touch has no hover: keep the copy button visible and give it a full
+   finger-sized target, or the copy-the-command path doesn't exist. */
+@media (pointer: coarse) {
+  .expressive-code .copy button {
+    opacity: 1 !important;
+    width: 2.75rem;
+    height: 2.75rem;
+  }
 }

@@ -9,7 +9,8 @@ Generated for `tylerbutler/licence_audit` on 2026-06-26.
 > Note: the guide's full pipeline is analyze -> **scan** -> advisor -> report. The `scan`
 > stage (ScanCode, which concludes licences + extracts copyright) is **not** bundled in
 > `ort-minimal` and was not run, so ORT's licences here are *declared* only — the same
-> basis we use. A full ORT run would add concluded licences + copyright that we cannot match.
+> basis we use. A full ScanCode-enabled ORT pipeline can add concluded licences and
+> copyright evidence beyond `licence_audit`'s metadata-only boundary.
 
 ## 1. Document-level
 
@@ -75,8 +76,9 @@ Generated for `tylerbutler/licence_audit` on 2026-06-26.
 
 - ORT (this run): **0** copyright statements — requires the unrun `scan` stage.
 - Ours: none (by design — we report *declared* licences from Hex metadata, never scan source).
-- A full ORT pipeline (`scan`) would surface copyright holders + concluded licences, which is
-  the one substantive capability gap. It costs a multi-minute source download + ScanCode run.
+- A full ScanCode-enabled ORT pipeline can surface copyright holders and concluded licences.
+  Consumers who require that evidence should run a dedicated source scanner alongside or
+  downstream of `licence_audit`.
 
 ## 5. Quality scores (same pinned tooling)
 
@@ -88,25 +90,24 @@ Generated for `tylerbutler/licence_audit` on 2026-06-26.
 `sbom-tools` *rejects* ORT's document (a licence/component entry lacks a `name`), while it
 rates ours COMPLIANT. Ours scores higher on `sbomqs` too.
 
-## 6. Where ORT is ahead (tracked issues)
+## 6. Portable ORT features tracked for implementation
 
-Each place ORT's output leads ours has a tracking issue:
+The metadata and format improvements selected for `licence_audit` have tracking issues:
 
 | Gap | Issue |
 |-----|-------|
 | ~~Native CycloneDX `scope` field vs our custom `licence_audit:scope` property~~ (resolved: we now emit native `scope`) | [#37](https://github.com/tylerbutler/licence_audit/issues/37) |
 | Embed licence text in `licenses[].license.text` | [#38](https://github.com/tylerbutler/licence_audit/issues/38) |
 | Optional SPDX output format | [#39](https://github.com/tylerbutler/licence_audit/issues/39) |
-| Concluded licences + copyright via source scanning (declared-only gap) | [#40](https://github.com/tylerbutler/licence_audit/issues/40) |
 
 ## 7. Recommendations
 
 1. **No tooling switch needed.** Our native generator has correct CycloneDX `supplier`
    semantics, richer external references, commit-pinned git purls, reproducible output, and
    scores higher on both quality tools.
-2. **Document the declared-vs-concluded caveat** in our README/SBOM docs: we report *declared*
-   licences only, matching `ort-minimal` without `scan`. Full ORT + ScanCode adds *concluded*
-   licences + copyright. Tracked in [#40](https://github.com/tylerbutler/licence_audit/issues/40).
+2. **Keep source scanning outside `licence_audit`.** The SBOM reports metadata-derived
+   *declared* licences. Consumers who need *concluded* licences or copyright evidence should
+   pair it with a dedicated source scanner.
 3. **Adopt the portable ORT-native ideas**: native `scope`
    ([#37](https://github.com/tylerbutler/licence_audit/issues/37), done) and licence text
    ([#38](https://github.com/tylerbutler/licence_audit/issues/38)).
@@ -197,9 +198,9 @@ Claims about where we win or where ORT diverges, with sources.
   `sbom-validate`, justfile:100-103). The quality-score gaps above are independent of schema
   validity.
 
-### Declared vs concluded licences (the genuine ORT-pipeline advantage)
+### Declared vs concluded licences (the metadata boundary)
 - ORT this run embedded **declared** licence text with property `ort:origin="declared
   license"` and produced **0** copyright statements (`scan` stage not run; `ort-minimal` has no
   ScanCode). A full ORT analyze->scan->report run would add *concluded* licences + copyright,
-  which our metadata-only approach (declared Hex licences, `acknowledgement:"declared"`,
-  `src/licence_audit/sbom.gleam:646-664`) does not attempt.
+  which falls outside our metadata-only approach (declared Hex licences,
+  `acknowledgement:"declared"`, `src/licence_audit/sbom.gleam:646-664`).

@@ -170,10 +170,18 @@ packages, the package description, declared licences, and external references
 (tarball, source, homepage, docs). The root component is enriched from
 `gleam.toml`, and a `dependencies` graph mirrors the tree.
 
-Licences are tagged `acknowledgement: "declared"` (from package metadata, not
-source scanning). Packages declaring **multiple** licences emit one entry each —
-Hex doesn't say whether the relationship is AND or OR, so no SPDX expression is
-synthesised.
+CycloneDX distinguishes a **declared** licence, supplied through package metadata,
+from a **concluded** licence, determined by inspecting source and other evidence.
+`licence_audit` takes component licence information from package metadata and tags
+it `acknowledgement: "declared"`.
+
+`licence_audit` does not inspect dependency source to conclude licences or extract
+copyright holders. Concluded licence and copyright fields are therefore
+intentionally absent. Consumers who require that evidence must run a dedicated
+source scanner alongside or downstream of `licence_audit`.
+
+Packages declaring **multiple** licences emit one entry each. Hex doesn't say
+whether the relationship is AND or OR, so no SPDX expression is synthesised.
 
 `sbom` ignores licence policy. It **fails** on any dependency whose source can't
 become a clean purl (path deps, non-GitHub git deps); only `hex` and GitHub
