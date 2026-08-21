@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Build release artifacts
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -158,7 +158,7 @@ jobs:
       attestations: write
       artifact-metadata: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -169,7 +169,7 @@ jobs:
           path: dist
 
       - name: Attest build provenance for release artifacts
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # ratchet:actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # ratchet:actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/licence_audit
@@ -178,7 +178,7 @@ jobs:
             dist/checksums.txt
 
       - name: Attest SBOM for release artifacts
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # ratchet:actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # ratchet:actions/attest@v4
         with:
           subject-path: |
             dist/licence_audit
