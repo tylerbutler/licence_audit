@@ -14,29 +14,31 @@ licence_audit vulns
 
 ## What it reports
 
-Each affected package is listed with its identifiers, a severity bucket
-(`critical` \| `high` \| `medium` \| `low` \| `unknown`), and a short summary,
-ending with a checked / affected / clean tally. Severity comes from OSV's
-`database_specific.severity`, falling back to the CVSS vector.
+For each affected package, `vulns` shows its identifiers, severity, and a short
+summary. Severity is `critical`, `high`, `medium`, `low`, or `unknown`. The
+command first reads `database_specific.severity` from OSV. If this value is not
+available, it uses the CVSS vector. The report ends with the numbers of checked,
+affected, and clean packages.
 
-`vulns` never fails on the *presence* of a vulnerability — only on I/O,
-manifest, or network errors. Hex and GitHub deps are queried; other sources are
-skipped and listed at the end. Advisories are fetched over HTTPS and are **not**
-cached.
+The presence of a vulnerability does not cause `vulns` to fail. I/O, manifest,
+and network errors cause a failure. The command queries Hex and GitHub
+dependencies. It skips other sources and lists them at the end. The command
+gets advisories through HTTPS and does **not** cache them.
 
 ## Failing a build on vulnerabilities
 
-`vulns` itself is report-only. To *fail* when advisories meet a severity
-threshold, add `--vulns` to [`check`](/docs/check):
+`vulns` reports results and does not enforce a threshold. To return a failure
+when advisories meet a severity threshold, add `--vulns` to
+[`check`](/docs/check):
 
 ```sh
 licence_audit check --vulns
 licence_audit check --vulns --vuln-severity=medium
 ```
 
-That runs the licence audit, then queries OSV.dev and fails when any advisory's
-severity meets or exceeds the threshold. Unknown-severity advisories are shown
-but never fail.
+The command runs the licence audit and then queries OSV.dev. It fails when an
+advisory meets or exceeds the threshold. An advisory with unknown severity does
+not cause a failure.
 
 ## Flags
 

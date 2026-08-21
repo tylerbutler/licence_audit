@@ -1,12 +1,12 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: check
-description: Report Hex package licence metadata and enforce your configured licence policy, exiting non-zero on violations.
+description: Report Hex package licence metadata and enforce your licence policy. Return a nonzero exit code for violations.
 ---
 
-`check` runs the same audit as the bare command, then **enforces** your policy.
-It exits non-zero on any violation, which makes it the command you reach for in
-CI.
+`check` runs the same audit as the command with no subcommand. It then
+**enforces** your policy. It returns a nonzero exit code when it finds a
+violation. Use `check` in CI.
 
 ```sh
 licence_audit check
@@ -14,7 +14,7 @@ licence_audit check
 
 ## Define a policy
 
-Policy lives under `[tools.licence_audit]` in `gleam.toml`:
+Add the policy to `[tools.licence_audit]` in `gleam.toml`:
 
 ```toml
 [tools.licence_audit]
@@ -22,38 +22,38 @@ allow = ["Apache-2.0", "MIT"]
 deny  = ["GPL-3.0-only"]
 ```
 
-An `allow` list means *only* those licences are accepted; a `deny` list rejects
-matching licences. The easiest way to create this is [`licence_audit
-update`](/docs/update), which fetches metadata, preselects existing entries,
-prompts you, and writes the result back with comments preserved.
+An `allow` list permits only the specified licences. A `deny` list rejects
+matching licences. To create the policy, use [`licence_audit
+update`](/docs/update). The command gets metadata, selects existing entries,
+asks you to confirm the selection, and writes the result. It preserves
+comments in `gleam.toml`.
 
 ## Ad-hoc and merged policy
 
-CLI `--allow` / `--deny` values merge with config, so you can tighten a policy
-for a single run:
+The command merges CLI `--allow` and `--deny` values with the configuration.
+Use these options to add restrictions for one run:
 
 ```sh
 licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
 ```
 
-Point `--config=other.toml` at a different file (it must still have a
-`[tools.licence_audit]` section), or pass `--ignore-config` to use only CLI
-flags.
+Use `--config=other.toml` to read a different file. The file must have a
+`[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
 
-> **Tip** — `--allow` / `--deny` also work on the bare command. There they
-> switch the report into a policy *preview* but still exit `0`. Use `check` when
-> you want failures.
+> **Note:** `--allow` and `--deny` also work on the bare command. These options
+> show a policy preview, but the command returns exit code 0. Use `check` to
+> return a failure for a violation.
 
 ## Production-only gates
 
 Use `--prod-only` when your gate should consider only production dependencies.
-Dev-dependency licence violations are then ignored — useful for CI checks that
-shouldn't fail on tooling-only packages.
+The command then ignores licence violations in development dependencies. This
+option prevents tooling-only packages from causing a CI failure.
 
 ## Also fail on vulnerabilities
 
-Add `--vulns` to run the licence audit and then query OSV.dev, failing when any
-advisory's severity meets or exceeds a threshold:
+Add `--vulns` to run the licence audit and query OSV.dev. The command fails
+when an advisory meets or exceeds the severity threshold:
 
 ```sh
 licence_audit check --vulns
@@ -61,9 +61,10 @@ licence_audit check --vulns --vuln-severity=medium
 ```
 
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
-Unknown-severity advisories are reported but never fail. `check --vulns` also
-fails if OSV.dev can't be reached, since the check couldn't complete. The
-threshold can live in config too (CLI flags win):
+The command reports advisories with unknown severity, but these advisories do
+not cause a failure. `check --vulns` fails if it cannot connect to OSV.dev
+because it cannot complete the check. You can set the threshold in the
+configuration. CLI options override the configuration:
 
 ```toml
 [tools.licence_audit]

@@ -42,10 +42,10 @@ jobs:
 const quickStart = `# 1. resolve deps so manifest.toml exists
 gleam deps download
 
-# 2. see every licence in your tree (reports only)
+# 2. report each licence in the dependency tree
 licence_audit
 
-# 3. capture a policy, then enforce it
+# 3. create and enforce a policy
 licence_audit update
 licence_audit check`;
 
@@ -54,19 +54,19 @@ const checks = [
     id: "licences",
     icon: "scale",
     title: "Licence policy",
-    body: "Fetches licence metadata from Hex for every locked package and holds it against your allow / deny policy. An allow-list means only those licences pass; a deny-list rejects matches.",
+    body: "licence_audit gets licence metadata from Hex for each locked package and checks it against your allow and deny policy. An allow list accepts only the specified licences. A deny list rejects the specified licences.",
   },
   {
     id: "sbom",
     icon: "package",
     title: "CycloneDX SBOM",
-    body: "Emit a CycloneDX 1.6 document — package URLs, SHA-256 hashes, declared licences, external references, and the full dependency graph. Pass <code>--reproducible</code> for byte-stable output you can commit and diff.",
+    body: "Create a CycloneDX 1.6 document that contains package URLs, SHA-256 hashes, declared licences, external references, and the dependency graph. Use <code>--reproducible</code> to create byte-identical output for the same input.",
   },
   {
     id: "vulns",
     icon: "bug",
     title: "Known vulnerabilities",
-    body: "Query OSV.dev for advisories across your Hex and GitHub dependencies. Report them, or gate CI with <code>--vuln-severity</code> — unknown-severity advisories are shown but never fail the build.",
+    body: "Query OSV.dev for advisories about your Hex and GitHub dependencies. Use <code>--vuln-severity</code> to make CI fail at a specified severity. Advisories with unknown severity do not cause a failure.",
   },
 ] as const;
 
@@ -74,19 +74,19 @@ const workflow = [
   {
     n: "01",
     title: "Inspect",
-    body: "Run it with no arguments to see every licence in your resolved tree. The bare command only reports — it never fails.",
+    body: "Run <code>licence_audit</code> with no arguments to report each licence in the resolved dependency tree. This command reports results and returns exit code 0.",
     code: "gleam deps download\nlicence_audit",
   },
   {
     n: "02",
-    title: "Capture a policy",
-    body: "Review the discovered licences interactively and write a <code>[tools.licence_audit]</code> policy straight into <code>gleam.toml</code> — comments preserved.",
+    title: "Create a policy",
+    body: "Select the licences that you permit or deny. The command writes a <code>[tools.licence_audit]</code> policy to <code>gleam.toml</code> and preserves comments.",
     code: "licence_audit update",
   },
   {
     n: "03",
     title: "Enforce",
-    body: "Fail the build on any violation. Add <code>--vulns</code> to also fail on advisories at or above a severity you choose.",
+    body: "Run <code>check</code> to fail the build when a dependency violates the policy. Add <code>--vulns</code> to fail on advisories at or above the specified severity.",
     code: "licence_audit check --vulns",
   },
 ] as const;
@@ -94,23 +94,23 @@ const workflow = [
 const trust = [
   {
     icon: "zap",
-    title: "Dependency-free binary",
-    body: "Queso-built executables bundle the Erlang runtime — nothing to install on the target machine, including CI runners.",
+    title: "Self-contained executable",
+    body: "Queso-built executables include the Erlang runtime. You do not have to install Erlang on the target machine or CI runner.",
   },
   {
     icon: "checkCheck",
-    title: "Honest exit codes",
-    body: "0 success · 1 policy failure · 2 input error · 130 cancelled. Nothing surprising in a pipeline.",
+    title: "Defined exit codes",
+    body: "Exit code 0 means success, 1 means policy or usage failure, 2 means an input or runtime error, and 130 means user cancellation.",
   },
   {
     icon: "refresh",
     title: "Reproducible SBOMs",
-    body: "<code>--reproducible</code> makes the serial number a content hash and the timestamp <code>SOURCE_DATE_EPOCH</code>, so diffs catch real drift.",
+    body: "<code>--reproducible</code> uses a content hash for the serial number and <code>SOURCE_DATE_EPOCH</code> for the timestamp. The same input produces the same output.",
   },
   {
     icon: "gitBranch",
-    title: "Gleam-native",
-    body: "Reads <code>manifest.toml</code> and <code>gleam.toml</code> directly. Non-Hex deps are skipped and named, never silently dropped.",
+    title: "Gleam project files",
+    body: "licence_audit reads <code>manifest.toml</code> and <code>gleam.toml</code>. It identifies each non-Hex dependency that it skips.",
   },
 ] as const;
 ---
@@ -125,13 +125,12 @@ const trust = [
           Gleam supply-chain auditing
         </p>
         <h1 class="hero__title">
-          Keep your Gleam dependencies <span class="tw">honest</span>.
+          Check your Gleam <span class="tw">dependencies</span>.
         </h1>
         <p class="hero__sub">
-          <strong>licence_audit</strong> reports the licences, generates a
-          CycloneDX SBOM, and checks for known vulnerabilities across your
-          locked Hex dependencies — one small CLI you can run locally or in
-          CI.
+          <strong>licence_audit</strong> reports licence metadata, creates a
+          CycloneDX SBOM, and checks your locked dependencies for known
+          vulnerabilities. Run this small CLI locally or in CI.
         </p>
       </div>
 
@@ -153,8 +152,8 @@ const trust = [
       <div class="hero__demo">
         <HeroTerminal />
         <p class="hero__demo-cap">
-          A real <code>check</code> run — it catches a denial, an unknown, and a
-          skipped path dep, then exits 1 so CI can act on it.
+          This <code>check</code> example finds a denied licence, an unknown
+          licence, and a skipped path dependency. It returns exit code 1.
         </p>
       </div>
     </div>
@@ -164,8 +163,8 @@ const trust = [
   <section class="section workflow" aria-labelledby="workflow-h">
     <div class="container">
       <header class="sec-head">
-        <h2 id="workflow-h">Inspect, capture a policy, enforce.</h2>
-        <p>Three commands, meant to be adopted in order.</p>
+        <h2 id="workflow-h">Inspect, create a policy, and enforce it.</h2>
+        <p>Run these three commands in sequence.</p>
       </header>
 
       <ol class="steps">
@@ -189,10 +188,10 @@ const trust = [
   <section class="section checks" aria-labelledby="checks-h">
     <div class="container">
       <header class="sec-head">
-        <h2 id="checks-h">Three checks, one pass over your tree.</h2>
+        <h2 id="checks-h">Three functions, one dependency scan.</h2>
         <p>
-          licence_audit reads your locked dependencies once and answers three
-          questions about them, as plain terminal output you can read in a log.
+          licence_audit reads your locked dependencies once. It writes plain
+          text output that you can read in a terminal or log.
         </p>
       </header>
 
@@ -229,11 +228,10 @@ const trust = [
   <section class="section trust" aria-labelledby="trust-h">
     <div class="container trust__grid">
       <div class="trust__intro">
-        <h2 id="trust-h">Built to be trusted in CI.</h2>
+        <h2 id="trust-h">Predictable behavior in CI.</h2>
         <p>
-          licence_audit is a single binary with predictable exit codes and
-          reproducible output. It runs quietly in a pipeline and reports only
-          when a check fails.
+          licence_audit is one executable with defined exit codes and
+          reproducible output. Use its quiet progress mode in a pipeline.
         </p>
         <div class="trust__ci">
           <Code code={ciYaml} lang="yaml" title=".github/workflows/licence-audit.yml" frame="code" />
@@ -262,10 +260,10 @@ const trust = [
   <section class="section install" id="install" aria-labelledby="install-h">
     <div class="container">
       <header class="sec-head">
-        <h2 id="install-h">Get started.</h2>
+        <h2 id="install-h">Install licence_audit.</h2>
         <p>
-          Install a prebuilt binary, then point it at any Gleam project with a
-          resolved dependency tree.
+          Install a prebuilt executable. Then, run it in a Gleam project that
+          has a resolved dependency tree.
         </p>
       </header>
 
@@ -274,11 +272,11 @@ const trust = [
           <h3 class="install__h">Install with mise</h3>
           <Code code={installCmd} lang="sh" frame="terminal" />
           <p class="install__note">
-            Prefer a plain download? Grab a self-contained archive from the <a
+            To install without mise, download a self-contained archive from the <a
               href={`${repo}/releases`}
               rel="noopener">releases page</a
-            > and put <code>licence_audit</code> on your <code>PATH</code>.
-            Building from source is covered in <a
+            >. Put <code>licence_audit</code> on your <code>PATH</code>. For
+            source build instructions, refer to <a
               href={`${repo}/blob/main/DEV.md`}
               rel="noopener">DEV.md</a
             >.
@@ -286,7 +284,7 @@ const trust = [
         </div>
 
         <div class="install__col">
-          <h3 class="install__h">The typical run</h3>
+          <h3 class="install__h">Standard workflow</h3>
           <Code code={quickStart} lang="sh" frame="terminal" title="bash" />
         </div>
       </div>
