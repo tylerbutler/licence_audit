@@ -26,9 +26,6 @@ import gleam/option.{None}
 import gleam/result
 import gleam/string
 
-/// SPDX License List data release the canonical text is pinned to.
-pub const license_list_version = "v3.28.0"
-
 /// Immutable commit in `spdx/license-list-data`, pinned to the v3.28.0
 /// release. Pinning to a commit (not a tag) guarantees the fetched text can
 /// never drift.

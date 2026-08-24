@@ -20,7 +20,7 @@ packages = [
   { name = "gleescript", version = "1.5.2", build_tools = ["gleam"], requirements = ["argv", "filepath", "gleam_erlang", "gleam_stdlib", "simplifile", "snag", "tom"], otp_app = "gleescript", source = "hex", outer_checksum = "27AC58481742ED29D9B37C506F78958A8AD798750A79ED08C8F8AFBA8F23563B" },
   { name = "gleeunit", version = "1.11.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "EC31ABA74256AEA531EDF8169931D775BBB384FED0A8A1BDC4DD9354E3E21826" },
   { name = "glexer", version = "2.4.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "splitter"], otp_app = "glexer", source = "hex", outer_checksum = "5AB2401BF251699746B3551EF699ECC1D94FE2897C15041F181614B089125CA0" },
-  { name = "glint", version = "1.3.0", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_community_colour", "gleam_stdlib", "snag"], source = "git", repo = "https://github.com/tylerbutler/glint.git", commit = "6b72c59f2ae7a09672650d6dd2295ec9930c4ebe" },
+  { name = "glint", version = "1.3.0", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_community_colour", "gleam_stdlib", "snag"], source = "git", repo = "https://github.com/tylerbutler/glint.git", commit = "c082b4afef5dc35bacaf03a2921284c527e6afeb" },
   { name = "glint_markdown", version = "0.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "glint", "glugify", "simplifile"], source = "git", repo = "https://github.com/tylerbutler/glint_markdown.git", commit = "ec5065feb4993c95dd1bf4ad1094ee262743d8bf" },
   { name = "glinter", version = "2.19.1", build_tools = ["gleam"], requirements = ["argv", "glance", "gleam_json", "gleam_stdlib", "simplifile", "tom"], otp_app = "glinter", source = "hex", outer_checksum = "F5A7C94BC703F5781441A282AF514864F831F49F444B6E1ED72CF8A81A83ED1F" },
   { name = "glugify", version = "2.0.3", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "glugify", source = "hex", outer_checksum = "03AD4C205D43CB055F03137173AF8E94B4D98E8047A8FE51D7ED14512A797065" },
@@ -31,7 +31,7 @@ packages = [
   { name = "smalto", version = "3.0.0", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_stdlib", "houdini"], otp_app = "smalto", source = "hex", outer_checksum = "13EA8935A9E60A770E326FB850F5A5B3612A62E0A6C62C3F850AD04C842E3769" },
   { name = "snag", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "snag", source = "hex", outer_checksum = "274F41D6C3ECF99F7686FDCE54183333E41D2C1CA5A3A673F9A8B2C7A4401077" },
   { name = "splitter", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "splitter", source = "hex", outer_checksum = "3DFD6B6C49E61EDAF6F7B27A42054A17CFF6CA2135FF553D0CB61C234D281DD0" },
-  { name = "spruce", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_stdlib", "mork", "smalto", "tty"], otp_app = "spruce", source = "hex", outer_checksum = "1D8A9C3FCC7738793089A468AC10389AC231C6E6605E31DD72C36B77777EDCF6" },
+  { name = "spruce", version = "1.0.1", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_stdlib", "mork", "smalto", "tty"], source = "git", repo = "https://github.com/tylerbutler/spruce.git", commit = "bc7daff38e2506923f4496ef14937786e1223c42" },
   { name = "tom", version = "2.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "tom", source = "hex", outer_checksum = "DCF04CB7AB35D58CFC598C66EA2E1816D160759802C89B2BA6238780D59BC256" },
   { name = "tomlet", version = "1.3.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "william"], otp_app = "tomlet", source = "hex", outer_checksum = "332E7E02253ACCC0341EE80EFED5D6C5E8259919D6134E6A1E0FA47052A08722" },
   { name = "tty", version = "1.1.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "tty", source = "hex", outer_checksum = "07E644384E648C511232E0D87DEFCDE200E0D48D2787EB02E4FBE2D43D3E137B" },
@@ -52,6 +52,6 @@ glint_markdown = { git = "https://github.com/tylerbutler/glint_markdown.git", re
 glinter = { version = ">= 2.19.0 and < 3.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 slate = { version = ">= 1.0.0 and < 2.0.0" }
-spruce = { version = ">= 1.0.0 and < 2.0.0" }
+spruce = { git = "https://github.com/tylerbutler/spruce.git", ref = "main" }
 tomlet = { version = ">= 1.1.2 and < 2.0.0" }
 tty = { version = ">= 1.0.0 and < 2.0.0" }

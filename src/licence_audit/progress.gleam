@@ -139,7 +139,7 @@ fn paint(use_color: Bool, color: style.Color, text: String) -> String {
 
 fn spruce_context(use_color: Bool) -> spruce.Spruce {
   case use_color {
-    True -> spruce.with_color_level(tty.Basic)
+    True -> spruce.with_color_level(spruce.Basic)
     False -> spruce.no_color()
   }
 }

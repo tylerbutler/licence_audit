@@ -8,7 +8,6 @@ pub fn pretty_print(json: String) -> Result(String, PrettyPrintError)
 
 /// Human-readable description of a pretty-printing failure.
 pub fn describe_error(error: PrettyPrintError) -> String {
-  case error {
-    InvalidJson -> "invalid JSON"
-  }
+  let InvalidJson = error
+  "invalid JSON"
 }
