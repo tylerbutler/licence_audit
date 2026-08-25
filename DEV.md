@@ -118,13 +118,14 @@ not for signed per-release artifacts.
 
 ## Changelog
 
-Changelog fragments are managed with
-[changie](https://github.com/miniscruff/changie):
+Changelog fragments and versions are managed with
+[Trellis](https://trellis.tylerbutler.com):
 
 ```sh
-just change             # create a new changelog fragment
-just changelog-preview  # preview the unreleased section
-just changelog          # merge unreleased fragments into CHANGELOG.md
+just change Fixed "Fix ..."                # create a changelog fragment
+just changelog-preview                    # preview pending version changes
+just changelog                            # apply versions and regenerate changelogs
+just doctor                               # check workspace and release invariants
 ```
 
 Releases are produced by the `release.yml` and `publish.yml` GitHub Actions

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Recognise dual-licence file names such as `LICENSE-MIT` and `LICENSE-APACHE` as licence text, so `notices` uses a package's root licence files instead of falling back to nested or vendored copies."
