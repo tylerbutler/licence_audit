@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/crypto
 import gleam/int
 import gleam/string
 
@@ -10,7 +11,7 @@ pub type Error {
 
 /// Generate a CycloneDX-compatible `urn:uuid:<v4>` serial number.
 pub fn serial_number() -> Result(String, Error) {
-  uuid_urn_from_bytes(random_bytes(16), version_bits: 0x40)
+  uuid_urn_from_bytes(crypto.strong_random_bytes(16), version_bits: 0x40)
 }
 
 /// Derive a deterministic `urn:uuid` serial number from arbitrary BOM content.
@@ -21,7 +22,7 @@ pub fn serial_number() -> Result(String, Error) {
 /// compare equal — while a change anywhere in the content changes the serial.
 pub fn serial_number_from_content(content: String) -> Result(String, Error) {
   uuid_urn_from_bytes(
-    sha256(bit_array.from_string(content)),
+    crypto.hash(crypto.Sha256, bit_array.from_string(content)),
     version_bits: 0x80,
   )
 }
@@ -104,9 +105,3 @@ pub fn timestamp_now() -> String
 /// instant (e.g. `0` -> `1970-01-01T00:00:00Z`).
 @external(erlang, "sbom_uuid_ffi", "timestamp_of_epoch_utc")
 pub fn timestamp_of_epoch(seconds: Int) -> String
-
-@external(erlang, "sbom_uuid_ffi", "sha256")
-fn sha256(data: BitArray) -> BitArray
-
-@external(erlang, "sbom_uuid_ffi", "random_bytes")
-fn random_bytes(size: Int) -> BitArray
