@@ -41,5 +41,5 @@
 - Cache failures are non-fatal by design (`cache.gleam`): audits continue, and warnings are deferred/surfaced via progress reporting.
 - Progress/log output is managed through `progress.gleam`; user report output is printed first, then deferred progress events are flushed.
 - Error mapping and exit semantics are centralized in `error.gleam` (`0` success, `1` enforced gate/usage failure, `2` input/config/network/decode/runtime error classes).
-- PR workflow expects changelog fragments for relevant changes (`just change`) and Conventional Commit-style PR titles (validated in `.github/workflows/pr.yml` / `.commitlintrc.json`).
+- PR workflow expects Trellis changelog fragments for relevant changes (`just change <kind> "<body>"`) and Conventional Commit-style PR titles (validated in `.github/workflows/pr.yml` / `.commitlintrc.json`).
 - There is no supported public API — the CLI is the only supported interface. Breaking changes to Gleam functions/modules are not considered breaking. Only changes to public CLI behavior or arguments warrant a changelog fragment.

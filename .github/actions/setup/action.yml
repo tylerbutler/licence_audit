@@ -1,5 +1,5 @@
 name: "Setup licence_audit build environment"
-description: "Install mise-managed toolchain (Erlang, Gleam, changie) and cache Gleam downloads"
+description: "Install the mise-managed toolchain and cache Gleam downloads"
 
 runs:
   using: "composite"

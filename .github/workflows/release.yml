@@ -1,4 +1,4 @@
-name: Changie Release
+name: Trellis Release
 
 on:
   push:
@@ -31,31 +31,25 @@ jobs:
           restore-keys: |
             hex-licence-v2-${{ runner.os }}-
 
-      - uses: tylerbutler/actions/changie-release@ed7d5e5f1d4370a5ccf06503916e3c301102ab1c # ratchet:tylerbutler/actions/changie-release@main
-        id: release
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          version-files: |
-            gleam.toml:version
-          pr-title-template: 'release: {version}'
-          post-batch-command: just sbom-generate notices
-
-      - name: Summary
-        if: steps.release.outputs.skipped != 'true'
+      - name: Create or update release PR
         env:
-          VERSION: ${{ steps.release.outputs.version }}
-          PR_URL: ${{ steps.release.outputs.pr-url }}
-          PR_OP: ${{ steps.release.outputs.pr-operation }}
-        run: |
-          echo "### Release PR Created" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Version:** $VERSION" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **PR:** $PR_URL" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Operation:** $PR_OP" >> "$GITHUB_STEP_SUMMARY"
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: mise exec -- trellis release pr --base main --branch release/pending
 
-      - name: Skipped
-        if: steps.release.outputs.skipped == 'true'
+      - name: Refresh generated release files
         run: |
-          echo "### Release Skipped" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "No unreleased change fragments found." >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin release/pending >/dev/null; then
+            exit 0
+          fi
+          git fetch origin release/pending
+          git switch -C release/pending origin/release/pending
+          just sbom-generate notices
+          if git diff --quiet -- dist/sbom.json THIRD_PARTY_NOTICES.txt; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/sbom.json THIRD_PARTY_NOTICES.txt
+          git commit -m "chore: refresh release artifacts"
+          git push origin HEAD:release/pending

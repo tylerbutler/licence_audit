@@ -75,17 +75,21 @@ clean:
 
 # === CHANGELOG ===
 
-# Create a new changelog entry
-change:
-    mise exec -- changie new
+# Create a new changelog entry (for example: just change Fixed "Fix ...")
+change kind body:
+    mise exec -- trellis changelog new --kind {{quote(kind)}} --body {{quote(body)}}
 
-# Preview unreleased changelog
+# Preview pending version changes
 changelog-preview:
-    mise exec -- changie batch auto --dry-run
+    mise exec -- trellis version plan
 
-# Generate CHANGELOG.md from unreleased fragments
+# Apply pending versions and regenerate CHANGELOG.md
 changelog:
-    mise exec -- changie merge
+    mise exec -- trellis version apply
+
+# Check Trellis workspace, changelog, version, and tag invariants
+doctor:
+    mise exec -- trellis doctor
 
 # === SBOM ===
 
@@ -190,6 +194,6 @@ docs-check: build
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: format-check glint check test build-strict docs-check sbom-drift-check sbom-validate
+ci: doctor format-check glint check test build-strict docs-check sbom-drift-check sbom-validate
 
 alias pr := ci
