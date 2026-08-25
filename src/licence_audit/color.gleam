@@ -58,7 +58,7 @@ pub fn mode_error_message(error: ColorModeError) -> String {
 /// entirely otherwise, so plain-text output stays byte-identical.
 fn spruce_context(palette: Palette) -> spruce.Spruce {
   case palette.enabled {
-    True -> spruce.with_color_level(tty.Basic)
+    True -> spruce.with_color_level(spruce.Basic)
     False -> spruce.no_color()
   }
 }
@@ -130,11 +130,7 @@ pub fn dependency_section_title(
 /// get a consistent layout regardless of color support.
 pub fn boxed(palette: Palette, title: String, content: String) -> String {
   let sp = spruce_context(palette)
-  let options =
-    box.options(title: title, color: style.Cyan)
-    |> box.border(box.Rounded)
-    |> box.padding(0, 1, 0, 1)
-  box.render(sp, content, options)
+  box.render(sp, content, box.title(box.new(), title))
 }
 
 pub type SeverityLabel {

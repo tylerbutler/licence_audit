@@ -331,6 +331,21 @@ pub fn licence_file_candidates_include_all_root_matches_test() {
   ])
 }
 
+pub fn dual_licence_root_files_beat_nested_vendored_licence_test() {
+  let files = [
+    file("./LICENSE-MIT", "mit"),
+    file("./LICENSE-APACHE", "apache"),
+    file("./.claude/skills/vendored/LICENSE", "vendored"),
+  ]
+
+  let assert Ok(matches) = notices.licence_files(files)
+
+  should.equal(list.map(matches, fn(match) { match.path }), [
+    "./LICENSE-APACHE",
+    "./LICENSE-MIT",
+  ])
+}
+
 pub fn licence_file_candidates_strip_common_archive_root_test() {
   let files = [
     file("repo-sha/README.md", "readme"),
