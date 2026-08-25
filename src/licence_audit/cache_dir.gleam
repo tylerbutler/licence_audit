@@ -1,7 +1,7 @@
 //// Shared on-disk cache path resolution for `licence_audit`.
 ////
 //// Both the Hex metadata cache (`cache.gleam`) and the notices source-archive
-//// cache (`notices_cache.gleam`) store DETS files under the same directory:
+//// cache (`notice_cache.gleam`) store DETS files under the same directory:
 //// `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. This module centralises
 //// the path logic so the two caches stay consistent.
 

@@ -4,8 +4,12 @@ import gleam/string
 
 import licence_audit/env
 
+pub type Error {
+  InsufficientBytes
+}
+
 /// Generate a CycloneDX-compatible `urn:uuid:<v4>` serial number.
-pub fn serial_number() -> String {
+pub fn serial_number() -> Result(String, Error) {
   uuid_urn_from_bytes(random_bytes(16), version_bits: 0x40)
 }
 
@@ -15,7 +19,7 @@ pub fn serial_number() -> String {
 /// an RFC 9562 version-8 (custom) UUID. Identical content always yields the
 /// same serial number, so two SBOMs generated from the same dependency set
 /// compare equal — while a change anywhere in the content changes the serial.
-pub fn serial_number_from_content(content: String) -> String {
+pub fn serial_number_from_content(content: String) -> Result(String, Error) {
   uuid_urn_from_bytes(
     sha256(bit_array.from_string(content)),
     version_bits: 0x80,
@@ -25,42 +29,48 @@ pub fn serial_number_from_content(content: String) -> String {
 fn uuid_urn_from_bytes(
   bytes: BitArray,
   version_bits version_bits: Int,
-) -> String {
-  let assert <<
-    b0,
-    b1,
-    b2,
-    b3,
-    b4,
-    b5,
-    b6,
-    b7,
-    b8,
-    b9,
-    b10,
-    b11,
-    b12,
-    b13,
-    b14,
-    b15,
-    _:bits,
-  >> = bytes
-  let v6 = int.bitwise_or(int.bitwise_and(b6, 0x0f), version_bits)
-  let v8 = int.bitwise_or(int.bitwise_and(b8, 0x3f), 0x80)
-  let hex =
-    <<b0, b1, b2, b3, b4, b5, v6, b7, v8, b9, b10, b11, b12, b13, b14, b15>>
-    |> bit_array.base16_encode
-    |> string.lowercase
-  "urn:uuid:"
-  <> string.slice(hex, 0, 8)
-  <> "-"
-  <> string.slice(hex, 8, 4)
-  <> "-"
-  <> string.slice(hex, 12, 4)
-  <> "-"
-  <> string.slice(hex, 16, 4)
-  <> "-"
-  <> string.slice(hex, 20, 12)
+) -> Result(String, Error) {
+  case bytes {
+    <<
+      b0,
+      b1,
+      b2,
+      b3,
+      b4,
+      b5,
+      b6,
+      b7,
+      b8,
+      b9,
+      b10,
+      b11,
+      b12,
+      b13,
+      b14,
+      b15,
+      _:bits,
+    >> -> {
+      let v6 = int.bitwise_or(int.bitwise_and(b6, 0x0f), version_bits)
+      let v8 = int.bitwise_or(int.bitwise_and(b8, 0x3f), 0x80)
+      let hex =
+        <<b0, b1, b2, b3, b4, b5, v6, b7, v8, b9, b10, b11, b12, b13, b14, b15>>
+        |> bit_array.base16_encode
+        |> string.lowercase
+      Ok(
+        "urn:uuid:"
+        <> string.slice(hex, 0, 8)
+        <> "-"
+        <> string.slice(hex, 8, 4)
+        <> "-"
+        <> string.slice(hex, 12, 4)
+        <> "-"
+        <> string.slice(hex, 16, 4)
+        <> "-"
+        <> string.slice(hex, 20, 12),
+      )
+    }
+    _ -> Error(InsufficientBytes)
+  }
 }
 
 /// Resolve the reproducible-build timestamp (seconds since the Unix epoch) from

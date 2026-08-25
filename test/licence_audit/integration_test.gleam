@@ -7,7 +7,7 @@ import gleeunit/should
 import licence_audit
 import licence_audit/gleam_toml
 import licence_audit/hex
-import licence_audit/notices
+import licence_audit/notice
 import licence_audit/osv
 import licence_audit/progress
 import licence_audit/repository
@@ -43,59 +43,55 @@ fn notice_metadata_fetcher(
 fn fixture_hex_tarball(
   _name: String,
   _version: String,
-) -> Result(BitArray, notices.FetchError) {
+) -> Result(BitArray, notice.FetchError) {
   case simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar") {
     Ok(bits) -> Ok(bits)
-    Error(_) -> Error(notices.FetchNetworkFailure)
+    Error(_) -> Error(notice.FetchNetworkFailure)
   }
 }
 
 fn unused_git_archive(
   _repo: repository.Repository,
   _commit: String,
-) -> Result(BitArray, notices.FetchError) {
-  Error(notices.FetchNetworkFailure)
+) -> Result(BitArray, notice.FetchError) {
+  Error(notice.FetchNetworkFailure)
 }
 
 fn notice_clients(
-  fetch_hex_tarball: fn(String, String) -> Result(BitArray, notices.FetchError),
-) -> notices.Clients {
-  notices.Clients(
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, notice.FetchError),
+) -> notice.Clients {
+  notice.Clients(
     fetch_hex_tarball:,
     fetch_git_archive: unused_git_archive,
     resolve_commit: fn(_repo, _tag) { Ok(None) },
-    fetch_repo_archive: fn(_repo, _commit) {
-      Error(notices.FetchNetworkFailure)
-    },
-    fetch_spdx_index: fn(_kind) { Error(notices.FetchNetworkFailure) },
-    fetch_spdx: fn(_requirement) { Error(notices.FetchNetworkFailure) },
+    fetch_repo_archive: fn(_repo, _commit) { Error(notice.FetchNetworkFailure) },
+    fetch_spdx_index: fn(_kind) { Error(notice.FetchNetworkFailure) },
+    fetch_spdx: fn(_requirement) { Error(notice.FetchNetworkFailure) },
   )
 }
 
 fn notice_only_hex_tarball(
   _name: String,
   _version: String,
-) -> Result(BitArray, notices.FetchError) {
+) -> Result(BitArray, notice.FetchError) {
   case
     simplifile.read_bits(
       "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
     )
   {
     Ok(bits) -> Ok(bits)
-    Error(_) -> Error(notices.FetchNetworkFailure)
+    Error(_) -> Error(notice.FetchNetworkFailure)
   }
 }
 
 /// Full client bundle whose Hex source ships only a NOTICE file, no repository
 /// tag resolves, and every SPDX record returns synthesized canonical text.
-fn spdx_fallback_clients() -> notices.Clients {
-  notices.Clients(
+fn spdx_fallback_clients() -> notice.Clients {
+  notice.Clients(
     fetch_hex_tarball: notice_only_hex_tarball,
     fetch_git_archive: unused_git_archive,
     resolve_commit: fn(_repo, _tag) { Ok(None) },
-    fetch_repo_archive: fn(_repo, _commit) {
-      Error(notices.FetchNetworkFailure)
-    },
+    fetch_repo_archive: fn(_repo, _commit) { Error(notice.FetchNetworkFailure) },
     fetch_spdx_index: fn(kind) {
       case kind {
         spdx.LicenceIndex -> Ok(["Apache-2.0"])
@@ -1200,17 +1196,13 @@ pub fn sbom_git_dep_without_local_source_falls_back_to_repo_link_test() {
 /// `gleam.toml` drive the SPDX fallback for git and path dependencies.
 fn mit_spdx_clients(
   git_archive: fn(repository.Repository, String) ->
-    Result(BitArray, notices.FetchError),
-) -> notices.Clients {
-  notices.Clients(
-    fetch_hex_tarball: fn(_name, _version) {
-      Error(notices.FetchNetworkFailure)
-    },
+    Result(BitArray, notice.FetchError),
+) -> notice.Clients {
+  notice.Clients(
+    fetch_hex_tarball: fn(_name, _version) { Error(notice.FetchNetworkFailure) },
     fetch_git_archive: git_archive,
     resolve_commit: fn(_repo, _tag) { Ok(None) },
-    fetch_repo_archive: fn(_repo, _commit) {
-      Error(notices.FetchNetworkFailure)
-    },
+    fetch_repo_archive: fn(_repo, _commit) { Error(notice.FetchNetworkFailure) },
     fetch_spdx_index: fn(kind) {
       case kind {
         spdx.LicenceIndex -> Ok(["MIT"])

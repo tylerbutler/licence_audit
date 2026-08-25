@@ -103,8 +103,10 @@ fn visual_root_name(
 fn is_failure(status: Status) -> Bool {
   case status {
     Checked(policy.Allowed) -> False
-    Checked(_) -> True
-    _ -> False
+    Checked(policy.NoLicencesDeclared)
+    | Checked(policy.DeniedLicence(_))
+    | Checked(policy.UnallowedLicence(_)) -> True
+    NotChecked | Failed(_) | Skipped(_) -> False
   }
 }
 
@@ -374,7 +376,7 @@ fn glyph(status: Status, mode: Mode, palette: color.Palette) -> String {
     Default ->
       case status {
         Skipped(_) -> color.yellow(palette, "·")
-        _ -> color.yellow(palette, "?")
+        NotChecked | Checked(_) | Failed(_) -> color.yellow(palette, "?")
       }
     Audit ->
       case status {
@@ -438,7 +440,7 @@ fn licences_text(row: Row) -> String {
       case row.status {
         Failed(message) -> "ERROR: " <> message
         Skipped(source) -> "non-hex (" <> source <> ")"
-        _ -> "-"
+        NotChecked | Checked(_) -> "-"
       }
     }
     licences -> licences |> sort_dedupe |> string.join(", ")

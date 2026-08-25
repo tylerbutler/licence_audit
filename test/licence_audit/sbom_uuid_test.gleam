@@ -2,19 +2,24 @@ import gleam/string
 import gleeunit/should
 import licence_audit/sbom_uuid
 
+fn serial_number_from_content(content: String) -> String {
+  let assert Ok(serial) = sbom_uuid.serial_number_from_content(content)
+  serial
+}
+
 pub fn serial_number_from_content_is_deterministic_test() {
-  sbom_uuid.serial_number_from_content("hello")
-  |> should.equal(sbom_uuid.serial_number_from_content("hello"))
+  serial_number_from_content("hello")
+  |> should.equal(serial_number_from_content("hello"))
 }
 
 pub fn serial_number_from_content_is_content_sensitive_test() {
-  let alpha = sbom_uuid.serial_number_from_content("alpha")
-  let beta = sbom_uuid.serial_number_from_content("beta")
+  let alpha = serial_number_from_content("alpha")
+  let beta = serial_number_from_content("beta")
   { alpha == beta } |> should.equal(False)
 }
 
 pub fn serial_number_from_content_is_a_well_formed_urn_uuid_test() {
-  let serial = sbom_uuid.serial_number_from_content("hello")
+  let serial = serial_number_from_content("hello")
   // urn:uuid:8-4-4-4-12 lowercase hex, 45 characters total.
   string.starts_with(serial, "urn:uuid:") |> should.equal(True)
   string.length(serial) |> should.equal(45)

@@ -356,7 +356,12 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
   )
   let dependencies = build_dependencies(sorted_manifest)
   let vulnerabilities = build_vulnerabilities(input.vulnerabilities)
-  let serial = resolve_serial(input, components, dependencies, vulnerabilities)
+  use serial <- result.try(resolve_serial(
+    input,
+    components,
+    dependencies,
+    vulnerabilities,
+  ))
   let document =
     build_document(input, serial, components, dependencies, vulnerabilities)
   Ok(json.to_string(document))
@@ -379,9 +384,9 @@ fn resolve_serial(
   components: List(json.Json),
   dependencies: List(json.Json),
   vulnerabilities: List(json.Json),
-) -> String {
+) -> Result(String, error.Error) {
   case input.serial_number {
-    FixedSerial(value) -> value
+    FixedSerial(value) -> Ok(value)
     ContentDerivedSerial -> {
       let content =
         json.to_string(json.preprocessed_array(components))
@@ -390,15 +395,9 @@ fn resolve_serial(
         <> json.to_string(root_component_json(input.root))
         <> input.tool_version
       sbom_uuid.serial_number_from_content(content)
+      |> result.replace_error(error.SbomSerialNumberFailed)
     }
   }
-}
-
-/// Convenience wrapper that panics on unsupported-source errors. Used in
-/// tests with pre-validated input.
-pub fn render(input: SbomInput) -> String {
-  let assert Ok(rendered) = try_render(input)
-  rendered
 }
 
 fn build_component(
@@ -446,7 +445,7 @@ fn append_description(
   case metadata {
     Ok(hex.PackageMetadata(description: option.Some(description), ..)) ->
       list.append(fields, [#("description", json.string(description))])
-    _ -> fields
+    Ok(hex.PackageMetadata(description: option.None, ..)) | Error(_) -> fields
   }
 }
 
@@ -477,7 +476,9 @@ fn append_supplier(
           ]),
         ),
       ])
-    _ -> fields
+    manifest.GitProvenance(_, _)
+    | manifest.PathProvenance(_)
+    | manifest.UnknownProvenance(_) -> fields
   }
 }
 
@@ -491,7 +492,7 @@ fn append_publisher(
   case metadata {
     Ok(hex.PackageMetadata(publisher: option.Some(publisher), ..)) ->
       list.append(fields, [#("publisher", json.string(publisher))])
-    _ -> fields
+    Ok(hex.PackageMetadata(publisher: option.None, ..)) | Error(_) -> fields
   }
 }
 
@@ -512,7 +513,9 @@ fn append_hashes(
           ]),
         ),
       ])
-    _ -> fields
+    manifest.GitProvenance(_, _)
+    | manifest.PathProvenance(_)
+    | manifest.UnknownProvenance(_) -> fields
   }
 }
 
@@ -590,7 +593,10 @@ fn append_properties(
           ]),
         ),
       ])
-    _ -> fields
+    manifest.HexProvenance(_, option.None)
+    | manifest.GitProvenance(_, _)
+    | manifest.PathProvenance(_)
+    | manifest.UnknownProvenance(_) -> fields
   }
 }
 
@@ -615,7 +621,9 @@ fn external_references(
       hex_distribution_reference(entry),
       ..from_links
     ]
-    _ -> from_links
+    manifest.GitProvenance(_, _)
+    | manifest.PathProvenance(_)
+    | manifest.UnknownProvenance(_) -> from_links
   }
 }
 

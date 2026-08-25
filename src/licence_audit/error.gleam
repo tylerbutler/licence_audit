@@ -15,6 +15,7 @@ pub type Error {
   Hex(String)
   Decode(String)
   UnsupportedSourceForSbom(package: String, source: String, detail: String)
+  SbomSerialNumberFailed
   SbomWriteFailed(path: String, reason: String)
   Osv(String)
   Notices(String)
@@ -48,6 +49,7 @@ pub fn message(error: Error) -> String {
       <> ", "
       <> detail
       <> "). SBOM generation supports source = \"hex\" and source = \"git\" with a github.com repository."
+    SbomSerialNumberFailed -> "Failed to generate the SBOM serial number"
     SbomWriteFailed(path, reason) ->
       "Failed to write SBOM to " <> path <> ": " <> reason
     Osv(message) -> message
