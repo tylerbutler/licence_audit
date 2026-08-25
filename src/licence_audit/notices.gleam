@@ -816,14 +816,15 @@ fn is_licence_basename(name: String) -> Bool {
   matches_basename(name, ["license", "licence", "copying"])
 }
 
+/// `LICENSE`, `LICENSE.txt`, and dual-licence names such as `LICENSE-MIT`,
+/// `LICENSE_APACHE`, or `COPYING.LESSER` all match.
 fn matches_basename(name: String, bases: List(String)) -> Bool {
   let lower = string.lowercase(name)
   list.any(bases, fn(base) {
     lower == base
-    || lower == base <> ".txt"
-    || lower == base <> ".md"
-    || lower == base <> ".rst"
-    || lower == base <> ".adoc"
+    || string.starts_with(lower, base <> ".")
+    || string.starts_with(lower, base <> "-")
+    || string.starts_with(lower, base <> "_")
   })
 }
 
