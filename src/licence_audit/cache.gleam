@@ -8,6 +8,7 @@
 import gleam/dynamic/decode
 import gleam/int
 import gleam/option.{type Option, None, Some}
+import gleam/time/timestamp
 import slate
 import slate/set as dets_set
 
@@ -32,10 +33,6 @@ pub opaque type Cache {
 const cache_entry_ttl_seconds = 86_400
 
 const cached_at_prefix = "$cached_at:"
-
-type TimeUnit {
-  Second
-}
 
 /// On-disk cache format version. Bump on any incompatible change to the cached
 /// value shape (see `hex.encode_cache_entry`). The version is encoded into the
@@ -328,11 +325,11 @@ fn cached_at_key(key: String) -> String {
 }
 
 fn now_seconds() -> Int {
-  erlang_system_time(Second)
+  let #(seconds, _) =
+    timestamp.system_time()
+    |> timestamp.to_unix_seconds_and_nanoseconds
+  seconds
 }
-
-@external(erlang, "erlang", "system_time")
-fn erlang_system_time(unit: TimeUnit) -> Int
 
 fn open_table(path: String) -> Cache {
   let key_decoder = decode.string

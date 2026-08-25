@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:48c01be0-1c0a-8ac1-afee-a96c05c464dd",
+  "serialNumber": "urn:uuid:7be73d34-1a57-83b1-9851-a3cfc1692a64",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -872,7 +872,7 @@
       "name": "gleam_time",
       "purl": "pkg:hex/gleam_time@1.8.0",
       "version": "1.8.0",
-      "scope": "optional",
+      "scope": "required",
       "supplier": {
         "name": "Hex",
         "url": [

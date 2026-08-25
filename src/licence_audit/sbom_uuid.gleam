@@ -2,6 +2,8 @@ import gleam/bit_array
 import gleam/crypto
 import gleam/int
 import gleam/string
+import gleam/time/calendar
+import gleam/time/timestamp
 
 import licence_audit/env
 
@@ -98,10 +100,17 @@ pub fn reproducible_timestamp() -> String {
 
 /// Current UTC time as an RFC 3339 string with a trailing `Z` (seconds
 /// precision), e.g. `2026-05-24T22:51:00Z`.
-@external(erlang, "sbom_uuid_ffi", "timestamp_now_utc")
-pub fn timestamp_now() -> String
+pub fn timestamp_now() -> String {
+  let #(seconds, _) =
+    timestamp.system_time()
+    |> timestamp.to_unix_seconds_and_nanoseconds
+  timestamp_of_epoch(seconds)
+}
 
 /// Format the given number of seconds since the Unix epoch as a UTC RFC 3339
 /// instant (e.g. `0` -> `1970-01-01T00:00:00Z`).
-@external(erlang, "sbom_uuid_ffi", "timestamp_of_epoch_utc")
-pub fn timestamp_of_epoch(seconds: Int) -> String
+pub fn timestamp_of_epoch(seconds: Int) -> String {
+  seconds
+  |> timestamp.from_unix_seconds
+  |> timestamp.to_rfc3339(calendar.utc_offset)
+}
