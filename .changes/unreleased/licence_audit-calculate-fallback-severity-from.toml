@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Calculate fallback severity from complete CVSS v2, v3, and v4 vectors, so critical OSV advisories are not missed when a database-specific severity is absent."

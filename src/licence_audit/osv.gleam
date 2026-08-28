@@ -21,6 +21,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import licence_audit/cvss
 
 pub type Severity {
   Low
@@ -448,11 +449,10 @@ fn severity_from_score(score: Score) -> Severity {
 
 fn severity_from_cvss_kind(kind: String, vector: String) -> Severity {
   let upper_kind = string.uppercase(kind)
-  let upper_vector = string.uppercase(vector)
   case upper_kind {
-    "CVSS_V4" -> bucket_from_cvss4(upper_vector)
-    "CVSS_V3" -> bucket_from_cvss3(upper_vector)
-    "CVSS_V2" -> Medium
+    "CVSS_V4" -> severity_from_cvss_vector(vector)
+    "CVSS_V3" -> severity_from_cvss_vector(vector)
+    "CVSS_V2" -> severity_from_cvss_v2_vector(vector)
     _ -> UnknownSeverity
   }
 }
@@ -505,55 +505,54 @@ pub fn parse_severity_label(raw: String) -> Severity {
   }
 }
 
-/// Best-effort derivation of a severity bucket from a CVSS vector string.
-/// We look at the `/A:` impact suffix as a coarse heuristic; the goal is a
-/// reasonable bucket, not a precise CVSS score.
+/// Calculate a severity bucket from a complete CVSS v2, v3, or v4 vector.
 pub fn severity_from_cvss_vector(vector: String) -> Severity {
-  let upper = string.uppercase(vector)
+  let trimmed = string.trim(vector)
+  let upper = string.uppercase(trimmed)
   case
-    string.contains(upper, "CVSS:4.0"),
-    string.contains(upper, "CVSS:3"),
-    string.contains(upper, "CVSS:2")
+    string.starts_with(upper, "CVSS:4.0/")
+    || string.starts_with(upper, "CVSS:3.0/")
+    || string.starts_with(upper, "CVSS:3.1/")
   {
-    True, _, _ -> bucket_from_cvss4(upper)
-    _, True, _ -> bucket_from_cvss3(upper)
-    _, _, True -> Medium
-    _, _, _ -> UnknownSeverity
+    True -> severity_from_supported_vector(trimmed)
+    False -> severity_from_cvss_v2_vector(trimmed)
   }
 }
 
-fn bucket_from_cvss4(vector: String) -> Severity {
-  case
-    string.contains(vector, "/VC:H")
-    || string.contains(vector, "/VI:H")
-    || string.contains(vector, "/VA:H")
-    || string.contains(vector, "/SC:H")
-    || string.contains(vector, "/SI:H")
-    || string.contains(vector, "/SA:H"),
-    string.contains(vector, "/VC:L")
-    || string.contains(vector, "/VI:L")
-    || string.contains(vector, "/VA:L")
-    || string.contains(vector, "/SC:L")
-    || string.contains(vector, "/SI:L")
-    || string.contains(vector, "/SA:L")
-  {
-    True, _ -> High
-    _, True -> Medium
-    _, _ -> Low
+fn severity_from_cvss_v2_vector(vector: String) -> Severity {
+  let trimmed = string.trim(vector)
+  let upper = string.uppercase(trimmed)
+  let bare = case string.starts_with(upper, "CVSS:2.0/") {
+    True -> string.drop_start(trimmed, 9)
+    False -> trimmed
+  }
+  case is_cvss_v2_vector(bare) {
+    True -> severity_from_supported_vector(bare)
+    False -> UnknownSeverity
   }
 }
 
-fn bucket_from_cvss3(vector: String) -> Severity {
-  // Crude: look for the impact metric letters. A more accurate parser would
-  // compute the base score; OSV usually also populates `database_specific`
-  // so this is just a fallback.
-  case
-    string.contains(vector, "/I:H") || string.contains(vector, "/C:H"),
-    string.contains(vector, "/I:L") || string.contains(vector, "/C:L")
-  {
-    True, _ -> High
-    _, True -> Medium
-    _, _ -> Low
+fn is_cvss_v2_vector(vector: String) -> Bool {
+  let metrics = string.split(string.uppercase(vector), on: "/")
+  let has_v2_access_vector =
+    list.contains(metrics, "AV:N")
+    || list.contains(metrics, "AV:A")
+    || list.contains(metrics, "AV:L")
+  let has_v2_authentication =
+    list.contains(metrics, "AU:M")
+    || list.contains(metrics, "AU:S")
+    || list.contains(metrics, "AU:N")
+  has_v2_access_vector && has_v2_authentication
+}
+
+fn severity_from_supported_vector(vector: String) -> Severity {
+  case cvss.rating(vector) {
+    Ok(cvss.None) -> Low
+    Ok(cvss.Low) -> Low
+    Ok(cvss.Medium) -> Medium
+    Ok(cvss.High) -> High
+    Ok(cvss.Critical) -> Critical
+    Error(_) -> UnknownSeverity
   }
 }
 
