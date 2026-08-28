@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fail SBOM generation when project gleam.toml metadata is missing, unreadable, or invalid."
