@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fail `check --vulns` with exit code 2 when an OSV advisory detail lookup fails, instead of treating it as a non-blocking unknown-severity placeholder. The failing advisory ID and failure reason are reported."
