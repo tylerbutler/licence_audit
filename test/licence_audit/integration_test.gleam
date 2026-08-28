@@ -940,8 +940,8 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
   let assert True = license_blocks <= 2
 }
 
-@external(erlang, "sbom_version_ffi", "set_cwd")
-fn set_current_directory(dir: String) -> Result(Nil, Nil)
+@external(erlang, "sbom_version_ffi", "with_cwd")
+fn with_cwd(dir: String, body: fn() -> a) -> a
 
 /// Runs the `sbom` command with the current working directory pointed at a
 /// project whose own `gleam.toml` version differs from licence_audit's build
@@ -955,7 +955,6 @@ pub fn sbom_tool_version_is_build_version_not_target_project_version_test() {
   let assert Ok(this_project_version) =
     toml.get_string(this_project_doc, ["version"])
 
-  let assert Ok(original_cwd) = simplifile.current_directory()
   let project_dir = "build/tmp/sbom-tool-version-project"
   let assert Ok(Nil) = simplifile.create_directory_all(project_dir)
   let assert Ok(Nil) =
@@ -969,13 +968,16 @@ pub fn sbom_tool_version_is_build_version_not_target_project_version_test() {
       contents: "packages = []\n\n[requirements]\n",
     )
 
-  let assert Ok(Nil) = set_current_directory(project_dir)
+  // `with_cwd` restores the original working directory via an Erlang
+  // `after` block even if an assertion inside the closure panics, so a
+  // failure here can never corrupt the cwd for later tests.
   let result =
-    licence_audit.run_with(
-      ["sbom", "--manifest=manifest.toml", "--offline"],
-      sbom_fetcher,
-    )
-  let assert Ok(Nil) = set_current_directory(original_cwd)
+    with_cwd(project_dir, fn() {
+      licence_audit.run_with(
+        ["sbom", "--manifest=manifest.toml", "--offline"],
+        sbom_fetcher,
+      )
+    })
 
   should.equal(result.exit_code, 0)
 
