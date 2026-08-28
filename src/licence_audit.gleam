@@ -28,6 +28,7 @@ import licence_audit/sbom_json
 import licence_audit/sbom_uuid
 import licence_audit/toml
 import licence_audit/update as update_cmd
+import licence_audit/version
 import simplifile
 
 pub type RunResult {
@@ -1112,17 +1113,9 @@ fn repository_field(entry: toml.Entry, name: String) -> option.Option(String) {
 }
 
 fn tool_version() -> String {
-  case simplifile.read(from: "gleam.toml") {
-    Error(_) -> "unknown"
-    Ok(contents) ->
-      case toml.parse(contents) {
-        Error(_) -> "unknown"
-        Ok(doc) ->
-          case toml.get_string(doc, ["version"]) {
-            Ok(v) -> v
-            Error(_) -> "unknown"
-          }
-      }
+  case version.build_version() {
+    Ok(v) -> v
+    Error(Nil) -> "unknown"
   }
 }
 
