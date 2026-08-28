@@ -752,6 +752,45 @@ pub fn check_vulns_detail_failure_exits_two_by_default_test() {
   assert string.contains(result.output, "OSV resource not found")
 }
 
+pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
+  // Regression test: the detail-failure gate path must exit 2 without
+  // setting the pre-existing `vuln_query_failed` flag, since that flag makes
+  // `finalize_audit` attach a second, generic "OSV request failed" message —
+  // a false duplicate for a lookup failure that has nothing to do with the
+  // OSV batch request. Exactly one deferred error event should be recorded,
+  // and it must be the specific advisory-detail failure.
+  let #(licence_audit.RunResult(exit_code, _), events) =
+    licence_audit.run_with_clients_and_progress(
+      manifest_args(["check", "--allow=MIT,Apache-2.0", "--vulns"]),
+      fake_fetcher,
+      one_vuln_batch,
+      unused_vuln_detail,
+      progress.Normal,
+    )
+
+  should.equal(exit_code, 2)
+  let error_events =
+    list.filter(events, fn(event) {
+      case event {
+        progress.Event(progress.Error, _) -> True
+        _ -> False
+      }
+    })
+  should.equal(error_events, [
+    progress.Event(
+      progress.Error,
+      "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories",
+    ),
+  ])
+  assert !list.contains(
+    events,
+    progress.Event(
+      progress.Error,
+      "Vulnerability check failed: OSV request failed",
+    ),
+  )
+}
+
 pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
   // Same as above with --vuln-block-unknown set: the failure must still
   // surface as an incomplete check (exit 2), not as a blocked-but-successful

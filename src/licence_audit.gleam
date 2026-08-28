@@ -213,6 +213,28 @@ pub fn run_with_progress(
   #(result, progress.events(reporter))
 }
 
+/// Like `run_with_progress`, but with injectable OSV clients — needed to
+/// assert on reporter events (e.g. deferred error messages) for `check
+/// --vulns` scenarios that require canned batch/detail fetchers.
+pub fn run_with_clients_and_progress(
+  args: List(String),
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  verbosity: progress.Verbosity,
+) -> #(RunResult, List(progress.Event)) {
+  let #(result, reporter) =
+    run_with_reporter(
+      library_args(args),
+      fetcher,
+      osv_batch_fetcher,
+      osv_detail_fetcher,
+      progress.capturing(verbosity, "report"),
+      color.for_enabled(False),
+    )
+  #(result, progress.events(reporter))
+}
+
 pub fn run_with_notice_progress(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
@@ -1307,14 +1329,16 @@ fn audit_locked(
 
   // Vulnerability gate: only when running `check` with --vulns.
   // Threshold resolution: CLI flag > config key > "high".
-  let #(
-    vulns_output,
-    vuln_failed,
-    vuln_unknown_failed,
-    vuln_query_failed,
-    vuln_reporter,
-  ) = case options.check && options.check_vulns {
-    False -> #("", False, False, False, result.reporter)
+  let vuln_outcome = case options.check && options.check_vulns {
+    False ->
+      VulnGateOutcome(
+        report_text: "",
+        gate_failed: False,
+        unknown_failed: False,
+        query_failed: False,
+        detail_incomplete: False,
+        reporter: result.reporter,
+      )
     True -> {
       let threshold =
         resolve_vuln_threshold(
@@ -1334,18 +1358,19 @@ fn audit_locked(
     }
   }
 
-  let output = licence_output <> vulns_output
+  let output = licence_output <> vuln_outcome.report_text
 
   let #(run_result, reporter) =
     finalize_audit(
       options.check,
       result.fetch_failed,
-      vuln_query_failed,
+      vuln_outcome.query_failed,
+      vuln_outcome.detail_incomplete,
       result.policy_failed,
-      vuln_failed,
-      vuln_unknown_failed,
+      vuln_outcome.gate_failed,
+      vuln_outcome.unknown_failed,
       output,
-      vuln_reporter,
+      vuln_outcome.reporter,
     )
 
   let reporter = case cache_warning {
@@ -1361,6 +1386,7 @@ fn finalize_audit(
   check: Bool,
   fetch_failed: Bool,
   vuln_query_failed: Bool,
+  vuln_detail_incomplete: Bool,
   policy_failed: Bool,
   vuln_failed: Bool,
   vuln_unknown_failed: Bool,
@@ -1380,6 +1406,13 @@ fn finalize_audit(
       reporter,
       "Vulnerability check failed: OSV request failed",
     ),
+  ))
+  // The advisory-detail failure already deferred its own accurate message
+  // (advisory IDs + reasons) in evaluate_vuln_gate. Don't attach a second,
+  // generic message here — just carry the exit code.
+  use <- bool.guard(when: vuln_detail_incomplete, return: #(
+    RunResult(2, output),
+    reporter,
   ))
   use <- bool.guard(when: check && policy_failed, return: #(
     RunResult(1, output <> error.message(error.AuditFailed) <> "\n"),
@@ -1733,6 +1766,21 @@ type DetailFailure {
   DetailFailure(id: String, reason: String)
 }
 
+/// Result of running the `check --vulns` gate. `query_failed` and
+/// `detail_incomplete` are kept distinct because each already deferred its
+/// own accurate error message before returning — `finalize_audit` must not
+/// attach a second, generic message on top of either.
+type VulnGateOutcome {
+  VulnGateOutcome(
+    report_text: String,
+    gate_failed: Bool,
+    unknown_failed: Bool,
+    query_failed: Bool,
+    detail_incomplete: Bool,
+    reporter: progress.Reporter,
+  )
+}
+
 fn build_purl_pairs(
   sbom_manifest: manifest.SbomManifest,
 ) -> #(List(PurlPair), List(String)) {
@@ -1972,7 +2020,7 @@ fn run_vuln_check_for_audit(
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(String, Bool, Bool, Bool, progress.Reporter) {
+) -> VulnGateOutcome {
   let purl_pairs =
     list.map(packages, fn(pkg) {
       #(pkg, "pkg:hex/" <> pkg.name <> "@" <> pkg.version)
@@ -1980,7 +2028,15 @@ fn run_vuln_check_for_audit(
   let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
   case purls {
-    [] -> #("", False, False, False, reporter)
+    [] ->
+      VulnGateOutcome(
+        report_text: "",
+        gate_failed: False,
+        unknown_failed: False,
+        query_failed: False,
+        detail_incomplete: False,
+        reporter: reporter,
+      )
     _ ->
       query_vuln_gate(
         purls,
@@ -1995,8 +2051,7 @@ fn run_vuln_check_for_audit(
   }
 }
 
-/// Query OSV and evaluate the `check --vulns` gate. Returns
-/// `#(report_text, gate_failed, unknown_failed, query_failed, reporter)`.
+/// Query OSV and evaluate the `check --vulns` gate.
 fn query_vuln_gate(
   purls: List(String),
   packages: List(manifest.Package),
@@ -2006,7 +2061,7 @@ fn query_vuln_gate(
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(String, Bool, Bool, Bool, progress.Reporter) {
+) -> VulnGateOutcome {
   let reporter =
     progress.detail(
       reporter,
@@ -2021,12 +2076,13 @@ fn query_vuln_gate(
           reporter,
           "Vulnerability check failed: OSV request failed",
         )
-      #(
-        "\nVulnerability check failed: OSV request failed.\n",
-        False,
-        False,
-        True,
-        reporter,
+      VulnGateOutcome(
+        report_text: "\nVulnerability check failed: OSV request failed.\n",
+        gate_failed: False,
+        unknown_failed: False,
+        query_failed: True,
+        detail_incomplete: False,
+        reporter: reporter,
       )
     }
     Ok(entries) ->
@@ -2055,7 +2111,7 @@ fn evaluate_vuln_gate(
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(String, Bool, Bool, Bool, progress.Reporter) {
+) -> VulnGateOutcome {
   let id_to_pkg = build_id_to_package_index(packages, entries)
   let unique_ids = unique_vuln_ids(entries)
   let #(vulns, detail_failures, reporter) =
@@ -2077,9 +2133,19 @@ fn evaluate_vuln_gate(
           id_to_pkg,
           palette,
         )
-      #(report_text, triggering != [], unknown_failed, False, reporter)
+      VulnGateOutcome(
+        report_text: report_text,
+        gate_failed: triggering != [],
+        unknown_failed: unknown_failed,
+        query_failed: False,
+        detail_incomplete: False,
+        reporter: reporter,
+      )
     }
     _ -> {
+      // Defer the specific advisory IDs/reasons here — this is the only
+      // error message for this outcome. finalize_audit must not attach its
+      // own generic "OSV request failed" message on top of this one.
       let reporter =
         progress.defer_error(
           reporter,
@@ -2087,12 +2153,13 @@ fn evaluate_vuln_gate(
             <> int.to_string(list.length(detail_failures))
             <> " advisory/advisories",
         )
-      #(
-        format_vuln_detail_failures_output(detail_failures),
-        False,
-        False,
-        True,
-        reporter,
+      VulnGateOutcome(
+        report_text: format_vuln_detail_failures_output(detail_failures),
+        gate_failed: False,
+        unknown_failed: False,
+        query_failed: False,
+        detail_incomplete: True,
+        reporter: reporter,
       )
     }
   }
