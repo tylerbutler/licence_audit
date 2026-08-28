@@ -15,7 +15,7 @@ import etch/command
 import etch/event
 import etch/stdout
 import etch/terminal
-import gleam/dynamic.{type Dynamic}
+import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/list
@@ -64,46 +64,11 @@ type LoopOutcome {
 
 type WorkerMessage {
   WorkerFinished(LoopOutcome)
-  WorkerDown(Dynamic)
+  WorkerDown
 }
 
-type Pid
-
-type Monitor
-
-type Reference
-
-type Selector(payload)
-
-type DoNotLeak
-
-@external(erlang, "erlang", "self")
-fn self() -> Pid
-
-@external(erlang, "erlang", "make_ref")
-fn make_ref() -> Reference
-
-@external(erlang, "erlang", "send")
-fn erlang_send(pid: Pid, message: message) -> message
-
 @external(erlang, "erlang", "spawn_monitor")
-fn spawn_monitor(running: fn() -> anything) -> #(Pid, Monitor)
-
-@external(erlang, "gleam_erlang_ffi", "new_selector")
-fn new_selector() -> Selector(payload)
-
-@external(erlang, "gleam_erlang_ffi", "insert_selector_handler")
-fn insert_selector_handler(
-  selector: Selector(payload),
-  for tag: tag,
-  mapping mapping: fn(message) -> payload,
-) -> Selector(payload)
-
-@external(erlang, "gleam_erlang_ffi", "select")
-fn selector_receive_forever(selector: Selector(payload)) -> payload
-
-@external(erlang, "gleam_erlang_ffi", "demonitor")
-fn demonitor_process(monitor: Monitor) -> DoNotLeak
+fn spawn_monitor(running: fn() -> anything) -> #(process.Pid, process.Monitor)
 
 /// Present an interactive tri-state prompt.
 ///
@@ -219,59 +184,25 @@ pub fn state_cursor(state: State) -> Int {
 }
 
 fn run_loop_worker(state: State) -> LoopOutcome {
-  let parent = self()
-  let tag = make_ref()
+  let subject = process.new_subject()
   let #(_, monitor) =
     spawn_monitor(fn() {
       event.init_event_server()
       stdout.execute([command.HideCursor])
       render(state, first: True)
-      send_worker_message(
-        parent,
-        tag,
-        WorkerFinished(loop(state, read_failures: 0)),
-      )
+      process.send(subject, WorkerFinished(loop(state, read_failures: 0)))
     })
   let message =
-    new_selector()
-    |> select_worker_messages(tag)
-    |> select_monitor(monitor)
-    |> selector_receive_forever
-  let _ = demonitor_process(monitor)
+    process.new_selector()
+    |> process.select(subject)
+    |> process.select_specific_monitor(monitor, fn(_down) { WorkerDown })
+    |> process.selector_receive_forever
+  process.demonitor_process(monitor)
 
   case message {
     WorkerFinished(outcome) -> outcome
-    WorkerDown(_) -> LoopReadFailed
+    WorkerDown -> LoopReadFailed
   }
-}
-
-fn send_worker_message(
-  pid: Pid,
-  tag: Reference,
-  message: WorkerMessage,
-) -> Nil {
-  let _ = erlang_send(pid, #(tag, message))
-  Nil
-}
-
-fn select_worker_messages(
-  selector: Selector(WorkerMessage),
-  tag: Reference,
-) -> Selector(WorkerMessage) {
-  insert_selector_handler(
-    selector,
-    for: #(tag, 2),
-    mapping: fn(message: #(Reference, WorkerMessage)) { message.1 },
-  )
-}
-
-fn select_monitor(
-  selector: Selector(WorkerMessage),
-  monitor: Monitor,
-) -> Selector(WorkerMessage) {
-  insert_selector_handler(selector, for: monitor, mapping: fn(down: Dynamic) {
-    WorkerDown(down)
-  })
 }
 
 fn loop(state: State, read_failures read_failures: Int) -> LoopOutcome {

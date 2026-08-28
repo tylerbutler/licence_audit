@@ -5,8 +5,13 @@ import gleam/string
 import gleeunit/should
 import licence_audit/sbom_uuid
 
+fn serial_number() -> String {
+  let assert Ok(serial) = sbom_uuid.serial_number()
+  serial
+}
+
 pub fn generate_serial_number_returns_urn_v4_test() {
-  let serial = sbom_uuid.serial_number()
+  let serial = serial_number()
 
   string.starts_with(serial, "urn:uuid:") |> should.equal(True)
   string.length(serial) |> should.equal(45)
@@ -29,8 +34,8 @@ fn uuid_body_is_lower_hex(serial: String) -> Bool {
 }
 
 pub fn serial_number_two_calls_differ_test() {
-  let first = sbom_uuid.serial_number()
-  let second = sbom_uuid.serial_number()
+  let first = serial_number()
+  let second = serial_number()
   let assert False = first == second
 }
 
@@ -266,8 +271,13 @@ pub fn license_entries_empty_list_test() {
 
 import gleam/dict
 
+fn render(input: sbom.SbomInput) -> String {
+  let assert Ok(rendered) = sbom.try_render(input)
+  rendered
+}
+
 pub fn render_includes_required_top_level_fields_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True = string.contains(json_str, "\"bomFormat\":\"CycloneDX\"")
   let assert True = string.contains(json_str, "\"specVersion\":\"1.6\"")
   let assert True =
@@ -281,23 +291,20 @@ pub fn render_includes_required_top_level_fields_test() {
 
 pub fn render_includes_cyclonedx_schema_uri_test() {
   let assert Ok(schema) =
-    json.parse(
-      sbom.render(minimal_input()),
-      decode.at(["$schema"], decode.string),
-    )
+    json.parse(render(minimal_input()), decode.at(["$schema"], decode.string))
 
   should.equal(schema, "https://cyclonedx.org/schema/bom-1.6.schema.json")
 }
 
 pub fn render_emits_root_metadata_component_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True = string.contains(json_str, "\"name\":\"licence_audit\"")
   let assert True = string.contains(json_str, "\"version\":\"0.1.0\"")
   let assert True = string.contains(json_str, "\"bom-ref\":\"root\"")
 }
 
 pub fn render_root_metadata_omits_unknown_supplier_and_emits_unversioned_purl_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert Ok(metadata_supplier) =
     json.parse(
       json_str,
@@ -329,7 +336,7 @@ pub fn render_root_metadata_omits_unknown_supplier_and_emits_unversioned_purl_te
 
 pub fn render_root_metadata_component_omits_purl_without_repository_test() {
   let root = sbom.RootComponent(..minimal_input().root, repository: None)
-  let json_str = sbom.render(sbom.SbomInput(..minimal_input(), root: root))
+  let json_str = render(sbom.SbomInput(..minimal_input(), root: root))
   let assert Ok(purl) =
     json.parse(
       json_str,
@@ -345,7 +352,7 @@ pub fn render_root_metadata_component_omits_purl_without_repository_test() {
 
 pub fn render_root_metadata_component_emits_purl_when_version_empty_test() {
   let root = sbom.RootComponent(..minimal_input().root, version: "")
-  let json_str = sbom.render(sbom.SbomInput(..minimal_input(), root: root))
+  let json_str = render(sbom.SbomInput(..minimal_input(), root: root))
   let assert Ok(purl) =
     json.parse(
       json_str,
@@ -356,7 +363,7 @@ pub fn render_root_metadata_component_emits_purl_when_version_empty_test() {
 }
 
 pub fn render_emits_provenance_metadata_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True = string.contains(json_str, "\"authors\":")
   let assert True = string.contains(json_str, "\"supplier\":")
   let assert True = string.contains(json_str, "\"lifecycles\":")
@@ -364,13 +371,13 @@ pub fn render_emits_provenance_metadata_test() {
 }
 
 pub fn render_declares_complete_composition_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True = string.contains(json_str, "\"compositions\":")
   let assert True = string.contains(json_str, "\"aggregate\":\"complete\"")
 }
 
 pub fn render_enriches_root_component_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True =
     string.contains(
       json_str,
@@ -386,7 +393,7 @@ pub fn render_enriches_root_component_test() {
 }
 
 pub fn render_emits_hex_component_with_hash_and_license_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True =
     string.contains(json_str, "\"purl\":\"pkg:hex/birch@0.2.1\"")
   let assert True = string.contains(json_str, "\"alg\":\"SHA-256\"")
@@ -398,7 +405,7 @@ pub fn render_emits_hex_component_with_hash_and_license_test() {
 }
 
 pub fn render_emits_dependency_graph_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True = string.contains(json_str, "\"dependencies\":")
   let assert True = string.contains(json_str, "\"ref\":\"root\"")
   let assert True =
@@ -422,18 +429,18 @@ pub fn render_offline_omits_licenses_test() {
       package_metadata: dict.new(),
       root: bare_root,
     )
-  let json_str = sbom.render(input)
+  let json_str = render(input)
   let assert False = string.contains(json_str, "\"licenses\":")
 }
 
 pub fn render_emits_component_description_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   let assert True =
     string.contains(json_str, "\"description\":\"A logging library for Gleam\"")
 }
 
 pub fn render_emits_component_external_references_test() {
-  let json_str = sbom.render(minimal_input())
+  let json_str = render(minimal_input())
   // Hex tarball distribution reference is added for every Hex component.
   let assert True = string.contains(json_str, "\"type\":\"distribution\"")
   let assert True =
@@ -448,7 +455,7 @@ pub fn render_offline_still_emits_distribution_reference_test() {
   // The tarball URL is derived from provenance, so it survives offline mode
   // even though licences and descriptions (which need a Hex fetch) do not.
   let input = sbom.SbomInput(..minimal_input(), package_metadata: dict.new())
-  let json_str = sbom.render(input)
+  let json_str = render(input)
   let assert True =
     string.contains(json_str, "https://repo.hex.pm/tarballs/birch-0.2.1.tar")
 }
@@ -477,13 +484,13 @@ pub fn reproducible_serial_is_byte_stable_test() {
   // Same input + content-derived serial => byte-identical output (issue #9).
   let input =
     sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
-  sbom.render(input) |> should.equal(sbom.render(input))
+  render(input) |> should.equal(render(input))
 }
 
 pub fn reproducible_serial_is_a_content_derived_urn_uuid_test() {
   let input =
     sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
-  let serial = serial_of(sbom.render(input))
+  let serial = serial_of(render(input))
   string.starts_with(serial, "urn:uuid:") |> should.equal(True)
   string.length(serial) |> should.equal(45)
 }
@@ -510,7 +517,7 @@ pub fn reproducible_serial_changes_with_dependency_set_test() {
         root_requirements: ["birch"],
       ),
     )
-  { serial_of(sbom.render(one)) == serial_of(sbom.render(two)) }
+  { serial_of(render(one)) == serial_of(render(two)) }
   |> should.equal(False)
 }
 
@@ -524,7 +531,7 @@ pub fn components_are_emitted_sorted_by_purl_test() {
         root_requirements: [],
       ),
     )
-  let rendered = sbom.render(input)
+  let rendered = render(input)
   let assert Ok(#(before, _)) =
     string.split_once(rendered, on: "pkg:hex/zeta@1.0.0")
   string.contains(before, "pkg:hex/alpha@1.0.0") |> should.equal(True)
@@ -550,7 +557,7 @@ pub fn render_omits_component_version_when_empty_test() {
       ]),
       package_metadata: dict.new(),
     )
-  let json_str = sbom.render(input)
+  let json_str = render(input)
   let assert Ok(versions) =
     json.parse(
       json_str,
@@ -654,7 +661,7 @@ fn minimal_input() -> sbom.SbomInput {
 pub fn render_omits_vulnerabilities_when_absent_test() {
   // A plain SBOM (no embedded vulns) must keep its existing shape.
   let assert False =
-    string.contains(sbom.render(minimal_input()), "\"vulnerabilities\":")
+    string.contains(render(minimal_input()), "\"vulnerabilities\":")
 }
 
 pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
@@ -674,7 +681,7 @@ pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
     sbom.SbomInput(..minimal_input(), vulnerabilities: [
       sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
     ])
-  let out = sbom.render(input)
+  let out = render(input)
 
   assert string.contains(out, "\"vulnerabilities\":")
   assert string.contains(out, "\"id\":\"GHSA-aaaa-bbbb-cccc\"")
@@ -709,7 +716,7 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
     sbom.SbomInput(..minimal_input(), vulnerabilities: [
       sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
     ])
-  let out = sbom.render(input)
+  let out = render(input)
 
   assert string.contains(out, "\"id\":\"CVE-2024-0002\"")
   assert string.contains(out, "\"severity\":\"medium\"")
@@ -722,7 +729,7 @@ pub fn render_emits_optional_scope_for_dev_dependencies_test() {
       ..minimal_input(),
       scopes: dict.from_list([#("birch", manifest.Dev)]),
     )
-  let output = sbom.render(input)
+  let output = render(input)
 
   assert string.contains(output, "\"scope\":\"optional\"")
   assert !string.contains(output, "licence_audit:scope")
@@ -730,7 +737,7 @@ pub fn render_emits_optional_scope_for_dev_dependencies_test() {
 
 pub fn render_defaults_scope_to_required_test() {
   // minimal_input has no scopes entry for birch, so it falls back to Prod.
-  let output = sbom.render(minimal_input())
+  let output = render(minimal_input())
 
   assert string.contains(output, "\"scope\":\"required\"")
   assert !string.contains(output, "licence_audit:scope")
@@ -738,7 +745,7 @@ pub fn render_defaults_scope_to_required_test() {
 
 pub fn render_emits_publisher_when_metadata_has_one_test() {
   // The minimal input fixture sets the birch publisher to "birch_owner".
-  let output = sbom.render(minimal_input())
+  let output = render(minimal_input())
 
   assert string.contains(output, "\"publisher\":\"birch_owner\"")
 }
@@ -746,7 +753,7 @@ pub fn render_emits_publisher_when_metadata_has_one_test() {
 pub fn render_emits_supplier_for_every_hex_component_test() {
   // Every Hex component carries the same supplier object so SBOM consumers
   // can identify the registry the artefact was supplied from.
-  let output = sbom.render(minimal_input())
+  let output = render(minimal_input())
 
   assert string.contains(
     output,
@@ -771,7 +778,7 @@ pub fn render_emits_supplier_even_when_publisher_absent_test() {
       ),
     ])
   let output =
-    sbom.render(sbom.SbomInput(..minimal_input(), package_metadata: metadata))
+    render(sbom.SbomInput(..minimal_input(), package_metadata: metadata))
 
   assert string.contains(
     output,
@@ -794,7 +801,7 @@ pub fn render_omits_publisher_when_metadata_has_none_test() {
       ),
     ])
   let output =
-    sbom.render(sbom.SbomInput(..minimal_input(), package_metadata: metadata))
+    render(sbom.SbomInput(..minimal_input(), package_metadata: metadata))
 
   assert !string.contains(output, "\"publisher\":")
 }
@@ -818,7 +825,7 @@ pub fn render_emits_inner_checksum_property_when_present_test() {
         "birch",
       ]),
     )
-  let output = sbom.render(input)
+  let output = render(input)
 
   // Outer hash still surfaces in the standard `hashes` block...
   assert string.contains(output, "\"content\":\"deadbeef\"")
@@ -831,7 +838,7 @@ pub fn render_emits_inner_checksum_property_when_present_test() {
 pub fn render_omits_properties_when_no_inner_checksum_test() {
   // With the scope surfaced as a native field, the inner checksum is the only
   // remaining custom property; without it the array is omitted entirely.
-  let output = sbom.render(minimal_input())
+  let output = render(minimal_input())
 
   assert !string.contains(output, "licence_audit:hex_inner_checksum")
   assert !string.contains(output, "\"properties\":")

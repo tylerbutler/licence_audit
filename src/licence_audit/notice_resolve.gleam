@@ -33,8 +33,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
-import licence_audit/notices
-import licence_audit/notices_cache
+import licence_audit/notice
+import licence_audit/notice_cache
 import licence_audit/repository
 import licence_audit/source_archive
 import licence_audit/spdx
@@ -42,7 +42,7 @@ import licence_audit/spdx
 /// The result of resolving one package.
 pub type Outcome {
   /// Licence materials were found (source, repository, or SPDX fallback).
-  Resolved(files: List(notices.NoticeFile))
+  Resolved(files: List(notice.NoticeFile))
   /// No licence text could be obtained; the package is reported as missing.
   Missing
 }
@@ -55,13 +55,13 @@ pub type Resolution {
 /// cache. `package` must already have any path source resolved to a concrete
 /// location.
 pub fn resolve(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
-  clients: notices.Clients,
-) -> Result(Resolution, notices.Error) {
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  clients: notice.Clients,
+) -> Result(Resolution, notice.Error) {
   case final_key(package) {
     Ok(key) ->
-      case notices_cache.get_files(cache, key) {
+      case notice_cache.get_files(cache, key) {
         Ok(files) -> Ok(Resolution(outcome: Resolved(files), warnings: []))
         Error(_) -> {
           use resolution <- result.try(resolve_fresh(cache, package, clients))
@@ -72,7 +72,7 @@ pub fn resolve(
             // would pin it forever, so we skip the final cache and let a later
             // run retry the repository. Successful SPDX records and other
             // per-namespace values are still cached inside `resolve_fresh`.
-            Resolved(files), [] -> notices_cache.put_files(cache, key, files)
+            Resolved(files), [] -> notice_cache.put_files(cache, key, files)
             Resolved(_), [_, ..] -> Nil
             Missing, _ -> Nil
           }
@@ -83,7 +83,7 @@ pub fn resolve(
   }
 }
 
-fn final_key(package: notices.NoticePackage) -> Result(String, Nil) {
+fn final_key(package: notice.NoticePackage) -> Result(String, Nil) {
   use source <- result.try(source_identity(package))
   use metadata <- result.try(metadata_fingerprint(package))
   Ok(
@@ -96,23 +96,23 @@ fn final_key(package: notices.NoticePackage) -> Result(String, Nil) {
   )
 }
 
-fn source_key(package: notices.NoticePackage) -> Result(String, Nil) {
+fn source_key(package: notice.NoticePackage) -> Result(String, Nil) {
   source_identity(package)
   |> result.map(fn(identity) { "source:" <> identity })
 }
 
-fn source_identity(package: notices.NoticePackage) -> Result(String, Nil) {
+fn source_identity(package: notice.NoticePackage) -> Result(String, Nil) {
   let base = package.name <> "@" <> package.version <> "@"
   case package.source {
-    notices.HexPackage(checksum) ->
+    notice.HexPackage(checksum) ->
       Ok(base <> "hex:" <> string.uppercase(checksum))
-    notices.GitPackage(repo, _url, commit) ->
+    notice.GitPackage(repo, _url, commit) ->
       Ok(base <> "git:" <> repository.describe(repo) <> "@" <> commit)
-    notices.PathPackage(_) -> Error(Nil)
+    notice.PathPackage(_) -> Error(Nil)
   }
 }
 
-fn metadata_fingerprint(package: notices.NoticePackage) -> Result(String, Nil) {
+fn metadata_fingerprint(package: notice.NoticePackage) -> Result(String, Nil) {
   let encoded =
     json.to_string(
       json.object([
@@ -128,30 +128,30 @@ fn metadata_fingerprint(package: notices.NoticePackage) -> Result(String, Nil) {
 }
 
 fn resolve_fresh(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
-  clients: notices.Clients,
-) -> Result(Resolution, notices.Error) {
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  clients: notice.Clients,
+) -> Result(Resolution, notice.Error) {
   use source_notices <- result.try(read_source_notices(cache, package, clients))
 
-  case notices.has_licence_file(source_notices) {
+  case notice.has_licence_file(source_notices) {
     True -> Ok(Resolution(outcome: Resolved(source_notices), warnings: []))
     False -> fallback(cache, package, source_notices, clients)
   }
 }
 
 fn read_source_notices(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
-  clients: notices.Clients,
-) -> Result(List(notices.NoticeFile), notices.Error) {
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  clients: notice.Clients,
+) -> Result(List(notice.NoticeFile), notice.Error) {
   case source_key(package) {
     Ok(key) ->
-      case notices_cache.get_files(cache, key) {
+      case notice_cache.get_files(cache, key) {
         Ok(files) -> Ok(files)
         Error(_) -> {
           use files <- result.try(read_source_notices_live(package, clients))
-          notices_cache.put_files(cache, key, files)
+          notice_cache.put_files(cache, key, files)
           Ok(files)
         }
       }
@@ -160,28 +160,28 @@ fn read_source_notices(
 }
 
 fn read_source_notices_live(
-  package: notices.NoticePackage,
-  clients: notices.Clients,
-) -> Result(List(notices.NoticeFile), notices.Error) {
-  use source_files <- result.try(notices.read_remote_source(
+  package: notice.NoticePackage,
+  clients: notice.Clients,
+) -> Result(List(notice.NoticeFile), notice.Error) {
+  use source_files <- result.try(notice.read_remote_source(
     package,
     clients.fetch_hex_tarball,
     clients.fetch_git_archive,
   ))
-  notices.notice_files_of(package.name, source_files)
+  notice.notice_files_of(package.name, source_files)
 }
 
 fn fallback(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
-  preserved: List(notices.NoticeFile),
-  clients: notices.Clients,
-) -> Result(Resolution, notices.Error) {
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  preserved: List(notice.NoticeFile),
+  clients: notice.Clients,
+) -> Result(Resolution, notice.Error) {
   // Repository fallback applies only to Hex packages: git sources are already
   // the repository at an immutable commit, and path sources are local.
   let #(repo_files, warnings) = case package.source {
-    notices.HexPackage(_) -> repository_fallback(cache, package, clients)
-    _ -> #(None, [])
+    notice.HexPackage(_) -> repository_fallback(cache, package, clients)
+    notice.GitPackage(_, _, _) | notice.PathPackage(_) -> #(None, [])
   }
 
   case repo_files {
@@ -207,21 +207,21 @@ fn fallback(
 // --- Repository fallback -----------------------------------------------------
 
 fn repository_fallback(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
-  clients: notices.Clients,
-) -> #(Option(List(notices.NoticeFile)), List(String)) {
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  clients: notice.Clients,
+) -> #(Option(List(notice.NoticeFile)), List(String)) {
   let repos = list.filter_map(package.repo_links, repository.parse)
   try_repos(cache, package, repos, clients, [])
 }
 
 fn try_repos(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   repos: List(repository.Repository),
-  clients: notices.Clients,
+  clients: notice.Clients,
   warnings: List(String),
-) -> #(Option(List(notices.NoticeFile)), List(String)) {
+) -> #(Option(List(notice.NoticeFile)), List(String)) {
   case repos {
     [] -> #(None, warnings)
     [repo, ..rest] -> {
@@ -241,20 +241,20 @@ fn try_repos(
 /// cause without re-parsing a message.
 type RepoFallbackError {
   TagResolutionFailed(
-    package: notices.NoticePackage,
+    package: notice.NoticePackage,
     repo: repository.Repository,
     tag: String,
-    reason: notices.FetchError,
+    reason: notice.FetchError,
   )
   RepoArchiveFetchFailed(
-    package: notices.NoticePackage,
+    package: notice.NoticePackage,
     repo: repository.Repository,
-    reason: notices.FetchError,
+    reason: notice.FetchError,
   )
   RepoArchiveExtractFailed(
-    package: notices.NoticePackage,
+    package: notice.NoticePackage,
     repo: repository.Repository,
-    reason: notices.Error,
+    reason: notice.Error,
   )
 }
 
@@ -268,21 +268,21 @@ fn describe_repo_fallback_error(error: RepoFallbackError) -> String {
       <> " at "
       <> repository.describe(repo)
       <> " ("
-      <> notices.describe_fetch_error(reason)
+      <> notice.describe_fetch_error(reason)
       <> "); trying declared SPDX licences"
     RepoArchiveFetchFailed(package, repo, reason) ->
-      repo_warning(package, repo, notices.describe_fetch_error(reason))
+      repo_warning(package, repo, notice.describe_fetch_error(reason))
     RepoArchiveExtractFailed(package, repo, reason) ->
-      repo_warning(package, repo, notices.describe_error(reason))
+      repo_warning(package, repo, notice.describe_error(reason))
   }
 }
 
 fn try_repo(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   repo: repository.Repository,
-  clients: notices.Clients,
-) -> #(Option(List(notices.NoticeFile)), List(String)) {
+  clients: notice.Clients,
+) -> #(Option(List(notice.NoticeFile)), List(String)) {
   case resolve_commit(cache, package, repo, clients) {
     Error(error) -> #(None, [describe_repo_fallback_error(error)])
     Ok(None) -> #(None, [])
@@ -299,10 +299,10 @@ fn try_repo(
 /// success, `Ok(None)` when no candidate tag exists, `Error(error)` on a
 /// transient failure (the warning is surfaced and the caller continues).
 fn resolve_commit(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   repo: repository.Repository,
-  clients: notices.Clients,
+  clients: notice.Clients,
 ) -> Result(Option(String), RepoFallbackError) {
   resolve_commit_loop(
     cache,
@@ -314,17 +314,17 @@ fn resolve_commit(
 }
 
 fn resolve_commit_loop(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   repo: repository.Repository,
   tags: List(String),
-  clients: notices.Clients,
+  clients: notice.Clients,
 ) -> Result(Option(String), RepoFallbackError) {
   case tags {
     [] -> Ok(None)
     [tag, ..rest] -> {
       let key = "tag:" <> repository.describe(repo) <> "@" <> tag
-      case notices_cache.get_text(cache, key) {
+      case notice_cache.get_text(cache, key) {
         Ok(commit) -> Ok(Some(commit))
         Error(_) ->
           resolve_commit_tag(cache, package, repo, tag, rest, clients, key)
@@ -334,17 +334,17 @@ fn resolve_commit_loop(
 }
 
 fn resolve_commit_tag(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   repo: repository.Repository,
   tag: String,
   rest: List(String),
-  clients: notices.Clients,
+  clients: notice.Clients,
   key: String,
 ) -> Result(Option(String), RepoFallbackError) {
   case clients.resolve_commit(repo, tag) {
     Ok(Some(commit)) -> {
-      notices_cache.put_text(cache, key, commit)
+      notice_cache.put_text(cache, key, commit)
       Ok(Some(commit))
     }
     Ok(None) -> resolve_commit_loop(cache, package, repo, rest, clients)
@@ -357,23 +357,23 @@ fn resolve_commit_tag(
 /// at an immutable commit. `Error(error)` on a transient network or archive
 /// failure.
 fn repo_licence_files(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   repo: repository.Repository,
   commit: String,
-  clients: notices.Clients,
-) -> Result(List(notices.NoticeFile), RepoFallbackError) {
+  clients: notice.Clients,
+) -> Result(List(notice.NoticeFile), RepoFallbackError) {
   let key = "repo:" <> repository.describe(repo) <> "@" <> commit
-  case notices_cache.get_files(cache, key) {
+  case notice_cache.get_files(cache, key) {
     Ok(files) -> Ok(files)
     Error(_) ->
       case clients.fetch_repo_archive(repo, commit) {
         Error(fetch_error) ->
           Error(RepoArchiveFetchFailed(package, repo, fetch_error))
         Ok(bytes) ->
-          case notices.repo_licence_files(package.name, bytes) {
+          case notice.repo_licence_files(package.name, bytes) {
             Ok(files) -> {
-              notices_cache.put_files(cache, key, files)
+              notice_cache.put_files(cache, key, files)
               Ok(files)
             }
             Error(error) ->
@@ -384,7 +384,7 @@ fn repo_licence_files(
 }
 
 fn repo_warning(
-  package: notices.NoticePackage,
+  package: notice.NoticePackage,
   repo: repository.Repository,
   reason: String,
 ) -> String {
@@ -400,10 +400,10 @@ fn repo_warning(
 // --- SPDX fallback -----------------------------------------------------------
 
 fn spdx_fallback(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
-  clients: notices.Clients,
-) -> Result(List(notices.NoticeFile), notices.Error) {
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  clients: notice.Clients,
+) -> Result(List(notice.NoticeFile), notice.Error) {
   case spdx.required_identifiers(package.declared_licences) {
     // A `LicenseRef-`/`DocumentRef-` custom licence has no canonical text and
     // cannot be synthesized: treat the package as missing.
@@ -418,12 +418,12 @@ fn spdx_fallback(
 }
 
 fn canonicalize_requirements(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   requirements: List(spdx.Requirement),
-  clients: notices.Clients,
+  clients: notice.Clients,
   canonical: List(spdx.Requirement),
-) -> Result(List(spdx.Requirement), notices.Error) {
+) -> Result(List(spdx.Requirement), notice.Error) {
   case requirements {
     [] -> Ok(list.reverse(canonical))
     [requirement, ..rest] -> {
@@ -446,11 +446,11 @@ fn canonicalize_requirements(
 }
 
 fn canonical_requirement(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   requirement: spdx.Requirement,
-  clients: notices.Clients,
-) -> Result(Option(spdx.Requirement), notices.Error) {
+  clients: notice.Clients,
+) -> Result(Option(spdx.Requirement), notice.Error) {
   let kind = spdx.index_kind(requirement)
   use ids <- result.try(spdx_index(cache, package, kind, clients))
   Ok(case spdx.canonical_requirement(requirement, ids) {
@@ -460,14 +460,14 @@ fn canonical_requirement(
 }
 
 fn spdx_index(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   kind: spdx.IndexKind,
-  clients: notices.Clients,
-) -> Result(List(String), notices.Error) {
+  clients: notice.Clients,
+) -> Result(List(String), notice.Error) {
   let key =
     "spdx-index:" <> spdx.license_list_commit <> ":" <> spdx.index_slug(kind)
-  case notices_cache.get_text(cache, key) {
+  case notice_cache.get_text(cache, key) {
     Ok(encoded) ->
       case spdx.decode_cached_index(encoded) {
         Ok(ids) -> Ok(ids)
@@ -478,33 +478,33 @@ fn spdx_index(
 }
 
 fn fetch_spdx_index(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   kind: spdx.IndexKind,
   key: String,
-  clients: notices.Clients,
-) -> Result(List(String), notices.Error) {
+  clients: notice.Clients,
+) -> Result(List(String), notice.Error) {
   case clients.fetch_spdx_index(kind) {
     Ok(ids) -> {
-      notices_cache.put_text(cache, key, spdx.encode_index(ids))
+      notice_cache.put_text(cache, key, spdx.encode_index(ids))
       Ok(ids)
     }
     Error(fetch_error) ->
-      Error(notices.SpdxFetchFailed(
+      Error(notice.SpdxFetchFailed(
         package: package.name,
         id: spdx.index_slug(kind) <> " index",
-        reason: notices.describe_fetch_error(fetch_error),
+        reason: notice.describe_fetch_error(fetch_error),
       ))
   }
 }
 
 fn resolve_spdx_requirements(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   requirements: List(spdx.Requirement),
-  clients: notices.Clients,
-  files: List(notices.NoticeFile),
-) -> Result(List(notices.NoticeFile), notices.Error) {
+  clients: notice.Clients,
+  files: List(notice.NoticeFile),
+) -> Result(List(notice.NoticeFile), notice.Error) {
   case requirements {
     [] -> Ok(list.reverse(files))
     [requirement, ..rest] -> {
@@ -522,26 +522,26 @@ fn resolve_spdx_requirements(
 }
 
 fn resolve_spdx(
-  cache: notices_cache.Cache,
-  package: notices.NoticePackage,
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
   requirement: spdx.Requirement,
-  clients: notices.Clients,
-) -> Result(Option(notices.NoticeFile), notices.Error) {
+  clients: notice.Clients,
+) -> Result(Option(notice.NoticeFile), notice.Error) {
   let key = spdx_key(requirement)
-  case notices_cache.get_text(cache, key) {
-    Ok(text) -> Ok(Some(notices.spdx_file(requirement, text)))
+  case notice_cache.get_text(cache, key) {
+    Ok(text) -> Ok(Some(notice.spdx_file(requirement, text)))
     Error(_) ->
       case clients.fetch_spdx(requirement) {
         Ok(Some(text)) -> {
-          notices_cache.put_text(cache, key, text)
-          Ok(Some(notices.spdx_file(requirement, text)))
+          notice_cache.put_text(cache, key, text)
+          Ok(Some(notice.spdx_file(requirement, text)))
         }
         Ok(None) -> Ok(None)
         Error(fetch_error) ->
-          Error(notices.SpdxFetchFailed(
+          Error(notice.SpdxFetchFailed(
             package: package.name,
             id: requirement_id(requirement),
-            reason: notices.describe_fetch_error(fetch_error),
+            reason: notice.describe_fetch_error(fetch_error),
           ))
       }
   }

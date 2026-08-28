@@ -18,7 +18,7 @@ import slate
 import slate/set as dets_set
 
 import licence_audit/cache_dir
-import licence_audit/notices
+import licence_audit/notice
 import licence_audit/repository
 
 /// Configures how the cache behaves for a given run.
@@ -41,7 +41,7 @@ pub opaque type Cache {
 /// files, pinned SPDX indexes, and canonical SPDX records shared across
 /// packages. The version is encoded into the
 /// filename so a file written by an older format is ignored rather than
-/// mis-decoded; `notices.decode_notice_files` also treats any unparseable entry
+/// mis-decoded; `notice.decode_notice_files` also treats any unparseable entry
 /// as a miss, so forward-compatible drift self-heals without a bump.
 const cache_format_version = 3
 
@@ -98,10 +98,10 @@ pub fn close(cache: Cache) -> Option(String) {
 /// `read` is called directly.
 pub fn read_cached(
   cache: Cache,
-  package: notices.NoticePackage,
-  read: fn(notices.NoticePackage) ->
-    Result(List(notices.NoticeFile), notices.Error),
-) -> Result(List(notices.NoticeFile), notices.Error) {
+  package: notice.NoticePackage,
+  read: fn(notice.NoticePackage) ->
+    Result(List(notice.NoticeFile), notice.Error),
+) -> Result(List(notice.NoticeFile), notice.Error) {
   case cache.table, cache_key(package) {
     Some(table), Ok(key) ->
       case lookup(table, key) {
@@ -121,14 +121,14 @@ pub fn read_cached(
 
 /// Content-addressed cache key for a package, or `Error(Nil)` when the source
 /// is not cacheable (path dependencies, whose contents are local and mutable).
-fn cache_key(package: notices.NoticePackage) -> Result(String, Nil) {
+fn cache_key(package: notice.NoticePackage) -> Result(String, Nil) {
   let base = package.name <> "@" <> package.version <> "@"
   case package.source {
-    notices.HexPackage(outer_checksum) ->
+    notice.HexPackage(outer_checksum) ->
       Ok(base <> "hex:" <> string.uppercase(outer_checksum))
-    notices.GitPackage(repo, _url, commit) ->
+    notice.GitPackage(repo, _url, commit) ->
       Ok(base <> "git:" <> repository.describe(repo) <> "@" <> commit)
-    notices.PathPackage(_) -> Error(Nil)
+    notice.PathPackage(_) -> Error(Nil)
   }
 }
 
@@ -138,7 +138,7 @@ fn cache_key(package: notices.NoticePackage) -> Result(String, Nil) {
 pub fn get_files(
   cache: Cache,
   key: String,
-) -> Result(List(notices.NoticeFile), Nil) {
+) -> Result(List(notice.NoticeFile), Nil) {
   case cache.table {
     None -> Error(Nil)
     Some(table) -> lookup(table, key)
@@ -150,7 +150,7 @@ pub fn get_files(
 pub fn put_files(
   cache: Cache,
   key: String,
-  files: List(notices.NoticeFile),
+  files: List(notice.NoticeFile),
 ) -> Nil {
   case cache.table {
     None -> Nil
@@ -186,9 +186,9 @@ pub fn put_text(cache: Cache, key: String, value: String) -> Nil {
 fn lookup(
   table: dets_set.Set(String, String),
   key: String,
-) -> Result(List(notices.NoticeFile), Nil) {
+) -> Result(List(notice.NoticeFile), Nil) {
   case dets_set.lookup(from: table, key: key) {
-    Ok(encoded) -> notices.decode_notice_files(encoded)
+    Ok(encoded) -> notice.decode_notice_files(encoded)
     Error(_) -> Error(Nil)
   }
 }
@@ -196,13 +196,13 @@ fn lookup(
 fn store(
   table: dets_set.Set(String, String),
   key: String,
-  files: List(notices.NoticeFile),
+  files: List(notice.NoticeFile),
 ) -> Nil {
   let _ =
     dets_set.insert(
       into: table,
       key: key,
-      value: notices.encode_notice_files(files),
+      value: notice.encode_notice_files(files),
     )
   Nil
 }

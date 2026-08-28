@@ -220,7 +220,7 @@ pub fn licence_files(
 }
 
 /// Filter raw archive files down to the matched notice/licence files, mapping
-/// any extraction failure into a `notices.Error` tagged with `package_name`.
+/// any extraction failure into a `notice.Error` tagged with `package_name`.
 pub fn notice_files_of(
   package_name: String,
   files: List(source_archive.ArchiveFile),

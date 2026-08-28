@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/bool
+import gleam/crypto
 import gleam/list
 import gleam/result
 import gleam/string
@@ -23,9 +24,6 @@ fn extract_tar_raw(
 fn extract_tar_gz_raw(
   data: BitArray,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
-
-@external(erlang, "sbom_uuid_ffi", "sha256")
-fn sha256(data: BitArray) -> BitArray
 
 pub fn extract_tar(data: BitArray) -> Result(List(ArchiveFile), ArchiveError) {
   use files <- result.try(extract_tar_raw(data))
@@ -63,7 +61,11 @@ pub fn sha256_hex(data: BitArray) -> Result(String, ArchiveError) {
     return: Error(InvalidArchive),
   )
 
-  Ok(sha256(data) |> bit_array.base16_encode |> string.uppercase)
+  Ok(
+    crypto.hash(crypto.Sha256, data)
+    |> bit_array.base16_encode
+    |> string.uppercase,
+  )
 }
 
 fn files_to_archive_files(

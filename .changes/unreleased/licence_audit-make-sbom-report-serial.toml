@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `sbom` report serial-number generation failures instead of crashing."

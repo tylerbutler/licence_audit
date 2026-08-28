@@ -15,9 +15,9 @@ import licence_audit/error
 import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/manifest
-import licence_audit/notices
-import licence_audit/notices_cache
-import licence_audit/notices_resolve
+import licence_audit/notice
+import licence_audit/notice_cache
+import licence_audit/notice_resolve
 import licence_audit/osv
 import licence_audit/policy
 import licence_audit/progress
@@ -123,7 +123,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
         run_notices_options(
           options,
           hex.fetch_package_metadata_from_hex,
-          notices.default_clients(),
+          notice.default_clients(),
           progress.enabled(options.verbosity, "notices"),
         )
       io.print(output)
@@ -180,7 +180,7 @@ pub fn run_with_clients(
 pub fn run_with_notice_clients(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  clients: notices.Clients,
+  clients: notice.Clients,
 ) -> RunResult {
   let #(result, _) =
     run_with_reporter_and_notices(
@@ -215,7 +215,7 @@ pub fn run_with_progress(
 pub fn run_with_notice_progress(
   args: List(String),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  clients: notices.Clients,
+  clients: notice.Clients,
   verbosity: progress.Verbosity,
 ) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) =
@@ -244,7 +244,7 @@ fn run_with_reporter(
     fetcher,
     osv_batch_fetcher,
     osv_detail_fetcher,
-    notices.default_clients(),
+    notice.default_clients(),
     reporter,
     palette,
   )
@@ -255,7 +255,7 @@ fn run_with_reporter_and_notices(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  notice_clients: notices.Clients,
+  notice_clients: notice.Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(RunResult, progress.Reporter) {
@@ -337,7 +337,7 @@ fn run_sbom_options(
 fn run_notices_options(
   options: cli.NoticesOptions,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  clients: notices.Clients,
+  clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
@@ -346,18 +346,18 @@ fn run_notices_options(
   let reporter = progress.detail(reporter, "Loading package manifest")
 
   let #(metadata_cache_mode, source_cache_mode) = case options.no_cache {
-    True -> #(cache.Disabled, notices_cache.Disabled)
+    True -> #(cache.Disabled, notice_cache.Disabled)
     False -> #(
       cache.Enabled(path: options.cache_path),
       // `--cache-path` overrides a single file and applies to the metadata
       // cache (as on every other command). The source cache keeps its own
       // version-namespaced filename at the default location (still relocatable
       // via XDG_CACHE_HOME) so format bumps invalidate it correctly.
-      notices_cache.Enabled(path: None),
+      notice_cache.Enabled(path: None),
     )
   }
   let metadata_cache = cache.open(metadata_cache_mode)
-  let source_cache = notices_cache.open(source_cache_mode)
+  let source_cache = notice_cache.open(source_cache_mode)
   let cached_fetcher = fn(name: String, version: String) {
     cache.fetch_cached_quiet(metadata_cache, name, version, fetcher)
   }
@@ -365,7 +365,7 @@ fn run_notices_options(
   case manifest.load_sbom(manifest_path) {
     Error(manifest_error) -> {
       let _ = cache.close(metadata_cache)
-      let _ = notices_cache.close(source_cache)
+      let _ = notice_cache.close(source_cache)
       #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
     }
     Ok(sbom_manifest) -> {
@@ -382,7 +382,7 @@ fn run_notices_options(
           resolve_prod_seed(project_root, sbom_manifest.root_requirements),
         )
       let selected =
-        notices.selected_entries(
+        notice.selected_entries(
           sbom_manifest,
           scopes,
           include_dev: options.include_dev,
@@ -401,12 +401,12 @@ fn run_notices_options(
       let metadata_for = fn(entry: manifest.SbomEntry) {
         notice_metadata_for_entry(entry, project_root, cached_fetcher)
       }
-      case notices.packages_from_entries(selected, scopes, metadata_for) {
+      case notice.packages_from_entries(selected, scopes, metadata_for) {
         Error(notice_error) -> {
           let _ = cache.close(metadata_cache)
-          let _ = notices_cache.close(source_cache)
+          let _ = notice_cache.close(source_cache)
           #(
-            diagnostic(error.Notices(notices.describe_error(notice_error))),
+            diagnostic(error.Notices(notice.describe_error(notice_error))),
             reporter,
           )
         }
@@ -429,7 +429,7 @@ fn run_notices_options(
               reporter,
             )
           let metadata_warning = cache.close(metadata_cache)
-          let source_warning = notices_cache.close(source_cache)
+          let source_warning = notice_cache.close(source_cache)
           let reporter = apply_cache_warning(reporter, metadata_warning)
           let reporter = apply_cache_warning(reporter, source_warning)
           #(run_result, reporter)
@@ -450,12 +450,12 @@ fn apply_cache_warning(
 }
 
 fn build_notice_entries(
-  packages: List(notices.NoticePackage),
+  packages: List(notice.NoticePackage),
   project_root: String,
   manifest_path: String,
   output: option.Option(String),
-  source_cache: notices_cache.Cache,
-  clients: notices.Clients,
+  source_cache: notice_cache.Cache,
+  clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let reporter =
@@ -479,7 +479,7 @@ fn build_notice_entries(
 
   case result {
     Error(notice_error) -> #(
-      diagnostic(error.Notices(notices.describe_error(notice_error))),
+      diagnostic(error.Notices(notice.describe_error(notice_error))),
       reporter,
     )
     Ok(entries) -> {
@@ -495,7 +495,7 @@ fn build_notice_entries(
         })
       let reporter = progress.detail(reporter, "Rendering notices output")
       write_notice_output(
-        notices.render(entries, manifest_path: manifest_path),
+        notice.render(entries, manifest_path: manifest_path),
         output,
         reporter,
       )
@@ -508,11 +508,11 @@ fn build_notice_entries(
 /// `MissingLicenceText` error and collecting all deferred warnings. A hard
 /// error (fetch/checksum/SPDX-network failure) aborts and is returned directly.
 fn resolve_notice_entries(
-  packages: List(notices.NoticePackage),
+  packages: List(notice.NoticePackage),
   project_root: String,
-  source_cache: notices_cache.Cache,
-  clients: notices.Clients,
-) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
+  source_cache: notice_cache.Cache,
+  clients: notice.Clients,
+) -> #(Result(List(notice.NoticeEntry), notice.Error), List(String)) {
   resolve_notice_entries_loop(
     packages,
     project_root,
@@ -525,19 +525,19 @@ fn resolve_notice_entries(
 }
 
 fn resolve_notice_entries_loop(
-  packages: List(notices.NoticePackage),
+  packages: List(notice.NoticePackage),
   project_root: String,
-  source_cache: notices_cache.Cache,
-  clients: notices.Clients,
-  entries: List(notices.NoticeEntry),
+  source_cache: notice_cache.Cache,
+  clients: notice.Clients,
+  entries: List(notice.NoticeEntry),
   missing: List(String),
   warnings: List(String),
-) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
+) -> #(Result(List(notice.NoticeEntry), notice.Error), List(String)) {
   case packages {
     [] -> finalize_notice_entries(entries, missing, warnings)
     [package, ..rest] -> {
       let source_package = package_for_source_read(package, project_root)
-      case notices_resolve.resolve(source_cache, source_package, clients) {
+      case notice_resolve.resolve(source_cache, source_package, clients) {
         Error(error) -> #(Error(error), warnings)
         Ok(resolution) -> {
           let warnings = list.append(warnings, resolution.warnings)
@@ -564,31 +564,31 @@ fn resolve_notice_entries_loop(
 }
 
 fn finalize_notice_entries(
-  entries: List(notices.NoticeEntry),
+  entries: List(notice.NoticeEntry),
   missing: List(String),
   warnings: List(String),
-) -> #(Result(List(notices.NoticeEntry), notices.Error), List(String)) {
+) -> #(Result(List(notice.NoticeEntry), notice.Error), List(String)) {
   case list.reverse(missing) {
     [] -> #(Ok(list.reverse(entries)), warnings)
     missing_packages -> #(
-      Error(notices.MissingLicenceText(missing_packages)),
+      Error(notice.MissingLicenceText(missing_packages)),
       warnings,
     )
   }
 }
 
 fn accumulate_notice_outcome(
-  package: notices.NoticePackage,
-  outcome: notices_resolve.Outcome,
-  entries: List(notices.NoticeEntry),
+  package: notice.NoticePackage,
+  outcome: notice_resolve.Outcome,
+  entries: List(notice.NoticeEntry),
   missing: List(String),
-) -> #(List(notices.NoticeEntry), List(String)) {
+) -> #(List(notice.NoticeEntry), List(String)) {
   case outcome {
-    notices_resolve.Resolved(files) -> #(
-      [notices.NoticeEntry(package: package, files: files), ..entries],
+    notice_resolve.Resolved(files) -> #(
+      [notice.NoticeEntry(package: package, files: files), ..entries],
       missing,
     )
-    notices_resolve.Missing -> #(entries, [package.name, ..missing])
+    notice_resolve.Missing -> #(entries, [package.name, ..missing])
   }
 }
 
@@ -599,13 +599,13 @@ fn notice_metadata_for_entry(
   entry: manifest.SbomEntry,
   project_root: String,
   cached_fetcher: fn(String, String) -> Result(hex.PackageMetadata, hex.Error),
-) -> Result(hex.PackageMetadata, notices.Error) {
+) -> Result(hex.PackageMetadata, notice.Error) {
   case entry.provenance {
     manifest.HexProvenance(_, _) ->
       case cached_fetcher(entry.name, entry.version) {
         Ok(metadata) -> Ok(metadata)
         Error(fetch_error) ->
-          Error(notices.MetadataFailed(
+          Error(notice.MetadataFailed(
             package: entry.name,
             reason: hex.describe_error(fetch_error),
           ))
@@ -655,26 +655,26 @@ fn read_path_gleam_toml_metadata(
   ))
 }
 
-fn describe_source(source: notices.PackageSource) -> String {
+fn describe_source(source: notice.PackageSource) -> String {
   case source {
-    notices.HexPackage(_) -> "Hex"
-    notices.GitPackage(repo, _url, _commit) ->
+    notice.HexPackage(_) -> "Hex"
+    notice.GitPackage(repo, _url, _commit) ->
       "git " <> repository.describe(repo)
-    notices.PathPackage(path) -> "local path " <> path
+    notice.PathPackage(path) -> "local path " <> path
   }
 }
 
 fn package_for_source_read(
-  package: notices.NoticePackage,
+  package: notice.NoticePackage,
   project_root: String,
-) -> notices.NoticePackage {
+) -> notice.NoticePackage {
   case package.source {
-    notices.PathPackage(path) ->
-      notices.NoticePackage(
+    notice.PathPackage(path) ->
+      notice.NoticePackage(
         ..package,
-        source: notices.PathPackage(resolve_project_path(project_root, path)),
+        source: notice.PathPackage(resolve_project_path(project_root, path)),
       )
-    _ -> package
+    notice.HexPackage(_) | notice.GitPackage(_, _, _) -> package
   }
 }
 
@@ -726,7 +726,7 @@ fn write_notice_output(
         Error(reason) -> #(
           diagnostic(
             error.Notices(
-              notices.describe_error(notices.OutputWriteFailed(
+              notice.describe_error(notice.OutputWriteFailed(
                 path,
                 simplifile.describe_error(reason),
               )),
@@ -814,29 +814,36 @@ fn render_sbom(
   // In reproducible mode the serial number is derived from the content and the
   // timestamp comes from SOURCE_DATE_EPOCH, so the same dependency set always
   // renders byte-identical output.
-  let #(serial_number, timestamp) = case options.reproducible {
-    True -> #(sbom.ContentDerivedSerial, sbom_uuid.reproducible_timestamp())
-    False -> #(
-      sbom.FixedSerial(sbom_uuid.serial_number()),
-      sbom_uuid.timestamp_now(),
-    )
+  let serial_and_timestamp = case options.reproducible {
+    True -> Ok(#(sbom.ContentDerivedSerial, sbom_uuid.reproducible_timestamp()))
+    False ->
+      sbom_uuid.serial_number()
+      |> result.map(fn(serial) {
+        #(sbom.FixedSerial(serial), sbom_uuid.timestamp_now())
+      })
+      |> result.replace_error(error.SbomSerialNumberFailed)
   }
 
-  let input =
-    sbom.SbomInput(
-      manifest: sbom_manifest,
-      root: root,
-      tool_version: tool_version(),
-      serial_number: serial_number,
-      timestamp: timestamp,
-      package_metadata: package_metadata,
-      scopes: scopes,
-      vulnerabilities: vulnerabilities,
-    )
+  case serial_and_timestamp {
+    Error(serial_error) -> #(diagnostic(serial_error), reporter)
+    Ok(#(serial_number, timestamp)) -> {
+      let input =
+        sbom.SbomInput(
+          manifest: sbom_manifest,
+          root: root,
+          tool_version: tool_version(),
+          serial_number: serial_number,
+          timestamp: timestamp,
+          package_metadata: package_metadata,
+          scopes: scopes,
+          vulnerabilities: vulnerabilities,
+        )
 
-  case sbom.try_render(input) {
-    Error(err) -> #(diagnostic(err), reporter)
-    Ok(json_str) -> write_sbom_output(options.output, json_str, reporter)
+      case sbom.try_render(input) {
+        Error(err) -> #(diagnostic(err), reporter)
+        Ok(json_str) -> write_sbom_output(options.output, json_str, reporter)
+      }
+    }
   }
 }
 
@@ -936,7 +943,10 @@ fn fetch_package_metadata(
       // in offline mode too.
       manifest.GitProvenance(repo, _commit) ->
         enrich_git_entry_metadata(entry, repo, project_root, metadata_acc, rep)
-      _ -> #(metadata_acc, rep)
+      manifest.PathProvenance(_) | manifest.UnknownProvenance(_) -> #(
+        metadata_acc,
+        rep,
+      )
     }
   })
 }
@@ -1586,8 +1596,10 @@ fn scope_for(
 fn is_policy_failure(status: report.Status) -> Bool {
   case status {
     report.Checked(policy.Allowed) -> False
-    report.Checked(_) -> True
-    _ -> False
+    report.Checked(policy.NoLicencesDeclared)
+    | report.Checked(policy.DeniedLicence(_))
+    | report.Checked(policy.UnallowedLicence(_)) -> True
+    report.NotChecked | report.Failed(_) | report.Skipped(_) -> False
   }
 }
 
@@ -2050,7 +2062,8 @@ fn advisory_blocks(
 ) -> Bool {
   case actual {
     osv.UnknownSeverity -> block_unknown
-    _ -> severity_rank(actual) >= severity_rank(threshold)
+    osv.Low | osv.Medium | osv.High | osv.Critical ->
+      severity_rank(actual) >= severity_rank(threshold)
   }
 }
 
