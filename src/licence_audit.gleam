@@ -848,9 +848,10 @@ fn render_sbom(
       |> result.replace_error(error.SbomSerialNumberFailed)
   }
 
-  case serial_and_timestamp {
-    Error(serial_error) -> #(diagnostic(serial_error), reporter)
-    Ok(#(serial_number, timestamp)) -> {
+  case root, serial_and_timestamp {
+    Error(root_error), _ -> #(diagnostic(root_error), reporter)
+    _, Error(serial_error) -> #(diagnostic(serial_error), reporter)
+    Ok(root), Ok(#(serial_number, timestamp)) -> {
       let input =
         sbom.SbomInput(
           manifest: sbom_manifest,
@@ -1070,47 +1071,61 @@ fn strip_git_suffix(url: String) -> String {
   gleam_toml.strip_git_suffix(url)
 }
 
-fn read_root_component(project_root: String) -> sbom.RootComponent {
+fn read_root_component(
+  project_root: String,
+) -> Result(sbom.RootComponent, error.Error) {
   let path = project_root <> "/gleam.toml"
-  case simplifile.read(from: path) {
-    Error(_) -> default_root_component()
-    Ok(contents) ->
-      case toml.parse(contents) {
-        Error(_) -> default_root_component()
-        Ok(doc) -> {
-          let name = result.unwrap(toml.get_string(doc, ["name"]), "project")
-          let version =
-            result.unwrap(toml.get_string(doc, ["version"]), "0.0.0")
-          let description =
-            option.from_result(toml.get_string(doc, ["description"]))
-          let licences = case toml.get_array(doc, ["licences"]) {
-            Ok(items) -> list.filter_map(items, toml.as_string)
-            Error(_) -> []
-          }
-          let repository = case toml.get_table(doc, ["repository"]) {
-            Ok(entry) -> repository_url(entry)
-            Error(_) -> None
-          }
-          sbom.RootComponent(
-            name:,
-            version:,
-            description:,
-            licences:,
-            repository:,
-          )
-        }
-      }
-  }
-}
+  use contents <- result.try(case simplifile.read(from: path) {
+    Error(reason) ->
+      Error(error.Input(
+        "Could not read SBOM root metadata from "
+        <> path
+        <> ": "
+        <> simplifile.describe_error(reason),
+      ))
+    Ok(contents) -> Ok(contents)
+  })
+  use doc <- result.try(case toml.parse(contents) {
+    Error(_) ->
+      Error(error.Input(
+        "Could not parse SBOM root metadata from " <> path <> ": invalid TOML",
+      ))
+    Ok(doc) -> Ok(doc)
+  })
 
-fn default_root_component() -> sbom.RootComponent {
-  sbom.RootComponent(
-    name: "project",
-    version: "0.0.0",
-    description: None,
-    licences: [],
-    repository: None,
-  )
+  case toml.get_string(doc, ["name"]), toml.get_string(doc, ["version"]) {
+    Error(_), _ ->
+      Error(error.Input(
+        "Invalid SBOM root metadata in "
+        <> path
+        <> ": required `name` field is missing or not a string",
+      ))
+    _, Error(_) ->
+      Error(error.Input(
+        "Invalid SBOM root metadata in "
+        <> path
+        <> ": required `version` field is missing or not a string",
+      ))
+    Ok(name), Ok(version) -> {
+      let description =
+        option.from_result(toml.get_string(doc, ["description"]))
+      let licences = case toml.get_array(doc, ["licences"]) {
+        Ok(items) -> list.filter_map(items, toml.as_string)
+        Error(_) -> []
+      }
+      let repository = case toml.get_table(doc, ["repository"]) {
+        Ok(entry) -> repository_url(entry)
+        Error(_) -> None
+      }
+      Ok(sbom.RootComponent(
+        name:,
+        version:,
+        description:,
+        licences:,
+        repository:,
+      ))
+    }
+  }
 }
 
 /// Build a source URL from a `gleam.toml` `repository` table. Only the

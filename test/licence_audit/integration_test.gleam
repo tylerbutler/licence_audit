@@ -1061,6 +1061,89 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
 @external(erlang, "sbom_version_ffi", "with_cwd")
 fn with_cwd(dir: String, body: fn() -> a) -> a
 
+fn prepare_sbom_metadata_project(root: String) -> Nil {
+  let _ = simplifile.delete(root)
+  let assert Ok(Nil) = simplifile.create_directory_all(root)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/manifest.toml",
+      contents: "packages = []\n\n[requirements]\n",
+    )
+  Nil
+}
+
+fn run_sbom_metadata_project(root: String) -> licence_audit.RunResult {
+  with_cwd(root, fn() {
+    licence_audit.run_with(
+      ["sbom", "--manifest=manifest.toml", "--offline"],
+      sbom_fetcher,
+    )
+  })
+}
+
+pub fn sbom_missing_root_metadata_errors_with_path_test() {
+  let root = "build/tmp/sbom-missing-root-metadata"
+  prepare_sbom_metadata_project(root)
+
+  let result = run_sbom_metadata_project(root)
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Could not read SBOM root metadata")
+  assert string.contains(result.output, "./gleam.toml")
+  assert !string.contains(result.output, "\"name\": \"project\"")
+}
+
+pub fn sbom_unreadable_root_metadata_errors_with_path_test() {
+  let root = "build/tmp/sbom-unreadable-root-metadata"
+  prepare_sbom_metadata_project(root)
+  let assert Ok(Nil) = simplifile.create_directory_all(root <> "/gleam.toml")
+
+  let result = run_sbom_metadata_project(root)
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Could not read SBOM root metadata")
+  assert string.contains(result.output, "./gleam.toml")
+}
+
+pub fn sbom_malformed_root_metadata_errors_with_path_test() {
+  let root = "build/tmp/sbom-malformed-root-metadata"
+  prepare_sbom_metadata_project(root)
+  let assert Ok(Nil) =
+    simplifile.write(to: root <> "/gleam.toml", contents: "name = [")
+
+  let result = run_sbom_metadata_project(root)
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Could not parse SBOM root metadata")
+  assert string.contains(result.output, "./gleam.toml")
+}
+
+pub fn sbom_valid_root_metadata_is_emitted_test() {
+  let root = "build/tmp/sbom-valid-root-metadata"
+  prepare_sbom_metadata_project(root)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/gleam.toml",
+      contents: "name = \"valid_project\"\nversion = \"1.2.3\"\n",
+    )
+
+  let result = run_sbom_metadata_project(root)
+  let assert Ok(name) =
+    json.parse(
+      result.output,
+      decode.at(["metadata", "component", "name"], decode.string),
+    )
+  let assert Ok(version) =
+    json.parse(
+      result.output,
+      decode.at(["metadata", "component", "version"], decode.string),
+    )
+
+  should.equal(result.exit_code, 0)
+  should.equal(name, "valid_project")
+  should.equal(version, "1.2.3")
+}
+
 /// Runs the `sbom` command with the current working directory pointed at a
 /// project whose own `gleam.toml` version differs from licence_audit's build
 /// version. Regression test for
