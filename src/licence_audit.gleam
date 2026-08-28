@@ -874,7 +874,9 @@ fn gather_embedded_vulnerabilities(
         Ok(entries) -> {
           let id_to_refs = build_id_to_refs(purl_pairs, entries)
           let unique_ids = unique_vuln_ids(entries)
-          let #(vulns, reporter) =
+          // SBOM embedding tolerates detail failures the same way the plain
+          // `vulns` report does; only the `check --vulns` gate blocks on them.
+          let #(vulns, _detail_failures, reporter) =
             fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
           #(Ok(to_embedded_vulnerabilities(vulns, id_to_refs)), reporter)
         }
@@ -1730,6 +1732,14 @@ type VulnRow {
   VulnRow(package: manifest.SbomEntry, vulnerabilities: List(osv.Vulnerability))
 }
 
+/// An advisory whose detail lookup failed, with a human-readable reason.
+/// The `vulns` report tolerates these (placeholder + warning); the
+/// `check --vulns` gate cannot, since it can't evaluate severity for an
+/// advisory it never fetched.
+type DetailFailure {
+  DetailFailure(id: String, reason: String)
+}
+
 fn build_purl_pairs(
   sbom_manifest: manifest.SbomManifest,
 ) -> #(List(PurlPair), List(String)) {
@@ -1776,7 +1786,10 @@ fn fetch_vuln_details(
         _ -> {
           let reporter =
             progress.detail(reporter, "Fetching OSV details for " <> pkg.name)
-          let #(vulns, reporter) =
+          // The plain `vulns` report tolerates detail failures via the
+          // existing placeholder + warning; only the `check --vulns` gate
+          // treats them as blocking (see query_vuln_gate).
+          let #(vulns, _detail_failures, reporter) =
             fetch_vulnerabilities(ids, detail_fetcher, reporter, [])
           fetch_vuln_details(rest, detail_fetcher, reporter, [
             VulnRow(package: pkg, vulnerabilities: vulns),
@@ -1793,23 +1806,47 @@ fn fetch_vulnerabilities(
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   acc: List(osv.Vulnerability),
-) -> #(List(osv.Vulnerability), progress.Reporter) {
+) -> #(List(osv.Vulnerability), List(DetailFailure), progress.Reporter) {
+  fetch_vulnerabilities_loop(ids, detail_fetcher, reporter, acc, [])
+}
+
+fn fetch_vulnerabilities_loop(
+  ids: List(String),
+  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+  acc: List(osv.Vulnerability),
+  failures: List(DetailFailure),
+) -> #(List(osv.Vulnerability), List(DetailFailure), progress.Reporter) {
   case ids {
-    [] -> #(list.reverse(acc), reporter)
+    [] -> #(list.reverse(acc), list.reverse(failures), reporter)
     [id, ..rest] -> {
       case detail_fetcher(id) {
         Ok(vuln) ->
-          fetch_vulnerabilities(rest, detail_fetcher, reporter, [vuln, ..acc])
-        Error(_) -> {
+          fetch_vulnerabilities_loop(
+            rest,
+            detail_fetcher,
+            reporter,
+            [vuln, ..acc],
+            failures,
+          )
+        Error(err) -> {
           let reporter =
             progress.defer_warn(
               reporter,
               "Failed to fetch OSV details for " <> id,
             )
-          fetch_vulnerabilities(rest, detail_fetcher, reporter, [
-            placeholder_vulnerability(id),
-            ..acc
-          ])
+          let failure =
+            DetailFailure(
+              id: id,
+              reason: error.message(error.from_osv_error(err)),
+            )
+          fetch_vulnerabilities_loop(
+            rest,
+            detail_fetcher,
+            reporter,
+            [placeholder_vulnerability(id), ..acc],
+            [failure, ..failures],
+          )
         }
       }
     }
@@ -1999,11 +2036,39 @@ fn query_vuln_gate(
         reporter,
       )
     }
-    Ok(entries) -> {
-      let id_to_pkg = build_id_to_package_index(packages, entries)
-      let unique_ids = unique_vuln_ids(entries)
-      let #(vulns, reporter) =
-        fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+    Ok(entries) ->
+      evaluate_vuln_gate(
+        entries,
+        packages,
+        threshold,
+        block_unknown,
+        detail_fetcher,
+        reporter,
+        palette,
+      )
+  }
+}
+
+/// Fetch advisory details for a resolved OSV batch and evaluate the gate.
+/// A failed advisory detail lookup means the gate can't evaluate that
+/// advisory's severity — never treat it as an implicit pass (unknown
+/// severity is non-blocking by default). Fail the check outright so the
+/// failure surfaces regardless of threshold or --vuln-block-unknown.
+fn evaluate_vuln_gate(
+  entries: List(osv.BatchEntry),
+  packages: List(manifest.Package),
+  threshold: osv.Severity,
+  block_unknown: Bool,
+  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+  palette: color.Palette,
+) -> #(String, Bool, Bool, Bool, progress.Reporter) {
+  let id_to_pkg = build_id_to_package_index(packages, entries)
+  let unique_ids = unique_vuln_ids(entries)
+  let #(vulns, detail_failures, reporter) =
+    fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+  case detail_failures {
+    [] -> {
       let triggering =
         list.filter(vulns, fn(vuln) {
           advisory_blocks(vuln.severity, threshold, block_unknown)
@@ -2021,7 +2086,36 @@ fn query_vuln_gate(
         )
       #(report_text, triggering != [], unknown_failed, False, reporter)
     }
+    _ -> {
+      let reporter =
+        progress.defer_error(
+          reporter,
+          "Vulnerability check incomplete: failed to fetch OSV advisory details for "
+            <> int.to_string(list.length(detail_failures))
+            <> " advisory/advisories",
+        )
+      #(
+        format_vuln_detail_failures_output(detail_failures),
+        False,
+        False,
+        True,
+        reporter,
+      )
+    }
   }
+}
+
+fn format_vuln_detail_failures_output(failures: List(DetailFailure)) -> String {
+  let lines =
+    list.map(failures, fn(failure) {
+      "  " <> failure.id <> ": " <> failure.reason
+    })
+    |> string.join(with: "\n")
+  "\nVulnerability check incomplete: failed to fetch OSV advisory details for "
+  <> int.to_string(list.length(failures))
+  <> " advisory/advisories. The gate cannot confirm these are safe, so the check fails:\n"
+  <> lines
+  <> "\n"
 }
 
 fn build_id_to_package_index(

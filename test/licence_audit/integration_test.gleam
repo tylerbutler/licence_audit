@@ -733,7 +733,28 @@ pub fn check_vulns_unknown_severity_blocks_when_enabled_test() {
   assert string.contains(result.output, "unknown-severity blocking rule")
 }
 
-pub fn check_vulns_unknown_detail_placeholder_blocks_when_enabled_test() {
+pub fn check_vulns_detail_failure_exits_two_by_default_test() {
+  // A failed advisory detail lookup can't be evaluated for severity, so it
+  // must fail the gate outright rather than falling back to a non-blocking
+  // unknown-severity placeholder — even with the default threshold/config.
+  let result =
+    licence_audit.run_with_clients(
+      manifest_args(["check", "--allow=MIT,Apache-2.0", "--vulns"]),
+      fake_fetcher,
+      one_vuln_batch,
+      unused_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Vulnerability check incomplete")
+  assert string.contains(result.output, "CVE-2024-0001")
+  assert string.contains(result.output, "OSV resource not found")
+}
+
+pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
+  // Same as above with --vuln-block-unknown set: the failure must still
+  // surface as an incomplete check (exit 2), not as a blocked-but-successful
+  // gate evaluation (exit 1).
   let result =
     licence_audit.run_with_clients(
       manifest_args([
@@ -747,8 +768,10 @@ pub fn check_vulns_unknown_detail_placeholder_blocks_when_enabled_test() {
       unused_vuln_detail,
     )
 
-  should.equal(result.exit_code, 1)
-  assert string.contains(result.output, "✗  [UNKNOWN ]  CVE-2024-0001")
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Vulnerability check incomplete")
+  assert string.contains(result.output, "CVE-2024-0001")
+  assert string.contains(result.output, "OSV resource not found")
 }
 
 pub fn check_vulns_config_and_ignore_config_control_unknown_gate_test() {
