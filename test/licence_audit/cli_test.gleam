@@ -50,6 +50,11 @@ pub fn short_help_option_returns_glint_help_test() {
   assert string.contains(help, "USAGE:")
 }
 
+pub fn version_option_returns_version_action_test() {
+  let assert Ok(glint.Out(cli.ShowVersion)) =
+    glint.execute(cli.app(), ["--version"])
+}
+
 pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
@@ -204,6 +209,7 @@ pub fn help_text_includes_usage_and_supported_options_test() {
     "--colour",
     "--no-cache",
     "--cache-path",
+    "--version",
     "--help",
   ]
   |> list.each(fn(text) {

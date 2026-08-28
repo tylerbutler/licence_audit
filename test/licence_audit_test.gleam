@@ -1,6 +1,7 @@
 import gleam/string
 import gleeunit
 import licence_audit
+import licence_audit/version
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -20,6 +21,15 @@ pub fn short_help_path_returns_usage_text_test() {
   assert exit_code == 0
   assert string.contains(output, "licence_audit")
   assert string.contains(output, "USAGE:")
+}
+
+pub fn version_path_returns_build_version_test() {
+  let assert Ok(build_version) = version.build_version()
+  let licence_audit.RunResult(exit_code, output) =
+    licence_audit.run(["--version"])
+
+  assert exit_code == 0
+  assert output == build_version <> "\n"
 }
 
 pub fn unknown_option_returns_usage_error_test() {

@@ -1,0 +1,2 @@
+kind = "added"
+body = "Add a root `--version` flag that prints the installed build version."

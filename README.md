@@ -102,6 +102,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--version` | `BOOL` | `false` | Print the installed version |
 <!-- rootstop -->
 
 <!-- commands -->
