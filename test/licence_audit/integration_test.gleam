@@ -13,6 +13,7 @@ import licence_audit/progress
 import licence_audit/repository
 import licence_audit/source_archive
 import licence_audit/spdx
+import licence_audit/toml
 import simplifile
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
@@ -937,6 +938,69 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
   // local gleam.toml, so allow that single block but no more.
   let license_blocks = list.length(string.split(result.output, "\"licenses\":"))
   let assert True = license_blocks <= 2
+}
+
+@external(erlang, "sbom_version_ffi", "set_cwd")
+fn set_current_directory(dir: String) -> Result(Nil, Nil)
+
+/// Runs the `sbom` command with the current working directory pointed at a
+/// project whose own `gleam.toml` version differs from licence_audit's build
+/// version. Regression test for
+/// https://github.com/tylerbutler/licence_audit/issues/79: the CycloneDX
+/// `metadata.tools[].version` must always be licence_audit's own build
+/// version, never leaked from whatever project is being audited.
+pub fn sbom_tool_version_is_build_version_not_target_project_version_test() {
+  let assert Ok(this_project_gleam_toml) = simplifile.read(from: "gleam.toml")
+  let assert Ok(this_project_doc) = toml.parse(this_project_gleam_toml)
+  let assert Ok(this_project_version) =
+    toml.get_string(this_project_doc, ["version"])
+
+  let assert Ok(original_cwd) = simplifile.current_directory()
+  let project_dir = "build/tmp/sbom-tool-version-project"
+  let assert Ok(Nil) = simplifile.create_directory_all(project_dir)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_dir <> "/gleam.toml",
+      contents: "name = \"other_project\"\nversion = \"9.9.9\"\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_dir <> "/manifest.toml",
+      contents: "packages = []\n\n[requirements]\n",
+    )
+
+  let assert Ok(Nil) = set_current_directory(project_dir)
+  let result =
+    licence_audit.run_with(
+      ["sbom", "--manifest=manifest.toml", "--offline"],
+      sbom_fetcher,
+    )
+  let assert Ok(Nil) = set_current_directory(original_cwd)
+
+  should.equal(result.exit_code, 0)
+
+  let assert Ok(component_version) =
+    json.parse(
+      result.output,
+      decode.at(["metadata", "component", "version"], decode.string),
+    )
+  let assert Ok(tool_versions) =
+    json.parse(
+      result.output,
+      decode.at(
+        ["metadata", "tools"],
+        decode.list(decode.at(["version"], decode.string)),
+      ),
+    )
+  let assert Ok(tool_version) = list.first(tool_versions)
+
+  // The audited project's own version is reported for the root component...
+  should.equal(component_version, "9.9.9")
+  // ...but licence_audit's own tool version must come from this build, never
+  // from whatever gleam.toml happens to sit in the current working
+  // directory.
+  should.equal(tool_version, this_project_version)
+  let assert True = tool_version != "9.9.9"
 }
 
 pub fn sbom_subcommand_with_vulns_embeds_vulnerabilities_test() {
