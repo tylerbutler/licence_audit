@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix audit, update, `sbom`, and `vulns` project metadata resolution for manifests outside the current directory."

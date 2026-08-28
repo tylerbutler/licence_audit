@@ -1123,6 +1123,61 @@ pub fn sbom_tool_version_is_build_version_not_target_project_version_test() {
   let assert True = tool_version != "9.9.9"
 }
 
+pub fn sbom_manifest_path_uses_manifest_project_metadata_test() {
+  let project_root = "build/tmp/project-root-sbom"
+  let manifest_path = project_root <> "/manifest.toml"
+  let local_package = project_root <> "/build/packages/git_dep"
+  let assert Ok(Nil) = simplifile.create_directory_all(local_package)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_root <> "/gleam.toml",
+      contents: "name = \"other_project\"
+version = \"1.2.3\"
+
+[dependencies]
+git_dep = { git = \"https://github.com/example/git_dep\" }
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: local_package <> "/gleam.toml",
+      contents: "name = \"git_dep\"
+description = \"Metadata from the manifest project\"
+licences = [\"MIT\"]
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abc\" },
+]
+
+[requirements]
+git_dep = { git = \"https://github.com/example/git_dep\" }
+",
+    )
+
+  let result =
+    licence_audit.run_with(
+      ["sbom", "--manifest=" <> manifest_path, "--offline"],
+      sbom_fetcher,
+    )
+  let assert Ok(root_name) =
+    json.parse(
+      result.output,
+      decode.at(["metadata", "component", "name"], decode.string),
+    )
+
+  should.equal(result.exit_code, 0)
+  should.equal(root_name, "other_project")
+  assert string.contains(
+    result.output,
+    "\"description\": \"Metadata from the manifest project\"",
+  )
+  assert string.contains(result.output, "\"id\": \"MIT\"")
+}
+
 pub fn sbom_subcommand_with_vulns_embeds_vulnerabilities_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_with_clients(
@@ -1203,6 +1258,113 @@ pub fn vulns_report_labels_scope_test() {
   should.equal(exit_code, 0)
   assert string.contains(output, "gleam_stdlib")
   assert string.contains(output, "[prod]")
+}
+
+fn write_project_root_fixture(project_root: String) -> String {
+  let manifest_path = project_root <> "/manifest.toml"
+  let assert Ok(Nil) = simplifile.create_directory_all(project_root)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: project_root <> "/gleam.toml",
+      contents: "name = \"other_project\"
+version = \"1.2.3\"
+
+[dependencies]
+prod_dep = \">= 1.0.0\"
+
+[dev-dependencies]
+dev_dep = \">= 1.0.0\"
+
+[tools.licence_audit]
+allow = [\"MIT\", \"AGPL-3.0\"]
+",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [
+  { name = \"prod_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"AAAA\" },
+  { name = \"dev_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"BBBB\" },
+]
+
+[requirements]
+prod_dep = { version = \">= 1.0.0\" }
+dev_dep = { version = \">= 1.0.0\" }
+",
+    )
+  manifest_path
+}
+
+fn project_root_fetcher(
+  name: String,
+) -> Result(hex.PackageMetadata, hex.Error) {
+  case name {
+    "prod_dep" -> Ok(hex.licences_only(["MIT"]))
+    "dev_dep" -> Ok(hex.licences_only(["AGPL-3.0"]))
+    _ -> Error(hex.NotFound)
+  }
+}
+
+pub fn audit_manifest_path_uses_manifest_project_config_test() {
+  let manifest_path =
+    write_project_root_fixture("build/tmp/project-root-audit-config")
+  let result =
+    licence_audit.run_with(
+      ["--manifest=" <> manifest_path, "check"],
+      project_root_fetcher,
+    )
+
+  should.equal(result.exit_code, 0)
+}
+
+pub fn audit_manifest_path_uses_manifest_project_for_scope_test() {
+  let manifest_path =
+    write_project_root_fixture("build/tmp/project-root-audit-scope")
+  let result =
+    licence_audit.run_with(
+      [
+        "--manifest=" <> manifest_path,
+        "--ignore-config",
+        "check",
+        "--allow=MIT,AGPL-3.0",
+        "--prod-only",
+      ],
+      project_root_fetcher,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "prod_dep")
+  assert !string.contains(result.output, "dev_dep")
+}
+
+fn project_root_vuln_batch(
+  purls: List(String),
+) -> Result(List(osv.BatchEntry), osv.Error) {
+  Ok(
+    list.map(purls, fn(purl) {
+      let id = case string.contains(purl, "prod_dep") {
+        True -> "CVE-PROD"
+        False -> "CVE-DEV"
+      }
+      osv.BatchEntry(purl: purl, vuln_ids: [id])
+    }),
+  )
+}
+
+pub fn vulns_manifest_path_uses_manifest_project_for_scope_test() {
+  let manifest_path =
+    write_project_root_fixture("build/tmp/project-root-vulns-scope")
+  let result =
+    licence_audit.run_with_clients(
+      ["vulns", "--manifest=" <> manifest_path],
+      project_root_fetcher,
+      project_root_vuln_batch,
+      dev_only_vuln_detail,
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "prod_dep 1.0.0  [prod]")
+  assert string.contains(result.output, "dev_dep 1.0.0  [dev]")
 }
 
 fn prod_dev_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
