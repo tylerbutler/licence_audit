@@ -192,8 +192,8 @@ pub fn decode_vuln_response_falls_back_to_details_for_summary_test() {
   let assert Ok(vuln) =
     osv.decode_vuln_body(read_fixture("osv_vuln_medium.json"), "CVE-2024-0001")
   should.equal(vuln.id, "CVE-2024-0001")
-  // database_specific absent, cvss vector has low confidentiality impact → Medium
-  should.equal(vuln.severity, osv.Medium)
+  // database_specific absent, so severity is calculated from the CVSS vector.
+  should.equal(vuln.severity, osv.Low)
   assert string.contains(vuln.summary, "Memory corruption")
 }
 
@@ -204,7 +204,7 @@ pub fn decode_vuln_response_uses_score_type_for_bare_cvss_v2_vector_test() {
       "CVE-2024-0002",
     )
 
-  should.equal(vuln.severity, osv.Medium)
+  should.equal(vuln.severity, osv.High)
 }
 
 pub fn parse_severity_label_recognises_common_labels_test() {
@@ -217,26 +217,74 @@ pub fn parse_severity_label_recognises_common_labels_test() {
   should.equal(osv.parse_severity_label(""), osv.UnknownSeverity)
 }
 
-pub fn severity_from_cvss_vector_buckets_test() {
+pub fn severity_from_cvss_vector_supports_osv_versions_test() {
   should.equal(
     osv.severity_from_cvss_vector(
       "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
     ),
-    osv.High,
+    osv.Critical,
   )
   should.equal(
     osv.severity_from_cvss_vector(
       "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N",
     ),
-    osv.Medium,
+    osv.Low,
+  )
+  should.equal(
+    osv.severity_from_cvss_vector(
+      "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    ),
+    osv.Critical,
   )
   should.equal(
     osv.severity_from_cvss_vector(
       "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
     ),
-    osv.High,
+    osv.Critical,
   )
+  should.equal(
+    osv.severity_from_cvss_vector("AV:N/AC:L/Au:N/C:C/I:C/A:C"),
+    osv.Critical,
+  )
+  should.equal(
+    osv.severity_from_cvss_vector("CVSS:2.0/AV:N/AC:L/Au:N/C:C/I:C/A:C"),
+    osv.Critical,
+  )
+}
+
+pub fn severity_from_cvss_vector_boundary_scores_test() {
+  let cases = [
+    // 3.9, 4.0, 6.9, 7.0, 8.9, and 9.0 exercise every rating boundary.
+    #("CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:L/I:L/A:L", osv.Low),
+    #("CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:N/I:N/A:L", osv.Medium),
+    #("CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:N/I:L/A:H", osv.Medium),
+    #("CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:H", osv.High),
+    #("CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:H/A:H", osv.High),
+    #("CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:H", osv.Critical),
+  ]
+
+  list.each(cases, fn(test_case) {
+    let #(vector, expected) = test_case
+    should.equal(osv.severity_from_cvss_vector(vector), expected)
+  })
+}
+
+pub fn severity_from_cvss_vector_rejects_malformed_or_unsupported_test() {
   should.equal(osv.severity_from_cvss_vector(""), osv.UnknownSeverity)
+  should.equal(
+    osv.severity_from_cvss_vector("CVSS:3.1/AV:N/AC:L"),
+    osv.UnknownSeverity,
+  )
+  should.equal(
+    osv.severity_from_cvss_vector(
+      "CVSS:5.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    ),
+    osv.UnknownSeverity,
+  )
+  should.equal(
+    osv.severity_from_cvss_vector("AV:R/AC:L/Au:NR/C:C/I:C/A:C"),
+    osv.UnknownSeverity,
+  )
 }
 
 pub fn severity_to_string_round_trip_test() {
