@@ -696,6 +696,62 @@ fn vulnerability_with_severity(
   }
 }
 
+fn github_only_vuln_batch(
+  purls: List(String),
+) -> Result(List(osv.BatchEntry), osv.Error) {
+  Ok(
+    list.map(purls, fn(purl) {
+      let vuln_ids = case string.contains(purl, "pkg:github/") {
+        True -> ["CVE-GITHUB-0001"]
+        False -> []
+      }
+      osv.BatchEntry(purl: purl, vuln_ids: vuln_ids)
+    }),
+  )
+}
+
+pub fn check_vulns_gates_affected_github_dependency_test() {
+  let result =
+    licence_audit.run_with_clients(
+      [
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--vulns",
+      ],
+      fake_fetcher,
+      github_only_vuln_batch,
+      vulnerability_with_severity(osv.High),
+    )
+
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "CVE-GITHUB-0001")
+  assert string.contains(result.output, "gluegun@0.1.0")
+}
+
+pub fn check_vulns_reports_unsupported_sources_test() {
+  let result =
+    licence_audit.run_with_clients(
+      [
+        "--manifest=test/fixtures/manifest_path_dep.toml",
+        "--ignore-config",
+        "check",
+        "--allow=MIT",
+        "--vulns",
+      ],
+      fake_fetcher,
+      github_only_vuln_batch,
+      vulnerability_with_severity(osv.High),
+    )
+
+  should.equal(result.exit_code, 0)
+  assert string.contains(
+    result.output,
+    "Skipped 1 unsupported source(s): local_dep",
+  )
+}
+
 pub fn check_vulns_unknown_severity_is_non_blocking_by_default_test() {
   let result =
     licence_audit.run_with_clients(

@@ -3,7 +3,7 @@ import gleam/dict
 import gleam/int
 import gleam/io
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import glint
@@ -1204,12 +1204,13 @@ fn run_options_with_clients(
 
   case prepare_audit(options, manifest_path, ".", reporter) {
     Error(failure) -> failure
-    Ok(#(config_policy, audit_policy, locked, scopes, reporter)) ->
+    Ok(#(config_policy, audit_policy, locked, sbom_manifest, scopes, reporter)) ->
       audit_locked(
         options,
         config_policy,
         audit_policy,
         locked,
+        sbom_manifest,
         scopes,
         fetcher,
         osv_batch_fetcher,
@@ -1232,6 +1233,7 @@ fn prepare_audit(
     config.Policy,
     policy.Policy,
     manifest.LockedPackages,
+    Option(manifest.SbomManifest),
     dict.Dict(String, manifest.Scope),
     progress.Reporter,
   ),
@@ -1256,8 +1258,48 @@ fn prepare_audit(
       #(diagnostic(error.from_manifest_error(e)), reporter)
     }),
   )
+  let sbom_manifest = case options.check && options.check_vulns {
+    False -> None
+    True ->
+      Some(case manifest.load_sbom(manifest_path) {
+        Ok(sbom_manifest) -> sbom_manifest
+        Error(_) -> audit_sbom_fallback(locked)
+      })
+  }
   let scopes = compute_scopes(project_root, locked)
-  Ok(#(config_policy, audit_policy, locked, scopes, reporter))
+  Ok(#(config_policy, audit_policy, locked, sbom_manifest, scopes, reporter))
+}
+
+fn audit_sbom_fallback(
+  locked: manifest.LockedPackages,
+) -> manifest.SbomManifest {
+  let hex_entries =
+    list.map(locked.packages, fn(package) {
+      manifest.SbomEntry(
+        name: package.name,
+        version: package.version,
+        kind: package.kind,
+        requirements: package.requirements,
+        provenance: manifest.HexProvenance(
+          outer_checksum: "",
+          inner_checksum: None,
+        ),
+      )
+    })
+  let unsupported_entries =
+    list.map(locked.skipped_packages, fn(package) {
+      manifest.SbomEntry(
+        name: package.name,
+        version: package.version,
+        kind: package.kind,
+        requirements: package.requirements,
+        provenance: manifest.UnknownProvenance(source: package.source),
+      )
+    })
+  manifest.SbomManifest(
+    entries: list.append(hex_entries, unsupported_entries),
+    root_requirements: locked.direct_names,
+  )
 }
 
 /// Run the audit over a loaded manifest: fetch licences, render the report,
@@ -1267,6 +1309,7 @@ fn audit_locked(
   config_policy: config.Policy,
   audit_policy: policy.Policy,
   locked: manifest.LockedPackages,
+  sbom_manifest: Option(manifest.SbomManifest),
   scopes: dict.Dict(String, manifest.Scope),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
@@ -1297,6 +1340,17 @@ fn audit_locked(
         scope_for(scopes, p.name) == manifest.Prod
       }),
     )
+  }
+  let active_sbom_entries = case sbom_manifest {
+    None -> []
+    Some(sbom_manifest) ->
+      case options.prod_only {
+        False -> sbom_manifest.entries
+        True ->
+          list.filter(sbom_manifest.entries, fn(entry) {
+            scope_for(scopes, entry.name) == manifest.Prod
+          })
+      }
   }
   let result =
     fetch_packages(
@@ -1347,7 +1401,7 @@ fn audit_locked(
         )
       let block_unknown = config_policy.vuln_block_unknown
       run_vuln_check_for_audit(
-        active_packages,
+        active_sbom_entries,
         threshold,
         block_unknown,
         osv_batch_fetcher,
@@ -2013,7 +2067,7 @@ fn resolve_vuln_threshold(
 }
 
 fn run_vuln_check_for_audit(
-  packages: List(manifest.Package),
+  packages: List(manifest.SbomEntry),
   threshold: osv.Severity,
   block_unknown: Bool,
   batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
@@ -2021,16 +2075,16 @@ fn run_vuln_check_for_audit(
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> VulnGateOutcome {
-  let purl_pairs =
-    list.map(packages, fn(pkg) {
-      #(pkg, "pkg:hex/" <> pkg.name <> "@" <> pkg.version)
-    })
+  let #(purl_pairs, unsupported_packages) =
+    build_purl_pairs(
+      manifest.SbomManifest(entries: packages, root_requirements: []),
+    )
   let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
   case purls {
     [] ->
       VulnGateOutcome(
-        report_text: "",
+        report_text: format_unsupported_sources(unsupported_packages),
         gate_failed: False,
         unknown_failed: False,
         query_failed: False,
@@ -2040,7 +2094,8 @@ fn run_vuln_check_for_audit(
     _ ->
       query_vuln_gate(
         purls,
-        packages,
+        purl_pairs,
+        unsupported_packages,
         threshold,
         block_unknown,
         batch_fetcher,
@@ -2054,7 +2109,8 @@ fn run_vuln_check_for_audit(
 /// Query OSV and evaluate the `check --vulns` gate.
 fn query_vuln_gate(
   purls: List(String),
-  packages: List(manifest.Package),
+  purl_pairs: List(PurlPair),
+  unsupported_packages: List(String),
   threshold: osv.Severity,
   block_unknown: Bool,
   batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
@@ -2088,7 +2144,8 @@ fn query_vuln_gate(
     Ok(entries) ->
       evaluate_vuln_gate(
         entries,
-        packages,
+        purl_pairs,
+        unsupported_packages,
         threshold,
         block_unknown,
         detail_fetcher,
@@ -2105,14 +2162,15 @@ fn query_vuln_gate(
 /// failure surfaces regardless of threshold or --vuln-block-unknown.
 fn evaluate_vuln_gate(
   entries: List(osv.BatchEntry),
-  packages: List(manifest.Package),
+  purl_pairs: List(PurlPair),
+  unsupported_packages: List(String),
   threshold: osv.Severity,
   block_unknown: Bool,
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> VulnGateOutcome {
-  let id_to_pkg = build_id_to_package_index(packages, entries)
+  let id_to_pkg = build_id_to_package_index(purl_pairs, entries)
   let unique_ids = unique_vuln_ids(entries)
   let #(vulns, detail_failures, reporter) =
     fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
@@ -2131,6 +2189,7 @@ fn evaluate_vuln_gate(
           threshold,
           block_unknown,
           id_to_pkg,
+          unsupported_packages,
           palette,
         )
       VulnGateOutcome(
@@ -2179,7 +2238,7 @@ fn format_vuln_detail_failures_output(failures: List(DetailFailure)) -> String {
 }
 
 fn build_id_to_package_index(
-  packages: List(manifest.Package),
+  packages: List(PurlPair),
   entries: List(osv.BatchEntry),
 ) -> dict.Dict(String, List(String)) {
   // Build a map from each OSV ID to the list of package names that purl
@@ -2187,7 +2246,7 @@ fn build_id_to_package_index(
   // we deduplicate detail fetches across IDs.
   let pairs = list.zip(packages, entries)
   list.fold(pairs, dict.new(), fn(acc, pair) {
-    let #(pkg, entry) = pair
+    let #(#(pkg, _purl), entry) = pair
     let label = pkg.name <> "@" <> pkg.version
     list.fold(entry.vuln_ids, acc, fn(inner, id) {
       let existing = case dict.get(inner, id) {
@@ -2237,10 +2296,13 @@ fn format_vuln_gate_output(
   threshold: osv.Severity,
   block_unknown: Bool,
   id_to_pkg: dict.Dict(String, List(String)),
+  unsupported_packages: List(String),
   palette: color.Palette,
 ) -> String {
   case all_vulns {
-    [] -> "\nNo known vulnerabilities reported by OSV.dev.\n"
+    [] ->
+      "\nNo known vulnerabilities reported by OSV.dev.\n"
+      <> format_unsupported_sources(unsupported_packages)
     _ -> {
       let lines =
         list.map(all_vulns, fn(vuln) {
@@ -2292,7 +2354,24 @@ fn format_vuln_gate_output(
           False -> ""
         }
 
-      "\n" <> color.boxed(palette, title, lines) <> "\n" <> summary <> "\n"
+      "\n"
+      <> color.boxed(palette, title, lines)
+      <> "\n"
+      <> summary
+      <> "\n"
+      <> format_unsupported_sources(unsupported_packages)
     }
+  }
+}
+
+fn format_unsupported_sources(packages: List(String)) -> String {
+  case packages {
+    [] -> ""
+    _ ->
+      "Skipped "
+      <> int.to_string(list.length(packages))
+      <> " unsupported source(s): "
+      <> string.join(packages, with: ", ")
+      <> "\n"
   }
 }
