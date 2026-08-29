@@ -1,2 +1,3 @@
+package = "licence_audit"
 kind = "changed"
 body = "Remove the internal `gen-docs` maintenance command from the public CLI."

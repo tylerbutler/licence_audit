@@ -78,6 +78,7 @@ pub type CliAction {
   RunSbom(SbomOptions)
   RunVulns(VulnsOptions)
   RunNotices(NoticesOptions)
+  ShowVersion
   InvalidUsage(String)
 }
 
@@ -132,6 +133,7 @@ fn audit_command(
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.flag(cache_path_flag())
   use prod_only <- glint.flag(prod_only_flag())
+  use show_version <- glint.flag(version_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -145,11 +147,18 @@ fn audit_command(
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
   let assert Ok(prod_only_value) = prod_only(flags)
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(verbosity_error), _ ->
+  let assert Ok(show_version) = show_version(flags)
+  case
+    show_version,
+    verbosity(quiet, verbose),
+    color.mode_from_string(color_value)
+  {
+    True, _, _ -> ShowVersion
+    _, Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), Ok(color_mode) ->
+    _, _, Error(color_error) ->
+      InvalidUsage(color.mode_error_message(color_error))
+    _, Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
         manifest_path: optional_string(manifest_path),
         config_path: optional_string(config_path),
@@ -281,6 +290,12 @@ fn no_cache_flag() -> glint.Flag(Bool) {
   glint.bool_flag("no-cache")
   |> glint.flag_default(False)
   |> glint.flag_help("Bypass the on-disk licence metadata cache")
+}
+
+fn version_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("version")
+  |> glint.flag_default(False)
+  |> glint.flag_help("Print the installed version")
 }
 
 fn prod_only_flag() -> glint.Flag(Bool) {

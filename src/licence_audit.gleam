@@ -131,6 +131,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
       let _ = progress.flush(reporter)
       halt(exit_code)
     }
+    cli.ShowVersion -> io.println(tool_version())
   }
 }
 
@@ -322,6 +323,10 @@ fn run_with_reporter_and_notices(
     }
     Ok(glint.Out(cli.RunNotices(options))) ->
       run_notices_options(options, fetcher, notice_clients, reporter)
+    Ok(glint.Out(cli.ShowVersion)) -> #(
+      RunResult(0, tool_version() <> "\n"),
+      reporter,
+    )
     Error(message) -> #(RunResult(1, message <> "\n"), reporter)
   }
 }
