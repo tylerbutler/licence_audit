@@ -235,6 +235,12 @@ pub fn notices_subcommand_is_listed_in_help_test() {
   assert string.contains(help, "notices")
 }
 
+pub fn internal_gen_docs_subcommand_is_not_listed_in_help_test() {
+  let help = help_text(["--help"])
+
+  assert !string.contains(help, "gen-docs")
+}
+
 pub fn notices_subcommand_help_describes_notice_output_test() {
   let help = help_text(["notices", "--help"])
 

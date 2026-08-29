@@ -132,7 +132,6 @@ fn handle_action(action: cli.CliAction) -> Nil {
       halt(exit_code)
     }
     cli.ShowVersion -> io.println(tool_version())
-    cli.GenDocsCompleted -> Nil
   }
 }
 
@@ -328,7 +327,6 @@ fn run_with_reporter_and_notices(
       RunResult(0, tool_version() <> "\n"),
       reporter,
     )
-    Ok(glint.Out(cli.GenDocsCompleted)) -> #(RunResult(0, ""), reporter)
     Error(message) -> #(RunResult(1, message <> "\n"), reporter)
   }
 }
