@@ -86,7 +86,7 @@ jobs:
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
-          [ -f LICENSE ] && cp LICENSE "$escript_stage/" || true
+          cp LICENSE "$escript_stage/"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
           (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
@@ -122,7 +122,7 @@ jobs:
               chmod +x "$archive_stage/licence_audit"
             fi
 
-            [ -f LICENSE ] && cp LICENSE "$archive_stage/" || true
+            cp LICENSE "$archive_stage/"
             [ -f README.md ] && cp README.md "$archive_stage/" || true
 
             if [[ "$target" == *-windows ]]; then
@@ -136,6 +136,12 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
+          tar -tzf "dist/licence_audit-${REF_NAME}.tar.gz" |
+            grep -qx "licence_audit-${REF_NAME}/LICENSE"
+          unzip -Z1 "dist/licence_audit-${REF_NAME}-x86_64-windows.zip" |
+            grep -qx "LICENSE"
+          tar -tzf "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz" |
+            grep -qx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
