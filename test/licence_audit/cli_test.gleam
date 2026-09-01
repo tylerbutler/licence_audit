@@ -50,6 +50,11 @@ pub fn short_help_option_returns_glint_help_test() {
   assert string.contains(help, "USAGE:")
 }
 
+pub fn version_option_returns_version_action_test() {
+  let assert Ok(glint.Out(cli.ShowVersion)) =
+    glint.execute(cli.app(), ["--version"])
+}
+
 pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
@@ -204,6 +209,7 @@ pub fn help_text_includes_usage_and_supported_options_test() {
     "--colour",
     "--no-cache",
     "--cache-path",
+    "--version",
     "--help",
   ]
   |> list.each(fn(text) {
@@ -227,6 +233,12 @@ pub fn notices_subcommand_is_listed_in_help_test() {
   let help = help_text(["--help"])
 
   assert string.contains(help, "notices")
+}
+
+pub fn internal_gen_docs_subcommand_is_not_listed_in_help_test() {
+  let help = help_text(["--help"])
+
+  assert !string.contains(help, "gen-docs")
 }
 
 pub fn notices_subcommand_help_describes_notice_output_test() {

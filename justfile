@@ -185,11 +185,11 @@ ort-clean:
 # Generate Markdown reference docs into ./docs and inject the topics index
 # into README.md between the <!-- commands --> sentinels.
 docs: build
-    ./licence_audit gen-docs --mode=multi --out=docs --readme=README.md
+    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md
 
 # Fail if `just docs` would change anything on disk (use in CI to catch drift).
 docs-check: build
-    ./licence_audit gen-docs --mode=multi --out=docs --readme=README.md --check
+    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md --check
 
 # === CI ===
 

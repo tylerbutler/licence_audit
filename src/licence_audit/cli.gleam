@@ -4,7 +4,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import glint
 import glint/constraint
-import glint_markdown/cli as glint_markdown_cli
 import licence_audit/color
 import licence_audit/progress
 
@@ -79,32 +78,21 @@ pub type CliAction {
   RunSbom(SbomOptions)
   RunVulns(VulnsOptions)
   RunNotices(NoticesOptions)
-  GenDocsCompleted
+  ShowVersion
   InvalidUsage(String)
 }
 
 pub fn app() -> glint.Glint(CliAction) {
-  let base =
-    glint.new()
-    |> glint.with_name("licence_audit")
-    |> glint.global_help("Audit locked Hex package licences.")
-    |> glint.pretty_help(glint.default_pretty_help())
-    |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
-    |> glint.add(at: ["check"], do: check_command())
-    |> glint.add(at: ["update"], do: update_command())
-    |> glint.add(at: ["sbom"], do: sbom_command())
-    |> glint.add(at: ["vulns"], do: vulns_command())
-    |> glint.add(at: ["notices"], do: notices_command())
-
-  // Document the app *before* adding `gen-docs` so the subcommand does not
-  // appear in its own rendered output. Bridge the `Glint(Nil)` command into
-  // our `Glint(CliAction)` host via `glint.map_command`.
-  let gen_docs =
-    glint_markdown_cli.command(glint.document(base))
-    |> glint.map_command(fn(_) { GenDocsCompleted })
-
-  base
-  |> glint.add(at: ["gen-docs"], do: gen_docs)
+  glint.new()
+  |> glint.with_name("licence_audit")
+  |> glint.global_help("Audit locked Hex package licences.")
+  |> glint.pretty_help(glint.default_pretty_help())
+  |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
+  |> glint.add(at: ["check"], do: check_command())
+  |> glint.add(at: ["update"], do: update_command())
+  |> glint.add(at: ["sbom"], do: sbom_command())
+  |> glint.add(at: ["vulns"], do: vulns_command())
+  |> glint.add(at: ["notices"], do: notices_command())
 }
 
 pub fn normalize_args(args: List(String)) -> List(String) {
@@ -145,6 +133,7 @@ fn audit_command(
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.flag(cache_path_flag())
   use prod_only <- glint.flag(prod_only_flag())
+  use show_version <- glint.flag(version_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -158,11 +147,18 @@ fn audit_command(
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
   let assert Ok(prod_only_value) = prod_only(flags)
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(verbosity_error), _ ->
+  let assert Ok(show_version) = show_version(flags)
+  case
+    show_version,
+    verbosity(quiet, verbose),
+    color.mode_from_string(color_value)
+  {
+    True, _, _ -> ShowVersion
+    _, Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), Ok(color_mode) ->
+    _, _, Error(color_error) ->
+      InvalidUsage(color.mode_error_message(color_error))
+    _, Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
         manifest_path: optional_string(manifest_path),
         config_path: optional_string(config_path),
@@ -294,6 +290,12 @@ fn no_cache_flag() -> glint.Flag(Bool) {
   glint.bool_flag("no-cache")
   |> glint.flag_default(False)
   |> glint.flag_help("Bypass the on-disk licence metadata cache")
+}
+
+fn version_flag() -> glint.Flag(Bool) {
+  glint.bool_flag("version")
+  |> glint.flag_default(False)
+  |> glint.flag_help("Print the installed version")
 }
 
 fn prod_only_flag() -> glint.Flag(Bool) {
