@@ -422,7 +422,7 @@ jobs:
       - uses: tylerbutler/actions/setup-gleam@v1
       - uses: tylerbutler/actions/setup-licence-audit@v1
         with:
-          version: v0.3.0
+          version: v1.0.0
           setup-beam: "false"
       - run: licence_audit check
 ```
