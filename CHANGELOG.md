@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v0.10.1 - 2026-09-05
+
+### Fixed
+
+- Include the Apache-2.0 licence text in source and platform release archives.
+
 ## v0.10.0 - 2026-08-29
 
 ### Added
