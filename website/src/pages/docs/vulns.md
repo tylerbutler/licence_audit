@@ -34,11 +34,14 @@ when advisories meet a severity threshold, add `--vulns` to
 ```sh
 licence_audit check --vulns
 licence_audit check --vulns --vuln-severity=medium
+licence_audit check --vulns --vuln-block-unknown
 ```
 
 The command runs the licence audit and then queries OSV.dev. It fails when an
 advisory meets or exceeds the threshold. An advisory with unknown severity does
-not cause a failure.
+not cause a failure by default. Use `--vuln-block-unknown` to make unknown
+severity cause a failure. See [`check`](/docs/check#also-fail-on-vulnerabilities)
+for configuration and override rules.
 
 ## Flags
 

@@ -82,6 +82,14 @@ The command uses these exit codes:
 | `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
 | `130` | `update` cancelled by the user. |
 
+## Compatibility
+
+From version 1.0.0, the CLI and configuration follow the
+[compatibility policy](/docs/compatibility). Read it for versioning rules,
+stable interfaces, output guarantees, and exceptions for correctness fixes.
+Gleam modules and human-readable report formatting are not supported
+integration interfaces.
+
 ## Caching
 
 `licence_audit` caches Hex licence metadata on disk between runs at

@@ -430,7 +430,7 @@ jobs:
 ## Compatibility
 
 From 1.0.0, the CLI and configuration follow the
-[compatibility policy](docs/compatibility.md). It defines the stable interfaces,
+[compatibility policy](https://licence-audit.tylerbutler.com/docs/compatibility). It defines the stable interfaces,
 output guarantees, and exceptions for correctness fixes. Gleam modules and
 human-readable report formatting are not supported integration interfaces.
 
