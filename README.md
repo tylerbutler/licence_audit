@@ -427,6 +427,13 @@ jobs:
       - run: licence_audit check
 ```
 
+## Compatibility
+
+From 1.0.0, the CLI and configuration follow the
+[compatibility policy](https://licence-audit.tylerbutler.com/docs/compatibility). It defines the stable interfaces,
+output guarantees, and exceptions for correctness fixes. Gleam modules and
+human-readable report formatting are not supported integration interfaces.
+
 ## Contributing
 
 See [DEV.md](./DEV.md) for build instructions and the contributor workflow.

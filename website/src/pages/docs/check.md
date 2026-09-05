@@ -58,18 +58,27 @@ when an advisory meets or exceeds the severity threshold:
 ```sh
 licence_audit check --vulns
 licence_audit check --vulns --vuln-severity=medium
+licence_audit check --vulns --vuln-block-unknown
 ```
 
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
 The command reports advisories with unknown severity, but these advisories do
-not cause a failure. `check --vulns` fails if it cannot connect to OSV.dev
+not cause a failure by default. Use `--vuln-block-unknown` to make these
+advisories cause a failure. `check --vulns` fails if it cannot connect to OSV.dev
 because it cannot complete the check. You can set the threshold in the
-configuration. CLI options override the configuration:
+configuration:
 
 ```toml
 [tools.licence_audit]
 vuln_severity = "high"
+vuln_block_unknown = true
 ```
+
+`--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
+can only enable blocking: if you omit it, a configured `true` still applies.
+There is no CLI flag to turn this setting off. Use `--ignore-config` to ignore
+both configured vulnerability settings and use CLI-only defaults, which do
+not block unknown severity.
 
 ## Flags
 
@@ -80,6 +89,7 @@ vuln_severity = "high"
 | `--prod-only` | Only audit production dependencies. |
 | `--vulns` | Also query OSV.dev and fail on advisories at or above `--vuln-severity`. |
 | `--vuln-severity` | Minimum failing severity: `low` \| `medium` \| `high` (default) \| `critical`. |
+| `--vuln-block-unknown` | Fail `check --vulns` on advisories with unknown severity. |
 | `--config` | Read configuration from `PATH`. |
 | `--ignore-config` | Ignore configuration files; use only CLI flags. |
 | `--manifest` | Read `manifest.toml` from `PATH`. |
