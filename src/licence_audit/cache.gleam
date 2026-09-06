@@ -30,7 +30,7 @@ pub opaque type Cache {
   Cache(table: Option(dets_set.Set(String, String)), warning: Option(String))
 }
 
-const cache_entry_ttl_seconds = 86_400
+const cache_entry_ttl_seconds = 604_800
 
 const cached_at_prefix = "$cached_at:"
 

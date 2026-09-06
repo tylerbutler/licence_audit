@@ -500,6 +500,33 @@ pub fn fetch_failure_in_check_mode_emits_error_progress_event_test() {
   )
 }
 
+pub fn network_failure_reports_reason_and_continues_audit_test() {
+  let fetcher = fn(name) {
+    case name {
+      "gleam_stdlib" ->
+        Error(hex.NetworkFailure("DNS lookup failed (nxdomain)"))
+      _ -> fake_fetcher(name)
+    }
+  }
+  let #(licence_audit.RunResult(exit_code, output), events) =
+    licence_audit.run_with_progress(
+      manifest_args(["check", "--allow=MIT,Apache-2.0"]),
+      fetcher,
+      progress.Normal,
+    )
+
+  should.equal(exit_code, 2)
+  assert string.contains(output, "DNS lookup failed (nxdomain)")
+  assert string.contains(output, "Apache-2.0")
+  assert list.contains(
+    events,
+    progress.Event(
+      progress.Failure,
+      "Failed to fetch package metadata for gleam_stdlib@1.0.0: Hex.pm request failed: DNS lookup failed (nxdomain)",
+    ),
+  )
+}
+
 pub fn path_and_git_packages_are_skipped_and_counted_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_with(manifest_args([]), fake_fetcher)

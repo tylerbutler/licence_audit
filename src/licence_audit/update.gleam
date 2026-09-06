@@ -208,7 +208,19 @@ fn discover_licences(
     [pkg, ..rest] -> {
       let #(result, reporter) = fetcher(pkg, reporter)
       case result {
-        Error(_) -> discover_licences(rest, fetcher, reporter, collected, True)
+        Error(fetch_error) -> {
+          let reporter =
+            progress.fail(
+              reporter,
+              "Failed to fetch package metadata for "
+                <> pkg.name
+                <> "@"
+                <> pkg.version
+                <> ": "
+                <> hex.describe_error(fetch_error),
+            )
+          discover_licences(rest, fetcher, reporter, collected, True)
+        }
         Ok(metadata) -> {
           discover_licences(
             rest,

@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
@@ -113,7 +114,7 @@ pub fn not_interactive_exits_1_test() {
 pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
   let path = fresh_path("fetch_failure")
 
-  let #(result, _) =
+  let #(result, rep) =
     update.run_with_picker(
       manifest_path,
       ".",
@@ -129,6 +130,14 @@ pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
   should.equal(result.exit_code, 2)
   let assert True = string.contains(result.output, "failed to fetch metadata")
   let assert Error(_) = simplifile.read(from: path)
+  assert list.any(progress.events(rep), fn(event) {
+    case event {
+      progress.Event(progress.Failure, message) ->
+        string.contains(message, "lib_b@")
+        && string.contains(message, "connection refused")
+      _ -> False
+    }
+  })
 }
 
 pub fn manifest_load_failure_exits_2_without_picker_test() {
