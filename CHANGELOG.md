@@ -1,5 +1,15 @@
 # licence_audit changelog
 
+## v0.11.0 - 2026-09-06
+
+### Changed
+
+- Reuse cached Hex metadata for 7 days instead of 24 hours to reduce requests across audits and other commands. Use `--no-cache` to fetch fresh metadata.
+
+### Fixed
+
+- Show the request URL and available DNS, connection, TLS, and timeout details when Hex metadata requests fail. Include the package and failure reason in audit and `update` progress errors.
+
 ## v0.10.2 - 2026-09-06
 
 ### Fixed
