@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix self-contained binaries crashing on Hex and OSV HTTP requests because required OTP applications were not started."

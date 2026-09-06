@@ -40,6 +40,9 @@ jobs:
       - name: Run tests
         run: just test
 
+      - name: Test runtime startup
+        run: just test-runtime-startup
+
       - name: Smoke test built CLI
         run: ./licence_audit --help
 
@@ -59,3 +62,32 @@ jobs:
 
       - name: Validate SBOM (schema)
         run: just sbom-validate
+
+  native-http:
+    runs-on: ubuntu-latest
+    name: Native HTTP
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      - name: Install Queso glibc packaging dependencies
+        # Queso treats glibc as a cross target even on Linux glibc hosts.
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user 'ziglang==0.14.1'
+          cargo install --locked cargo-zigbuild --version 0.20.1
+
+      - name: Build native Linux executable
+        run: mise exec -- queso build --target x86_64-linux-glibc
+
+      - name: Test native HTTP without system Erlang
+        run: |
+          set -euo pipefail
+          binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
+          test "${#binaries[@]}" -eq 1
+          just smoke-native-http "${binaries[0]}"
