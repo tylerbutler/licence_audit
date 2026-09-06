@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Reuse cached Hex metadata for 7 days instead of 24 hours to reduce requests across audits and other commands. Use `--no-cache` to fetch fresh metadata."
