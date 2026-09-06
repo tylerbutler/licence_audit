@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v0.10.2 - 2026-09-06
+
+### Fixed
+
+- Fix self-contained binaries crashing on Hex and OSV HTTP requests because required OTP applications were not started.
+
 ## v0.10.1 - 2026-09-05
 
 ### Fixed
