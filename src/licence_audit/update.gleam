@@ -60,57 +60,74 @@ pub fn run_with_picker(
 ) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.phase(reporter, "Starting licence policy update")
 
-  let existing = load_existing_policy(config_path, project_root, ignore_config)
-
-  let reporter = progress.detail(reporter, "Loading package manifest")
-  case manifest.load(manifest_path) {
-    Error(err) -> #(
+  case load_existing_policy(config_path, project_root, ignore_config) {
+    Error(config_error) -> #(
       UpdateResult(
-        exit_code: error.exit_code(error.from_manifest_error(err)),
+        exit_code: error.exit_code(error.from_config_error(config_error)),
         output: "Error: "
-          <> error.message(error.from_manifest_error(err))
+          <> error.message(error.from_config_error(config_error))
           <> "\n",
       ),
       reporter,
     )
-    Ok(locked) -> {
-      let reporter =
-        progress.package_count(reporter, list.length(locked.packages))
-
-      let cache_mode = case no_cache {
-        True -> cache.Disabled
-        False -> cache.Enabled(path: cache_path)
-      }
-      let cache_handle = cache.open(cache_mode)
-      let cached_fetcher = cache.wrap(cache_handle, fetcher)
-
-      let #(discovered, fetch_failed, reporter) =
-        discover_licences(locked.packages, cached_fetcher, reporter, [], False)
-      let cache_warning = cache.close(cache_handle)
-
-      case fetch_failed {
-        True -> {
+    Ok(existing) -> {
+      let reporter = progress.detail(reporter, "Loading package manifest")
+      case manifest.load(manifest_path) {
+        Error(err) -> #(
+          UpdateResult(
+            exit_code: error.exit_code(error.from_manifest_error(err)),
+            output: "Error: "
+              <> error.message(error.from_manifest_error(err))
+              <> "\n",
+          ),
+          reporter,
+        )
+        Ok(locked) -> {
           let reporter =
-            progress.fail(reporter, "Could not gather all package licences")
-          let reporter = warn_cache(reporter, cache_warning)
-          #(
-            UpdateResult(
-              exit_code: 2,
-              output: "Error: failed to fetch metadata for one or more packages\n",
-            ),
-            reporter,
-          )
+            progress.package_count(reporter, list.length(locked.packages))
+
+          let cache_mode = case no_cache {
+            True -> cache.Disabled
+            False -> cache.Enabled(path: cache_path)
+          }
+          let cache_handle = cache.open(cache_mode)
+          let cached_fetcher = cache.wrap(cache_handle, fetcher)
+
+          let #(discovered, fetch_failed, reporter) =
+            discover_licences(
+              locked.packages,
+              cached_fetcher,
+              reporter,
+              [],
+              False,
+            )
+          let cache_warning = cache.close(cache_handle)
+
+          case fetch_failed {
+            True -> {
+              let reporter =
+                progress.fail(reporter, "Could not gather all package licences")
+              let reporter = warn_cache(reporter, cache_warning)
+              #(
+                UpdateResult(
+                  exit_code: 2,
+                  output: "Error: failed to fetch metadata for one or more packages\n",
+                ),
+                reporter,
+              )
+            }
+            False ->
+              handle_selection(
+                existing,
+                discovered,
+                config_path,
+                project_root,
+                cache_warning,
+                pick,
+                reporter,
+              )
+          }
         }
-        False ->
-          handle_selection(
-            existing,
-            discovered,
-            config_path,
-            project_root,
-            cache_warning,
-            pick,
-            reporter,
-          )
       }
     }
   }
@@ -239,15 +256,16 @@ fn load_existing_policy(
   config_path: Option(String),
   project_root: String,
   ignore_config: Bool,
-) -> config.Policy {
+) -> Result(config.Policy, config.Error) {
   case ignore_config {
     True ->
-      config.Policy(
+      Ok(config.Policy(
+        exceptions: [],
         allow: [],
         deny: [],
         vuln_severity: None,
         vuln_block_unknown: False,
-      )
+      ))
     False -> {
       let load_result =
         config.load(config.LoadOptions(
@@ -261,14 +279,16 @@ fn load_existing_policy(
           check: False,
         ))
       case load_result {
-        Ok(policy) -> policy
+        Ok(policy) -> Ok(policy)
+        Error(config.InvalidException(_) as error) -> Error(error)
         Error(_) ->
-          config.Policy(
+          Ok(config.Policy(
+            exceptions: [],
             allow: [],
             deny: [],
             vuln_severity: None,
             vuln_block_unknown: False,
-          )
+          ))
       }
     }
   }

@@ -153,6 +153,81 @@ gleam_stdlib = { version = \">= 1.0.0\" }
   assert string.contains(result.output, "Fixture licence text")
 }
 
+pub fn exceptions_do_not_change_sbom_or_notice_evidence_test() {
+  let root = "build/tmp/exception-evidence"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(bits)
+  let manifest_path = root <> "/manifest.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      to: manifest_path,
+      contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\", outer_checksum = \""
+        <> checksum
+        <> "\" }]\n[requirements]\ngleam_stdlib = \"1.0.0\"\n",
+    )
+  let project =
+    "name = \"fixture\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]\n[dependencies]\ngleam_stdlib = \"1.0.0\"\n"
+  let assert Ok(_) =
+    simplifile.write(to: root <> "/gleam.toml", contents: project)
+  let notice_args = ["notices", "--manifest=" <> manifest_path]
+  let sbom_args = [
+    "sbom",
+    "--manifest=" <> manifest_path,
+    "--reproducible",
+    "--vulns",
+  ]
+  let original_notices =
+    licence_audit.run_with_notice_clients(
+      notice_args,
+      notice_metadata_fetcher,
+      notice_clients(fixture_hex_tarball),
+    )
+  let original_sbom =
+    licence_audit.run_with_clients(
+      sbom_args,
+      notice_metadata_fetcher,
+      one_vuln_batch,
+      one_vuln_detail,
+    )
+  let assert Ok(_) =
+    simplifile.write(to: root <> "/gleam.toml", contents: project <> "
+[tools.licence_audit]
+allow = [\"MIT\"]
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/gleam_stdlib@1.0.0\"
+finding = \"unallowed-licence\"
+licence = \"Apache-2.0\"
+reason = \"Reviewed licence\"
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/gleam_stdlib@1.0.0\"
+finding = \"advisory\"
+advisory = \"CVE-2024-0001\"
+reason = \"Reviewed advisory\"
+")
+  let notices =
+    licence_audit.run_with_notice_clients(
+      notice_args,
+      notice_metadata_fetcher,
+      notice_clients(fixture_hex_tarball),
+    )
+  let sbom =
+    licence_audit.run_with_clients(
+      sbom_args,
+      notice_metadata_fetcher,
+      one_vuln_batch,
+      one_vuln_detail,
+    )
+  should.equal(original_notices.exit_code, 0)
+  should.equal(original_sbom.exit_code, 0)
+  should.equal(notices, original_notices)
+  should.equal(sbom, original_sbom)
+  assert string.contains(notices.output, "Fixture licence text")
+  assert string.contains(sbom.output, "CVE-2024-0001")
+  assert string.contains(sbom.output, "Apache-2.0")
+}
+
 pub fn notices_falls_back_to_spdx_when_source_lacks_licence_test() {
   let assert Ok(bits) =
     simplifile.read_bits(
@@ -700,6 +775,7 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
 fn unknown_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
   Ok(
     osv.Vulnerability(
+      aliases: [],
       id: id,
       summary: "severity unavailable",
       severity: osv.UnknownSeverity,
@@ -714,6 +790,7 @@ fn vulnerability_with_severity(
   fn(id) {
     Ok(
       osv.Vulnerability(
+        aliases: [],
         id: id,
         summary: "known severity",
         severity: severity,
@@ -1343,6 +1420,7 @@ fn one_vuln_batch(
 fn one_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
   Ok(
     osv.Vulnerability(
+      aliases: [],
       id: "CVE-2024-0001",
       summary: "example",
       severity: osv.High,
@@ -1538,6 +1616,7 @@ fn dev_only_vuln_batch(
 fn dev_only_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
   Ok(
     osv.Vulnerability(
+      aliases: [],
       id: id,
       summary: "dev dependency advisory",
       severity: osv.High,

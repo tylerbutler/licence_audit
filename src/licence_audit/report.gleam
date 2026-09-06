@@ -5,6 +5,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import licence_audit/color
+import licence_audit/exception
 import licence_audit/manifest
 import licence_audit/policy
 
@@ -16,6 +17,7 @@ pub type Mode {
 pub type Status {
   NotChecked
   Checked(policy.AuditStatus)
+  Reviewed(List(#(exception.Finding, exception.Decision)))
   Failed(String)
   Skipped(source: String)
 }
@@ -69,7 +71,9 @@ pub fn filter_failing_trees(rows: List(Row)) -> List(Row) {
     list.fold(rows, dict.new(), fn(acc, r) { dict.insert(acc, r.package, r) })
   let failing_roots =
     list.fold(rows, dict.new(), fn(acc, row) {
-      case is_failure(row.status) {
+      case
+        is_failure(row.status) || exception.matched(decisions(row.status)) != []
+      {
         True -> dict.insert(acc, root_for(row, by_name), Nil)
         False -> acc
       }
@@ -100,13 +104,22 @@ fn visual_root_name(
   }
 }
 
-fn is_failure(status: Status) -> Bool {
+pub fn is_failure(status: Status) -> Bool {
   case status {
     Checked(policy.Allowed) -> False
     Checked(policy.NoLicencesDeclared)
     | Checked(policy.DeniedLicence(_))
     | Checked(policy.UnallowedLicence(_)) -> True
     NotChecked | Failed(_) | Skipped(_) -> False
+    Reviewed(findings) ->
+      list.any(findings, fn(finding) { !exception.accepted(finding.1) })
+  }
+}
+
+pub fn decisions(status: Status) -> List(exception.Decision) {
+  case status {
+    Reviewed(findings) -> list.map(findings, fn(finding) { finding.1 })
+    _ -> []
   }
 }
 
@@ -362,6 +375,7 @@ fn colorize_for_status(
     Audit ->
       case status {
         Checked(policy.Allowed) -> color.green(palette, text)
+        Reviewed(_) -> color.yellow(palette, text)
         Checked(policy.UnallowedLicence(_)) -> color.yellow(palette, text)
         Checked(_) -> color.red(palette, text)
         Failed(_) -> color.yellow(palette, text)
@@ -376,11 +390,17 @@ fn glyph(status: Status, mode: Mode, palette: color.Palette) -> String {
     Default ->
       case status {
         Skipped(_) -> color.yellow(palette, "·")
-        NotChecked | Checked(_) | Failed(_) -> color.yellow(palette, "?")
+        NotChecked | Checked(_) | Reviewed(_) | Failed(_) ->
+          color.yellow(palette, "?")
       }
     Audit ->
       case status {
         Checked(policy.Allowed) -> color.green(palette, "✓")
+        Reviewed(_) ->
+          case is_failure(status) {
+            True -> color.red(palette, "✗")
+            False -> color.yellow(palette, "~")
+          }
         Checked(policy.UnallowedLicence(_)) -> color.yellow(palette, "?")
         Checked(_) -> color.red(palette, "✗")
         Failed(_) -> color.yellow(palette, "?")
@@ -440,7 +460,7 @@ fn licences_text(row: Row) -> String {
       case row.status {
         Failed(message) -> "ERROR: " <> message
         Skipped(source) -> "non-hex (" <> source <> ")"
-        NotChecked | Checked(_) -> "-"
+        NotChecked | Checked(_) | Reviewed(_) -> "-"
       }
     }
     licences -> licences |> sort_dedupe |> string.join(", ")
@@ -454,6 +474,16 @@ fn status_text(status: Status) -> String {
     Checked(policy.NoLicencesDeclared) -> "no licences declared"
     Checked(policy.DeniedLicence(licence)) -> "denied: " <> licence
     Checked(policy.UnallowedLicence(licence)) -> "unknown: " <> licence
+    Reviewed(findings) ->
+      findings
+      |> list.map(fn(finding) {
+        exception.finding_text(finding.0)
+        <> case exception.decision_text(finding.1) {
+          "" -> ""
+          text -> " [" <> text <> "]"
+        }
+      })
+      |> string.join("; ")
     Failed(message) -> "error: " <> message
     Skipped(source) -> "skipped: " <> source
   }
