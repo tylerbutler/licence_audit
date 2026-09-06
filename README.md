@@ -58,6 +58,29 @@ To build from source, see [DEV.md](./DEV.md).
 
 ## Quick start
 
+### Set up with an AI agent
+
+Install the setup skill with [APM](https://github.com/microsoft/apm):
+
+```sh
+apm install tylerbutler/licence_audit/.apm/skills/setup-licence-audit
+```
+
+This installs the skill without the repository's development skills. It does
+not install the `licence_audit` executable. Ask your agent:
+
+> Set up licence_audit for local licence and vulnerability checks in this
+> project. Preserve the existing policy and tool versions. Do not change CI.
+
+To include CI, add:
+
+> Also enforce the same licence policy and vulnerability threshold in CI.
+
+The skill configures local reports and enforcement commands. It adds CI only
+when requested and leaves licence approval decisions to you.
+
+### Set up manually
+
 The typical workflow is **inspect → capture a policy → enforce it when needed**:
 
 ```sh
