@@ -374,7 +374,20 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 
 Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
 version-suffixed so cache format bumps ignore stale data instead of reading it
-back. Entries carry a 24h TTL.
+back. Entries are reused for 7 days before they are fetched again. Metadata
+changes on Hex can take up to 7 days to appear; use `--no-cache` when you need
+fresh data.
+
+The cache is shared across projects and commands for each package name and
+version. In CI, restore and save the cache file between jobs, for example with
+`actions/cache` and `--cache-path=.hex-cache/hex-v2.dets`. A fresh runner with
+no restored cache must fetch each package again. Use `--verbose` to see cache
+hits and misses.
+
+Each successful lookup is cached immediately. A later lookup failure does
+not discard earlier entries, and the audit continues with the remaining
+packages. Failed lookups are not cached. If a refresh fails and an older
+entry is available, the audit uses that entry and warns.
 
 The `notices` command additionally caches the licence materials it resolves, so
 repeated runs don't re-download package sources or re-resolve fallbacks:
@@ -404,6 +417,10 @@ run. OSV advisories are not cached.
   is a side effect of dependency resolution.
 - **Hex fetch fails or times out** — Hex may be rate-limiting; retry, or let
   cached entries be reused (don't pass `--no-cache`).
+  Network errors include the request URL and available DNS, connection, or
+  TLS details for IPv4 and IPv6. Request timeout errors include the 5000 ms
+  limit. When the HTTP client does not identify the failed stage, the
+  message says so.
 - **`sbom` fails with "unsupported source"** — a dep resolves to a path or
   non-GitHub git source. `sbom` needs a clean purl for every dep; `--offline`
   doesn't bypass this.

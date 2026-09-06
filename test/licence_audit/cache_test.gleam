@@ -1,7 +1,9 @@
 import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import gleam/time/timestamp
 import gleeunit/should
 import licence_audit/cache
 import licence_audit/hex
@@ -150,6 +152,55 @@ pub fn cache_key_includes_version_test() {
   let assert None = cache.close(handle)
 }
 
+pub fn cache_reuses_metadata_for_seven_days_test() {
+  list.each([172_800, 604_740, 604_860], fn(age_seconds) {
+    let path = fresh_path("ttl_" <> int.to_string(age_seconds))
+    let assert Ok(table) =
+      dets_set.open(
+        path,
+        key_decoder: decode.string,
+        value_decoder: decode.string,
+      )
+    let #(now, _) =
+      timestamp.system_time()
+      |> timestamp.to_unix_seconds_and_nanoseconds
+    list.each(["reported", "quiet"], fn(name) {
+      let key = name <> "@1.0.0"
+      let assert Ok(_) =
+        dets_set.insert(
+          into: table,
+          key: key,
+          value: hex.encode_cache_entry(metadata_with_publisher("cached")),
+        )
+      let assert Ok(_) =
+        dets_set.insert(
+          into: table,
+          key: "$cached_at:" <> key,
+          value: int.to_string(now - age_seconds),
+        )
+    })
+    let assert Ok(_) = dets_set.close(table)
+
+    let handle = cache.open(cache.Enabled(path: Some(path)))
+    let fetcher = fn(_name) {
+      should.be_true(age_seconds > 604_800)
+      Ok(metadata_with_publisher("fresh"))
+    }
+    let expected = case age_seconds > 604_800 {
+      True -> Some("fresh")
+      False -> Some("cached")
+    }
+    let #(result, _) =
+      cache.wrap(handle, fetcher)(pkg("reported", "1.0.0"), reporter())
+    let assert Ok(metadata) = result
+    should.equal(metadata.publisher, expected)
+    let assert Ok(quiet_metadata) =
+      cache.fetch_cached_quiet(handle, "quiet", "1.0.0", fetcher)
+    should.equal(quiet_metadata.publisher, expected)
+    let assert None = cache.close(handle)
+  })
+}
+
 pub fn cache_refetches_legacy_enriched_entry_instead_of_stale_publisher_test() {
   let path = fresh_path("legacy_enriched_refetch")
   write_legacy_cache_entry(
@@ -185,6 +236,38 @@ pub fn fetcher_errors_are_not_cached_test() {
     cache.wrap(handle, succeeding)(pkg("missing", "1.0.0"), reporter())
   let assert Ok(metadata) = result
   should.equal(metadata.licences, ["MIT"])
+  let assert None = cache.close(handle)
+}
+
+pub fn lookup_failure_keeps_other_successful_entries_test() {
+  let path = fresh_path("partial_failure")
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let fetcher = fn(name) {
+    case name {
+      "missing" -> Error(hex.NetworkFailure("connection refused"))
+      _ -> Ok(hex.licences_only(["MIT"]))
+    }
+  }
+  list.each(["before", "missing", "after"], fn(name) {
+    let #(result, _) =
+      cache.wrap(handle, fetcher)(pkg(name, "1.0.0"), reporter())
+    should.equal(result, fetcher(name))
+  })
+  let assert None = cache.close(handle)
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let retry = fn(name) {
+    should.equal(name, "missing")
+    Ok(hex.licences_only(["Apache-2.0"]))
+  }
+  list.each(["before", "missing", "after"], fn(name) {
+    let #(result, _) = cache.wrap(handle, retry)(pkg(name, "1.0.0"), reporter())
+    let expected = case name {
+      "missing" -> ["Apache-2.0"]
+      _ -> ["MIT"]
+    }
+    should.equal(result, Ok(hex.licences_only(expected)))
+  })
   let assert None = cache.close(handle)
 }
 

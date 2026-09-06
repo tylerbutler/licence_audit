@@ -1,6 +1,8 @@
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
+import gleam/httpc
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/duration
 import gleam/time/timestamp
@@ -154,6 +156,53 @@ pub fn injected_network_failure_maps_to_network_failure_test() {
   let assert Error(error) = hex.fetch_package_metadata("example", client)
 
   should.equal(error, hex.NetworkFailure("connection refused"))
+}
+
+pub fn http_failures_include_request_and_connection_details_test() {
+  let assert Ok(req) = request.to("https://hex.pm/api/packages/example")
+  list.each(
+    [
+      #(
+        httpc.ResponseTimeout,
+        "HTTP request timed out after 5000 ms (HTTP client did not report which stage timed out)",
+      ),
+      #(httpc.InvalidUtf8Response, "response body was not valid UTF-8"),
+      #(
+        httpc.FailedToConnect(
+          httpc.Posix("nxdomain"),
+          httpc.Posix("enetunreach"),
+        ),
+        "connection setup failed: IPv4: DNS lookup failed (nxdomain); IPv6: network unreachable (enetunreach)",
+      ),
+      #(
+        httpc.FailedToConnect(
+          httpc.Posix("econnrefused"),
+          httpc.Posix("ehostunreach"),
+        ),
+        "connection setup failed: IPv4: TCP connection refused (econnrefused); IPv6: host unreachable (ehostunreach)",
+      ),
+      #(
+        httpc.FailedToConnect(httpc.Posix("timeout"), httpc.Posix("etimedout")),
+        "connection setup failed: IPv4: connection setup timed out (timeout; HTTP client did not report the DNS/TCP/TLS stage); IPv6: connection setup timed out (etimedout; HTTP client did not report the DNS/TCP/TLS stage)",
+      ),
+      #(
+        httpc.FailedToConnect(
+          httpc.TlsAlert("unknown_ca", "certificate not trusted"),
+          httpc.Posix("unrecognized_reason"),
+        ),
+        "connection setup failed: IPv4: TLS handshake failed: unknown_ca (certificate not trusted); IPv6: connection error (unrecognized_reason)",
+      ),
+    ],
+    fn(test_case) {
+      let #(error, detail) = test_case
+      should.equal(
+        hex.from_http_error(req, error),
+        hex.NetworkFailure(
+          "GET https://hex.pm/api/packages/example: " <> detail,
+        ),
+      )
+    },
+  )
 }
 
 pub fn hex_metadata_fetch_returns_without_ipv6_fallback_delay_test() {

@@ -1562,12 +1562,17 @@ fn fetch_packages(
       let #(fetch_result, reporter) = fetcher(package, reporter)
       case fetch_result {
         Error(fetch_error) -> {
+          let message = error.message(error.from_hex_error(fetch_error))
           let reporter =
             progress.fail(
               reporter,
-              "Failed to fetch package metadata for " <> package.name,
+              "Failed to fetch package metadata for "
+                <> package.name
+                <> "@"
+                <> package.version
+                <> ": "
+                <> message,
             )
-          let message = error.message(error.from_hex_error(fetch_error))
           fetch_packages(
             rest,
             fetcher,

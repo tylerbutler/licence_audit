@@ -10,6 +10,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/uri
+
+const request_timeout_ms = 5000
 
 pub type PackageMetadata {
   PackageMetadata(
@@ -91,12 +94,21 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req = request.set_header(req, "user-agent", "licence_audit")
   case
     httpc.configure()
-    |> httpc.timeout(5000)
+    |> httpc.timeout(request_timeout_ms)
     |> httpc.dispatch(req)
   {
     Ok(response) -> Ok(response)
-    Error(error) -> Error(NetworkFailure(describe_http_error(error)))
+    Error(error) -> Error(from_http_error(req, error))
   }
+}
+
+pub fn from_http_error(req: Request(String), error: httpc.HttpError) -> Error {
+  NetworkFailure(
+    "GET "
+    <> uri.to_string(request.to_uri(req))
+    <> ": "
+    <> describe_http_error(error),
+  )
 }
 
 /// Render an `httpc` transport error into a concise reason string so callers
@@ -104,20 +116,32 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
 /// rather than a generic "request failed".
 fn describe_http_error(error: httpc.HttpError) -> String {
   case error {
-    httpc.InvalidUtf8Response -> "response was not valid UTF-8"
-    httpc.ResponseTimeout -> "no response within 5s timeout"
+    httpc.InvalidUtf8Response -> "response body was not valid UTF-8"
+    httpc.ResponseTimeout ->
+      "HTTP request timed out after "
+      <> int.to_string(request_timeout_ms)
+      <> " ms (HTTP client did not report which stage timed out)"
     httpc.FailedToConnect(ip4, ip6) ->
-      "could not connect: IPv4 "
+      "connection setup failed: IPv4: "
       <> describe_connect_error(ip4)
-      <> ", IPv6 "
+      <> "; IPv6: "
       <> describe_connect_error(ip6)
   }
 }
 
 fn describe_connect_error(error: httpc.ConnectError) -> String {
   case error {
-    httpc.Posix(code) -> code
-    httpc.TlsAlert(code, detail) -> "TLS " <> code <> " (" <> detail <> ")"
+    httpc.Posix("nxdomain") -> "DNS lookup failed (nxdomain)"
+    httpc.Posix("econnrefused") -> "TCP connection refused (econnrefused)"
+    httpc.Posix("enetunreach") -> "network unreachable (enetunreach)"
+    httpc.Posix("ehostunreach") -> "host unreachable (ehostunreach)"
+    httpc.Posix(code) if code == "timeout" || code == "etimedout" ->
+      "connection setup timed out ("
+      <> code
+      <> "; HTTP client did not report the DNS/TCP/TLS stage)"
+    httpc.Posix(code) -> "connection error (" <> code <> ")"
+    httpc.TlsAlert(code, detail) ->
+      "TLS handshake failed: " <> code <> " (" <> detail <> ")"
   }
 }
 
