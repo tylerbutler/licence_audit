@@ -47,7 +47,7 @@ just smoke-native-http build/queso/licence_audit-<version>-x86_64-linux-glibc
 
 Replace `<version>` with the version in `gleam.toml`. Queso 0.3.0 treats
 glibc as a cross target even on a glibc host, so this build needs Rust,
-Zig, and cargo-zigbuild. CI uses Zig 0.14.1 and cargo-zigbuild 0.20.1.
+Zig, and cargo-zigbuild. CI uses Zig 0.14.1 and cargo-zigbuild 0.23.4.
 
 The smoke recipe needs Docker and network access. It runs the executable
 in a Debian container with CA certificates but no Erlang installation.
