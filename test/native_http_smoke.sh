@@ -33,7 +33,9 @@ run() {
   env -i HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" \
     PATH=/usr/bin:/bin ERL_CRASH_DUMP=/dev/null \
     timeout --kill-after=5s 60s "$binary" "$@" >"$name.log" 2>&1 || status=$?
-  if grep -Eq 'noproc|Failed to eval|Runtime terminating|Crash dump|Vulnerability check incomplete:|\(details unavailable\)|WARN[[:space:]]+\|' "$name.log"; then
+  if grep -Eq 'noproc|Failed to eval|Runtime terminating|Crash dump|Vulnerability check incomplete:|\(details unavailable\)' "$name.log" \
+    || { grep -E 'WARN[[:space:]]+\|' "$name.log" \
+      | grep -Ev 'IPv6 .*; using IPv4 for the remaining Hex and OSV requests'; }; then
     echo "$name: runtime failure or incomplete report" >&2
     exit 1
   fi

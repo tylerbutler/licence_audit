@@ -1,7 +1,6 @@
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
-import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/duration
@@ -10,6 +9,7 @@ import gleam/uri
 import gleeunit/should
 import licence_audit/env
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import simplifile
 
 const british_licences_json = "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
@@ -163,34 +163,31 @@ pub fn http_failures_include_request_and_connection_details_test() {
   list.each(
     [
       #(
-        httpc.ResponseTimeout,
+        httpc_adaptive.ResponseTimeout,
         "HTTP request timed out after 5000 ms (HTTP client did not report which stage timed out)",
       ),
-      #(httpc.InvalidUtf8Response, "response body was not valid UTF-8"),
+      #(httpc_adaptive.InvalidUtf8Response, "response body was not valid UTF-8"),
       #(
-        httpc.FailedToConnect(
-          httpc.Posix("nxdomain"),
-          httpc.Posix("enetunreach"),
-        ),
-        "connection setup failed: IPv4: DNS lookup failed (nxdomain); IPv6: network unreachable (enetunreach)",
+        httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)"),
+        "connection setup failed: IPv4: DNS lookup failed (nxdomain)",
       ),
       #(
-        httpc.FailedToConnect(
-          httpc.Posix("econnrefused"),
-          httpc.Posix("ehostunreach"),
+        httpc_adaptive.FailedToConnect(
+          "IPv4: TCP connection refused (econnrefused)",
         ),
-        "connection setup failed: IPv4: TCP connection refused (econnrefused); IPv6: host unreachable (ehostunreach)",
+        "connection setup failed: IPv4: TCP connection refused (econnrefused)",
       ),
       #(
-        httpc.FailedToConnect(httpc.Posix("timeout"), httpc.Posix("etimedout")),
-        "connection setup failed: IPv4: connection setup timed out (timeout; HTTP client did not report the DNS/TCP/TLS stage); IPv6: connection setup timed out (etimedout; HTTP client did not report the DNS/TCP/TLS stage)",
+        httpc_adaptive.FailedToConnect(
+          "IPv4: connection setup timed out (timeout; HTTP client did not report the DNS/TCP/TLS stage)",
+        ),
+        "connection setup failed: IPv4: connection setup timed out (timeout; HTTP client did not report the DNS/TCP/TLS stage)",
       ),
       #(
-        httpc.FailedToConnect(
-          httpc.TlsAlert("unknown_ca", "certificate not trusted"),
-          httpc.Posix("unrecognized_reason"),
+        httpc_adaptive.FailedToConnect(
+          "IPv4: TLS handshake failed: unknown_ca (certificate not trusted)",
         ),
-        "connection setup failed: IPv4: TLS handshake failed: unknown_ca (certificate not trusted); IPv6: connection error (unrecognized_reason)",
+        "connection setup failed: IPv4: TLS handshake failed: unknown_ca (certificate not trusted)",
       ),
     ],
     fn(test_case) {
@@ -210,10 +207,10 @@ pub fn hex_metadata_fetch_returns_without_ipv6_fallback_delay_test() {
     Ok(value) if value != "" -> {
       let started = timestamp.system_time()
 
-      let assert Ok(metadata) =
-        hex.fetch_package_metadata_from_hex("gleam_stdlib")
-
-      assert metadata.licences != []
+      list.each(["collie", "gleam_stdlib"], fn(name) {
+        let assert Ok(metadata) = hex.fetch_package_metadata_from_hex(name)
+        assert metadata.licences != []
+      })
       assert timestamp.difference(started, timestamp.system_time())
         |> duration.to_milliseconds
         < 5000

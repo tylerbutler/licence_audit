@@ -14,6 +14,7 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/gleam_toml
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/notice_cache
@@ -89,7 +90,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
           palette,
         )
       io.print(output)
-      let _ = progress.flush(reporter)
+      let _ = progress.flush(apply_http_warning(reporter))
       halt(exit_code)
     }
     cli.UpdateConfig(options) -> {
@@ -100,7 +101,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, "update"),
         )
       io.print(output)
-      let _ = progress.flush(reporter)
+      let _ = progress.flush(apply_http_warning(reporter))
       halt(exit_code)
     }
     cli.InvalidUsage(message) -> {
@@ -117,7 +118,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, "sbom"),
         )
       io.print(output)
-      let _ = progress.flush(reporter)
+      let _ = progress.flush(apply_http_warning(reporter))
       halt(exit_code)
     }
     cli.RunVulns(options) -> {
@@ -131,7 +132,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
           palette,
         )
       io.print(output)
-      let _ = progress.flush(reporter)
+      let _ = progress.flush(apply_http_warning(reporter))
       halt(exit_code)
     }
     cli.RunNotices(options) -> {
@@ -143,10 +144,17 @@ fn handle_action(action: cli.CliAction) -> Nil {
           progress.enabled(options.verbosity, "notices"),
         )
       io.print(output)
-      let _ = progress.flush(reporter)
+      let _ = progress.flush(apply_http_warning(reporter))
       halt(exit_code)
     }
     cli.ShowVersion -> io.println(tool_version())
+  }
+}
+
+fn apply_http_warning(reporter: progress.Reporter) -> progress.Reporter {
+  case httpc_adaptive.take_warning() {
+    Some(message) -> progress.defer_warn(reporter, message)
+    None -> reporter
   }
 }
 
