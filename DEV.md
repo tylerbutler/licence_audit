@@ -167,6 +167,23 @@ Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
 workflows; do not edit `CHANGELOG.md` or bump the version in `gleam.toml` by
 hand.
 
+When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
+out its merge commit and runs `trellis tag create --github-release`. This
+uses the tag format in `gleam.toml` and the matching changelog section.
+It does not require a PR label or Changie configuration. The GitHub App
+token lets the tag push start `publish.yml`.
+
+To recover a merged release that has no tag or GitHub Release, run the
+auto-tag workflow manually against the current version on `main`:
+
+```sh
+gh workflow run auto-tag.yml --ref main
+```
+
+Trellis preserves existing exact tags and releases. This command does not
+backfill older versions. If the tag exists but artifact publishing failed,
+rerun the failed Publish job or dispatch `publish.yml` with that tag.
+
 Releases include the existing escript artifacts plus self-contained Queso
 archives for Linux (glibc and musl), macOS, and Windows x86_64 targets. Linux
 static targets are excluded because Queso static binaries do not export the NIF
