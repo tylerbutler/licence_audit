@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Restore bounded IPv6 probing and remembered IPv4 fallback for Hex metadata and OSV requests, preventing repeated timeouts on networks with broken IPv6."
