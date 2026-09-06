@@ -3,7 +3,6 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
-import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
@@ -11,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri
+import licence_audit/httpc_adaptive
 
 const request_timeout_ms = 5000
 
@@ -92,17 +92,16 @@ pub fn fetch_package_metadata_from_hex(
 /// built-in `httpc` (TLS verified by default).
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req = request.set_header(req, "user-agent", "licence_audit")
-  case
-    httpc.configure()
-    |> httpc.timeout(request_timeout_ms)
-    |> httpc.dispatch(req)
-  {
+  case httpc_adaptive.dispatch(req, timeout_ms: request_timeout_ms) {
     Ok(response) -> Ok(response)
     Error(error) -> Error(from_http_error(req, error))
   }
 }
 
-pub fn from_http_error(req: Request(String), error: httpc.HttpError) -> Error {
+pub fn from_http_error(
+  req: Request(String),
+  error: httpc_adaptive.Error,
+) -> Error {
   NetworkFailure(
     "GET "
     <> uri.to_string(request.to_uri(req))
@@ -114,34 +113,15 @@ pub fn from_http_error(req: Request(String), error: httpc.HttpError) -> Error {
 /// Render an `httpc` transport error into a concise reason string so callers
 /// can report *why* a Hex request failed (DNS/connection, TLS, or timeout)
 /// rather than a generic "request failed".
-fn describe_http_error(error: httpc.HttpError) -> String {
+fn describe_http_error(error: httpc_adaptive.Error) -> String {
   case error {
-    httpc.InvalidUtf8Response -> "response body was not valid UTF-8"
-    httpc.ResponseTimeout ->
+    httpc_adaptive.InvalidUtf8Response -> "response body was not valid UTF-8"
+    httpc_adaptive.ResponseTimeout ->
       "HTTP request timed out after "
       <> int.to_string(request_timeout_ms)
       <> " ms (HTTP client did not report which stage timed out)"
-    httpc.FailedToConnect(ip4, ip6) ->
-      "connection setup failed: IPv4: "
-      <> describe_connect_error(ip4)
-      <> "; IPv6: "
-      <> describe_connect_error(ip6)
-  }
-}
-
-fn describe_connect_error(error: httpc.ConnectError) -> String {
-  case error {
-    httpc.Posix("nxdomain") -> "DNS lookup failed (nxdomain)"
-    httpc.Posix("econnrefused") -> "TCP connection refused (econnrefused)"
-    httpc.Posix("enetunreach") -> "network unreachable (enetunreach)"
-    httpc.Posix("ehostunreach") -> "host unreachable (ehostunreach)"
-    httpc.Posix(code) if code == "timeout" || code == "etimedout" ->
-      "connection setup timed out ("
-      <> code
-      <> "; HTTP client did not report the DNS/TCP/TLS stage)"
-    httpc.Posix(code) -> "connection error (" <> code <> ")"
-    httpc.TlsAlert(code, detail) ->
-      "TLS handshake failed: " <> code <> " (" <> detail <> ")"
+    httpc_adaptive.FailedToConnect(reason) ->
+      "connection setup failed: " <> reason
   }
 }
 

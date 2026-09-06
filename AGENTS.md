@@ -29,7 +29,7 @@
   - `update`: `src/licence_audit/update.gleam` discovers licenses and writes `[tools.licence_audit]` via `toml_port.gleam` (`tomlet`-based, comment-preserving edits).
   - `sbom`: `src/licence_audit/sbom.gleam` + `sbom_json.gleam` generate CycloneDX JSON and enforce supported purl sources.
   - `vulns`: `src/licence_audit.gleam` + `osv.gleam` query OSV batch + per-advisory details and render a separate vulnerability report.
-- **HTTP clients** for Hex and OSV (`hex.gleam`, `osv.gleam`) follow the same pattern: open TLS connection per call, `await_up`, send request, decode response, close connection.
+- **HTTP clients** for Hex and OSV (`hex.gleam`, `osv.gleam`) use `httpc_adaptive.gleam` over Erlang `httpc`. It probes IPv6 for at most one second per unverified host, then remembers IPv4 fallback for the rest of the command. Do not remove it unless a replacement preserves this behavior: removing it in #61 reintroduced the repeated IPv6 timeouts fixed by #43. TLS verification remains enabled.
 
 ## Key repository conventions
 
