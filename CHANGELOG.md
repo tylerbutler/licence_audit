@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v0.11.1 - 2026-09-06
+
+### Fixed
+
+- Restore bounded IPv6 probing and remembered IPv4 fallback for Hex metadata and OSV requests, preventing repeated timeouts on networks with broken IPv6.
+
 ## v0.11.0 - 2026-09-06
 
 ### Changed
