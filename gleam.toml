@@ -31,7 +31,7 @@ glinter = ">= 2.19.0 and < 3.0.0"
 [tools]
 
 [tools.trellis]
-exclude = { "@members" = ["test/fixtures"] }
+exclude = { "@members" = ["test/fixtures", "test/fixtures/native_http"] }
 
 [tools.trellis.changelog]
 # The root package owns the whole repository, including internal-only changes.

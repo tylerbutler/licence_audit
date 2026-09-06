@@ -38,6 +38,9 @@ pub type RunResult {
 @external(erlang, "args_ffi", "arguments")
 fn arguments() -> List(String)
 
+@external(erlang, "runtime_ffi", "start")
+fn start_runtime() -> Result(Nil, error.Error)
+
 type FetchResult {
   FetchResult(
     rows: List(report.Row),
@@ -54,7 +57,19 @@ pub fn main() -> Nil {
       halt(1)
     }
     Ok(glint.Help(help)) -> io.println(help)
-    Ok(glint.Out(action)) -> handle_action(action)
+    Ok(glint.Out(action)) ->
+      case action {
+        cli.ShowVersion | cli.InvalidUsage(_) -> handle_action(action)
+        _ ->
+          case start_runtime() {
+            Ok(Nil) -> handle_action(action)
+            Error(startup_error) -> {
+              let RunResult(exit_code, output) = diagnostic(startup_error)
+              io.print_error(output)
+              halt(exit_code)
+            }
+          }
+      }
   }
 }
 

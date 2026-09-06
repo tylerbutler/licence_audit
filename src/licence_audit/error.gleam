@@ -10,6 +10,7 @@ pub type Error {
   AuditFailed
   MissingPolicy
   Usage(String)
+  RuntimeStartup(String)
   Config(String)
   Input(String)
   Hex(String)
@@ -37,6 +38,7 @@ pub fn message(error: Error) -> String {
     MissingPolicy ->
       "No licence policy supplied for the `check` subcommand. Add a [tools.licence_audit] section to gleam.toml or pass --allow/--deny."
     Usage(message) -> message
+    RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
     Config(message) -> message
     Input(message) -> message
     Hex(message) -> message

@@ -63,18 +63,6 @@ jobs:
       - name: Build Queso executables
         run: just build-queso
 
-      - name: Smoke test Queso executable
-        env:
-          REF_NAME: ${{ env.RELEASE_TAG }}
-        run: |
-          set -euo pipefail
-          version="${REF_NAME#v}"
-          # Use glibc target: linux-static binaries do not export NIF symbols
-          # (crypto/SSL) that this CLI requires. glibc runs on the ubuntu runner.
-          binary="./build/queso/licence_audit-${version}-x86_64-linux-glibc"
-          "$binary" sbom --reproducible --offline --output=smoke-sbom.json
-          test -s smoke-sbom.json
-
       - name: Stage release artifacts
         env:
           REF_NAME: ${{ env.RELEASE_TAG }}
@@ -148,6 +136,18 @@ jobs:
 
           (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
+
+      - name: Test packaged native HTTP without system Erlang
+        timeout-minutes: 5
+        env:
+          REF_NAME: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          archive="licence_audit-${REF_NAME}-x86_64-linux-glibc"
+          extracted=$(mktemp -d)
+          trap 'rm -rf -- "$extracted"' EXIT
+          tar -xzf "dist/${archive}.tar.gz" -C "$extracted"
+          just smoke-native-http "$extracted/$archive/licence_audit"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7

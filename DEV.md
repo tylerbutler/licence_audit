@@ -33,8 +33,43 @@ package-time dependencies for your target and run:
 just build-queso
 ```
 
-Queso writes executables to `build/queso/`. The recipe is opt-in so normal local
-builds and PR CI stay fast.
+Queso writes executables to `build/queso/`. The full multi-target build is
+opt-in for local development. PR CI builds and tests only Linux x86_64 glibc.
+
+### Native HTTP smoke test
+
+On Linux x86_64, build the glibc executable and test it without system Erlang:
+
+```sh
+mise exec -- queso build --target x86_64-linux-glibc
+just smoke-native-http build/queso/licence_audit-<version>-x86_64-linux-glibc
+```
+
+Replace `<version>` with the version in `gleam.toml`. Queso 0.3.0 treats
+glibc as a cross target even on a glibc host, so this build needs Rust,
+Zig, and cargo-zigbuild. CI uses Zig 0.14.1 and cargo-zigbuild 0.20.1.
+
+The smoke recipe needs Docker and network access. It runs the executable
+in a Debian container with CA certificates but no Erlang installation.
+A temporary one-package project, HOME, and cache keep the test separate
+from local configuration. The test makes real Hex and OSV requests for a
+licence report, a vulnerability report, and `check --vulns`. It also checks
+help, version, and offline SBOM output. Network failures fail the test;
+failure logs are printed before temporary files are removed.
+
+PR CI runs this test on the built executable. Publishing runs the same test
+on the extracted release archive before upload. Live requests are not part
+of `just test` or `just ci`.
+
+To test application startup and its error handling without network access:
+
+```sh
+just test-runtime-startup
+```
+
+This uses fresh Erlang VMs, because the Gleam test runner starts application
+dependencies before it runs tests. The CLI must also start these dependencies
+when Queso calls `main()` directly.
 
 ## Common tasks
 
@@ -45,7 +80,7 @@ just format         # gleam format src test
 just format-check   # gleam format --check src test
 just glint          # gleam run -m glinter (linter; fails only on error-level rules)
 just lint           # format-check + glint
-just ci             # full validation (format-check + glint + check + test + strict build + docs-check + sbom-drift-check + sbom-validate)
+just ci             # full validation (format-check + glint + check + test + runtime startup + strict build + docs-check + sbom-drift-check + sbom-validate)
 just clean          # remove build artifacts
 ```
 

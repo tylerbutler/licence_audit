@@ -42,9 +42,26 @@ build-strict:
 build-queso:
     mise exec -- queso build
 
+# Test a native Linux glibc executable with real HTTPS requests, without Erlang.
+smoke-native-http binary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    binary=$(realpath {{quote(binary)}})
+    test -x "$binary"
+    docker build --quiet --file test/native_http.Dockerfile --tag licence-audit-native-http test
+    docker run --rm --user "$(id -u):$(id -g)" \
+      --mount "type=bind,src=$binary,dst=/licence_audit,readonly" \
+      --mount "type=bind,src=$PWD/test,dst=/tests,readonly" \
+      licence-audit-native-http bash /tests/native_http_smoke.sh /licence_audit
+
 # Run tests
 test:
     mise exec -- gleam test
+
+# Test CLI application startup and failure diagnostics in fresh Erlang VMs.
+test-runtime-startup:
+    mise exec -- gleam build
+    mise exec -- bash test/runtime_startup.sh
 
 # Type check without producing artifacts
 check:
@@ -194,6 +211,6 @@ docs-check: build
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor format-check glint check test build-strict docs-check sbom-drift-check sbom-validate
+ci: doctor format-check glint check test test-runtime-startup build-strict docs-check sbom-drift-check sbom-validate
 
 alias pr := ci
