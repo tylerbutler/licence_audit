@@ -177,6 +177,47 @@ that should not fail on tooling-only packages.
 > `--allow`/`--deny` also work on the bare command — they switch the report into
 > a policy *preview* mode but still exit `0`. Use `check` when you want failures.
 
+### Accept one scoped finding
+
+Use `[[tools.licence_audit.exceptions]]` to record a review decision for one
+locked package and finding. This accepts the finding after global rules,
+including `deny`, without changing its licence metadata or severity.
+
+```toml
+[[tools.licence_audit.exceptions]]
+purl = "pkg:hex/example@1.2.3"
+finding = "denied-licence"
+licence = "GPL-3.0-only"
+reason = "Approved for this release while we replace the dependency."
+expires = "2026-12-31"
+
+[[tools.licence_audit.exceptions]]
+purl = "pkg:hex/example@1.2.3"
+finding = "advisory"
+advisory = "CVE-2026-12345"
+reason = "Reviewed the affected feature; this application does not use it."
+expires = "2026-12-31"
+```
+
+The package version must match exactly. Advisory exceptions also support a
+GitHub repository at a full commit. The advisory selector matches the OSV
+record's ID or a direct alias, such as its CVE or GHSA ID. It does not accept
+the same advisory on another package.
+
+`reason` is required. `expires` is optional: a dated exception remains active
+through that UTC date and expires at the next UTC midnight. Omit it for an
+indefinite decision. An expired finding uses the normal gate again.
+
+Reports keep excepted findings visible, including with `--quiet`. The exception
+summary identifies expired, unused, and not-evaluated entries. Remove unused
+entries after a dependency update or policy change. Expired or unused entries
+do not fail on their own. `--ignore-config` disables configured exceptions.
+Network and decode errors still follow the normal error path.
+
+See the [exception configuration guide](https://licence-audit.tylerbutler.com/docs/check#scoped-policy-exceptions)
+for all selectors and matching rules. SBOM and notice output keep the original
+evidence and attribution. `update` preserves exception entries and comments.
+
 ## Generate an SBOM
 
 ```sh
@@ -348,6 +389,7 @@ and prefixed with a status glyph:
 | `✓` | licence allowed by policy (`check` only) |
 | `✗` | licence denied by policy (`check` only) |
 | `?` | no policy evaluated, or status unknown |
+| `~` | finding accepted by a scoped policy exception |
 | `·` | package skipped (non-Hex source) |
 
 The default report shows `Package`, `Version`, `Licences`. Once a policy is in

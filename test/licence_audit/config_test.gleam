@@ -16,6 +16,7 @@ pub fn parse_tools_licence_audit_section_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: ["MIT", "Apache-2.0"],
       deny: ["GPL-3.0-only"],
       vuln_severity: None,
@@ -30,6 +31,7 @@ pub fn parse_gleam_toml_finds_tools_licence_audit_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: ["MIT", "Apache-2.0"],
       deny: ["GPL-3.0-only"],
       vuln_severity: None,
@@ -51,6 +53,7 @@ pub fn parse_rejects_bare_licence_audit_section_test() {
 pub fn merge_combines_file_and_cli_policy_with_stable_deduplication_test() {
   let file =
     config.Policy(
+      exceptions: [],
       allow: ["MIT", "Apache-2.0"],
       deny: ["GPL-3.0-only"],
       vuln_severity: None,
@@ -58,6 +61,7 @@ pub fn merge_combines_file_and_cli_policy_with_stable_deduplication_test() {
     )
   let cli =
     config.Policy(
+      exceptions: [],
       allow: ["MIT", "BSD-3-Clause"],
       deny: [
         "AGPL-3.0-only",
@@ -76,6 +80,7 @@ pub fn merge_combines_file_and_cli_policy_with_stable_deduplication_test() {
 pub fn merge_errors_on_empty_licence_identifier_test() {
   let file =
     config.Policy(
+      exceptions: [],
       allow: ["MIT"],
       deny: [],
       vuln_severity: None,
@@ -83,6 +88,7 @@ pub fn merge_errors_on_empty_licence_identifier_test() {
     )
   let cli =
     config.Policy(
+      exceptions: [],
       allow: [""],
       deny: [],
       vuln_severity: None,
@@ -142,6 +148,7 @@ pub fn parse_errors_on_non_boolean_vuln_block_unknown_test() {
 pub fn merge_preserves_configured_vuln_block_unknown_test() {
   let file =
     config.Policy(
+      exceptions: [],
       allow: [],
       deny: [],
       vuln_severity: None,
@@ -149,6 +156,7 @@ pub fn merge_preserves_configured_vuln_block_unknown_test() {
     )
   let cli =
     config.Policy(
+      exceptions: [],
       allow: [],
       deny: [],
       vuln_severity: None,
@@ -178,6 +186,7 @@ pub fn load_uses_explicit_config_before_project_config_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: ["BSD-3-Clause"],
       deny: ["AGPL-3.0-only"],
       vuln_severity: None,
@@ -204,6 +213,7 @@ pub fn load_reads_project_gleam_toml_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: ["MIT", "Apache-2.0"],
       deny: ["GPL-3.0-only"],
       vuln_severity: None,
@@ -230,6 +240,7 @@ pub fn load_uses_cli_policy_when_no_file_policy_exists_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: ["MIT"],
       deny: ["GPL-3.0-only"],
       vuln_severity: None,
@@ -256,6 +267,7 @@ pub fn load_uses_cli_only_when_ignore_config_is_set_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: ["ISC"],
       deny: ["Unlicence"],
       vuln_severity: None,
@@ -282,6 +294,7 @@ pub fn load_allows_missing_policy_in_report_mode_test() {
   should.equal(
     policy,
     config.Policy(
+      exceptions: [],
       allow: [],
       deny: [],
       vuln_severity: None,

@@ -56,6 +56,8 @@ pub type SbomOptions {
 pub type VulnsOptions {
   VulnsOptions(
     manifest_path: Option(String),
+    config_path: Option(String),
+    ignore_config: Bool,
     verbosity: progress.Verbosity,
     color: color.Mode,
   )
@@ -534,6 +536,8 @@ fn vulns_command() -> glint.Command(CliAction) {
   use <- glint.command_help(vulns_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use manifest <- glint.flag(manifest_flag())
+  use config <- glint.flag(config_flag())
+  use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
@@ -543,6 +547,8 @@ fn vulns_command() -> glint.Command(CliAction) {
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
+  let assert Ok(config_path) = config(flags)
+  let assert Ok(ignore_config) = ignore_config(flags)
   let assert Ok(quiet) = quiet(flags)
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
@@ -554,6 +560,8 @@ fn vulns_command() -> glint.Command(CliAction) {
     Ok(verbosity), Ok(color_mode) ->
       RunVulns(VulnsOptions(
         manifest_path: optional_string(manifest_path),
+        config_path: optional_string(config_path),
+        ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
       ))

@@ -25,6 +25,26 @@ and network errors cause a failure. The command queries Hex and GitHub
 dependencies. It skips other sources and lists them at the end. The command
 gets advisories through HTTPS and does **not** cache them.
 
+## Reviewed advisory exceptions
+
+`vulns` reads `[tools.licence_audit]` from the project selected by `--manifest`.
+It shows matching advisory exceptions with their reasons and expiry dates,
+but keeps the advisories in the affected-package counts. An exception does
+not mean that a vulnerability has been fixed.
+
+Use `--config=other.toml` to select another configuration file, or
+`--ignore-config` to ignore configuration. The command does not require a
+licence policy. It reports licence exceptions as `not evaluated`.
+
+The exception summary lists expired and unused entries. Expiry does not make
+`vulns` enforce a gate. Malformed or overlapping exception configuration
+returns exit code 2. A failed advisory detail lookup still appears as
+unavailable evidence with a warning; an exception cannot accept that
+placeholder.
+
+See [scoped policy exceptions](/docs/check#scoped-policy-exceptions) for the
+TOML schema, exact version/commit matching, advisory aliases, and UTC expiry.
+
 ## Failing a build on vulnerabilities
 
 `vulns` reports results and does not enforce a threshold. To return a failure
@@ -48,6 +68,8 @@ for configuration and override rules.
 | Flag | What it does |
 |---|---|
 | `--manifest` | Read `manifest.toml` from `PATH`. |
+| `--config` | Read configuration from `PATH`. |
+| `--ignore-config` | Ignore configuration, including advisory exceptions. |
 | `--no-cache` | Bypass the on-disk licence metadata cache. |
 | `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
 | `--quiet` / `--verbose` | Suppress or expand progress output. |

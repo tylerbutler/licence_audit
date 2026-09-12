@@ -56,6 +56,8 @@ pub fn get_array(
   case tomlet.get(doc, path) {
     Error(_) -> Error(ArrayMissing)
     Ok(tomlet.ArrayValue(items)) -> Ok(items)
+    Ok(tomlet.ArrayOfTablesValue(tables)) ->
+      Ok(list.map(tables, tomlet.StandardTableValue))
     Ok(_) -> Error(ArrayNotArray)
   }
 }

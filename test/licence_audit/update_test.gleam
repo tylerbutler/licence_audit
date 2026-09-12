@@ -2,6 +2,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/picker
 import licence_audit/progress
@@ -215,4 +216,74 @@ pub fn write_failure_exits_1_test() {
   should.equal(result.exit_code, 1)
   let assert True = string.contains(result.output, "Failed to write")
   let _ = simplifile.delete(blocker)
+}
+
+pub fn update_preserves_reviewed_exceptions_and_comments_test() {
+  let path = fresh_path("exceptions")
+  let exceptions =
+    "
+# Review decisions must survive allow-list updates.
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/lib_b@2.0.0\"
+finding = \"unallowed-licence\"
+licence = \"Apache-2.0\"
+reason = \"Reviewed for this release\" # reviewer note
+expires = \"2099-12-31\"
+
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/lib_c@3.0.0\"
+finding = \"advisory\"
+advisory = \"CVE-2026-12345\"
+reason = \"Reviewed affected code\"
+"
+  let assert Ok(_) =
+    simplifile.write(
+      to: path,
+      contents: "[tools.licence_audit]\nallow = [\"MIT\"]\n" <> exceptions,
+    )
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  list.each(string.split(exceptions, "\n"), fn(line) {
+    assert string.contains(contents, line)
+  })
+  let assert Ok(parsed) = config.parse(contents)
+  let assert Ok(original) =
+    config.parse("[tools.licence_audit]\n" <> exceptions)
+  should.equal(parsed.exceptions, original.exceptions)
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
+  let path = fresh_path("invalid_exceptions")
+  let original =
+    "[tools.licence_audit]\nallow = [\"MIT\"]\nexceptions = \"ignore\"\n"
+  let assert Ok(_) = simplifile.write(to: path, contents: original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "exceptions must be an array of tables")
+  should.equal(simplifile.read(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
 }

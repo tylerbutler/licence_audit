@@ -42,6 +42,7 @@ pub type Score {
 pub type Vulnerability {
   Vulnerability(
     id: String,
+    aliases: List(String),
     summary: String,
     severity: Severity,
     scores: List(Score),
@@ -393,6 +394,11 @@ pub fn decode_vuln_body(
 
 fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
   use id <- decode.optional_field("id", fallback_id, decode.string)
+  use aliases <- decode.optional_field(
+    "aliases",
+    [],
+    decode.list(decode.string),
+  )
   use summary <- decode.optional_field("summary", "", decode.string)
   use details <- decode.optional_field("details", "", decode.string)
   use database_severity <- decode.optional_field(
@@ -419,6 +425,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
 
   decode.success(Vulnerability(
     id: id,
+    aliases: aliases,
     summary: resolved_summary,
     severity: severity,
     scores: scores,

@@ -1,5 +1,6 @@
 import gleam/list
 import licence_audit/config
+import licence_audit/exception
 
 pub type Policy {
   Policy(allow: List(String), deny: List(String))
@@ -48,6 +49,31 @@ pub fn audit(policy: Policy, licences: List(String)) -> AuditStatus {
         Ok(licence) -> DeniedLicence(licence)
         Error(Nil) -> check_allow_list(policy, licences)
       }
+    }
+  }
+}
+
+pub fn findings(
+  policy: Policy,
+  licences: List(String),
+) -> List(exception.Finding) {
+  case licences {
+    [] -> [exception.NoLicencesDeclared]
+    _ -> {
+      let licences = list.unique(licences)
+      let denied =
+        licences
+        |> list.filter(fn(licence) { list.contains(policy.deny, licence) })
+        |> list.map(exception.DeniedLicence)
+      let unallowed =
+        licences
+        |> list.filter(fn(licence) {
+          policy.allow != []
+          && !list.contains(policy.allow, licence)
+          && !list.contains(policy.deny, licence)
+        })
+        |> list.map(exception.UnallowedLicence)
+      list.append(denied, unallowed)
     }
   }
 }

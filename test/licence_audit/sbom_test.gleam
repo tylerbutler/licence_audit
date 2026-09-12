@@ -667,6 +667,7 @@ pub fn render_omits_vulnerabilities_when_absent_test() {
 pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
   let vuln =
     osv.Vulnerability(
+      aliases: [],
       id: "GHSA-aaaa-bbbb-cccc",
       summary: "Cross-site scripting in example",
       severity: osv.High,
@@ -707,6 +708,7 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
   // severity bucket (no method/vector keys).
   let vuln =
     osv.Vulnerability(
+      aliases: [],
       id: "CVE-2024-0002",
       summary: "",
       severity: osv.Medium,

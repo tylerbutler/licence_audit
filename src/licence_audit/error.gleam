@@ -84,6 +84,7 @@ pub fn from_config_error(error: config.Error) -> Error {
       Config("Invalid config field " <> field <> ": expected " <> expected)
     config.InvalidLicenceIdentifier ->
       Config("Licence identifiers must not be empty")
+    config.InvalidException(message) -> Config("Invalid config " <> message)
     config.FileReadError(path) -> Input("Could not read " <> path)
   }
 }

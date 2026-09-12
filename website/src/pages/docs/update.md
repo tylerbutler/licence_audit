@@ -21,6 +21,12 @@ licence_audit update
 3. Writes the result to `gleam.toml` without changing existing comments or
    formatting.
 
+`update` preserves [scoped policy exceptions](/docs/check#scoped-policy-exceptions)
+and their comments. It does not create, renew, or remove review decisions.
+Malformed exception configuration returns exit code 2 before the interactive
+selection or write. Use the audit report to find stale entries and remove
+them from the configuration.
+
 ## Terminal requirement
 
 `update` is interactive and requires a TTY:
