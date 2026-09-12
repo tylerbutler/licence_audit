@@ -7,6 +7,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar
 import gleam/time/timestamp
+import licence_audit/semver
 import licence_audit/toml
 
 pub type Finding {
@@ -134,7 +135,7 @@ fn validate_purl(purl: String) -> Result(Nil, String) {
       case string.split(identity, "/") {
         ["pkg:hex", name] ->
           characters(name, "abcdefghijklmnopqrstuvwxyz0123456789_")
-          && exact_version(version)
+          && semver.is_valid(version)
         ["pkg:github", owner, repo] ->
           characters(owner, "abcdefghijklmnopqrstuvwxyz0123456789-")
           && characters(repo, "abcdefghijklmnopqrstuvwxyz0123456789-_.")
@@ -151,43 +152,6 @@ fn validate_purl(purl: String) -> Result(Nil, String) {
         "purl must be pkg:hex/<name>@<exact-version> or pkg:github/<owner>/<repo>@<full-commit> (lowercase, without qualifiers or subpaths)",
       )
   }
-}
-
-fn exact_version(version: String) -> Bool {
-  case string.split(version, "+") {
-    [release] -> exact_release(release)
-    [release, build] -> exact_release(release) && identifiers(build, False)
-    _ -> False
-  }
-}
-
-fn exact_release(release: String) -> Bool {
-  let #(core, prerelease) = case string.split_once(release, "-") {
-    Ok(#(core, suffix)) -> #(core, identifiers(suffix, True))
-    Error(_) -> #(release, True)
-  }
-  prerelease
-  && case string.split(core, ".") {
-    [major, minor, patch] -> list.all([major, minor, patch], numeric_identifier)
-    _ -> False
-  }
-}
-
-fn numeric_identifier(value: String) -> Bool {
-  characters(value, "0123456789")
-  && { value == "0" || !string.starts_with(value, "0") }
-}
-
-fn identifiers(value: String, prerelease: Bool) -> Bool {
-  list.all(string.split(value, "."), fn(part) {
-    characters(
-      part,
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
-    )
-    && {
-      !prerelease || !characters(part, "0123456789") || numeric_identifier(part)
-    }
-  })
 }
 
 pub fn validate_date(date: String) -> Result(Nil, String) {
