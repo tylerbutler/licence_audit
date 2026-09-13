@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v0.12.0 - 2026-09-13
+
+### Added
+
+- Add scoped policy exceptions with review reasons, UTC expiry, and visible licence and advisory decisions in `check` and `vulns` (#95).
+
 ## v0.11.1 - 2026-09-06
 
 ### Fixed
