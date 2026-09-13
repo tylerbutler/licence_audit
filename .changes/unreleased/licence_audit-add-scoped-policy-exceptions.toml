@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Added"
-body = "Add scoped policy exceptions with review reasons, UTC expiry, and visible licence and advisory decisions in `check` and `vulns` (#95)."
