@@ -1445,8 +1445,7 @@ fn audit_locked(
             report_text: "",
             gate_failed: False,
             unknown_failed: False,
-            query_failed: False,
-            detail_incomplete: False,
+            incomplete: False,
             config_error: None,
             coverage: exception.NotEvaluated("vulnerability scan disabled"),
             reporter: result.reporter,
@@ -1550,8 +1549,7 @@ fn audit_locked(
             finalize_audit(
               options.check,
               result.fetch_failed,
-              vuln_outcome.query_failed,
-              vuln_outcome.detail_incomplete,
+              vuln_outcome.incomplete,
               policy_failed,
               vuln_outcome.gate_failed,
               vuln_outcome.unknown_failed,
@@ -1575,8 +1573,7 @@ fn audit_locked(
 fn finalize_audit(
   check: Bool,
   fetch_failed: Bool,
-  vuln_query_failed: Bool,
-  vuln_detail_incomplete: Bool,
+  vuln_incomplete: Bool,
   policy_failed: Bool,
   vuln_failed: Bool,
   vuln_unknown_failed: Bool,
@@ -1590,17 +1587,7 @@ fn finalize_audit(
       "Licence audit failed: package metadata could not be fetched",
     ),
   ))
-  use <- bool.guard(when: vuln_query_failed, return: #(
-    RunResult(2, output),
-    progress.defer_error(
-      reporter,
-      "Vulnerability check failed: OSV request failed",
-    ),
-  ))
-  // The advisory-detail failure already deferred its own accurate message
-  // (advisory IDs + reasons) in evaluate_vuln_gate. Don't attach a second,
-  // generic message here — just carry the exit code.
-  use <- bool.guard(when: vuln_detail_incomplete, return: #(
+  use <- bool.guard(when: vuln_incomplete, return: #(
     RunResult(2, output),
     reporter,
   ))
@@ -2053,7 +2040,6 @@ type VulnRow {
 type VulnOccurrence {
   VulnOccurrence(
     package: manifest.SbomEntry,
-    purl: String,
     vulnerability: osv.Vulnerability,
     decision: exception.Decision,
   )
@@ -2067,17 +2053,13 @@ type DetailFailure {
   DetailFailure(id: String, reason: String)
 }
 
-/// Result of running the `check --vulns` gate. `query_failed` and
-/// `detail_incomplete` are kept distinct because each already deferred its
-/// own accurate error message before returning — `finalize_audit` must not
-/// attach a second, generic message on top of either.
+/// Result of running the `check --vulns` gate.
 type VulnGateOutcome {
   VulnGateOutcome(
     report_text: String,
     gate_failed: Bool,
     unknown_failed: Bool,
-    query_failed: Bool,
-    detail_incomplete: Bool,
+    incomplete: Bool,
     config_error: Option(String),
     coverage: exception.Coverage,
     reporter: progress.Reporter,
@@ -2362,8 +2344,7 @@ fn run_vuln_check_for_audit(
         report_text: "",
         gate_failed: False,
         unknown_failed: False,
-        query_failed: False,
-        detail_incomplete: False,
+        incomplete: False,
         config_error: Some(message),
         coverage: exception.NotEvaluated("ambiguous package identity"),
         reporter: reporter,
@@ -2375,8 +2356,7 @@ fn run_vuln_check_for_audit(
             report_text: format_unsupported_sources(unsupported_packages),
             gate_failed: False,
             unknown_failed: False,
-            query_failed: False,
-            detail_incomplete: False,
+            incomplete: False,
             config_error: None,
             coverage: exception.Evaluated([], []),
             reporter: reporter,
@@ -2432,8 +2412,7 @@ fn query_vuln_gate(
         report_text: "\nVulnerability check failed: OSV request failed.\n",
         gate_failed: False,
         unknown_failed: False,
-        query_failed: True,
-        detail_incomplete: False,
+        incomplete: True,
         config_error: None,
         coverage: unavailable_vulns(purl_pairs, "OSV request failed"),
         reporter: reporter,
@@ -2491,8 +2470,7 @@ fn evaluate_vuln_gate(
             report_text: "",
             gate_failed: False,
             unknown_failed: False,
-            query_failed: False,
-            detail_incomplete: False,
+            incomplete: False,
             config_error: Some(message),
             coverage: exception.NotEvaluated("ambiguous advisory exceptions"),
             reporter: reporter,
@@ -2514,33 +2492,21 @@ fn evaluate_vuln_gate(
             list.any(triggering, fn(vuln) {
               vuln.severity == osv.UnknownSeverity
             })
-          let report_text = case exceptions {
-            [] ->
-              format_vuln_gate_output(
-                vulns,
-                triggering,
-                threshold,
-                block_unknown,
-                occurrence_package_index(occurrences),
-                unsupported_packages,
-                palette,
-              )
-            _ ->
-              format_reviewed_vuln_gate(
-                occurrences,
-                triggering,
-                threshold,
-                block_unknown,
-                unsupported_packages,
-                palette,
-              )
-          }
+          let report_text =
+            format_vuln_gate_output(
+              occurrences,
+              triggering,
+              threshold,
+              block_unknown,
+              exceptions != [],
+              unsupported_packages,
+              palette,
+            )
           VulnGateOutcome(
             report_text: report_text,
             gate_failed: triggering != [],
             unknown_failed: unknown_failed,
-            query_failed: False,
-            detail_incomplete: False,
+            incomplete: False,
             config_error: None,
             coverage: exception.Evaluated(
               occurrences |> list.map(fn(o) { o.decision }) |> exception.matched,
@@ -2552,9 +2518,6 @@ fn evaluate_vuln_gate(
       }
     }
     _ -> {
-      // Defer the specific advisory IDs/reasons here — this is the only
-      // error message for this outcome. finalize_audit must not attach its
-      // own generic "OSV request failed" message on top of this one.
       let reporter =
         progress.defer_error(
           reporter,
@@ -2566,8 +2529,7 @@ fn evaluate_vuln_gate(
         report_text: format_vuln_detail_failures_output(detail_failures),
         gate_failed: False,
         unknown_failed: False,
-        query_failed: False,
-        detail_incomplete: True,
+        incomplete: True,
         config_error: None,
         coverage: unavailable_vulns(
           purl_pairs,
@@ -2676,29 +2638,19 @@ fn review_vuln_occurrences(
           vuln.aliases,
           today,
         ))
-        Ok(VulnOccurrence(package:, purl:, vulnerability: vuln, decision:))
+        Ok(VulnOccurrence(package:, vulnerability: vuln, decision:))
       })
     }),
   )
   Ok(list.flatten(groups) |> list.unique)
 }
 
-fn occurrence_package_index(
-  occurrences: List(VulnOccurrence),
-) -> dict.Dict(String, List(String)) {
-  list.fold(occurrences, dict.new(), fn(index, occurrence) {
-    let id = occurrence.vulnerability.id
-    let labels = dict.get(index, id) |> result.unwrap([])
-    let label = occurrence.package.name <> "@" <> occurrence.package.version
-    dict.insert(index, id, list.append(labels, [label]) |> list.unique)
-  })
-}
-
-fn format_reviewed_vuln_gate(
+fn format_vuln_gate_output(
   occurrences: List(VulnOccurrence),
   triggering: List(osv.Vulnerability),
   threshold: osv.Severity,
   block_unknown: Bool,
+  reviews_enabled: Bool,
   unsupported: List(String),
   palette: color.Palette,
 ) -> String {
@@ -2738,6 +2690,43 @@ fn format_reviewed_vuln_gate(
         occurrences
         |> list.filter(fn(o) { exception.accepted(o.decision) })
         |> list.length
+      let all_vulns =
+        occurrences
+        |> list.map(fn(occurrence) { occurrence.vulnerability })
+        |> list.unique
+      let summary = case reviews_enabled {
+        True ->
+          int.to_string(list.length(triggering))
+          <> " blocking advisory/advisories; "
+          <> int.to_string(excepted)
+          <> " excepted finding(s) of "
+          <> int.to_string(list.length(occurrences))
+          <> " package/advisory finding(s)."
+        False -> {
+          let trigger_count = int.to_string(list.length(triggering))
+          let total_count = int.to_string(list.length(all_vulns))
+          case
+            list.any(triggering, fn(vuln) {
+              vuln.severity == osv.UnknownSeverity
+            })
+          {
+            True ->
+              trigger_count
+              <> " blocking advisory/advisories: known severity at or above "
+              <> osv.severity_to_string(threshold)
+              <> " or unknown severity (of "
+              <> total_count
+              <> " total reported)."
+            False ->
+              trigger_count
+              <> " advisory/advisories at or above "
+              <> osv.severity_to_string(threshold)
+              <> " (of "
+              <> total_count
+              <> " total reported)."
+          }
+        }
+      }
       "\n"
       <> color.boxed(
         palette,
@@ -2750,12 +2739,8 @@ fn format_reviewed_vuln_gate(
         body,
       )
       <> "\n"
-      <> int.to_string(list.length(triggering))
-      <> " blocking advisory/advisories; "
-      <> int.to_string(excepted)
-      <> " excepted finding(s) of "
-      <> int.to_string(list.length(occurrences))
-      <> " package/advisory finding(s).\n"
+      <> summary
+      <> "\n"
       <> format_unsupported_sources(unsupported)
     }
   }
@@ -2790,80 +2775,6 @@ fn severity_rank(severity: osv.Severity) -> Int {
     osv.Medium -> 2
     osv.High -> 3
     osv.Critical -> 4
-  }
-}
-
-fn format_vuln_gate_output(
-  all_vulns: List(osv.Vulnerability),
-  triggering: List(osv.Vulnerability),
-  threshold: osv.Severity,
-  block_unknown: Bool,
-  id_to_pkg: dict.Dict(String, List(String)),
-  unsupported_packages: List(String),
-  palette: color.Palette,
-) -> String {
-  case all_vulns {
-    [] ->
-      "\nNo known vulnerabilities reported by OSV.dev.\n"
-      <> format_unsupported_sources(unsupported_packages)
-    _ -> {
-      let lines =
-        list.map(all_vulns, fn(vuln) {
-          let label = case dict.get(id_to_pkg, vuln.id) {
-            Ok(pkgs) -> string.join(pkgs, with: ", ")
-            Error(_) -> "(unknown)"
-          }
-          let marker = case
-            advisory_blocks(vuln.severity, threshold, block_unknown)
-          {
-            True -> color.red(palette, "✗")
-            False -> color.dim(palette, "·")
-          }
-          marker
-          <> "  "
-          <> color.severity(palette, severity_label(vuln.severity))
-          <> "  "
-          <> vuln.id
-          <> "  "
-          <> color.dim(palette, label)
-        })
-        |> string.join(with: "\n")
-      let trigger_count = int.to_string(list.length(triggering))
-      let total_count = int.to_string(list.length(all_vulns))
-      let unknown_triggered =
-        list.any(triggering, fn(vuln) { vuln.severity == osv.UnknownSeverity })
-      let summary = case unknown_triggered {
-        True ->
-          trigger_count
-          <> " blocking advisory/advisories: known severity at or above "
-          <> osv.severity_to_string(threshold)
-          <> " or unknown severity (of "
-          <> total_count
-          <> " total reported)."
-        False ->
-          trigger_count
-          <> " advisory/advisories at or above "
-          <> osv.severity_to_string(threshold)
-          <> " (of "
-          <> total_count
-          <> " total reported)."
-      }
-
-      let title =
-        "Vulnerability check · threshold: "
-        <> osv.severity_to_string(threshold)
-        <> case block_unknown {
-          True -> " · unknown: block"
-          False -> ""
-        }
-
-      "\n"
-      <> color.boxed(palette, title, lines)
-      <> "\n"
-      <> summary
-      <> "\n"
-      <> format_unsupported_sources(unsupported_packages)
-    }
   }
 }
 
