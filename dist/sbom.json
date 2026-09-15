@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:eeb0840b-b6b5-8850-8aea-f556f811e23e",
+  "serialNumber": "urn:uuid:77226030-c31f-8c4c-aff3-82d7f7acc73e",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -144,7 +144,6 @@
           "https://hex.pm/packages/argv"
         ]
       },
-      "publisher": "lpil",
       "description": "A cross platform library for getting the command line arguments",
       "hashes": [
         {
@@ -167,9 +166,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/argv",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -177,9 +176,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/lpil/argv",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -196,7 +195,6 @@
           "https://hex.pm/packages/casefold"
         ]
       },
-      "publisher": "krig",
       "description": "Gleam library providing casefold and other string utility functions.",
       "hashes": [
         {
@@ -238,7 +236,6 @@
           "https://hex.pm/packages/cvss"
         ]
       },
-      "publisher": "erlefsecuritywg, maennchen",
       "description": "CVSS (Common Vulnerability Scoring System) library for Erlang",
       "hashes": [
         {
@@ -286,7 +283,6 @@
           "https://hex.pm/packages/etch"
         ]
       },
-      "publisher": "bananaofhappiness",
       "description": "A Gleam TUI Backend Library",
       "hashes": [
         {
@@ -328,7 +324,6 @@
           "https://hex.pm/packages/filepath"
         ]
       },
-      "publisher": "lpil",
       "description": "Work with file paths in Gleam!",
       "hashes": [
         {
@@ -351,9 +346,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/filepath",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -361,9 +356,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/lpil/filepath",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -380,7 +375,6 @@
           "https://hex.pm/packages/glance"
         ]
       },
-      "publisher": "lpil",
       "description": "A Gleam source code parser, in Gleam!",
       "hashes": [
         {
@@ -403,9 +397,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/glance",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -413,9 +407,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/lpil/glance",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -432,7 +426,6 @@
           "https://hex.pm/packages/gleam_community_ansi"
         ]
       },
-      "publisher": "gleam-community",
       "description": "ANSI colours, formatting, and control codes",
       "hashes": [
         {
@@ -474,7 +467,6 @@
           "https://hex.pm/packages/gleam_community_colour"
         ]
       },
-      "publisher": "gleam-community",
       "description": "Colour types, conversions, and other utilities",
       "hashes": [
         {
@@ -516,7 +508,6 @@
           "https://hex.pm/packages/gleam_crypto"
         ]
       },
-      "publisher": "lpil",
       "description": "A Gleam cryptography library supporting Erlang and JavaScript",
       "hashes": [
         {
@@ -539,9 +530,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/crypto",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -549,9 +540,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/crypto",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -568,7 +559,6 @@
           "https://hex.pm/packages/gleam_erlang"
         ]
       },
-      "publisher": "lpil",
       "description": "Types and functions for programs running on Erlang!",
       "hashes": [
         {
@@ -591,9 +581,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/erlang",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -601,9 +591,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/erlang",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -620,7 +610,6 @@
           "https://hex.pm/packages/gleam_http"
         ]
       },
-      "publisher": "lpil",
       "description": "Types and functions for Gleam HTTP clients and servers",
       "hashes": [
         {
@@ -643,9 +632,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/http",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -653,9 +642,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/http",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -672,7 +661,6 @@
           "https://hex.pm/packages/gleam_httpc"
         ]
       },
-      "publisher": "lpil",
       "description": "Gleam bindings to Erlang's built in HTTP client, httpc",
       "hashes": [
         {
@@ -695,9 +683,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/httpc",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -705,9 +693,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/httpc",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -724,7 +712,6 @@
           "https://hex.pm/packages/gleam_javascript"
         ]
       },
-      "publisher": "lpil",
       "description": "Work with JavaScript types and values in Gleam, including promises!",
       "hashes": [
         {
@@ -747,9 +734,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/javascript",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -757,9 +744,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/javascript",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -776,7 +763,6 @@
           "https://hex.pm/packages/gleam_json"
         ]
       },
-      "publisher": "lpil",
       "description": "Work with JSON in Gleam",
       "hashes": [
         {
@@ -799,9 +785,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/json",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -809,9 +795,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/json",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -828,7 +814,6 @@
           "https://hex.pm/packages/gleam_regexp"
         ]
       },
-      "publisher": "lpil",
       "description": "Regular expressions in Gleam!",
       "hashes": [
         {
@@ -851,14 +836,14 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/regexp",
-          "type": "vcs",
-          "comment": "Repository"
-        },
-        {
           "url": "https://github.com/sponsors/lpil",
           "type": "other",
           "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/gleam-lang/regexp",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -875,7 +860,6 @@
           "https://hex.pm/packages/gleam_stdlib"
         ]
       },
-      "publisher": "lpil",
       "description": "A standard library for the Gleam programming language",
       "hashes": [
         {
@@ -898,9 +882,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/stdlib",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -908,9 +892,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-lang/stdlib",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -927,7 +911,6 @@
           "https://hex.pm/packages/gleam_time"
         ]
       },
-      "publisher": "lpil",
       "description": "Work with time in Gleam!",
       "hashes": [
         {
@@ -950,14 +933,14 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-lang/time",
-          "type": "vcs",
-          "comment": "Repository"
-        },
-        {
           "url": "https://github.com/sponsors/lpil",
           "type": "other",
           "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/gleam-lang/time",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -974,7 +957,6 @@
           "https://hex.pm/packages/gleescript"
         ]
       },
-      "publisher": "lpil",
       "description": "Bundle your Gleam-on-Erlang project into an escript, a single executable file!",
       "hashes": [
         {
@@ -997,9 +979,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/gleescript",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -1007,9 +989,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/lpil/gleescript",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1026,7 +1008,6 @@
           "https://hex.pm/packages/gleeunit"
         ]
       },
-      "publisher": "lpil",
       "description": "A simple test runner for Gleam, using EUnit on Erlang",
       "hashes": [
         {
@@ -1049,14 +1030,14 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/gleeunit",
-          "type": "vcs",
-          "comment": "Repository"
-        },
-        {
           "url": "https://github.com/sponsors/lpil",
           "type": "other",
           "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/lpil/gleeunit",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1073,7 +1054,6 @@
           "https://hex.pm/packages/glexer"
         ]
       },
-      "publisher": "danielle",
       "description": "A lexer for Gleam source code",
       "hashes": [
         {
@@ -1115,7 +1095,6 @@
           "https://hex.pm/packages/glinter"
         ]
       },
-      "publisher": "rapind",
       "description": "A linter for the Gleam programming language",
       "hashes": [
         {
@@ -1138,14 +1117,14 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/pairshaped/glinter",
-          "type": "vcs",
-          "comment": "Repository"
-        },
-        {
           "url": "https://raw.githubusercontent.com/pairshaped/glinter/master/llms.txt",
           "type": "other",
           "comment": "llms.txt"
+        },
+        {
+          "url": "https://github.com/pairshaped/glinter",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1162,7 +1141,6 @@
           "https://hex.pm/packages/glugify"
         ]
       },
-      "publisher": "maxh213",
       "description": "A robust, type-safe slugification library for Gleam that converts text into URL-friendly slugs",
       "hashes": [
         {
@@ -1185,14 +1163,14 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/maxh213/glugify/blob/main/CHANGELOG.md",
-          "type": "other",
-          "comment": "Changelog"
-        },
-        {
           "url": "https://hexdocs.pm/glugify",
           "type": "documentation",
           "comment": "Documentation"
+        },
+        {
+          "url": "https://github.com/maxh213/glugify/blob/main/CHANGELOG.md",
+          "type": "other",
+          "comment": "Changelog"
         },
         {
           "url": "https://github.com/maxh213/glugify",
@@ -1214,7 +1192,6 @@
           "https://hex.pm/packages/houdini"
         ]
       },
-      "publisher": "giacomocavalieri",
       "description": "🪄 Fast HTML escaping",
       "hashes": [
         {
@@ -1256,7 +1233,6 @@
           "https://hex.pm/packages/mork"
         ]
       },
-      "publisher": "krig",
       "description": "Markdown parser for Gleam",
       "hashes": [
         {
@@ -1313,7 +1289,6 @@
           "https://hex.pm/packages/simplifile"
         ]
       },
-      "publisher": "bcpeinhardt",
       "description": "Basic file operations that work on all targets",
       "hashes": [
         {
@@ -1355,7 +1330,6 @@
           "https://hex.pm/packages/slate"
         ]
       },
-      "publisher": "tylerbutler",
       "description": "Type-safe Gleam wrapper for Erlang DETS (Disk Erlang Term Storage)",
       "hashes": [
         {
@@ -1397,7 +1371,6 @@
           "https://hex.pm/packages/smalto"
         ]
       },
-      "publisher": "veeso",
       "description": "A general-purpose syntax highlighting library for Gleam, with regex-based grammars for 30 languages.",
       "hashes": [
         {
@@ -1444,7 +1417,6 @@
           "https://hex.pm/packages/snag"
         ]
       },
-      "publisher": "lpil",
       "description": "A boilerplate-free ad-hoc error type",
       "hashes": [
         {
@@ -1467,9 +1439,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/gleam-experiments/snag",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -1477,9 +1449,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
+          "url": "https://github.com/gleam-experiments/snag",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1496,7 +1468,6 @@
           "https://hex.pm/packages/splitter"
         ]
       },
-      "publisher": "lpil",
       "description": "Efficiently slice prefixes from strings. Good for parsers!",
       "hashes": [
         {
@@ -1519,14 +1490,14 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/splitter",
-          "type": "vcs",
-          "comment": "Repository"
-        },
-        {
           "url": "https://github.com/sponsors/lpil",
           "type": "other",
           "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/lpil/splitter",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1543,7 +1514,6 @@
           "https://hex.pm/packages/tom"
         ]
       },
-      "publisher": "lpil",
       "description": "A pure Gleam TOML parser!",
       "hashes": [
         {
@@ -1566,9 +1536,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/lpil/tom",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://toml.io/en/",
+          "type": "other",
+          "comment": "TOML website"
         },
         {
           "url": "https://github.com/sponsors/lpil",
@@ -1576,9 +1546,9 @@
           "comment": "Sponsor"
         },
         {
-          "url": "https://toml.io/en/",
-          "type": "other",
-          "comment": "TOML website"
+          "url": "https://github.com/lpil/tom",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1595,7 +1565,6 @@
           "https://hex.pm/packages/tomlet"
         ]
       },
-      "publisher": "tylerbutler",
       "description": "A round-tripping TOML parser and writer for Gleam, preserving comments, key order, and formatting.",
       "hashes": [
         {
@@ -1624,9 +1593,9 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://github.com/tylerbutler/tomlet",
-          "type": "vcs",
-          "comment": "Repository"
+          "url": "https://toml.io/en/v1.1.0",
+          "type": "other",
+          "comment": "TOML 1.1 spec"
         },
         {
           "url": "https://toml.io/en/v1.0.0",
@@ -1634,9 +1603,9 @@
           "comment": "TOML 1.0 spec"
         },
         {
-          "url": "https://toml.io/en/v1.1.0",
-          "type": "other",
-          "comment": "TOML 1.1 spec"
+          "url": "https://github.com/tylerbutler/tomlet",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     },
@@ -1653,7 +1622,6 @@
           "https://hex.pm/packages/tty"
         ]
       },
-      "publisher": "tylerbutler",
       "description": "TTY and ANSI color-support detection for Gleam (Erlang + JavaScript)",
       "hashes": [
         {
@@ -1706,7 +1674,6 @@
           "https://hex.pm/packages/william"
         ]
       },
-      "publisher": "yoshi-monster",
       "description": "A TOML lexer and syntax highlighter for Gleam",
       "hashes": [
         {
@@ -1729,11 +1696,6 @@
           "comment": "Hex package tarball"
         },
         {
-          "url": "https://gitlab.com/arkandos/william",
-          "type": "vcs",
-          "comment": "Repository"
-        },
-        {
           "url": "https://hexdocs.pm/contour",
           "type": "other",
           "comment": "contour"
@@ -1752,6 +1714,11 @@
           "url": "https://hexdocs.pm/tear",
           "type": "other",
           "comment": "tear"
+        },
+        {
+          "url": "https://gitlab.com/arkandos/william",
+          "type": "vcs",
+          "comment": "Repository"
         }
       ]
     }

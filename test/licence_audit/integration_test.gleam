@@ -2,6 +2,7 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -176,7 +177,6 @@ pub fn exceptions_do_not_change_sbom_or_notice_evidence_test() {
     "sbom",
     "--manifest=" <> manifest_path,
     "--reproducible",
-    "--vulns",
   ]
   let original_notices =
     licence_audit.run_with_notice_clients(
@@ -185,11 +185,10 @@ pub fn exceptions_do_not_change_sbom_or_notice_evidence_test() {
       notice_clients(fixture_hex_tarball),
     )
   let original_sbom =
-    licence_audit.run_with_clients(
+    licence_audit.run_with_notice_clients(
       sbom_args,
       notice_metadata_fetcher,
-      one_vuln_batch,
-      one_vuln_detail,
+      notice_clients(fixture_hex_tarball),
     )
   let assert Ok(_) =
     simplifile.write(to: root <> "/gleam.toml", contents: project <> "
@@ -213,19 +212,16 @@ reason = \"Reviewed advisory\"
       notice_clients(fixture_hex_tarball),
     )
   let sbom =
-    licence_audit.run_with_clients(
+    licence_audit.run_with_notice_clients(
       sbom_args,
       notice_metadata_fetcher,
-      one_vuln_batch,
-      one_vuln_detail,
+      notice_clients(fixture_hex_tarball),
     )
   should.equal(original_notices.exit_code, 0)
   should.equal(original_sbom.exit_code, 0)
   should.equal(notices, original_notices)
   should.equal(sbom, original_sbom)
   assert string.contains(notices.output, "Fixture licence text")
-  assert string.contains(sbom.output, "CVE-2024-0001")
-  assert string.contains(sbom.output, "Apache-2.0")
 }
 
 pub fn notices_falls_back_to_spdx_when_source_lacks_licence_test() {
@@ -1405,6 +1401,114 @@ pub fn sbom_subcommand_vulns_conflicts_with_offline_test() {
 
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "--offline")
+}
+
+fn reproducible_sbom_clients() -> notice.Clients {
+  notice.Clients(
+    fetch_hex_tarball: fn(name, version) {
+      should.equal(name, "hex_dep")
+      should.equal(version, "1.0.0")
+      simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+      |> result.replace_error(notice.FetchNetworkFailure)
+    },
+    fetch_git_archive: fn(_repo, commit) {
+      should.equal(commit, "abcdef")
+      simplifile.read_bits("test/fixtures/sbom_metadata/git.tar.gz")
+      |> result.replace_error(notice.FetchNetworkFailure)
+    },
+    resolve_commit: fn(_repo, _tag) { Ok(None) },
+    fetch_repo_archive: fn(_repo, _commit) { Error(notice.FetchNetworkFailure) },
+    fetch_spdx_index: fn(_kind) { Error(notice.FetchNetworkFailure) },
+    fetch_spdx: fn(_requirement) { Error(notice.FetchNetworkFailure) },
+  )
+}
+
+fn mutable_registry_metadata(
+  _name: String,
+) -> Result(hex.PackageMetadata, hex.Error) {
+  Ok(hex.PackageMetadata(
+    licences: ["MUTABLE"],
+    description: Some("Mutable registry metadata"),
+    links: [#("Live Playground", "https://example.com/mutable")],
+    publisher: Some("Mutable Owner"),
+  ))
+}
+
+pub fn sbom_reproducible_uses_locked_source_metadata_test() {
+  let root = "build/tmp/reproducible-sbom-metadata"
+  let manifest_path = root <> "/manifest.toml"
+  let local_git_path = root <> "/build/packages/git_dep"
+  let assert Ok(Nil) = simplifile.create_directory_all(local_git_path)
+  let assert Ok(hex_archive) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(hex_archive)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/gleam.toml",
+      contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: local_git_path <> "/gleam.toml",
+      contents: "name = \"git_dep\"\ndescription = \"Mutable local checkout\"\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(to: manifest_path, contents: "packages = [
+  { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> checksum <> "\" },
+  { name = \"git_dep\", version = \"2.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abcdef\" },
+]
+
+[requirements]
+hex_dep = \"1.0.0\"
+git_dep = { git = \"https://github.com/example/git_dep\" }
+")
+
+  let first =
+    licence_audit.run_with_notice_clients(
+      ["sbom", "--reproducible", "--manifest=" <> manifest_path],
+      mutable_registry_metadata,
+      reproducible_sbom_clients(),
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: local_git_path <> "/gleam.toml",
+      contents: "name = \"git_dep\"\ndescription = \"Changed local checkout\"\n",
+    )
+  let second =
+    licence_audit.run_with_notice_clients(
+      ["sbom", "--reproducible", "--manifest=" <> manifest_path],
+      mutable_registry_metadata,
+      reproducible_sbom_clients(),
+    )
+
+  should.equal(first.exit_code, 0)
+  should.equal(second, first)
+  assert string.contains(first.output, "Metadata from the locked Hex archive")
+  assert string.contains(first.output, "Metadata from the locked Git archive")
+  assert string.contains(first.output, "\"id\": \"Apache-2.0\"")
+  assert string.contains(first.output, "\"id\": \"MIT\"")
+  assert string.contains(first.output, "https://github.com/example/hex_dep")
+  assert string.contains(first.output, "https://github.com/example/git_dep")
+  assert !string.contains(first.output, "Mutable registry metadata")
+  assert !string.contains(first.output, "Mutable local checkout")
+  assert !string.contains(first.output, "Changed local checkout")
+  assert !string.contains(first.output, "\"publisher\"")
+}
+
+pub fn sbom_subcommand_vulns_conflicts_with_reproducible_test() {
+  let result =
+    licence_audit.run_with(
+      [
+        "sbom",
+        "--vulns",
+        "--reproducible",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+      ],
+      sbom_fetcher,
+    )
+
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "--reproducible")
 }
 
 fn one_vuln_batch(

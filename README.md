@@ -224,7 +224,7 @@ evidence and attribution. `update` preserves exception entries and comments.
 licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # compact JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
-licence_audit sbom --reproducible      # deterministic output (see below)
+licence_audit sbom --reproducible      # reproducible output (see below)
 licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
 ```
 
@@ -260,14 +260,17 @@ source link, ratings (the raw CVSS vector and method when OSV reports one,
 otherwise the severity bucket), and an `affects` list referencing the affected
 components by `bom-ref`/purl. The result is a single VEX-style document that
 tools like [Dependency-Track](https://dependencytrack.org/) can ingest directly.
-Because it needs network access, `--vulns` cannot be combined with `--offline`.
+Because advisory data changes over time, `--vulns` cannot be combined with
+`--offline` or `--reproducible`.
 
 **Reproducible output.** By default the `serialNumber` is random and the
-`timestamp` is wall-clock, so two runs never byte-match. `--reproducible` makes
-the `serialNumber` a content hash and takes the timestamp from
+`timestamp` is wall-clock, so two runs never byte-match. `--reproducible` reads
+Hex metadata from each checksum-verified package archive and Git metadata from
+the archive at the locked commit. It omits mutable Hex publisher data, makes
+the `serialNumber` a content hash, and takes the timestamp from
 [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
-(falling back to the Unix epoch) — making it practical to commit the SBOM and
-diff it over time to catch dependency or licence drift.
+(falling back to the Unix epoch). The same project files, lockfile, tool version,
+options, and timestamp produce byte-identical output.
 
 **Validation.** The repository validates the generated SBOM against the official
 CycloneDX schema. Three `just` tasks (tools installed via `mise`) cover this:

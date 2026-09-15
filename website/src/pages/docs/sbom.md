@@ -11,7 +11,7 @@ dependencies. It does **not** evaluate licence policy.
 licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # compact JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
-licence_audit sbom --reproducible      # deterministic output
+licence_audit sbom --reproducible      # reproducible output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
 ```
 
@@ -45,17 +45,19 @@ command has different behavior: it identifies and skips unsupported sources.
 `vulnerabilities` array. Each advisory has an `id`, an `OSV` source link,
 ratings, and an `affects` list. The list refers to affected components by
 `bom-ref` or purl. Tools such as [Dependency-Track][dt] can read the resultant
-VEX-style document. This operation requires a network connection. Therefore,
-you cannot use `--vulns` with `--offline`.
+VEX-style document. Advisory data changes over time. Therefore, you cannot use
+`--vulns` with `--offline` or `--reproducible`.
 
 ## Reproducible output
 
 By default, `sbom` uses a random `serialNumber` and the current time for
 `timestamp`. Thus, the output from two runs is different. With
-`--reproducible`, the command uses a content hash for `serialNumber`. It gets
-the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if the
-variable is not set. You can commit and compare reproducible SBOM files to
-find dependency or licence changes.
+`--reproducible`, the command reads Hex metadata from each checksum-verified
+package archive and Git metadata from the archive at the locked commit. It
+omits mutable Hex publisher data, uses a content hash for `serialNumber`, and
+gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
+the variable is not set. The same project files, lockfile, tool version,
+options, and timestamp produce byte-identical output.
 
 ## Flags
 
@@ -63,8 +65,8 @@ find dependency or licence changes.
 |---|---|
 | `--output` | Write the SBOM to `PATH` (compact) instead of stdout (pretty). |
 | `--offline` | Skip the Hex metadata fetch and omit licence fields. |
-| `--reproducible` | Deterministic output via a content hash and `SOURCE_DATE_EPOCH`. |
-| `--vulns` | Query OSV.dev and embed a `vulnerabilities` array. Conflicts with `--offline`. |
+| `--reproducible` | Use locked package archives, a content hash, and `SOURCE_DATE_EPOCH` for reproducible output. |
+| `--vulns` | Query OSV.dev and embed a `vulnerabilities` array. Conflicts with `--offline` and `--reproducible`. |
 | `--manifest` | Read `manifest.toml` from `PATH`. |
 | `--cache-path` | Override the licence metadata cache location. |
 | `--no-cache` | Bypass the on-disk licence metadata cache. |

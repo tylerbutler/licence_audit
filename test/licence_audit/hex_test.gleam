@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
@@ -51,6 +52,40 @@ pub fn decode_package_response_publisher_none_when_unavailable_test() {
   let assert Ok(metadata) = hex.decode_package(json)
 
   should.equal(metadata.publisher, None)
+}
+
+pub fn decode_archive_metadata_uses_immutable_fields_test() {
+  let assert Ok(contents) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex/metadata.config")
+  let assert Ok(metadata) = hex.package_metadata_from_archive(contents)
+
+  should.equal(metadata.licences, ["Apache-2.0"])
+  should.equal(
+    metadata.description,
+    Some("Metadata from the locked Hex archive"),
+  )
+  should.equal(metadata.links, [
+    #("Documentation", "https://hexdocs.pm/hex_dep"),
+    #("Repository", "https://github.com/example/hex_dep"),
+  ])
+  should.equal(metadata.publisher, None)
+}
+
+pub fn decode_archive_metadata_rejects_invalid_terms_test() {
+  should.equal(
+    hex.package_metadata_from_archive(<<"not erlang terms":utf8>>),
+    Error(Nil),
+  )
+}
+
+pub fn decode_archive_metadata_converts_latin1_strings_test() {
+  let input = <<
+    "{<<\"description\">>, <<\"Caf\\351\">>}.\n{<<\"licenses\">>, []}.\n":utf8,
+  >>
+  let assert Ok(metadata) = hex.package_metadata_from_archive(input)
+  let assert Some(description) = metadata.description
+
+  should.equal(bit_array.from_string(description), <<67, 97, 102, 195, 169>>)
 }
 
 pub fn cache_entry_round_trips_full_metadata_test() {
