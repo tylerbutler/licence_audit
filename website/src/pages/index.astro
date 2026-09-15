@@ -9,7 +9,7 @@ import VulnsTerminal from "../components/VulnsTerminal.astro";
 const repo = "https://github.com/tylerbutler/licence_audit";
 
 const installCmd =
-  'mise use -g "github:tylerbutler/licence_audit@latest[asset_pattern=licence_audit,bin=licence_audit]"';
+  "mise use -g github:tylerbutler/licence_audit@latest";
 
 const policyToml = `[tools.licence_audit]
 allow = ["Apache-2.0", "ISC", "MIT"]

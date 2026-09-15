@@ -19,12 +19,12 @@ have to install Erlang/OTP on the target machine.
 With [mise][mise], install directly from the `github:` provider:
 
 ```sh
-mise use -g "github:tylerbutler/licence_audit@latest[asset_pattern=licence_audit,bin=licence_audit]"
+mise use -g github:tylerbutler/licence_audit@latest
 ```
 
-Replace `latest` with a tag such as `v0.7.0` to select a fixed version. The
-`asset_pattern` selects the escript asset. This asset requires Erlang/OTP 28.x
-or newer on your `PATH`. For source build instructions, refer to
+Replace `latest` with a tag such as `v0.7.0` to select a fixed version. mise
+selects the self-contained archive for your operating system and architecture,
+so Erlang/OTP is not required. For source build instructions, refer to
 [DEV.md][dev].
 
 ## Standard workflow
