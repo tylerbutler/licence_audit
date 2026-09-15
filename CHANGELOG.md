@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v0.12.1 - 2026-09-15
+
+### Fixed
+
+- Make `sbom --reproducible` read metadata from checksum-verified Hex archives and commit-pinned Git archives, omit mutable publisher data, and reject `--vulns`.
+
 ## v0.12.0 - 2026-09-13
 
 ### Added
