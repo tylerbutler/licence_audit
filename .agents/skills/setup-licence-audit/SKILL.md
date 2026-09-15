@@ -38,17 +38,17 @@ required commands before using it.
 
 Prefer the project's existing installation method:
 
-- **mise with Erlang/OTP 28 or newer:** add a project-local pin. The following
-  example uses a published release; replace its tag with the selected version.
+- **mise:** add a project-local pin. The following example uses a published
+  release; replace its tag with the selected version.
 
   ```sh
-  mise use "github:tylerbutler/licence_audit@v0.9.0[asset_pattern=licence_audit,bin=licence_audit]"
+  mise use github:tylerbutler/licence_audit@v0.9.0
   mise exec -- licence_audit --version
   ```
 
-  This selects the bare **escript**, which requires OTP 28 or newer. Do not
-  change an existing Erlang pin to make this recipe work.
-- **Other setups, including older or absent Erlang:** use a self-contained archive for the host
+  mise selects the self-contained archive for the host operating system, CPU
+  architecture, and, on Linux, libc. It does not require Erlang/OTP.
+- **Other setups:** use a self-contained archive for the host
   OS, CPU architecture, and, on Linux, libc. These archives bundle Erlang.
   Inspect the release asset list rather than guessing a filename or assuming
   every platform has a build. Verify the archive against the release's
