@@ -107,9 +107,11 @@ This exception does not permit unrelated policy redesign or new enforcement
 defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
-input files, resolved metadata, options, and relevant environment values,
-including `SOURCE_DATE_EPOCH`. A fixed lockfile alone does not freeze external
-metadata. Reproducibility does not extend across tool versions.
+project files, lockfile, options, and relevant environment values, including
+`SOURCE_DATE_EPOCH`. Hex metadata comes from checksum-verified locked package
+archives. Git metadata comes from the archive at the locked commit. Mutable Hex
+publisher and OSV advisory data are not included. Reproducibility does not
+extend across tool versions.
 
 ## Internal details
 

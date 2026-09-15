@@ -8,6 +8,7 @@ import gleam/string
 pub type ArchiveError {
   InvalidArchive
   MissingContentsArchive
+  MissingRootFile
   InvalidText(path: String)
 }
 
@@ -24,6 +25,12 @@ fn extract_tar_raw(
 fn extract_tar_gz_raw(
   data: BitArray,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
+
+@external(erlang, "source_archive_ffi", "extract_root_file_tar_gz")
+pub fn extract_root_file_tar_gz(
+  data: BitArray,
+  filename: String,
+) -> Result(BitArray, ArchiveError)
 
 pub fn extract_tar(data: BitArray) -> Result(List(ArchiveFile), ArchiveError) {
   use files <- result.try(extract_tar_raw(data))
@@ -81,6 +88,7 @@ pub fn describe_error(error: ArchiveError) -> String {
   case error {
     InvalidArchive -> "invalid archive"
     MissingContentsArchive -> "Hex tarball missing contents.tar.gz"
+    MissingRootFile -> "archive missing root file"
     InvalidText(path) -> "archive file is not valid UTF-8: " <> path
   }
 }

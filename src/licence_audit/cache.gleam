@@ -1,8 +1,9 @@
-//// Read-through cache for Hex package licence metadata.
+//// Read-through cache for package metadata.
 ////
-//// Wraps a fetcher with a DETS-backed cache keyed by `name@version`. The
-//// cache is purely an optimisation: any failure to open, read, or write
-//// falls back silently to the network fetcher and records a deferred
+//// Mutable Hex API entries are keyed by `name@version` and expire after seven
+//// days. Reproducible SBOM entries are keyed by an archive checksum or commit
+//// and never expire. The cache is purely an optimisation: any failure to open,
+//// read, or write falls back to the source fetcher and records a deferred
 //// warning so the caller can surface it after the audit finishes.
 
 import gleam/dynamic/decode
@@ -153,6 +154,38 @@ pub fn fetch_cached_quiet(
         Error(_) -> fetch_and_store_quiet(table, key, fetcher(name))
       }
     }
+  }
+}
+
+/// Fetch immutable package metadata under a content-addressed key.
+///
+/// Unlike normal Hex package metadata, these entries never expire because the
+/// key identifies a locked archive checksum or commit.
+pub fn fetch_immutable(
+  cache: Cache,
+  key: String,
+  fetcher: fn() -> Result(hex.PackageMetadata, error),
+) -> Result(hex.PackageMetadata, error) {
+  let key = "$immutable:" <> key
+  case cache.table {
+    None -> fetcher()
+    Some(table) ->
+      case lookup_stale(table, key) {
+        Ok(metadata) -> Ok(metadata)
+        Error(_) ->
+          case fetcher() {
+            Error(error) -> Error(error)
+            Ok(metadata) -> {
+              let _ =
+                dets_set.insert(
+                  into: table,
+                  key: key,
+                  value: hex.encode_cache_entry(metadata),
+                )
+              Ok(metadata)
+            }
+          }
+      }
   }
 }
 

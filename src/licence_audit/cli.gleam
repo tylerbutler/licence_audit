@@ -432,7 +432,7 @@ fn reproducible_flag() -> glint.Flag(Bool) {
   glint.bool_flag("reproducible")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Deterministic output: serialNumber is a hash of the content and the timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
+    "Reproducible output from locked package archives: serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
   )
 }
 
@@ -440,7 +440,7 @@ fn sbom_vulns_flag() -> glint.Flag(Bool) {
   glint.bool_flag("vulns")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Query OSV.dev and embed a CycloneDX vulnerabilities array (requires network; conflicts with --offline)",
+    "Query OSV.dev and embed a CycloneDX vulnerabilities array (requires network; conflicts with --offline and --reproducible)",
   )
 }
 
@@ -470,14 +470,22 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(reproducible_value) = reproducible(flags)
   let assert Ok(with_vulns_value) = with_vulns(flags)
 
-  case verbosity(quiet, verbose), offline_value && with_vulns_value {
-    Error(verbosity_error), _ ->
+  case
+    verbosity(quiet, verbose),
+    offline_value && with_vulns_value,
+    reproducible_value && with_vulns_value
+  {
+    Error(verbosity_error), _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, True ->
+    _, True, _ ->
       InvalidUsage(
         "--vulns requires network access and cannot be combined with --offline",
       )
-    Ok(verbosity), False ->
+    _, _, True ->
+      InvalidUsage(
+        "--vulns uses mutable advisory data and cannot be combined with --reproducible",
+      )
+    Ok(verbosity), False, False ->
       RunSbom(SbomOptions(
         manifest_path: optional_string(manifest_path),
         verbosity: verbosity,

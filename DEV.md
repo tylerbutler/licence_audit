@@ -118,6 +118,13 @@ deterministically in both modes — that ordering is a prerequisite for
 the content-derived serial and also keeps regular diffs of committed
 SBOMs useful.
 
+Reproducible mode does not use the mutable Hex package API. It reads component
+metadata from each checksum-verified Hex `metadata.config` and from each Git
+archive at the manifest commit. The immutable results use content-addressed,
+non-expiring cache entries. Hex publisher data is omitted because package
+owners can change after publication. `--vulns` is incompatible with
+`--reproducible` because OSV advisory data also changes over time.
+
 The flag exists rather than being always-on for these reasons:
 
 - **CycloneDX semantics.** The spec defines `serialNumber` as a unique

@@ -53,6 +53,35 @@ pub fn parse(url: String) -> Result(Repository, Nil) {
   }
 }
 
+/// Parse any GitHub source URL accepted by SBOM purl generation.
+pub fn parse_github_source(url: String) -> Result(Repository, Nil) {
+  case parse(url) {
+    Ok(Repository(provider: GitHub, owner:, repo:)) ->
+      Ok(Repository(provider: GitHub, owner: owner, repo: repo))
+    Ok(_) -> Error(Nil)
+    Error(_) -> {
+      use path <- result.try(github_source_path(url))
+      use <- bool.guard(
+        when: contains_any(path, ["@", "?", "#", " ", "\t", "\n"]),
+        return: Error(Nil),
+      )
+      use #(owner, repo) <- result.try(owner_repo(path, GitHub))
+      Ok(Repository(provider: GitHub, owner: owner, repo: repo))
+    }
+  }
+}
+
+fn github_source_path(url: String) -> Result(String, Nil) {
+  case strip_prefix(url, "http://github.com/") {
+    Ok(path) -> Ok(path)
+    Error(_) ->
+      case strip_prefix(url, "git@github.com:") {
+        Ok(path) -> Ok(path)
+        Error(_) -> strip_prefix(url, "git@github.com/")
+      }
+  }
+}
+
 fn provider_for_host(host: String) -> Result(Provider, Nil) {
   case host {
     "github.com" -> Ok(GitHub)

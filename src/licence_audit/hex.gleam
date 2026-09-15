@@ -46,6 +46,21 @@ pub type Error {
   NetworkFailure(reason: String)
 }
 
+@external(erlang, "hex_metadata_ffi", "decode")
+fn decode_archive_metadata(
+  input: BitArray,
+) -> Result(#(List(String), Option(String), List(#(String, String))), Nil)
+
+/// Decode the immutable `metadata.config` stored in a Hex package tarball.
+pub fn package_metadata_from_archive(
+  input: BitArray,
+) -> Result(PackageMetadata, Nil) {
+  use #(licences, description, links) <- result.try(decode_archive_metadata(
+    input,
+  ))
+  Ok(PackageMetadata(licences:, description:, links:, publisher: None))
+}
+
 /// Short, human-readable description of a fetch error, for surfacing in
 /// progress warnings (e.g. when a fetch fails and the cache falls back to a
 /// stale entry).

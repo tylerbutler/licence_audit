@@ -85,6 +85,20 @@ pub fn extract_hex_contents_reads_inner_contents_tarball_test() {
   assert list.contains(paths, "./NOTICE.txt")
 }
 
+pub fn extract_root_file_tar_gz_reads_only_root_metadata_test() {
+  let assert Ok(bits) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/git.tar.gz")
+  let assert Ok(contents) =
+    source_archive.extract_root_file_tar_gz(bits, "gleam.toml")
+  let assert Ok(text) = bit_array.to_string(contents)
+
+  assert string.contains(text, "Metadata from the locked Git archive")
+  should.equal(
+    source_archive.extract_root_file_tar_gz(bits, "missing.toml"),
+    Error(source_archive.MissingRootFile),
+  )
+}
+
 pub fn extract_tar_rejects_invalid_archive_test() {
   let result = source_archive.extract_tar(<<"not a tar":utf8>>)
 

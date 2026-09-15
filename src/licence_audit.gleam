@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/bool
 import gleam/dict
 import gleam/int
@@ -29,6 +30,7 @@ import licence_audit/repository
 import licence_audit/sbom
 import licence_audit/sbom_json
 import licence_audit/sbom_uuid
+import licence_audit/source_archive
 import licence_audit/toml
 import licence_audit/update as update_cmd
 import licence_audit/version
@@ -116,6 +118,7 @@ fn handle_action(action: cli.CliAction) -> Nil {
           hex.fetch_package_metadata_from_hex,
           osv.query_batch_from_osv,
           osv.fetch_vulnerability_from_osv,
+          notice.default_clients(),
           progress.enabled(options.verbosity, "sbom"),
         )
       io.print(output)
@@ -332,6 +335,7 @@ fn run_with_reporter_and_notices(
         fetcher,
         osv_batch_fetcher,
         osv_detail_fetcher,
+        notice_clients,
         reporter,
       )
     Ok(glint.Out(cli.RunVulns(options))) -> {
@@ -360,6 +364,7 @@ fn run_sbom_options(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
@@ -380,6 +385,7 @@ fn run_sbom_options(
         fetcher,
         osv_batch_fetcher,
         osv_detail_fetcher,
+        source_clients,
         reporter,
       )
   }
@@ -799,6 +805,7 @@ fn run_sbom_for_manifest(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let cache_mode = case options.no_cache {
@@ -808,42 +815,229 @@ fn run_sbom_for_manifest(
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
 
-  let #(package_metadata, reporter) =
-    fetch_package_metadata(
-      sbom_manifest,
-      project_root,
-      cached_fetcher,
-      options.offline,
-      reporter,
-    )
-  let _ = cache.close(cache_handle)
-
-  // Optionally query OSV and embed the results as a CycloneDX vulnerabilities
-  // array. A failed OSV query fails the whole command, since the user
-  // explicitly asked for vulnerabilities.
-  let #(vulns_result, reporter) = case options.with_vulns {
-    False -> #(Ok([]), reporter)
-    True ->
-      gather_embedded_vulnerabilities(
-        sbom_manifest,
-        osv_batch_fetcher,
-        osv_detail_fetcher,
-        reporter,
-      )
-  }
-
-  case vulns_result {
-    Error(osv_error) -> #(diagnostic(error.from_osv_error(osv_error)), reporter)
-    Ok(vulnerabilities) ->
-      render_sbom(
-        options,
+  let metadata_result = case options.offline, options.reproducible {
+    True, True -> Ok(#(dict.new(), reporter))
+    True, False ->
+      Ok(fetch_package_metadata(
         sbom_manifest,
         project_root,
-        package_metadata,
-        vulnerabilities,
+        cached_fetcher,
+        True,
+        reporter,
+      ))
+    False, True ->
+      fetch_reproducible_package_metadata(
+        sbom_manifest,
+        cache_handle,
+        source_clients,
         reporter,
       )
+    False, False ->
+      Ok(fetch_package_metadata(
+        sbom_manifest,
+        project_root,
+        cached_fetcher,
+        False,
+        reporter,
+      ))
   }
+  let cache_warning = cache.close(cache_handle)
+
+  case metadata_result {
+    Error(metadata_error) -> #(
+      diagnostic(metadata_error),
+      apply_cache_warning(reporter, cache_warning),
+    )
+    Ok(#(package_metadata, reporter)) -> {
+      let reporter = apply_cache_warning(reporter, cache_warning)
+      // Optionally query OSV and embed the results as a CycloneDX
+      // vulnerabilities array. A failed query fails the whole command.
+      let #(vulns_result, reporter) = case options.with_vulns {
+        False -> #(Ok([]), reporter)
+        True ->
+          gather_embedded_vulnerabilities(
+            sbom_manifest,
+            osv_batch_fetcher,
+            osv_detail_fetcher,
+            reporter,
+          )
+      }
+
+      case vulns_result {
+        Error(osv_error) -> #(
+          diagnostic(error.from_osv_error(osv_error)),
+          reporter,
+        )
+        Ok(vulnerabilities) ->
+          render_sbom(
+            options,
+            sbom_manifest,
+            project_root,
+            package_metadata,
+            vulnerabilities,
+            reporter,
+          )
+      }
+    }
+  }
+}
+
+fn fetch_reproducible_package_metadata(
+  manifest_value: manifest.SbomManifest,
+  cache_handle: cache.Cache,
+  clients: notice.Clients,
+  reporter: progress.Reporter,
+) -> Result(
+  #(dict.Dict(String, hex.PackageMetadata), progress.Reporter),
+  error.Error,
+) {
+  list.try_fold(
+    over: manifest_value.entries,
+    from: #(dict.new(), reporter),
+    with: fn(acc, entry) {
+      let #(metadata, reporter) = acc
+      case immutable_metadata_key(entry) {
+        Error(_) -> Ok(#(metadata, reporter))
+        Ok(key) -> {
+          let reporter =
+            progress.detail(
+              reporter,
+              "Reading reproducible metadata for "
+                <> entry.name
+                <> "@"
+                <> entry.version,
+            )
+          use package_metadata <- result.try(
+            cache.fetch_immutable(cache_handle, key, fn() {
+              metadata_from_locked_source(entry, clients)
+            }),
+          )
+          Ok(#(dict.insert(metadata, entry.name, package_metadata), reporter))
+        }
+      }
+    },
+  )
+}
+
+fn immutable_metadata_key(entry: manifest.SbomEntry) -> Result(String, Nil) {
+  case entry.provenance {
+    manifest.HexProvenance(checksum, _) ->
+      Ok(
+        entry.name
+        <> "@"
+        <> entry.version
+        <> "@hex:"
+        <> string.uppercase(checksum),
+      )
+    manifest.GitProvenance(repo, commit) ->
+      Ok(entry.name <> "@" <> entry.version <> "@git:" <> repo <> "@" <> commit)
+    manifest.PathProvenance(_) | manifest.UnknownProvenance(_) -> Error(Nil)
+  }
+}
+
+fn metadata_from_locked_source(
+  entry: manifest.SbomEntry,
+  clients: notice.Clients,
+) -> Result(hex.PackageMetadata, error.Error) {
+  case entry.provenance {
+    manifest.HexProvenance(checksum, _) ->
+      hex_metadata_from_locked_source(entry, checksum, clients)
+    manifest.GitProvenance(repo, _) ->
+      git_metadata_from_locked_source(entry, repo, clients)
+    manifest.PathProvenance(_) | manifest.UnknownProvenance(_) ->
+      Error(error.SbomMetadataFailed(entry.name, "unsupported package source"))
+  }
+}
+
+fn hex_metadata_from_locked_source(
+  entry: manifest.SbomEntry,
+  checksum: String,
+  clients: notice.Clients,
+) -> Result(hex.PackageMetadata, error.Error) {
+  use bytes <- result.try(
+    notice.fetch_verified_hex_tarball(
+      entry.name,
+      entry.version,
+      checksum,
+      clients.fetch_hex_tarball,
+    )
+    |> result.map_error(fn(source_error) {
+      error.SbomMetadataFailed(entry.name, notice.describe_error(source_error))
+    }),
+  )
+  use files <- result.try(
+    source_archive.extract_tar(bytes)
+    |> result.map_error(fn(archive_error) {
+      error.SbomMetadataFailed(
+        entry.name,
+        source_archive.describe_error(archive_error),
+      )
+    }),
+  )
+  use metadata_file <- result.try(
+    list.find(files, fn(file) { file.path == "metadata.config" })
+    |> result.map_error(fn(_) {
+      error.SbomMetadataFailed(
+        entry.name,
+        "locked Hex archive has no metadata.config",
+      )
+    }),
+  )
+  hex.package_metadata_from_archive(metadata_file.contents)
+  |> result.map_error(fn(_) {
+    error.SbomMetadataFailed(
+      entry.name,
+      "locked Hex archive has invalid metadata.config",
+    )
+  })
+}
+
+fn git_metadata_from_locked_source(
+  entry: manifest.SbomEntry,
+  repo_url: String,
+  clients: notice.Clients,
+) -> Result(hex.PackageMetadata, error.Error) {
+  use repo <- result.try(
+    repository.parse_github_source(repo_url)
+    |> result.map_error(fn(_) {
+      error.SbomMetadataFailed(entry.name, "unsupported Git repository URL")
+    }),
+  )
+  let assert manifest.GitProvenance(_, commit) = entry.provenance
+  use archive <- result.try(
+    clients.fetch_git_archive(repo, commit)
+    |> result.map_error(fn(fetch_error) {
+      error.SbomMetadataFailed(
+        entry.name,
+        notice.describe_fetch_error(fetch_error),
+      )
+    }),
+  )
+  use contents <- result.try(
+    source_archive.extract_root_file_tar_gz(archive, "gleam.toml")
+    |> result.map_error(fn(archive_error) {
+      error.SbomMetadataFailed(
+        entry.name,
+        source_archive.describe_error(archive_error),
+      )
+    }),
+  )
+  use text <- result.try(
+    bit_array.to_string(contents)
+    |> result.map_error(fn(_) {
+      error.SbomMetadataFailed(
+        entry.name,
+        "locked Git archive gleam.toml is not valid UTF-8",
+      )
+    }),
+  )
+  gleam_toml.package_metadata(text, strip_git_suffix(repo_url))
+  |> result.map_error(fn(_) {
+    error.SbomMetadataFailed(
+      entry.name,
+      "locked Git archive has an invalid gleam.toml",
+    )
+  })
 }
 
 /// Build the `SbomInput` from a loaded manifest plus the gathered package
@@ -862,9 +1056,8 @@ fn render_sbom(
       sbom_manifest,
       resolve_prod_seed(project_root, sbom_manifest.root_requirements),
     )
-  // In reproducible mode the serial number is derived from the content and the
-  // timestamp comes from SOURCE_DATE_EPOCH, so the same dependency set always
-  // renders byte-identical output.
+  // Reproducible metadata comes from locked source archives. The serial number
+  // is derived from that content and the timestamp comes from SOURCE_DATE_EPOCH.
   let serial_and_timestamp = case options.reproducible {
     True -> Ok(#(sbom.ContentDerivedSerial, sbom_uuid.reproducible_timestamp()))
     False ->

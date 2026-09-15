@@ -135,6 +135,27 @@ pub fn cache_round_trip_persists_metadata_test() {
   let assert None = cache.close(handle)
 }
 
+pub fn immutable_cache_entries_do_not_expire_test() {
+  let path = fresh_path("immutable")
+  let key = "example@1.0.0@hex:ABC"
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let assert Ok(metadata) =
+    cache.fetch_immutable(handle, key, fn() {
+      Ok(metadata_with_publisher("archived"))
+    })
+  should.equal(metadata.publisher, Some("archived"))
+  let assert None = cache.close(handle)
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let assert Ok(cached) =
+    cache.fetch_immutable(handle, key, fn() {
+      panic as "immutable fetcher must not run on a cache hit"
+    })
+  should.equal(cached.publisher, Some("archived"))
+  let assert None = cache.close(handle)
+}
+
 pub fn cache_key_includes_version_test() {
   let path = fresh_path("version_key")
 

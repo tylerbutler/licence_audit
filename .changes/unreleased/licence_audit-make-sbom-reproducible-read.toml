@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `sbom --reproducible` read metadata from checksum-verified Hex archives and commit-pinned Git archives, omit mutable publisher data, and reject `--vulns`."

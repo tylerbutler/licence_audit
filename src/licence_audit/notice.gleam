@@ -502,30 +502,42 @@ fn read_hex_source(
   expected_checksum: String,
   fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
 ) -> Result(List(source_archive.ArchiveFile), Error) {
+  use bytes <- result.try(fetch_verified_hex_tarball(
+    package.name,
+    package.version,
+    expected_checksum,
+    fetch_hex_tarball,
+  ))
+  source_archive.extract_hex_contents(bytes)
+  |> result.map_error(fn(error) {
+    ArchiveFailed(package.name, source_archive.describe_error(error))
+  })
+}
+
+/// Fetch a Hex package tarball and verify it against the lockfile checksum.
+pub fn fetch_verified_hex_tarball(
+  name: String,
+  version: String,
+  expected_checksum: String,
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+) -> Result(BitArray, Error) {
   use bytes <- result.try(
-    fetch_hex_tarball(package.name, package.version)
+    fetch_hex_tarball(name, version)
     |> result.map_error(fn(error) {
-      FetchFailed(package.name, describe_fetch_error(error))
+      FetchFailed(name, describe_fetch_error(error))
     }),
   )
   use actual_checksum <- result.try(
     source_archive.sha256_hex(bytes)
     |> result.map_error(fn(error) {
-      ArchiveFailed(package.name, source_archive.describe_error(error))
+      ArchiveFailed(name, source_archive.describe_error(error))
     }),
   )
   use <- bool.guard(
     when: string.uppercase(expected_checksum) != actual_checksum,
-    return: Error(ChecksumMismatch(
-      package.name,
-      expected_checksum,
-      actual_checksum,
-    )),
+    return: Error(ChecksumMismatch(name, expected_checksum, actual_checksum)),
   )
-  source_archive.extract_hex_contents(bytes)
-  |> result.map_error(fn(error) {
-    ArchiveFailed(package.name, source_archive.describe_error(error))
-  })
+  Ok(bytes)
 }
 
 fn read_git_source(
