@@ -5,6 +5,7 @@ import gleeunit/should
 import licence_audit
 import licence_audit/hex
 import licence_audit/osv
+import licence_audit/progress
 import simplifile
 
 const manifest = "packages = [
@@ -108,16 +109,20 @@ fn run(
   query: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   details: fn(String) -> Result(osv.Vulnerability, osv.Error),
 ) -> licence_audit.RunResult {
-  licence_audit.run_with_clients(
+  licence_audit.run_configured(
     list.append(args, [
       "--manifest=" <> root <> "/manifest.toml",
       "--color=never",
       "--quiet",
     ]),
-    fetch,
-    query,
-    details,
-  )
+    licence_audit.Clients(
+      ..licence_audit.default_clients(),
+      fetcher: fetch,
+      osv_batch_fetcher: query,
+      osv_detail_fetcher: details,
+    ),
+    progress.disabled(),
+  ).0
 }
 
 pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test() {
