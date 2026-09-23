@@ -1212,7 +1212,6 @@ fn fetch_hex_entry_metadata(
     manifest.Package(
       name: entry.name,
       version: entry.version,
-      source: manifest.Hex,
       kind: entry.kind,
       requirements: entry.requirements,
     )

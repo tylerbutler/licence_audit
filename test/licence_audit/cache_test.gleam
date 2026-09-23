@@ -25,7 +25,6 @@ fn pkg(name: String, version: String) -> manifest.Package {
   manifest.Package(
     name: name,
     version: version,
-    source: manifest.Hex,
     kind: manifest.Direct,
     requirements: [],
   )

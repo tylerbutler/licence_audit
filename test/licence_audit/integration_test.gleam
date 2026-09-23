@@ -126,6 +126,32 @@ pub fn default_report_succeeds_without_policy_test() {
   assert !string.contains(output, "Status")
 }
 
+pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
+  let path = "build/tmp/manifest-without-checksum.toml"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) =
+    simplifile.write(
+      to: path,
+      contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\" }]\n",
+    )
+
+  let audit =
+    licence_audit.run_with(
+      ["--manifest=" <> path, "--ignore-config"],
+      fake_fetcher,
+    )
+  should.equal(audit.exit_code, 0)
+  assert string.contains(audit.output, "gleam_stdlib")
+
+  let sbom =
+    licence_audit.run_with(["sbom", "--manifest=" <> path], fake_fetcher)
+  should.equal(sbom.exit_code, 2)
+  assert string.contains(
+    sbom.output,
+    "Invalid manifest package gleam_stdlib field outer_checksum: expected String",
+  )
+}
+
 pub fn notices_subcommand_prints_release_notice_text_test() {
   let assert Ok(bits) =
     simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
