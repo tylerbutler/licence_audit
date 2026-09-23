@@ -40,6 +40,25 @@ pub type RunResult {
   RunResult(exit_code: Int, output: String)
 }
 
+pub type Clients {
+  Clients(
+    fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+    osv_batch_fetcher: fn(List(String)) ->
+      Result(List(osv.BatchEntry), osv.Error),
+    osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+    notice_clients: notice.Clients,
+  )
+}
+
+pub fn default_clients() -> Clients {
+  Clients(
+    fetcher: hex.fetch_package_metadata_from_hex,
+    osv_batch_fetcher: osv.query_batch_from_osv,
+    osv_detail_fetcher: osv.fetch_vulnerability_from_osv,
+    notice_clients: notice.default_clients(),
+  )
+}
+
 @external(erlang, "args_ffi", "arguments")
 fn arguments() -> List(String)
 
@@ -78,80 +97,47 @@ pub fn main() -> Nil {
 }
 
 fn handle_action(action: cli.CliAction) -> Nil {
+  let #(RunResult(exit_code, output), reporter) =
+    execute_action(
+      action,
+      default_clients(),
+      reporter_for_action(action),
+      palette_for_action(action),
+    )
   case action {
-    cli.RunAudit(options) -> {
-      let palette = color.resolve(options.color)
-      let command = case options.check {
-        True -> "check"
-        False -> "report"
-      }
-      let #(RunResult(exit_code, output), reporter) =
-        run_options(
-          options,
-          hex.fetch_package_metadata_from_hex,
-          progress.enabled(options.verbosity, command),
-          palette,
-        )
-      io.print(output)
-      let _ = progress.flush(apply_http_warning(reporter))
-      halt(exit_code)
-    }
-    cli.UpdateConfig(options) -> {
-      let #(update_cmd.UpdateResult(exit_code, output), reporter) =
-        run_update_options(
-          options,
-          hex.fetch_package_metadata_from_hex,
-          progress.enabled(options.verbosity, "update"),
-        )
-      io.print(output)
-      let _ = progress.flush(apply_http_warning(reporter))
-      halt(exit_code)
-    }
-    cli.InvalidUsage(message) -> {
-      io.print_error("Error: " <> message <> "\n")
+    cli.InvalidUsage(_) -> {
+      io.print_error(output)
       halt(1)
     }
-    cli.RunSbom(options) -> {
-      let #(RunResult(exit_code, output), reporter) =
-        run_sbom_options(
-          options,
-          hex.fetch_package_metadata_from_hex,
-          osv.query_batch_from_osv,
-          osv.fetch_vulnerability_from_osv,
-          notice.default_clients(),
-          progress.enabled(options.verbosity, "sbom"),
-        )
+    cli.ShowVersion -> io.print(output)
+    _ -> {
       io.print(output)
       let _ = progress.flush(apply_http_warning(reporter))
       halt(exit_code)
     }
-    cli.RunVulns(options) -> {
-      let palette = color.resolve(options.color)
-      let #(RunResult(exit_code, output), reporter) =
-        run_vulns_options(
-          options,
-          osv.query_batch_from_osv,
-          osv.fetch_vulnerability_from_osv,
-          progress.enabled(options.verbosity, "vulns"),
-          palette,
-        )
-      io.print(output)
-      let _ = progress.flush(apply_http_warning(reporter))
-      halt(exit_code)
-    }
-    cli.RunNotices(options) -> {
-      let #(RunResult(exit_code, output), reporter) =
-        run_notices_options(
-          options,
-          hex.fetch_package_metadata_from_hex,
-          notice.default_clients(),
-          progress.enabled(options.verbosity, "notices"),
-        )
-      io.print(output)
-      let _ = progress.flush(apply_http_warning(reporter))
-      halt(exit_code)
-    }
-    cli.ShowVersion -> io.println(tool_version())
+  }
+}
+
+fn reporter_for_action(action: cli.CliAction) -> progress.Reporter {
+  case action {
+    cli.RunAudit(options) ->
+      progress.enabled(options.verbosity, case options.check {
+        True -> "check"
+        False -> "report"
+      })
+    cli.UpdateConfig(options) -> progress.enabled(options.verbosity, "update")
+    cli.RunSbom(options) -> progress.enabled(options.verbosity, "sbom")
+    cli.RunVulns(options) -> progress.enabled(options.verbosity, "vulns")
+    cli.RunNotices(options) -> progress.enabled(options.verbosity, "notices")
+    cli.ShowVersion | cli.InvalidUsage(_) -> progress.disabled()
+  }
+}
+
+fn palette_for_action(action: cli.CliAction) -> color.Palette {
+  case action {
+    cli.RunAudit(options) -> color.resolve(options.color)
+    cli.RunVulns(options) -> color.resolve(options.color)
+    _ -> color.for_enabled(False)
   }
 }
 
@@ -163,7 +149,9 @@ fn apply_http_warning(reporter: progress.Reporter) -> progress.Reporter {
 }
 
 pub fn run(args: List(String)) -> RunResult {
-  run_with(args, hex.fetch_package_metadata_from_hex)
+  let #(result, _) =
+    run_configured(args, default_clients(), progress.disabled())
+  result
 }
 
 fn library_args(args: List(String)) -> List(String) {
@@ -171,191 +159,75 @@ fn library_args(args: List(String)) -> List(String) {
   list.append(args, ["--no-cache"])
 }
 
-pub fn run_with(
+pub fn run_configured(
   args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-) -> RunResult {
-  let #(result, _) =
-    run_with_reporter(
-      library_args(args),
-      fetcher,
-      osv.query_batch_from_osv,
-      osv.fetch_vulnerability_from_osv,
-      progress.disabled(),
-      color.for_enabled(False),
-    )
-  result
-}
-
-pub fn run_with_clients(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-) -> RunResult {
-  let #(result, _) =
-    run_with_reporter(
-      library_args(args),
-      fetcher,
-      osv_batch_fetcher,
-      osv_detail_fetcher,
-      progress.disabled(),
-      color.for_enabled(False),
-    )
-  result
-}
-
-pub fn run_with_notice_clients(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  clients: notice.Clients,
-) -> RunResult {
-  let #(result, _) =
-    run_with_reporter_and_notices(
-      library_args(args),
-      fetcher,
-      osv.query_batch_from_osv,
-      osv.fetch_vulnerability_from_osv,
-      clients,
-      progress.disabled(),
-      color.for_enabled(False),
-    )
-  result
-}
-
-pub fn run_with_progress(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  verbosity: progress.Verbosity,
-) -> #(RunResult, List(progress.Event)) {
-  let #(result, reporter) =
-    run_with_reporter(
-      library_args(args),
-      fetcher,
-      osv.query_batch_from_osv,
-      osv.fetch_vulnerability_from_osv,
-      progress.capturing(verbosity, "report"),
-      color.for_enabled(False),
-    )
-  #(result, progress.events(reporter))
-}
-
-/// Like `run_with_progress`, but with injectable OSV clients — needed to
-/// assert on reporter events (e.g. deferred error messages) for `check
-/// --vulns` scenarios that require canned batch/detail fetchers.
-pub fn run_with_clients_and_progress(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  verbosity: progress.Verbosity,
-) -> #(RunResult, List(progress.Event)) {
-  let #(result, reporter) =
-    run_with_reporter(
-      library_args(args),
-      fetcher,
-      osv_batch_fetcher,
-      osv_detail_fetcher,
-      progress.capturing(verbosity, "report"),
-      color.for_enabled(False),
-    )
-  #(result, progress.events(reporter))
-}
-
-pub fn run_with_notice_progress(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  clients: notice.Clients,
-  verbosity: progress.Verbosity,
-) -> #(RunResult, List(progress.Event)) {
-  let #(result, reporter) =
-    run_with_reporter_and_notices(
-      library_args(args),
-      fetcher,
-      osv.query_batch_from_osv,
-      osv.fetch_vulnerability_from_osv,
-      clients,
-      progress.capturing(verbosity, "notices"),
-      color.for_enabled(False),
-    )
-  #(result, progress.events(reporter))
-}
-
-fn run_with_reporter(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  clients: Clients,
   reporter: progress.Reporter,
-  palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
-  run_with_reporter_and_notices(
-    args,
-    fetcher,
-    osv_batch_fetcher,
-    osv_detail_fetcher,
-    notice.default_clients(),
-    reporter,
-    palette,
-  )
-}
-
-fn run_with_reporter_and_notices(
-  args: List(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  notice_clients: notice.Clients,
-  reporter: progress.Reporter,
-  palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
-  case glint.execute(cli.app(), cli.normalize_args(args)) {
+) -> #(RunResult, List(progress.Event)) {
+  let #(result, reporter) = case
+    glint.execute(cli.app(), cli.normalize_args(library_args(args)))
+  {
     Ok(glint.Help(help)) -> #(RunResult(0, help <> "\n"), reporter)
-    Ok(glint.Out(cli.RunAudit(options))) ->
+    Ok(glint.Out(action)) ->
+      execute_action(action, clients, reporter, color.for_enabled(False))
+    Error(message) -> #(RunResult(1, message <> "\n"), reporter)
+  }
+  #(result, progress.events(reporter))
+}
+
+fn execute_action(
+  action: cli.CliAction,
+  clients: Clients,
+  reporter: progress.Reporter,
+  palette: color.Palette,
+) -> #(RunResult, progress.Reporter) {
+  case action {
+    cli.RunAudit(options) ->
       run_options_with_clients(
         options,
-        fetcher,
-        osv_batch_fetcher,
-        osv_detail_fetcher,
+        clients.fetcher,
+        clients.osv_batch_fetcher,
+        clients.osv_detail_fetcher,
         reporter,
         palette,
       )
-    Ok(glint.Out(cli.UpdateConfig(options))) -> {
+    cli.UpdateConfig(options) -> {
       let #(update_cmd.UpdateResult(exit_code, output), reporter) =
-        run_update_options(options, fetcher, reporter)
+        run_update_options(options, clients.fetcher, reporter)
       #(RunResult(exit_code, output), reporter)
     }
-    Ok(glint.Out(cli.InvalidUsage(message))) -> #(
+    cli.InvalidUsage(message) -> #(
       RunResult(1, "Error: " <> message <> "\n"),
       reporter,
     )
-    Ok(glint.Out(cli.RunSbom(options))) ->
+    cli.RunSbom(options) ->
       run_sbom_options(
         options,
-        fetcher,
-        osv_batch_fetcher,
-        osv_detail_fetcher,
-        notice_clients,
+        clients.fetcher,
+        clients.osv_batch_fetcher,
+        clients.osv_detail_fetcher,
+        clients.notice_clients,
         reporter,
       )
-    Ok(glint.Out(cli.RunVulns(options))) -> {
+    cli.RunVulns(options) -> {
       let #(result, reporter) =
         run_vulns_options(
           options,
-          osv_batch_fetcher,
-          osv_detail_fetcher,
+          clients.osv_batch_fetcher,
+          clients.osv_detail_fetcher,
           reporter,
           palette,
         )
       #(result, reporter)
     }
-    Ok(glint.Out(cli.RunNotices(options))) ->
-      run_notices_options(options, fetcher, notice_clients, reporter)
-    Ok(glint.Out(cli.ShowVersion)) -> #(
-      RunResult(0, tool_version() <> "\n"),
-      reporter,
-    )
-    Error(message) -> #(RunResult(1, message <> "\n"), reporter)
+    cli.RunNotices(options) ->
+      run_notices_options(
+        options,
+        clients.fetcher,
+        clients.notice_clients,
+        reporter,
+      )
+    cli.ShowVersion -> #(RunResult(0, tool_version() <> "\n"), reporter)
   }
 }
 
@@ -1212,7 +1084,6 @@ fn fetch_hex_entry_metadata(
     manifest.Package(
       name: entry.name,
       version: entry.version,
-      source: manifest.Hex,
       kind: entry.kind,
       requirements: entry.requirements,
     )
@@ -1408,22 +1279,6 @@ fn write_sbom_output(
           }
       }
   }
-}
-
-fn run_options(
-  options: cli.Options,
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  reporter: progress.Reporter,
-  palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
-  run_options_with_clients(
-    options,
-    fetcher,
-    osv.query_batch_from_osv,
-    osv.fetch_vulnerability_from_osv,
-    reporter,
-    palette,
-  )
 }
 
 fn run_options_with_clients(

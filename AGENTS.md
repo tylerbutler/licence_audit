@@ -17,7 +17,7 @@
 
 ## High-level architecture
 
-- **CLI parsing and action dispatch** is split between `src/licence_audit/cli.gleam` (glint command definitions -> `CliAction`) and `src/licence_audit.gleam` (top-level orchestration in `main`, `run_with_reporter`, and per-action handlers).
+- **CLI parsing and action dispatch** is split between `src/licence_audit/cli.gleam` (glint command definitions -> `CliAction`) and `src/licence_audit.gleam` (top-level orchestration in `main`, `execute_action`, and per-action handlers).
 - **Audit/check pipeline** (`run_options_with_clients` in `src/licence_audit.gleam`) is:
   1. load+merge policy/config (`config.gleam`, `policy.gleam`)
   2. parse lockfile (`manifest.gleam`)
@@ -33,7 +33,7 @@
 
 ## Key repository conventions
 
-- Library entry points (`run_with`, `run_with_clients`, `run_with_progress`) append `--no-cache`; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
+- Library entry points (`run` and `run_configured`) append `--no-cache`; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
 - `manifest.gleam` keeps non-Hex dependencies in graph data for tree/path context, but license auditing only applies to Hex packages.
 - Unsupported sources are handled differently by command:
   - `sbom` fails for unsupported dependency sources (to avoid invalid purls).

@@ -25,7 +25,6 @@ fn pkg(name: String, version: String) -> manifest.Package {
   manifest.Package(
     name: name,
     version: version,
-    source: manifest.Hex,
     kind: manifest.Direct,
     requirements: [],
   )
@@ -94,6 +93,24 @@ pub fn disabled_cache_bypasses_storage_test() {
   let warning = cache.close(handle)
 
   should.equal(warning, None)
+}
+
+pub fn open_failure_preserves_licence_warning_test() {
+  let _ = simplifile.create_directory_all(tmp_dir)
+  let handle = cache.open(cache.Enabled(path: Some(tmp_dir)))
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.starts_with(
+    warning,
+    "Unable to open licence cache at " <> tmp_dir <> ": ",
+  ))
+}
+
+pub fn close_failure_preserves_licence_warning_test() {
+  let handle =
+    cache.open(cache.Enabled(path: Some(fresh_path("close_failure"))))
+  let assert None = cache.close(handle)
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.starts_with(warning, "Failed to close licence cache: "))
 }
 
 pub fn disabled_cache_logs_passthrough_test() {
