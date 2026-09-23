@@ -103,9 +103,14 @@ using the `tomlet` Git dependency; no native helper binary is required.
 
 ## Library entry points
 
-`run_with` and `run_with_progress` in `src/licence_audit.gleam` append
-`--no-cache` so library and test runs never touch the on-disk DETS cache.
-Only the CLI path uses the cache.
+`run_configured(args, clients, reporter)` in `src/licence_audit.gleam` is the
+consolidated injected runner for tests and library callers. Pass a `Clients`
+bundle (use `default_clients()` and replace fields as needed) and a progress
+reporter; it returns the run result and captured progress events. `run(args)`
+is the result-only convenience entry point with default clients and progress
+disabled. Both runners add `--no-cache`, so they do not touch the on-disk
+DETS caches. The CLI uses the cache by default; `--no-cache` bypasses it, and
+`--cache-path` overrides the licence metadata cache file.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 
