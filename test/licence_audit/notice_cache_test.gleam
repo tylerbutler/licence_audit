@@ -1,5 +1,6 @@
 import gleam/dynamic/decode
 import gleam/option.{None, Some}
+import gleam/string
 import gleeunit/should
 import licence_audit/manifest
 import licence_audit/notice
@@ -36,6 +37,40 @@ pub fn disabled_cache_bypasses_storage_test() {
   let warning = notice_cache.close(handle)
 
   should.equal(warning, None)
+}
+
+pub fn open_failure_preserves_notices_warning_test() {
+  let _ = simplifile.create_directory_all(tmp_dir)
+  let handle = notice_cache.open(notice_cache.Enabled(path: Some(tmp_dir)))
+  let assert Some(warning) = notice_cache.close(handle)
+  should.be_true(string.starts_with(
+    warning,
+    "Unable to open notices cache at " <> tmp_dir <> ": ",
+  ))
+}
+
+pub fn parent_directory_failure_preserves_warning_test() {
+  let _ = simplifile.create_directory_all(tmp_dir)
+  let blocker = tmp_dir <> "/blocker.file"
+  let _ = simplifile.write("data", to: blocker)
+  let dir = blocker <> "/nested"
+  let handle =
+    notice_cache.open(notice_cache.Enabled(path: Some(dir <> "/notices.dets")))
+  let assert Some(warning) = notice_cache.close(handle)
+  should.be_true(string.starts_with(
+    warning,
+    "Unable to create licence cache directory " <> dir <> ": ",
+  ))
+}
+
+pub fn close_failure_preserves_notices_warning_test() {
+  let handle =
+    notice_cache.open(
+      notice_cache.Enabled(path: Some(fresh_path("close_failure"))),
+    )
+  let assert None = notice_cache.close(handle)
+  let assert Some(warning) = notice_cache.close(handle)
+  should.be_true(string.starts_with(warning, "Failed to close notices cache: "))
 }
 
 pub fn disabled_cache_always_reads_live_test() {

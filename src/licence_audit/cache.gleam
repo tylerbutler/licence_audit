@@ -6,7 +6,6 @@
 //// read, or write falls back to the source fetcher and records a deferred
 //// warning so the caller can surface it after the audit finishes.
 
-import gleam/dynamic/decode
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/time/timestamp
@@ -57,21 +56,9 @@ pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
-      case cache_dir.resolve_path(path, cache_filename()) {
-        Error(error) ->
-          Cache(
-            table: None,
-            warning: Some(cache_dir.describe_path_error(error)),
-          )
-        Ok(resolved) ->
-          case cache_dir.ensure_parent_dir(resolved) {
-            Error(error) ->
-              Cache(
-                table: None,
-                warning: Some(cache_dir.describe_path_error(error)),
-              )
-            Ok(_) -> open_table(resolved)
-          }
+      case cache_dir.open_table(path, cache_filename(), "licence") {
+        Ok(table) -> Cache(table: Some(table), warning: None)
+        Error(warning) -> Cache(table: None, warning: Some(warning))
       }
   }
 }
@@ -84,12 +71,7 @@ pub fn open(mode: Mode) -> Cache {
 pub fn close(cache: Cache) -> Option(String) {
   case cache.table {
     None -> cache.warning
-    Some(table) ->
-      case dets_set.close(table) {
-        Ok(_) -> cache.warning
-        Error(error) ->
-          Some("Failed to close licence cache: " <> slate.error_message(error))
-      }
+    Some(table) -> cache_dir.close_table(table, "licence", cache.warning)
   }
 }
 
@@ -362,26 +344,6 @@ fn now_seconds() -> Int {
     timestamp.system_time()
     |> timestamp.to_unix_seconds_and_nanoseconds
   seconds
-}
-
-fn open_table(path: String) -> Cache {
-  let key_decoder = decode.string
-  let value_decoder = decode.string
-  case
-    dets_set.open(path, key_decoder: key_decoder, value_decoder: value_decoder)
-  {
-    Ok(table) -> Cache(table: Some(table), warning: None)
-    Error(error) ->
-      Cache(
-        table: None,
-        warning: Some(
-          "Unable to open licence cache at "
-          <> path
-          <> ": "
-          <> slate.error_message(error),
-        ),
-      )
-  }
 }
 
 fn cache_key(package: manifest.Package) -> String {

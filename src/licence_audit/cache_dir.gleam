@@ -5,23 +5,26 @@
 //// `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. This module centralises
 //// the path logic so the two caches stay consistent.
 
+import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import simplifile
+import slate
+import slate/set as dets_set
 
 import licence_audit/env
 
 const cache_subdir = "licence_audit"
 
 /// Why a cache file path could not be resolved or prepared.
-pub type PathError {
+type PathError {
   CacheDirUnknown
   CacheDirCreateFailed(dir: String, reason: String)
 }
 
-pub fn describe_path_error(error: PathError) -> String {
+fn describe_path_error(error: PathError) -> String {
   case error {
     CacheDirUnknown ->
       "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set"
@@ -33,7 +36,7 @@ pub fn describe_path_error(error: PathError) -> String {
 /// Resolve the cache file path for `filename`, honouring an explicit override.
 /// When `override` is `Some`, it is used verbatim; otherwise the default
 /// `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/<filename>` is used.
-pub fn resolve_path(
+fn resolve_path(
   override: Option(String),
   filename: String,
 ) -> Result(String, PathError) {
@@ -59,7 +62,7 @@ fn join_path(base: String, filename: String) -> String {
 }
 
 /// Ensure the parent directory of `path` exists, creating it if needed.
-pub fn ensure_parent_dir(path: String) -> Result(Nil, PathError) {
+fn ensure_parent_dir(path: String) -> Result(Nil, PathError) {
   case parent_directory(path) {
     "" -> Ok(Nil)
     dir ->
@@ -67,6 +70,54 @@ pub fn ensure_parent_dir(path: String) -> Result(Nil, PathError) {
       |> result.map_error(fn(err) {
         CacheDirCreateFailed(dir: dir, reason: simplifile.describe_error(err))
       })
+  }
+}
+
+/// Prepare and open a string-keyed cache table, returning its deferred warning
+/// on failure.
+pub fn open_table(
+  path: Option(String),
+  filename: String,
+  name: String,
+) -> Result(dets_set.Set(String, String), String) {
+  use resolved <- result.try(
+    resolve_path(path, filename) |> result.map_error(describe_path_error),
+  )
+  use _ <- result.try(
+    ensure_parent_dir(resolved) |> result.map_error(describe_path_error),
+  )
+  case
+    dets_set.open(
+      resolved,
+      key_decoder: decode.string,
+      value_decoder: decode.string,
+    )
+  {
+    Ok(table) -> Ok(table)
+    Error(error) ->
+      Error(
+        "Unable to open "
+        <> name
+        <> " cache at "
+        <> resolved
+        <> ": "
+        <> slate.error_message(error),
+      )
+  }
+}
+
+/// Close a table; a close failure replaces an earlier deferred warning.
+pub fn close_table(
+  table: dets_set.Set(String, String),
+  name: String,
+  warning: Option(String),
+) -> Option(String) {
+  case dets_set.close(table) {
+    Ok(_) -> warning
+    Error(error) ->
+      Some(
+        "Failed to close " <> name <> " cache: " <> slate.error_message(error),
+      )
   }
 }
 
