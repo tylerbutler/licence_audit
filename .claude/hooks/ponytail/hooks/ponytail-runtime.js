@@ -71,7 +71,7 @@ function cursorRulePath() {
 
 function cursorRuleNotice(rule) {
   return 'PONYTAIL: the always-on Cursor rule ' + rule + ' is active in this workspace and ' +
-    'already includes the ponytail ruleset, so the ponytail hooks injected nothing further. ' +
+    'already carries the ponytail ruleset, so the ponytail hooks injected nothing further. ' +
     'Mode switching (/ponytail lite|full|ultra|off, "stop ponytail") is unavailable while ' +
     'that rule exists. When the user tries to switch or turn off ponytail, tell them to ' +
     'delete that rule so hooks.json can manage the level.';

@@ -35,7 +35,7 @@ if (mode === 'off') {
   process.exit(0);
 }
 
-// Cursor with the always-on rule in the workspace: the rule already includes the
+// Cursor with the always-on rule in the workspace: the rule already carries the
 // ruleset and would contradict any other level, so leave the flag alone and
 // hand the model a one-line notice instead of a second copy (#817).
 if (isCursor) {
