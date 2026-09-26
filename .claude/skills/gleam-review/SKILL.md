@@ -35,7 +35,7 @@ present two lines above the hunk.
 ## How to classify findings
 
 The guide defines three tiers, and the report must keep them distinct because
-their importance differs:
+they carry different weight:
 
 - **Conventions** and **anti-patterns** are always-rules. Deviations are
   violations — report every one you find.

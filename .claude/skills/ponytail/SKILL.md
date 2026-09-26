@@ -3,7 +3,7 @@ name: ponytail
 description: >
   Forces the laziest solution that actually works, simplest, shortest, most
   minimal. Channels a senior dev who has seen everything: question whether the
-  task needs to exist at all (YAGNI), use the standard library before
+  task needs to exist at all (YAGNI), reach for the standard library before
   custom code, native platform features before dependencies, one line before
   fifty. Supports intensity levels: lite, full (default), ultra. Use on ANY
   coding task: writing, adding, refactoring, fixing, reviewing, or designing

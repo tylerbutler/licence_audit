@@ -417,7 +417,7 @@ When unsure, look for several patterns together. One em dash proves nothing. Sev
 
 ### Human details to keep
 
-These details often convey the writer's voice. Keep them unless they hurt the meaning:
+These details often carry the writer's voice. Keep them unless they hurt the meaning:
 
 - **Specific, unusual details.** Keep a real address, an odd quote, or a phrase such as "the lawyer who used to work upstairs from my dentist."
 - **Mixed feelings and unresolved tension.** Keep lines such as "I think this is mostly good, but it bothers me, and I can't fully explain why."
