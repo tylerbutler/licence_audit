@@ -18,7 +18,7 @@ licence_audit notices --include-dev
 By default, `notices` includes only **production** dependencies. Use
 `--include-dev` to add development dependencies.
 
-## What the file contains
+## File contents
 
 The output starts with a header that identifies the source `manifest.toml`
 file. Two types of sections follow:
@@ -30,7 +30,7 @@ file. Two types of sections follow:
 - **Notice sections.** `notices` copies each package-specific `NOTICE` or
   attribution file without changes into a separate section.
 
-## Where licence text comes from
+## Licence text sources
 
 If a dependency source archive contains no licence text, `notices` uses
 fallback sources. It preserves applicable files from the source archive. The
@@ -54,7 +54,7 @@ command uses these sources in sequence:
 If a temporary error occurs during a repository fallback, `notices` writes a
 warning and continues to the SPDX fallback.
 
-## When it fails
+## Failure conditions
 
 `notices` returns a nonzero exit code if it cannot create a complete bundle. It
 fails in these conditions:

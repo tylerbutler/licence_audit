@@ -21,7 +21,7 @@ Source: `benchmarks/` and the README.
 ## Scoreboard
 
 Render plain ASCII bars. The bar length shows the measured range; the label
-carries the exact figure:
+shows the exact figure:
 
 ```
   ponytail gain                     benchmark median · 5 tasks · 3 models

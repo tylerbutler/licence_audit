@@ -1292,7 +1292,7 @@ pub fn sbom_subcommand_offline_omits_licenses_test() {
       progress.disabled(),
     ).0
   should.equal(result.exit_code, 0)
-  // Offline mode skips the Hex fetch, so dependency components carry no
+  // Offline mode skips the Hex fetch, so dependency components have no
   // licences. The root component still declares its own licence from the
   // local gleam.toml, so allow that single block but no more.
   let license_blocks = list.length(string.split(result.output, "\"licenses\":"))

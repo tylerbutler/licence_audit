@@ -6,7 +6,7 @@
 //// identifier always yields byte-identical text regardless of when the fetch
 //// happens. Detail records are served as JSON from `raw.githubusercontent.com`
 //// at the pinned commit; the `licenseText` (for licences) and
-//// `licenseExceptionText` (for `WITH` exceptions) fields carry the text
+//// `licenseExceptionText` (for `WITH` exceptions) fields contain the text
 //// verbatim.
 ////
 //// A declared licence may be a bare identifier (`Apache-2.0`) or a compound

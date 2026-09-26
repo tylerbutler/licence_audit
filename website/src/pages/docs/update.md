@@ -13,7 +13,7 @@ configuration. It then writes your choices to `[tools.licence_audit]` in
 licence_audit update
 ```
 
-## What it does
+## Update process
 
 1. Resolves the dependency tree and gets licence metadata from Hex.
 2. Shows an interactive list of the licences. The list selects existing allow

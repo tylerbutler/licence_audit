@@ -49,7 +49,7 @@ resolve and verify commit SHAs if it requires immutable action references.
 
 Prefer the existing local audit task over a duplicate command. For a nested
 Gleam project, set `working-directory` on shell steps, or use a task that
-changes to that directory. Carry an existing explicit `--config` path into
+changes to that directory. Preserve an existing explicit `--config` path in
 the policy-aware command.
 
 If there is no workflow, create one for pull requests and pushes to the

@@ -51,7 +51,7 @@ fn cache_filename() -> String {
 ///
 /// Never returns an error. If the cache file can't be opened or the parent
 /// directory can't be created, the returned `Cache` is in a passthrough state
-/// and carries a deferred warning accessible via `close`.
+/// and includes a deferred warning accessible via `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)

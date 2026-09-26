@@ -965,8 +965,8 @@ fn render_sbom(
 }
 
 /// Query OSV for every component with a purl and map the results into
-/// `sbom.EmbeddedVulnerability` values, one per unique advisory, each carrying
-/// the component `bom-ref`s (purls) it affects. Returns the OSV error on a
+/// `sbom.EmbeddedVulnerability` values, one per unique advisory, with the
+/// component `bom-ref`s (purls) each advisory affects. Returns the OSV error on a
 /// failed batch query so the caller can fail the command.
 fn gather_embedded_vulnerabilities(
   sbom_manifest: manifest.SbomManifest,
@@ -1109,7 +1109,7 @@ fn fetch_hex_entry_metadata(
 
 /// Enrich a git-sourced entry from its locally checked-out `gleam.toml`
 /// (`build/packages/<name>/gleam.toml`). Git packages have no Hex registry
-/// metadata, but the manifest carries the repo URL and the source tree carries
+/// metadata, but the manifest contains the repo URL and the source tree contains
 /// description, licences, and links. The repository is always emitted as a
 /// `vcs` link; the richer fields are added when the local gleam.toml is
 /// readable, otherwise a warning records what was omitted.

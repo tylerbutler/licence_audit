@@ -23,9 +23,8 @@ mise use -g github:tylerbutler/licence_audit@latest
 ```
 
 Replace `latest` with a tag such as `v0.7.0` to select a fixed version. mise
-selects the self-contained archive for your operating system and architecture,
-so Erlang/OTP is not required. For source build instructions, refer to
-[DEV.md][dev].
+selects the self-contained archive for your operating system and architecture.
+You do not need Erlang/OTP. For source build instructions, refer to [DEV.md][dev].
 
 ## Standard workflow
 
@@ -94,8 +93,8 @@ integration interfaces.
 
 `licence_audit` caches Hex licence metadata on disk between runs at
 `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`. Override it with
-`--cache-path=PATH`, or bypass it with `--no-cache`. Entries are reused for
-7 days, so metadata changes on Hex can take up to 7 days to appear. Use
+`--cache-path=PATH`, or bypass it with `--no-cache`. `licence_audit` reuses entries for 7 days, so metadata changes on Hex can take
+up to 7 days to appear. Use
 `--no-cache` when you need fresh data.
 
 The cache is shared across projects and commands for each package name and
@@ -103,10 +102,10 @@ version. In CI, restore and save the cache file between jobs, for example
 with `actions/cache` and `--cache-path=.hex-cache/hex-v2.dets`. Use
 `--verbose` to see cache hits and misses.
 
-Each successful lookup is cached immediately. A later lookup failure does
-not discard earlier entries, and the audit continues with the remaining
-packages. Failed lookups are not cached. If a refresh fails and an older
-entry is available, the audit uses that entry and warns.
+`licence_audit` caches each successful lookup when it completes. A later
+lookup failure keeps earlier entries, and the audit continues with the
+remaining packages. The cache excludes failed lookups. If a refresh fails
+and an older entry exists, the audit uses that entry and warns.
 
 If a cache operation fails, `licence_audit` continues the audit and writes a
 warning to stderr. It does not cache OSV advisories.

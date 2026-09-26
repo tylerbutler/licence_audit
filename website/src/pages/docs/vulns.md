@@ -12,7 +12,7 @@ GHSA / CVE identifiers, a severity bucket, and a one-line summary. It does
 licence_audit vulns
 ```
 
-## What it reports
+## Report contents
 
 For each affected package, `vulns` shows its identifiers, severity, and a short
 summary. Severity is `critical`, `high`, `medium`, `low`, or `unknown`. The
