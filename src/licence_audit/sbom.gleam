@@ -910,7 +910,7 @@ fn ratings_json(vuln: osv.Vulnerability) -> List(json.Json) {
 }
 
 /// Map an OSV CVSS score to a CycloneDX `ratings.method` enum value. The vector
-/// string's version prefix is authoritative when present (CVSS v2 vectors carry
+/// string's version prefix is authoritative when present (CVSS v2 vectors have
 /// no prefix); otherwise we fall back to the OSV score `type`.
 fn cvss_method(kind: String, vector: String) -> String {
   let upper = string.uppercase(vector)

@@ -43,7 +43,7 @@ pub type FetchError {
   FetchTimeout
   /// A request timed out at a duration other than the 30s source-archive
   /// default (e.g. the 10s metadata fetches used by the repository/SPDX
-  /// fallback). Carries the timeout in seconds so `describe_fetch_error`
+  /// fallback). Includes the timeout in seconds so `describe_fetch_error`
   /// reports the actual configured duration rather than assuming 30s.
   FetchTimeoutAfter(seconds: Int)
   FetchUnexpectedResponse(status: Int)
@@ -86,7 +86,7 @@ pub type Clients {
   Clients(
     fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
     /// Fetch a git package's source archive at its immutable manifest commit.
-    /// Provider-agnostic: the `repository.Repository` carries the parsed
+    /// Provider-agnostic: the `repository.Repository` contains the parsed
     /// provider (GitHub, GitLab, or Codeberg) so the correct archive endpoint
     /// is used. Never resolves tags or HEAD — the commit is fixed.
     fetch_git_archive: fn(repository.Repository, String) ->

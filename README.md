@@ -132,7 +132,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
 <!-- commandsstop -->
 
-The sections below cover the *concepts* behind each command; reach for `docs/`
+The sections below cover the *concepts* behind each command; use `docs/`
 or `licence_audit <command> --help` when you need the exact flags.
 
 ## Enforce a licence policy

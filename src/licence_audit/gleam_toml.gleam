@@ -1,7 +1,7 @@
 //// Reusable parser for a dependency's `gleam.toml`.
 ////
 //// Git and path dependencies have no Hex registry metadata, but their checked
-//// out source tree carries a `gleam.toml` with `description`, `licences`, and
+//// out source tree has a `gleam.toml` with `description`, `licences`, and
 //// `links`. This module extracts those into a `hex.PackageMetadata` value so
 //// the SBOM and notices flows can treat local and Hex-sourced metadata
 //// uniformly. The repository link is always the caller-supplied `repo_url`

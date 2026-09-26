@@ -236,7 +236,7 @@ fn try_repos(
 }
 
 /// A non-fatal failure encountered while following one repository fallback
-/// candidate. Carries the data needed to describe the failure (rather than a
+/// candidate. Contains the data needed to describe the failure (rather than a
 /// pre-formatted `String`) so callers other than `try_repo` could match on the
 /// cause without re-parsing a message.
 type RepoFallbackError {

@@ -128,9 +128,9 @@ const trust = [
           Check your Gleam <span class="tw">dependencies</span>.
         </h1>
         <p class="hero__sub">
-          <strong>licence_audit</strong> reports licence metadata, creates a
-          CycloneDX SBOM, and checks your locked dependencies for known
-          vulnerabilities. Run this small CLI locally or in CI.
+          <strong>licence_audit</strong> reports licences, creates a CycloneDX
+          SBOM, and finds known vulnerabilities in your locked dependencies.
+          Use it during development or in CI.
         </p>
       </div>
 
@@ -163,7 +163,7 @@ const trust = [
   <section class="section workflow" aria-labelledby="workflow-h">
     <div class="container">
       <header class="sec-head">
-        <h2 id="workflow-h">Inspect, create a policy, and enforce it.</h2>
+        <h2 id="workflow-h">Turn a dependency report into a CI gate.</h2>
         <p>Run these three commands in sequence.</p>
       </header>
 
@@ -188,7 +188,7 @@ const trust = [
   <section class="section checks" aria-labelledby="checks-h">
     <div class="container">
       <header class="sec-head">
-        <h2 id="checks-h">Three functions, one dependency scan.</h2>
+        <h2 id="checks-h">Audit licences and vulnerabilities from one dependency scan.</h2>
         <p>
           licence_audit reads your locked dependencies once. It writes plain
           text output that you can read in a terminal or log.
@@ -228,10 +228,10 @@ const trust = [
   <section class="section trust" aria-labelledby="trust-h">
     <div class="container trust__grid">
       <div class="trust__intro">
-        <h2 id="trust-h">Predictable behavior in CI.</h2>
+        <h2 id="trust-h">Use predictable exit codes in CI.</h2>
         <p>
-          licence_audit is one executable with defined exit codes and
-          reproducible output. Use its quiet progress mode in a pipeline.
+          Run one executable with defined exit codes and reproducible output.
+          Use quiet progress output in pipelines.
         </p>
         <div class="trust__ci">
           <Code code={ciYaml} lang="yaml" title=".github/workflows/licence-audit.yml" frame="code" />

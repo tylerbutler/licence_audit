@@ -30,7 +30,7 @@ pub type PackageMetadata {
   )
 }
 
-/// Construct metadata carrying only licences, with no description, links, or
+/// Construct metadata that contains only licences, with no description, links, or
 /// publisher. Used where only licence policy matters (the `check`/`update`
 /// paths) and by tests that don't exercise SBOM enrichment.
 pub fn licences_only(licences: List(String)) -> PackageMetadata {

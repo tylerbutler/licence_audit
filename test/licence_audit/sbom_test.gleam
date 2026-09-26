@@ -704,7 +704,7 @@ pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
 }
 
 pub fn render_embeds_vulnerability_without_cvss_vector_test() {
-  // When OSV reports no machine-readable vector, ratings carry just the
+  // When OSV reports no machine-readable vector, ratings contain only the
   // severity bucket (no method/vector keys).
   let vuln =
     osv.Vulnerability(
@@ -753,7 +753,7 @@ pub fn render_emits_publisher_when_metadata_has_one_test() {
 }
 
 pub fn render_emits_supplier_for_every_hex_component_test() {
-  // Every Hex component carries the same supplier object so SBOM consumers
+  // Every Hex component has the same supplier object so SBOM consumers
   // can identify the registry the artefact was supplied from.
   let output = render(minimal_input())
 
