@@ -2,6 +2,7 @@
 *.ez
 /build
 /dist
+**/.wrangler/
 /.hex-cache
 /licence_audit
 erl_crash.dump
