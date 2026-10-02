@@ -8,7 +8,7 @@ export default {
     if (url.hostname === aliasHost) {
       url.protocol = "https:";
       url.hostname = canonicalHost;
-      return Response.redirect(url, 301);
+      return Response.redirect(url.toString(), 301);
     }
 
     return env.ASSETS.fetch(request);
