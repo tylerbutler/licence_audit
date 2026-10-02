@@ -3,11 +3,14 @@
   "type": "module",
   "version": "0.0.1",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "deploy": "pnpm build && wrangler deploy",
     "preview": "astro preview",
-    "check": "astro check"
+    "check": "astro check",
+    "test": "node --test worker.test.js"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.2.9",
@@ -15,5 +18,8 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "astro": "^7.2.8",
     "astro-expressive-code": "^0.44.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.141.0"
   }
 }
