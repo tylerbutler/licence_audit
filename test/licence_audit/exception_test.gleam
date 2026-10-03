@@ -26,7 +26,8 @@ fn parse(fields: String) -> Result(config.Policy, config.Error) {
   )
 }
 
-const base = "purl = \"pkg:hex/example@1.2.3\"\nfinding = \"advisory\"\nadvisory = \"CVE-2026-12345\"\nreason = \"Reviewed\"\n"
+const base =
+  "purl = \"pkg:hex/example@1.2.3\"\nfinding = \"advisory\"\nadvisory = \"CVE-2026-12345\"\nreason = \"Reviewed\"\n"
 
 pub fn parse_array_of_tables_and_optional_expiry_test() {
   let assert Ok(parsed) = parse(base <> "expires = \"2026-12-31\"\n")

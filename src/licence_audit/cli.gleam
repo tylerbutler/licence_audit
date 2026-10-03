@@ -114,9 +114,11 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   })
 }
 
-const root_help = "Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy."
+const root_help =
+  "Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy."
 
-const check_help = "Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations."
+const check_help =
+  "Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations."
 
 fn audit_command(
   check_mode check_mode: Bool,
@@ -444,7 +446,8 @@ fn sbom_vulns_flag() -> glint.Flag(Bool) {
   )
 }
 
-const sbom_help = "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy."
+const sbom_help =
+  "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy."
 
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
@@ -499,7 +502,8 @@ fn sbom_command() -> glint.Command(CliAction) {
   }
 }
 
-const notices_help = "Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies. The output inventories each product, includes its applicable licence text, and preserves package-specific NOTICE attribution. Products with identical licence text are grouped so the shared text is emitted once. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback."
+const notices_help =
+  "Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies. The output inventories each product, includes its applicable licence text, and preserves package-specific NOTICE attribution. Products with identical licence text are grouped so the shared text is emitted once. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback."
 
 fn notices_command() -> glint.Command(CliAction) {
   use <- glint.command_help(notices_help)
@@ -538,7 +542,8 @@ fn notices_command() -> glint.Command(CliAction) {
   }
 }
 
-const vulns_help = "Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy."
+const vulns_help =
+  "Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy."
 
 fn vulns_command() -> glint.Command(CliAction) {
   use <- glint.command_help(vulns_help)

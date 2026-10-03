@@ -8,7 +8,8 @@ import licence_audit/osv
 import licence_audit/progress
 import simplifile
 
-const manifest = "packages = [
+const manifest =
+  "packages = [
 { name = \"first\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"AAAA\", requirements = [] },
 { name = \"second\", version = \"2.0.0\", source = \"hex\", outer_checksum = \"BBBB\", requirements = [] },
 { name = \"git_dep\", version = \"0.1.0\", source = \"git\", repo = \"https://github.com/owner/repo\", commit = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", requirements = [] },
@@ -20,7 +21,8 @@ second = { version = \"2.0.0\" }
 git_dep = { git = \"https://github.com/owner/repo\", ref = \"main\" }
 "
 
-const licence_rules = "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\n"
+const licence_rules =
+  "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\n"
 
 fn waiver(purl: String, selector: String, extra: String) -> String {
   "\n[[tools.licence_audit.exceptions]]\npurl = \""
