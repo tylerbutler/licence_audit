@@ -13,11 +13,14 @@ import licence_audit/hex
 import licence_audit/httpc_adaptive
 import simplifile
 
-const british_licences_json = "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
+const british_licences_json =
+  "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
 
-const missing_licences_json = "{\"name\":\"example\",\"meta\":{\"description\":\"Example package\"}}"
+const missing_licences_json =
+  "{\"name\":\"example\",\"meta\":{\"description\":\"Example package\"}}"
 
-const invalid_metadata_json = "{\"name\":\"example\",\"meta\":{\"licences\":\"MIT\"}}"
+const invalid_metadata_json =
+  "{\"name\":\"example\",\"meta\":{\"licences\":\"MIT\"}}"
 
 fn package_fixture() -> String {
   let assert Ok(contents) =

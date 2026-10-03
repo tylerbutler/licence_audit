@@ -16,13 +16,16 @@ test("redirects the alias and preserves the request target", async () => {
   );
 });
 
-test("serves assets on the canonical host", async () => {
-  const request = new Request(
-    "https://licence-audit.tylerbutler.com/docs/check/",
-  );
-  const response = await worker.fetch(request, {
-    ASSETS: { fetch: (assetRequest) => new Response(assetRequest.url) },
-  });
+for (const host of [
+  "licence-audit.tylerbutler.com",
+  "branch-preview.example.workers.dev",
+]) {
+  test(`serves assets on ${host}`, async () => {
+    const request = new Request(`https://${host}/docs/check/`);
+    const response = await worker.fetch(request, {
+      ASSETS: { fetch: (assetRequest) => new Response(assetRequest.url) },
+    });
 
-  assert.equal(await response.text(), request.url);
-});
+    assert.equal(await response.text(), request.url);
+  });
+}

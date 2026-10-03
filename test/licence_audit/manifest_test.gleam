@@ -5,7 +5,8 @@ import gleeunit/should
 import licence_audit/manifest
 import simplifile
 
-const manifest_fixture = "# Minimal Gleam lockfile fixture for licence audit manifest parsing.\npackages = [\n  { name = \"gleam_stdlib\", version = \"1.0.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"gleam_stdlib\", source = \"hex\", outer_checksum = \"AAAA\" },\n  { name = \"argv\", version = \"1.1.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"argv\", source = \"hex\", outer_checksum = \"BBBB\" },\n  { name = \"local_dep\", version = \"0.1.0\", build_tools = [\"gleam\"], requirements = [], source = \"path\", path = \"../local_dep\" },\n  { name = \"git_dep\", version = \"2.0.0\", build_tools = [\"gleam\"], requirements = [], source = \"git\", repo = \"https://example.invalid/git_dep\" },\n]\n\n[requirements]\ngleam_stdlib = { version = \">= 1.0.0 and < 2.0.0\" }\n"
+const manifest_fixture =
+  "# Minimal Gleam lockfile fixture for licence audit manifest parsing.\npackages = [\n  { name = \"gleam_stdlib\", version = \"1.0.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"gleam_stdlib\", source = \"hex\", outer_checksum = \"AAAA\" },\n  { name = \"argv\", version = \"1.1.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"argv\", source = \"hex\", outer_checksum = \"BBBB\" },\n  { name = \"local_dep\", version = \"0.1.0\", build_tools = [\"gleam\"], requirements = [], source = \"path\", path = \"../local_dep\" },\n  { name = \"git_dep\", version = \"2.0.0\", build_tools = [\"gleam\"], requirements = [], source = \"git\", repo = \"https://example.invalid/git_dep\" },\n]\n\n[requirements]\ngleam_stdlib = { version = \">= 1.0.0 and < 2.0.0\" }\n"
 
 pub fn parse_returns_only_hex_packages_and_skipped_packages_test() {
   let assert Ok(parsed) = manifest.parse(manifest_fixture)
@@ -109,7 +110,8 @@ pub fn audit_and_sbom_share_common_field_errors_test() {
   should.equal(sbom_error, expected)
 }
 
-const path_fixture = "packages = [
+const path_fixture =
+  "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\", \"git_dep\"] },
   { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [\"lib_c\"] },
   { name = \"lib_c\", version = \"3.0.0\", source = \"hex\", requirements = [] },
@@ -227,7 +229,8 @@ pub fn sbom_entries_exposes_root_requirements_test() {
   should.equal(parsed.root_requirements, ["gleam_stdlib", "gluegun"])
 }
 
-const scope_fixture = "packages = [
+const scope_fixture =
+  "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
   { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [\"shared\"] },
   { name = \"test_helper\", version = \"1.0.0\", source = \"hex\", requirements = [\"shared\"] },

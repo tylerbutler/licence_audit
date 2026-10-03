@@ -2,9 +2,11 @@ import gleam/option.{None, Some}
 import gleeunit/should
 import licence_audit/config
 
-const tools_section = "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\ndeny = [\"GPL-3.0-only\"]\n"
+const tools_section =
+  "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\ndeny = [\"GPL-3.0-only\"]\n"
 
-const gleam_toml_with_tools = "name = \"fixture\"\n\n[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\ndeny = [\"GPL-3.0-only\"]\n"
+const gleam_toml_with_tools =
+  "name = \"fixture\"\n\n[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\ndeny = [\"GPL-3.0-only\"]\n"
 
 const legacy_licences = "[licences]\nallow = [\"MIT\"]\ndeny = []\n"
 
