@@ -168,13 +168,8 @@ pub fn packages_from_entries(
 fn repo_link_urls(links: List(#(String, String))) -> List(String) {
   links
   |> list.filter(fn(pair) { is_repository_link_label(pair.0) })
-  |> list.fold([], fn(seen, pair) {
-    case list.contains(seen, pair.1) {
-      True -> seen
-      False -> [pair.1, ..seen]
-    }
-  })
-  |> list.reverse
+  |> list.map(fn(pair) { pair.1 })
+  |> list.unique
 }
 
 fn is_repository_link_label(label: String) -> Bool {
@@ -258,13 +253,6 @@ fn notice_file_decoder() -> decode.Decoder(NoticeFile) {
   use path <- decode.field("path", decode.string)
   use contents <- decode.field("contents", decode.string)
   decode.success(NoticeFile(path: path, contents: contents))
-}
-
-pub fn entries_from_sources(
-  packages: List(NoticePackage),
-  read_source: fn(NoticePackage) -> Result(List(NoticeFile), Error),
-) -> Result(List(NoticeEntry), Error) {
-  entries_from_sources_loop(packages, read_source, [], [])
 }
 
 pub fn read_remote_source(
@@ -667,37 +655,6 @@ fn hex_tarball_request(name: String, version: String) -> Request(BitArray) {
     path: "/tarballs/" <> name <> "-" <> version <> ".tar",
     query: None,
   )
-}
-
-fn entries_from_sources_loop(
-  packages: List(NoticePackage),
-  read_source: fn(NoticePackage) -> Result(List(NoticeFile), Error),
-  entries: List(NoticeEntry),
-  missing: List(String),
-) -> Result(List(NoticeEntry), Error) {
-  case packages {
-    [] ->
-      case list.reverse(missing) {
-        [] -> Ok(list.reverse(entries))
-        missing_packages -> Error(MissingLicenceText(missing_packages))
-      }
-    [package, ..rest] ->
-      case read_source(package) {
-        Error(error) -> Error(error)
-        Ok([]) ->
-          entries_from_sources_loop(rest, read_source, entries, [
-            package.name,
-            ..missing
-          ])
-        Ok(notice_files) ->
-          entries_from_sources_loop(
-            rest,
-            read_source,
-            [NoticeEntry(package: package, files: notice_files), ..entries],
-            missing,
-          )
-      }
-  }
 }
 
 fn matched_archive_files(

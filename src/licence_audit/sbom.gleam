@@ -228,18 +228,7 @@ pub fn license_entries(licences: List(String)) -> List(LicenseEntry) {
       Error(_) -> LicenseName(raw)
     }
   })
-  |> dedupe_license_entries
-}
-
-fn dedupe_license_entries(entries: List(LicenseEntry)) -> List(LicenseEntry) {
-  entries
-  |> list.fold([], fn(acc, entry) {
-    case list.contains(acc, entry) {
-      True -> acc
-      False -> [entry, ..acc]
-    }
-  })
-  |> list.reverse
+  |> list.unique
 }
 
 fn match_spdx(raw: String) -> Result(String, Nil) {

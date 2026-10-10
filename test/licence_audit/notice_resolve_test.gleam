@@ -122,6 +122,81 @@ pub fn source_with_licence_needs_no_fallback_test() {
   should.equal(resolution.warnings, [])
 }
 
+pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
+  let path = fresh_cache_path("source_identity")
+  let source = read_bytes("hex.tar")
+  let checksum = checksum_of(source)
+  let package = hex_package("same", string.lowercase(checksum), ["MIT"], [])
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let assert Ok(first) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        fn(_n, _v) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        panic_spdx,
+      ),
+    )
+  let assert None = notice_cache.close(cache)
+
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let assert Ok(cached) =
+    notice_resolve.resolve(
+      cache,
+      hex_package("same", checksum, ["MIT"], []),
+      clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx),
+    )
+  should.equal(cached, first)
+
+  let changed_source = read_bytes("notice_only_hex.tar")
+  let assert Ok(changed) =
+    notice_resolve.resolve(
+      cache,
+      hex_package("same", checksum_of(changed_source), ["MIT"], []),
+      clients(
+        fn(_n, _v) { Ok(changed_source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        fn(_requirement) { Ok(Some("Canonical MIT text")) },
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = changed.outcome
+  should.equal(paths(files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
+  let assert None = notice_cache.close(cache)
+}
+
+pub fn path_packages_always_read_mutable_source_test() {
+  let path = fresh_cache_path("path_bypass")
+  let root = tmp_dir <> "/local"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let package =
+    notice.NoticePackage(
+      name: "local",
+      version: "1.0.0",
+      declared_licences: [],
+      repo_links: [],
+      source: notice.PathPackage(root),
+      scope: manifest.Prod,
+    )
+  let client =
+    clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx)
+
+  list.each(["first", "second"], fn(contents) {
+    let assert Ok(_) = simplifile.write(contents, to: root <> "/LICENSE")
+    let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+    let assert Ok(resolution) = notice_resolve.resolve(cache, package, client)
+    should.equal(
+      resolution.outcome,
+      notice_resolve.Resolved([notice.NoticeFile("LICENSE", contents)]),
+    )
+    let assert None = notice_cache.close(cache)
+  })
+}
+
 pub fn notice_only_source_falls_back_to_repository_test() {
   let source = read_bytes("notice_only_hex.tar")
   let repo_archive = read_bytes("repo_with_license.tar.gz")

@@ -303,18 +303,7 @@ fn follow_paginated_entries(
   entries: List(BatchPageEntry),
   client: fn(Request(String)) -> Result(Response(String), Error),
 ) -> Result(List(BatchEntry), Error) {
-  case entries {
-    [] -> Ok([])
-    [entry, ..rest] ->
-      case follow_entry_pages(entry, client) {
-        Error(error) -> Error(error)
-        Ok(resolved) ->
-          case follow_paginated_entries(rest, client) {
-            Error(error) -> Error(error)
-            Ok(resolved_rest) -> Ok([resolved, ..resolved_rest])
-          }
-      }
-  }
+  list.try_map(entries, follow_entry_pages(_, client))
 }
 
 fn follow_entry_pages(
@@ -462,30 +451,14 @@ fn severity_from_cvss_kind(kind: String, vector: String) -> Severity {
 
 fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {
   list.fold(severities, UnknownSeverity, fn(acc, current) {
-    case compare_severity(current, acc) {
-      Greater -> current
-      _ -> acc
+    case severity_rank(current) > severity_rank(acc) {
+      True -> current
+      False -> acc
     }
   })
 }
 
-type SeverityOrder {
-  Less
-  Equal
-  Greater
-}
-
-fn compare_severity(a: Severity, b: Severity) -> SeverityOrder {
-  let rank_a = severity_rank(a)
-  let rank_b = severity_rank(b)
-  case rank_a, rank_b {
-    x, y if x == y -> Equal
-    x, y if x > y -> Greater
-    _, _ -> Less
-  }
-}
-
-fn severity_rank(severity: Severity) -> Int {
+pub fn severity_rank(severity: Severity) -> Int {
   case severity {
     UnknownSeverity -> 0
     Low -> 1

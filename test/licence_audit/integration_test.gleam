@@ -198,6 +198,66 @@ gleam_stdlib = { version = \">= 1.0.0\" }
   assert string.contains(result.output, "Fixture licence text")
 }
 
+fn missing_notices_manifest() -> String {
+  let path = "build/tmp/notices-missing-manifest.toml"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let assert Ok(bits) =
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
+    )
+  let assert Ok(checksum) = source_archive.sha256_hex(bits)
+  let assert Ok(_) = simplifile.write(to: path, contents: "packages = [
+  { name = \"first\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> checksum <> "\" },
+  { name = \"second\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> checksum <> "\" },
+]
+[requirements]
+first = \"1.0.0\"
+second = \"1.0.0\"
+")
+  path
+}
+
+pub fn notices_aggregates_all_missing_packages_test() {
+  let result =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> missing_notices_manifest()],
+      licence_audit.Clients(
+        ..test_clients(fn(_name) { Ok(hex.licences_only([])) }),
+        notice_clients: notice_clients(notice_only_hex_tarball),
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Missing licence text for packages: first, second",
+  )
+  assert !string.contains(result.output, "Third-party licences")
+}
+
+pub fn notices_propagates_source_error_and_stops_resolution_test() {
+  let result =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> missing_notices_manifest()],
+      licence_audit.Clients(
+        ..test_clients(fn(_name) { Ok(hex.licences_only([])) }),
+        notice_clients: notice_clients(fn(name, _version) {
+          case name {
+            "first" -> Error(notice.FetchNetworkFailure)
+            _ -> panic as "source reads must stop at the first hard error"
+          }
+        }),
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Failed to fetch source archive for first: network failure",
+  )
+  assert !string.contains(result.output, "Missing licence text")
+}
+
 pub fn exceptions_do_not_change_sbom_or_notice_evidence_test() {
   let root = "build/tmp/exception-evidence"
   let assert Ok(_) = simplifile.create_directory_all(root)
@@ -764,7 +824,7 @@ fn transitive_manifest_args(extra: List(String)) -> List(String) {
   )
 }
 
-pub fn report_tags_direct_and_transitive_kinds_test() {
+pub fn report_shows_dependency_tree_without_kind_column_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
       transitive_manifest_args([]),

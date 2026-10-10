@@ -12,18 +12,8 @@ pub fn parse_returns_only_hex_packages_and_skipped_packages_test() {
   let assert Ok(parsed) = manifest.parse(manifest_fixture)
 
   should.equal(parsed.packages, [
-    manifest.Package(
-      name: "gleam_stdlib",
-      version: "1.0.0",
-      kind: manifest.Direct,
-      requirements: [],
-    ),
-    manifest.Package(
-      name: "argv",
-      version: "1.1.0",
-      kind: manifest.Transitive,
-      requirements: [],
-    ),
+    manifest.Package(name: "gleam_stdlib", version: "1.0.0", requirements: []),
+    manifest.Package(name: "argv", version: "1.1.0", requirements: []),
   ])
   should.equal(list.length(parsed.skipped_packages), 2)
   should.equal(parsed.direct_names, ["gleam_stdlib"])
@@ -78,7 +68,6 @@ pub fn audit_accepts_missing_source_specific_fields_test() {
       name: "git_dep",
       version: "2.0.0",
       source: "git",
-      kind: manifest.Transitive,
       requirements: [],
     ),
   ])
@@ -135,32 +124,13 @@ pub fn dep_paths_reconstructs_direct_and_transitive_chains_test() {
   should.equal(dict.get(paths, "orphan"), Error(Nil))
 }
 
-pub fn parse_tags_direct_versus_transitive_kinds_test() {
+pub fn parse_preserves_direct_requirements_and_package_edges_test() {
   let assert Ok(parsed) = manifest.parse(path_fixture)
-  let kinds =
-    parsed.packages
-    |> list_to_kind_dict
-
-  should.equal(dict.get(kinds, "app_a"), Ok(manifest.Direct))
-  should.equal(dict.get(kinds, "lib_b"), Ok(manifest.Transitive))
-  should.equal(dict.get(kinds, "lib_c"), Ok(manifest.Transitive))
-}
-
-fn list_to_kind_dict(
-  packages: List(manifest.Package),
-) -> dict.Dict(String, manifest.Kind) {
-  packages
-  |> list_fold_kinds(dict.new())
-}
-
-fn list_fold_kinds(
-  packages: List(manifest.Package),
-  acc: dict.Dict(String, manifest.Kind),
-) -> dict.Dict(String, manifest.Kind) {
-  case packages {
-    [] -> acc
-    [p, ..rest] -> list_fold_kinds(rest, dict.insert(acc, p.name, p.kind))
-  }
+  should.equal(parsed.direct_names, ["app_a"])
+  let assert Ok(app) = list.find(parsed.packages, fn(p) { p.name == "app_a" })
+  let assert Ok(lib) = list.find(parsed.packages, fn(p) { p.name == "lib_b" })
+  should.equal(app.requirements, ["lib_b", "git_dep"])
+  should.equal(lib.requirements, ["lib_c"])
 }
 
 pub fn sbom_entries_returns_hex_provenance_test() {
@@ -171,7 +141,6 @@ pub fn sbom_entries_returns_hex_provenance_test() {
   let assert [first, _] = parsed.entries
   should.equal(first.name, "gleam_stdlib")
   should.equal(first.version, "1.0.0")
-  should.equal(first.kind, manifest.Direct)
   should.equal(first.requirements, [])
   should.equal(
     first.provenance,
@@ -210,7 +179,6 @@ pub fn sbom_entries_returns_git_provenance_test() {
   let assert [_, second] = parsed.entries
   should.equal(second.name, "gluegun")
   should.equal(second.version, "0.1.0")
-  should.equal(second.kind, manifest.Direct)
   should.equal(second.requirements, ["gleam_stdlib"])
   should.equal(
     second.provenance,
