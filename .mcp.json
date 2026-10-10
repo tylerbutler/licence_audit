@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "xerj": {
+      "command": "just",
+      "args": ["_xerj", "mcp"]
+    }
+  }
+}

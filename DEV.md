@@ -17,6 +17,91 @@ recipe wraps its commands in `mise exec --` already, so `just build`,
 back to `mise exec -- <command>` when running tools that don't have a
 `just` recipe.
 
+## Reference coding
+
+Use [XERJ](https://xerj.org/llms.txt) to search this project's sources and peer
+implementations before writing code:
+
+```sh
+just xerj-install
+just xerj-serve
+```
+
+Keep the node in that terminal. In a second terminal:
+
+```sh
+just xerj-index --dry-run
+just xerj-index
+just xerj-reference-add
+just xerj-reference-index
+just xerj-search "run_options_with_clients"
+just xerj-reference "OSV querybatch"
+```
+
+Search local code first, then use a narrow query for the mechanism you need.
+Read the source context and tests at each returned `file:line`. Check the
+licence before adapting code and cite the reference you used. If the search
+returns no useful result, state that and use normal source search.
+
+The local search recipe needs `curl` and `jq`. XERJ indexes Gleam as plain-text
+chunks without syntax-aware definitions; the recipe searches `text` as well
+as the `body` and `defs` fields used for supported languages. Do not rely on
+`xerj def` for Gleam symbols. A `?-?` line range means XERJ did not return line
+metadata for that hit; read the file before citing a line.
+
+`.mcp.json` registers `just _xerj mcp` for project-scoped MCP clients. Run the
+client from this repository and reload its MCP configuration after setup.
+The recipe supplies the endpoint, corpus home, and API key at runtime.
+
+| Repository | Use |
+|---|---|
+| `EmbarkStudios/cargo-deny` | SPDX expressions, licence allow/deny policy, exceptions |
+| `google/osv-scanner` | OSV batch queries, advisory handling, vulnerability gates |
+| `oss-review-toolkit/ort` | Gleam analysis, CycloneDX SBOMs, third-party notices |
+| `gleam-lang/gleam` | Gleam manifests, locked dependencies, dependency resolution |
+
+The recipes store clones, commit and licence metadata, journals, and indexes
+under `~/.local/share/xerj/licence-audit/`, outside the project tree.
+`.xerjignore` limits the project index to `src/`, `test/` without fixtures, and
+`native/`. `reference-code.xerjignore` limits the reference corpus to source
+files and licence files. Do not build or edit the reference clones.
+
+Re-run `just xerj-index` after source changes. `--no-graph` lets XERJ reconcile
+added, changed, and deleted files. `just xerj-reference-add` keeps existing
+clones at their current commits. To update a reference, use `git pull
+--ff-only` in that clone, then run `just xerj-reference-add` to record its new
+commit and `just xerj-reference-index` to refresh the index. For a replacement
+index, use `just xerj-reference-index --fresh`; XERJ verifies it before
+switching readers. The generated `corpora/licence-audit-references/corpus.json`
+records full commit SHAs and licences for pinned rebuilds.
+
+The node binds to loopback at `http://127.0.0.1:19200`, with the native API on
+19201 and gRPC on 19202. It requires an API key stored in `data/admin.key`;
+the recipes read that file without putting the key in project configuration.
+The node uses local lexical embeddings, not neural embeddings. The config
+disables external reranking and WAL forwarding.
+
+On the Linux workstation used for this setup, the enabled user service
+`xerj-licence-audit.service` runs the node without an open terminal:
+
+```sh
+systemctl --user status xerj-licence-audit --no-pager
+systemctl --user restart xerj-licence-audit
+systemctl --user stop xerj-licence-audit
+```
+
+On that workstation, `data/` links to
+`/x23/tylerbu-xerj/licence-audit/data/`, because the home filesystem exceeds
+XERJ's default 95% disk watermark. The node retains that disk safeguard.
+
+Do not run `just xerj-serve` while that service is active. On another machine,
+use the foreground recipe or create a user service that runs it. XERJ search
+is a local development tool; `just ci` does not start or query it.
+
+Indexing exit code `3` means completion with skipped files, not a total
+failure. Read the `xerj-done` summary and skipped-file reasons before using
+the corpus. Exit code `4` asks for a decision; do not bypass that gate.
+
 ## Build from source
 
 ```sh

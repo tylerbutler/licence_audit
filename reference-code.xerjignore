@@ -1,0 +1,11 @@
+*
+!*/
+!*.rs
+!*.go
+!*.kt
+!*.kts
+!*.gleam
+!*.erl
+!LICENSE*
+!LICENCE*
+!COPYING*

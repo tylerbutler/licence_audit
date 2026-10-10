@@ -12,6 +12,8 @@
 - Format check: `just format-check`
 - Lint: `just glint` (glinter; configured under `[tools.glinter]` in `gleam.toml`, fails only on error-level rules). `just lint` runs format-check + glint.
 - Full local CI pass: `just ci`
+- Reference coding: use `just xerj-search "<mechanism or symbol>"` for local
+  sources and `just xerj-reference "<problem or mechanism>"` for peer projects.
 - Run a single test module: `mise exec -- gleam test --target erlang -- <module_name>_test`
 - Validate the generated SBOM: `just sbom-validate` runs three validators — `cyclonedx-cli`, `sbom-utility`, and cdxgen's `cdx-validate` (runs in CI). `just sbom-score` adds local-only quality scores from `sbom-tools` (CycloneDX 1.6-aware) and `sbomqs`; `just sbom-check` runs both. SBOM tooling is pinned in `.mise.toml` via the `github:` backend (cdxgen ships ~10 binaries, so its entry uses per-platform `asset_pattern` to select `cdx-validate`).
 
@@ -48,3 +50,22 @@
   `.github/workflows/pr.yml` and `.commitlintrc.json`.
 - There is no supported public API — the CLI is the only supported interface.
   Breaking changes to Gleam functions/modules are not considered breaking.
+
+## Reference coding
+
+- Before writing or changing product code, search the local implementation with
+  `just xerj-search`, then search peer implementations with `just xerj-reference`.
+  Use specific terms such as SPDX expressions, OSV querybatch, CycloneDX
+  dependencies, or Gleam manifest parsing.
+- The reference corpus contains `EmbarkStudios/cargo-deny` (licence policy),
+  `google/osv-scanner` (OSV queries and vulnerability gates),
+  `oss-review-toolkit/ort` (Gleam analysis, SBOMs, and notices), and
+  `gleam-lang/gleam` (manifest and dependency resolution).
+- Read the returned source context and tests before adapting an approach.
+  Cite `repository/path:line` for the mechanism used. Check the repository's
+  licence and attribution requirements before adapting code.
+- If no result matches, state that and use normal source search. Do not treat
+  an empty index or a stopped node as evidence that no implementation exists.
+- Refresh project sources with `just xerj-index`. Refresh reference indexes
+  with `just xerj-reference-index`. See `DEV.md` for node startup, clone updates,
+  and the local storage paths.
