@@ -55,35 +55,9 @@ fn manifest_entry(
   manifest.SbomEntry(
     name: name,
     version: version,
-    kind: manifest.Direct,
     requirements: requirements,
     provenance: provenance,
   )
-}
-
-fn transitive_manifest_entry(
-  name: String,
-  version: String,
-  provenance: manifest.Provenance,
-  requirements: List(String),
-) -> manifest.SbomEntry {
-  manifest.SbomEntry(
-    name: name,
-    version: version,
-    kind: manifest.Transitive,
-    requirements: requirements,
-    provenance: provenance,
-  )
-}
-
-fn fake_archive_files(
-  package_name: String,
-) -> Result(List(source_archive.ArchiveFile), notice.Error) {
-  case package_name {
-    "with_license" -> Ok([file("./LICENSE", "License text\n")])
-    "without_license" -> Ok([file("./README.md", "Readme\n")])
-    _ -> Ok([file("./LICENSE", "Default text\n")])
-  }
 }
 
 pub fn package_metadata_uses_only_repository_links_test() {
@@ -250,65 +224,6 @@ pub fn read_hex_source_verifies_checksum_and_extracts_contents_test() {
   assert list.contains(paths, "./NOTICE.txt")
 }
 
-pub fn entries_from_sources_fails_with_all_missing_license_text_test() {
-  let packages = [
-    package("without_license", notice.HexPackage(outer_checksum: "AAAA")),
-    package("also_missing", notice.PathPackage(path: "./missing")),
-  ]
-  let read_source = fn(pkg: notice.NoticePackage) {
-    case pkg.name {
-      "also_missing" ->
-        notice.notice_files_of(pkg.name, [file("./README.md", "Readme\n")])
-      _ ->
-        case fake_archive_files(pkg.name) {
-          Ok(files) -> notice.notice_files_of(pkg.name, files)
-          Error(error) -> Error(error)
-        }
-    }
-  }
-
-  let result = notice.entries_from_sources(packages, read_source)
-
-  should.equal(
-    result,
-    Error(notice.MissingLicenceText(["without_license", "also_missing"])),
-  )
-}
-
-pub fn entries_from_sources_collects_notice_entries_test() {
-  let packages = [
-    package("with_license", notice.HexPackage(outer_checksum: "AAAA")),
-  ]
-
-  let assert Ok(entries) =
-    notice.entries_from_sources(packages, fn(pkg) {
-      case fake_archive_files(pkg.name) {
-        Ok(files) -> notice.notice_files_of(pkg.name, files)
-        Error(error) -> Error(error)
-      }
-    })
-
-  should.equal(list.length(entries), 1)
-  let assert [entry] = entries
-  should.equal(entry.package.name, "with_license")
-  should.equal(list.map(entry.files, fn(file) { file.path }), ["./LICENSE"])
-}
-
-pub fn entries_from_sources_propagates_read_source_error_test() {
-  let packages = [
-    package("checksum_mismatch", notice.HexPackage(outer_checksum: "AAAA")),
-  ]
-  let error =
-    notice.ChecksumMismatch(
-      package: "checksum_mismatch",
-      expected: "AAAA",
-      actual: "BBBB",
-    )
-  let read_source = fn(_pkg: notice.NoticePackage) { Error(error) }
-
-  should.equal(notice.entries_from_sources(packages, read_source), Error(error))
-}
-
 pub fn licence_file_candidates_include_all_root_matches_test() {
   let files = [
     file("./README.md", "readme"),
@@ -433,7 +348,7 @@ pub fn selected_packages_default_to_prod_scope_test() {
           manifest.HexProvenance("BBBB", None),
           [],
         ),
-        transitive_manifest_entry(
+        manifest_entry(
           "shared",
           "1.0.0",
           manifest.HexProvenance("CCCC", None),

@@ -53,7 +53,7 @@ pub fn required_identifiers(
   declared: List(String),
 ) -> Result(List(Requirement), Nil) {
   use nested <- result.try(list.try_map(declared, identifiers_of))
-  Ok(dedupe(list.flatten(nested)))
+  Ok(list.unique(list.flatten(nested)))
 }
 
 /// Reduce a single declared licence string to its required identifiers.
@@ -113,16 +113,6 @@ fn tokenize(expression: String) -> List(String) {
 fn drop_trailing_plus(id: String) -> String {
   use <- bool.guard(when: !string.ends_with(id, "+"), return: id)
   string.drop_end(id, 1)
-}
-
-fn dedupe(items: List(Requirement)) -> List(Requirement) {
-  list.fold(items, [], fn(seen, item) {
-    case list.contains(seen, item) {
-      True -> seen
-      False -> [item, ..seen]
-    }
-  })
-  |> list.reverse
 }
 
 /// Synthetic archive path a resolved SPDX record is rendered under, clearly

@@ -22,12 +22,7 @@ fn fresh_path(name: String) -> String {
 }
 
 fn pkg(name: String, version: String) -> manifest.Package {
-  manifest.Package(
-    name: name,
-    version: version,
-    kind: manifest.Direct,
-    requirements: [],
-  )
+  manifest.Package(name: name, version: version, requirements: [])
 }
 
 fn reporter() -> progress.Reporter {

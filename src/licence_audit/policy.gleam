@@ -45,7 +45,9 @@ pub fn audit(policy: Policy, licences: List(String)) -> AuditStatus {
   case licences {
     [] -> NoLicencesDeclared
     _ -> {
-      case find_present(licences, policy.deny) {
+      case
+        list.find(licences, fn(licence) { list.contains(policy.deny, licence) })
+      {
         Ok(licence) -> DeniedLicence(licence)
         Error(Nil) -> check_allow_list(policy, licences)
       }
@@ -82,39 +84,13 @@ fn check_allow_list(policy: Policy, licences: List(String)) -> AuditStatus {
   case policy.allow {
     [] -> Allowed
     _ -> {
-      case find_missing(licences, policy.allow) {
+      case
+        list.find(licences, fn(licence) {
+          !list.contains(policy.allow, licence)
+        })
+      {
         Ok(licence) -> UnallowedLicence(licence)
         Error(Nil) -> Allowed
-      }
-    }
-  }
-}
-
-fn find_present(
-  licences: List(String),
-  denied: List(String),
-) -> Result(String, Nil) {
-  case licences {
-    [] -> Error(Nil)
-    [licence, ..rest] -> {
-      case list.contains(denied, licence) {
-        True -> Ok(licence)
-        False -> find_present(rest, denied)
-      }
-    }
-  }
-}
-
-fn find_missing(
-  licences: List(String),
-  allowed: List(String),
-) -> Result(String, Nil) {
-  case licences {
-    [] -> Error(Nil)
-    [licence, ..rest] -> {
-      case list.contains(allowed, licence) {
-        True -> find_missing(rest, allowed)
-        False -> Ok(licence)
       }
     }
   }

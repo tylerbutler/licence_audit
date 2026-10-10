@@ -1084,7 +1084,6 @@ fn fetch_hex_entry_metadata(
     manifest.Package(
       name: entry.name,
       version: entry.version,
-      kind: entry.kind,
       requirements: entry.requirements,
     )
   let #(result, reporter) = fetcher(package, reporter)
@@ -1370,7 +1369,6 @@ fn audit_sbom_fallback(
       manifest.SbomEntry(
         name: package.name,
         version: package.version,
-        kind: package.kind,
         requirements: package.requirements,
         provenance: manifest.HexProvenance(
           outer_checksum: "",
@@ -1383,7 +1381,6 @@ fn audit_sbom_fallback(
       manifest.SbomEntry(
         name: package.name,
         version: package.version,
-        kind: package.kind,
         requirements: package.requirements,
         provenance: manifest.UnknownProvenance(source: package.source),
       )
@@ -1721,7 +1718,6 @@ fn fetch_packages(
                 version: package.version,
                 licences: [],
                 status: report.Failed(message),
-                kind: package.kind,
                 scope: scope_for(scopes, package.name),
                 path: path,
               ),
@@ -1746,7 +1742,6 @@ fn fetch_packages(
                 version: package.version,
                 licences: metadata.licences,
                 status: status,
-                kind: package.kind,
                 scope: scope_for(scopes, package.name),
                 path: path,
               ),
@@ -1803,7 +1798,6 @@ fn build_skipped_rows(
       version: pkg.version,
       licences: [],
       status: report.Skipped(pkg.source),
-      kind: pkg.kind,
       scope: scope_for(scopes, pkg.name),
       path: path,
     )
@@ -2316,7 +2310,7 @@ fn format_vuln_row(
     <> color.dim(palette, "[" <> manifest.scope_label(scope) <> "]")
   let vuln_lines =
     list.map2(row.vulnerabilities, row.decisions, fn(vuln, decision) {
-      let severity_text = color.severity(palette, severity_label(vuln.severity))
+      let severity_text = color.severity(palette, vuln.severity)
       "  "
       <> severity_text
       <> "  "
@@ -2332,16 +2326,6 @@ fn format_vuln_row(
     })
     |> string.join(with: "\n")
   pkg_line <> "\n" <> vuln_lines
-}
-
-fn severity_label(severity: osv.Severity) -> color.SeverityLabel {
-  case severity {
-    osv.Critical -> color.CriticalSeverity
-    osv.High -> color.HighSeverity
-    osv.Medium -> color.MediumSeverity
-    osv.Low -> color.LowSeverity
-    osv.UnknownSeverity -> color.UnknownSeverityLabel
-  }
 }
 
 fn truncate(s: String, max: Int) -> String {
@@ -2721,7 +2705,7 @@ fn format_vuln_gate_output(
           }
           marker
           <> "  "
-          <> color.severity(palette, severity_label(vuln.severity))
+          <> color.severity(palette, vuln.severity)
           <> "  "
           <> vuln.id
           <> "  "
@@ -2812,17 +2796,7 @@ fn advisory_blocks(
   case actual {
     osv.UnknownSeverity -> block_unknown
     osv.Low | osv.Medium | osv.High | osv.Critical ->
-      severity_rank(actual) >= severity_rank(threshold)
-  }
-}
-
-fn severity_rank(severity: osv.Severity) -> Int {
-  case severity {
-    osv.UnknownSeverity -> 0
-    osv.Low -> 1
-    osv.Medium -> 2
-    osv.High -> 3
-    osv.Critical -> 4
+      osv.severity_rank(actual) >= osv.severity_rank(threshold)
   }
 }
 

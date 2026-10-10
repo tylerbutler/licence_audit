@@ -99,6 +99,27 @@ pub fn batch_response_follows_next_page_token_for_truncated_result_test() {
   should.equal(entry.vuln_ids, ["OSV-1", "OSV-2"])
 }
 
+pub fn paginated_entries_stop_at_first_error_test() {
+  let client = fn(req: request.Request(String)) {
+    case string.contains(req.body, "page_token") {
+      False ->
+        Ok(Response(
+          status: 200,
+          headers: [],
+          body: "{\"results\":[{\"next_page_token\":\"first\"},{\"next_page_token\":\"second\"}]}",
+        ))
+      True -> {
+        assert string.contains(req.body, "\"page_token\":\"first\"")
+        Ok(Response(status: 500, headers: [], body: "failure"))
+      }
+    }
+  }
+  should.equal(
+    osv.query_batch(["pkg:hex/a@1", "pkg:hex/b@1"], client),
+    Error(osv.UnexpectedResponse(500)),
+  )
+}
+
 pub fn batch_response_rejects_excessive_pagination_test() {
   let client = fn(req: request.Request(String)) {
     let page = request_page(req)
@@ -205,6 +226,32 @@ pub fn decode_vuln_response_uses_score_type_for_bare_cvss_v2_vector_test() {
     )
 
   should.equal(vuln.severity, osv.High)
+}
+
+pub fn decode_vuln_response_uses_highest_score_regardless_of_order_test() {
+  let scores = [
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N\"}",
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}",
+    "{\"type\":\"UNKNOWN\",\"score\":\"invalid\"}",
+  ]
+  list.each([scores, list.reverse(scores)], fn(scores) {
+    let assert Ok(vuln) =
+      osv.decode_vuln_body(
+        "{\"id\":\"OSV-max\",\"severity\":[" <> string.join(scores, ",") <> "]}",
+        "OSV-max",
+      )
+    should.equal(vuln.severity, osv.Critical)
+  })
+}
+
+pub fn severity_rank_orders_unknown_below_known_severities_test() {
+  should.equal(
+    list.map(
+      [osv.UnknownSeverity, osv.Low, osv.Medium, osv.High, osv.Critical],
+      osv.severity_rank,
+    ),
+    [0, 1, 2, 3, 4],
+  )
 }
 
 pub fn parse_severity_label_recognises_common_labels_test() {
