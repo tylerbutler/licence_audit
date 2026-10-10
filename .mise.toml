@@ -23,3 +23,16 @@ linux-x64 = { asset_pattern = "cdx-validate-linux-amd64" }
 linux-arm64 = { asset_pattern = "cdx-validate-linux-arm64" }
 macos-x64 = { asset_pattern = "cdx-validate-darwin-amd64" }
 macos-arm64 = { asset_pattern = "cdx-validate-darwin-arm64" }
+
+# Local reference-code search.
+[tools."github:xerj-org/xerj"]
+version = "1.0.0-rc.93"
+bin = "xerj"
+
+[tools."github:xerj-org/xerj".platforms]
+linux-x64 = { asset_pattern = "xerj-*-x86_64-unknown-linux-musl.tar.gz" }
+linux-arm64 = { asset_pattern = "xerj-*-aarch64-unknown-linux-musl.tar.gz" }
+macos-x64 = { asset_pattern = "xerj-*-x86_64-apple-darwin.tar.gz" }
+macos-arm64 = { asset_pattern = "xerj-*-aarch64-apple-darwin.tar.gz" }
+windows-x64 = { asset_pattern = "xerj-*-x86_64-pc-windows-msvc.zip" }
+windows-arm64 = { asset_pattern = "xerj-*-aarch64-pc-windows-msvc.zip" }
