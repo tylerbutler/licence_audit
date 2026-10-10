@@ -6,6 +6,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import licence_audit/cache
 import licence_audit/config
@@ -194,10 +195,14 @@ fn write_selection(
   case write_policy(target, allow, deny) {
     Error(error) -> {
       let message = write_error_message(error)
+      let exit_code = case error {
+        FileReadFailed(_, _) -> error.exit_code(error.Input(message))
+        TomlEditFailed(_) | FileWriteFailed(_) -> 1
+      }
       let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
       #(
-        UpdateResult(exit_code: 1, output: "Error: " <> message <> "\n"),
+        UpdateResult(exit_code: exit_code, output: "Error: " <> message <> "\n"),
         reporter,
       )
     }
@@ -258,14 +263,7 @@ fn load_existing_policy(
   ignore_config: Bool,
 ) -> Result(config.Policy, config.Error) {
   case ignore_config {
-    True ->
-      Ok(config.Policy(
-        exceptions: [],
-        allow: [],
-        deny: [],
-        vuln_severity: None,
-        vuln_block_unknown: False,
-      ))
+    True -> Ok(empty_policy())
     False -> {
       let load_result =
         config.load(config.LoadOptions(
@@ -280,18 +278,25 @@ fn load_existing_policy(
         ))
       case load_result {
         Ok(policy) -> Ok(policy)
-        Error(config.InvalidException(_) as error) -> Error(error)
-        Error(_) ->
-          Ok(config.Policy(
-            exceptions: [],
-            allow: [],
-            deny: [],
-            vuln_severity: None,
-            vuln_block_unknown: False,
-          ))
+        Error(config.FileReadError(path) as error) ->
+          case simplifile.read(path) {
+            Error(simplifile.Enoent) -> Ok(empty_policy())
+            Ok(_) | Error(_) -> Error(error)
+          }
+        Error(error) -> Error(error)
       }
     }
   }
+}
+
+fn empty_policy() -> config.Policy {
+  config.Policy(
+    exceptions: [],
+    allow: [],
+    deny: [],
+    vuln_severity: None,
+    vuln_block_unknown: False,
+  )
 }
 
 fn merge_labels(
@@ -324,12 +329,15 @@ fn resolve_output_path(
 
 type WriteError {
   TomlEditFailed(toml.Error)
+  FileReadFailed(path: String, reason: simplifile.FileError)
   FileWriteFailed(path: String)
 }
 
 fn write_error_message(error: WriteError) -> String {
   case error {
     TomlEditFailed(e) -> toml.error_message(e)
+    FileReadFailed(path, reason) ->
+      "Failed to read " <> path <> ": " <> simplifile.describe_error(reason)
     FileWriteFailed(path) -> "Failed to write " <> path
   }
 }
@@ -339,10 +347,11 @@ fn write_policy(
   allow: List(String),
   deny: List(String),
 ) -> Result(Nil, WriteError) {
-  let existing = case simplifile.read(from: path) {
-    Ok(contents) -> contents
-    Error(_) -> ""
-  }
+  use existing <- result.try(case simplifile.read(from: path) {
+    Ok(contents) -> Ok(contents)
+    Error(simplifile.Enoent) -> Ok("")
+    Error(reason) -> Error(FileReadFailed(path, reason))
+  })
   let section = ["tools", "licence_audit"]
   case toml.set_string_array(existing, section, "allow", allow) {
     Error(e) -> Error(TomlEditFailed(e))

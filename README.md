@@ -109,7 +109,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache file location |
+| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the cache base path (entries are stored in PATH.entries) |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
@@ -405,23 +405,25 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 
 ## Caching
 
-Hex licence metadata is cached on disk between runs:
+Hex licence metadata is cached on disk between runs. The cache is a directory
+of atomic per-entry files:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets.entries/
 ```
 
-Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
-version-suffixed so cache format bumps ignore stale data instead of reading it
-back. Entries are reused for 7 days before they are fetched again. Metadata
-changes on Hex can take up to 7 days to appear; use `--no-cache` when you need
-fresh data.
+Override with `--cache-path=PATH` or bypass with `--no-cache`. An override uses
+the adjacent `PATH.entries/` directory. The versioned base name makes cache
+format bumps ignore stale data instead of reading it back. Entries are reused
+for 7 days before they are fetched again. Metadata changes on Hex can take up
+to 7 days to appear; use `--no-cache` when you need fresh data.
 
-The cache is shared across projects and commands for each package name and
-version. In CI, restore and save the cache file between jobs, for example with
-`actions/cache` and `--cache-path=.hex-cache/hex-v2.dets`. A fresh runner with
-no restored cache must fetch each package again. Use `--verbose` to see cache
-hits and misses.
+The cache is safe to share across concurrent projects and commands. Each key
+has its own file, so successful writes for different packages do not replace
+each other. In CI, restore and save the cache directory between jobs, for
+example with `actions/cache` and `--cache-path=.hex-cache/hex-v2.dets` (cache
+`.hex-cache/hex-v2.dets.entries/`). A fresh runner with no restored cache must
+fetch each package again. Use `--verbose` to see cache hits and misses.
 
 Each successful lookup is cached immediately. A later lookup failure does
 not discard earlier entries, and the audit continues with the remaining
@@ -432,7 +434,7 @@ The `notices` command additionally caches the licence materials it resolves, so
 repeated runs don't re-download package sources or re-resolve fallbacks:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.dets
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.dets.entries/
 ```
 
 This cache is keyed by immutable content addresses and holds several
@@ -448,7 +450,9 @@ location (relocate it with `XDG_CACHE_HOME`). A corrupt cached value is treated
 as a miss, and transient network failures are never cached as successes.
 
 Cache failures are non-fatal — they surface as stderr warnings and never block a
-run. OSV advisories are not cached.
+run. Existing `*.dets` files are left untouched. The first run after upgrading
+refetches entries into the adjacent `*.dets.entries/` directory; the old files
+can then be removed. OSV advisories are not cached.
 
 ## Troubleshooting
 

@@ -31,10 +31,43 @@ type ConnectReason {
 
 type RawError {
   FailedConnect(List(#(Family, List(Nil), ConnectReason)))
+  SocketClosedRemotely
+  InvalidRequest
+  Shutdown
 }
 
 @external(erlang, "httpc_adaptive_ffi", "normalise_error")
 fn normalise_error(error: RawError) -> httpc_adaptive.Error
+
+@external(erlang, "httpc_adaptive_test_ffi", "with_http_response")
+pub fn with_http_response(response: BitArray, client: fn(String) -> a) -> a
+
+pub fn request_failures_return_typed_errors_test() {
+  should.equal(
+    normalise_error(SocketClosedRemotely),
+    httpc_adaptive.RequestFailed("socket_closed_remotely"),
+  )
+  should.equal(
+    normalise_error(Shutdown),
+    httpc_adaptive.RequestFailed("shutdown"),
+  )
+  should.equal(
+    normalise_error(InvalidRequest),
+    httpc_adaptive.RequestFailed("invalid_request"),
+  )
+  should.equal(
+    normalise_error(FailedConnect([])),
+    httpc_adaptive.FailedToConnect("{failed_connect,[]}"),
+  )
+}
+
+pub fn peer_disconnect_returns_error_instead_of_raising_test() {
+  with_http_response(<<>>, fn(url) {
+    let assert Ok(req) = request.to(url)
+    let assert Error(httpc_adaptive.RequestFailed(_)) =
+      httpc_adaptive.dispatch(req, timeout_ms: 1000)
+  })
+}
 
 pub fn ipv6_timeout_has_bounded_probe_and_remembers_ipv4_test() {
   reset()

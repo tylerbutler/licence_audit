@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "HTTP disconnects and other transport failures return normal diagnostics instead of crashing licence audits, OSV checks, or notice generation. TLS verification and the bounded IPv6 fallback remain enabled."

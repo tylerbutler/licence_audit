@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Resolve Windows manifest, dependency, and cache paths with the Hex `filepath` package, including drive-qualified and network-share paths, without custom path FFI."
