@@ -206,6 +206,10 @@ pub fn http_failures_include_request_and_connection_details_test() {
       ),
       #(httpc_adaptive.InvalidUtf8Response, "response body was not valid UTF-8"),
       #(
+        httpc_adaptive.RequestFailed("socket_closed_remotely"),
+        "HTTP request failed: socket_closed_remotely",
+      ),
+      #(
         httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)"),
         "connection setup failed: IPv4: DNS lookup failed (nxdomain)",
       ),

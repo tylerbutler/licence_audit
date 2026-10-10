@@ -23,6 +23,7 @@ import licence_audit/notice
 import licence_audit/notice_cache
 import licence_audit/notice_resolve
 import licence_audit/osv
+import licence_audit/path
 import licence_audit/policy
 import licence_audit/progress
 import licence_audit/report
@@ -608,37 +609,11 @@ fn package_for_source_read(
 }
 
 fn resolve_project_path(project_root: String, path: String) -> String {
-  case string.starts_with(path, "/"), project_root {
-    True, _ -> path
-    False, "." -> path
-    False, _ -> join_project_path(project_root, path)
-  }
-}
-
-fn join_project_path(parent: String, child: String) -> String {
-  case string.ends_with(parent, "/") {
-    True -> parent <> child
-    False -> parent <> "/" <> child
-  }
+  path.resolve(project_root, path)
 }
 
 fn project_root_for_manifest(manifest_path: String) -> String {
-  case string.split(manifest_path, on: "/") |> list.reverse {
-    [] -> "."
-    [_] -> "."
-    [_, ..directory_parts_reversed] -> {
-      let directory =
-        directory_parts_reversed
-        |> list.reverse
-        |> string.join("/")
-
-      case directory, string.starts_with(manifest_path, "/") {
-        "", True -> "/"
-        "", False -> "."
-        _, _ -> directory
-      }
-    }
-  }
+  path.dirname(manifest_path)
 }
 
 fn write_notice_output(
@@ -2042,7 +2017,7 @@ fn query_and_report_vulns(
     Ok(entries) -> {
       let with_packages = merge_entries_with_packages(entries, purl_pairs)
       let #(rows, reporter) =
-        fetch_vuln_details(with_packages, detail_fetcher, reporter, [])
+        fetch_vuln_details(with_packages, detail_fetcher, reporter)
       case review_vuln_rows(rows, exceptions, today) {
         Error(message) -> #(diagnostic(error.Config(message)), reporter)
         Ok(rows) -> {
@@ -2140,43 +2115,32 @@ fn fetch_vuln_details(
   pending: List(VulnPair),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
-  acc: List(VulnRow),
 ) -> #(List(VulnRow), progress.Reporter) {
-  case pending {
-    [] -> #(list.reverse(acc), reporter)
-    [#(pkg, ids), ..rest] -> {
-      case ids {
-        [] ->
-          fetch_vuln_details(rest, detail_fetcher, reporter, [
-            VulnRow(
-              package: pkg,
-              vulnerabilities: [],
-              decisions: [],
-              failures: [],
-            ),
-            ..acc
-          ])
-        _ -> {
-          let reporter =
-            progress.detail(reporter, "Fetching OSV details for " <> pkg.name)
-          // The plain `vulns` report tolerates detail failures via the
-          // existing placeholder + warning; only the `check --vulns` gate
-          // treats them as blocking (see query_vuln_gate).
-          let #(vulns, detail_failures, reporter) =
-            fetch_vulnerabilities(ids, detail_fetcher, reporter, [])
-          fetch_vuln_details(rest, detail_fetcher, reporter, [
-            VulnRow(
-              package: pkg,
-              vulnerabilities: vulns,
-              decisions: [],
-              failures: detail_failures,
-            ),
-            ..acc
-          ])
-        }
+  let unique_ids = pending |> list.flat_map(fn(pair) { pair.1 }) |> list.unique
+  let reporter =
+    list.fold(pending, reporter, fn(reporter, pair) {
+      case pair.1 {
+        [] -> reporter
+        [_, ..] ->
+          progress.detail(reporter, "Fetching OSV details for " <> pair.0.name)
       }
-    }
-  }
+    })
+  let #(vulns, failures, reporter) =
+    fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+  let details_by_id = dict.from_list(list.zip(unique_ids, vulns))
+  let failures_by_id =
+    dict.from_list(list.map(failures, fn(failure) { #(failure.id, failure) }))
+  let rows =
+    list.map(pending, fn(pair) {
+      let #(package, ids) = pair
+      VulnRow(
+        package: package,
+        vulnerabilities: list.filter_map(ids, dict.get(details_by_id, _)),
+        decisions: [],
+        failures: list.filter_map(ids, dict.get(failures_by_id, _)),
+      )
+    })
+  #(rows, reporter)
 }
 
 fn fetch_vulnerabilities(

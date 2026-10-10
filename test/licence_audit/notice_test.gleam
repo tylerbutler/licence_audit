@@ -1,10 +1,12 @@
 import gleam/bit_array
 import gleam/dict
+import gleam/http/request
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None}
 import gleam/string
 import gleeunit/should
 import licence_audit/hex
+import licence_audit/httpc_adaptive_test
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/repository
@@ -15,6 +17,112 @@ import simplifile
 const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
 
 const tmp_dir = "build/tmp/notices_test"
+
+@external(erlang, "notice_test_ffi", "with_unreadable_file")
+fn with_unreadable_file(path: String, check: fn() -> a) -> Option(a)
+
+@external(erlang, "notice_test_ffi", "with_unreadable_directory")
+fn with_unreadable_directory(path: String, check: fn() -> a) -> Option(a)
+
+pub fn root_path_notices_do_not_traverse_unreadable_directories_test() {
+  let root = fresh_dir("root_priority_unreadable_directory")
+  let assert Ok(_) = simplifile.write("licence", to: root <> "/LICENSE")
+  let unrelated = root <> "/unrelated"
+  let assert Ok(_) = simplifile.create_directory(unrelated)
+  let _ =
+    with_unreadable_directory(unrelated, fn() {
+      should.equal(
+        notice.read_source_notices(
+          package("local", notice.PathPackage(root)),
+          notice.default_clients(),
+        ),
+        Ok([notice.NoticeFile("LICENSE", "licence")]),
+      )
+    })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_path_notices_ignore_unreadable_unrelated_file_test() {
+  let root = fresh_dir("selected_path_unrelated")
+  let assert Ok(_) = simplifile.write("licence", to: root <> "/LICENSE")
+  let irrelevant = root <> "/unrelated.bin"
+  let assert Ok(_) = simplifile.write_bits(<<0, 255>>, to: irrelevant)
+  let _ =
+    with_unreadable_file(irrelevant, fn() {
+      should.equal(
+        notice.read_source_notices(
+          package("local", notice.PathPackage(root)),
+          notice.default_clients(),
+        ),
+        Ok([notice.NoticeFile("LICENSE", "licence")]),
+      )
+    })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_path_notices_report_unreadable_licence_test() {
+  let root = fresh_dir("selected_path_unreadable_licence")
+  let licence = root <> "/LICENSE"
+  let assert Ok(_) = simplifile.write("licence", to: licence)
+  let _ =
+    with_unreadable_file(licence, fn() {
+      let assert Error(notice.PathReadFailed("local", failed_path, _)) =
+        notice.read_source_notices(
+          package("local", notice.PathPackage(root)),
+          notice.default_clients(),
+        )
+      should.equal(failed_path, licence)
+    })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_path_notices_skip_symlinks_test() {
+  let root = fresh_dir("selected_path_symlinks")
+  let outside = fresh_dir("selected_path_symlinks_outside")
+  let assert Ok(_) = simplifile.write("licence", to: root <> "/LICENSE")
+  let assert Ok(_) = simplifile.write("outside", to: outside <> "/LICENSE")
+  let assert Ok(cwd) = simplifile.current_directory()
+  let assert Ok(_) =
+    simplifile.create_symlink(
+      to: cwd <> "/" <> outside <> "/LICENSE",
+      from: root <> "/LICENSE-MIT",
+    )
+  should.equal(
+    notice.read_source_notices(
+      package("local", notice.PathPackage(root)),
+      notice.default_clients(),
+    ),
+    Ok([notice.NoticeFile("LICENSE", "licence")]),
+  )
+  let assert Ok(_) = simplifile.delete(root)
+  let assert Ok(_) = simplifile.delete(outside)
+}
+
+pub fn notice_transports_return_network_failure_on_disconnect_test() {
+  httpc_adaptive_test.with_http_response(<<>>, fn(url) {
+    let assert Ok(req) = request.to(url)
+    should.equal(notice.fetch_json(req), Error(notice.FetchNetworkFailure))
+  })
+  httpc_adaptive_test.with_http_response(<<>>, fn(url) {
+    let assert Ok(req) = request.to(url)
+    should.equal(
+      notice.fetch_tarball(request.map(req, fn(_) { <<>> })),
+      Error(notice.FetchNetworkFailure),
+    )
+  })
+}
+
+pub fn notice_transport_keeps_redirects_disabled_test() {
+  httpc_adaptive_test.with_http_response(
+    <<
+      "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n":utf8,
+    >>,
+    fn(url) {
+      let assert Ok(req) = request.to(url)
+      should.equal(notice.fetch_json(req), Ok(#(302, "")))
+    },
+  )
+}
 
 fn file(path: String, contents: String) -> source_archive.ArchiveFile {
   source_archive.ArchiveFile(

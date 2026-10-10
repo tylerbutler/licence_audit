@@ -163,12 +163,7 @@ fn read_source_notices_live(
   package: notice.NoticePackage,
   clients: notice.Clients,
 ) -> Result(List(notice.NoticeFile), notice.Error) {
-  use source_files <- result.try(notice.read_remote_source(
-    package,
-    clients.fetch_hex_tarball,
-    clients.fetch_git_archive,
-  ))
-  notice.notice_files_of(package.name, source_files)
+  notice.read_source_notices(package, clients)
 }
 
 fn fallback(

@@ -313,7 +313,9 @@ fn prod_only_flag() -> glint.Flag(Bool) {
 fn cache_path_flag() -> glint.Flag(String) {
   glint.string_flag("cache-path")
   |> glint.flag_default(absent_string_flag)
-  |> glint.flag_help("Override the licence metadata cache file location")
+  |> glint.flag_help(
+    "Override the cache base path (entries are stored in PATH.entries)",
+  )
 }
 
 fn check_vulns_flag() -> glint.Flag(Bool) {

@@ -10,12 +10,19 @@ import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/notice
 import licence_audit/osv
+import licence_audit/path_test
 import licence_audit/progress
 import licence_audit/repository
 import licence_audit/source_archive
 import licence_audit/spdx
 import licence_audit/toml
 import simplifile
+
+@external(erlang, "integration_test_ffi", "record_detail_fetch")
+fn record_detail_fetch(id: String) -> Int
+
+@external(erlang, "integration_test_ffi", "reset_detail_fetch")
+fn reset_detail_fetch(id: String) -> Nil
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
@@ -183,7 +190,10 @@ gleam_stdlib = { version = \">= 1.0.0\" }
 
   let result =
     licence_audit.run_configured(
-      ["notices", "--manifest=" <> manifest_path],
+      [
+        "notices",
+        "--manifest=" <> path_test.absolute_native_path(manifest_path),
+      ],
       licence_audit.Clients(
         ..test_clients(notice_metadata_fetcher),
         notice_clients: notice_clients(fixture_hex_tarball),
@@ -546,7 +556,10 @@ local_dep = { path = \"deps/local_dep\" }
 
   let result =
     licence_audit.run_configured(
-      ["notices", "--manifest=" <> manifest_path],
+      [
+        "notices",
+        "--manifest=" <> path_test.absolute_native_path(manifest_path),
+      ],
       licence_audit.Clients(
         ..test_clients(notice_metadata_fetcher),
         notice_clients: notice_clients(fixture_hex_tarball),
@@ -1546,7 +1559,11 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
 
   let result =
     licence_audit.run_configured(
-      ["sbom", "--manifest=" <> manifest_path, "--offline"],
+      [
+        "sbom",
+        "--manifest=" <> path_test.absolute_native_path(manifest_path),
+        "--offline",
+      ],
       test_clients(sbom_fetcher),
       progress.disabled(),
     ).0
@@ -1770,6 +1787,62 @@ pub fn vulns_report_labels_scope_test() {
   assert string.contains(output, "[prod]")
 }
 
+pub fn vulns_reuses_shared_advisory_details_test() {
+  reset_detail_fetch("CVE-2024-0001")
+  let result =
+    licence_audit.run_configured(
+      [
+        "vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--ignore-config",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fake_fetcher),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(id) {
+          should.equal(record_detail_fetch(id), 1)
+          one_vuln_detail(id)
+        },
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "gleam_stdlib")
+  assert string.contains(result.output, "gluegun")
+  should.equal(list.length(string.split(result.output, "CVE-2024-0001")), 3)
+}
+
+pub fn vulns_reuses_shared_advisory_failures_test() {
+  reset_detail_fetch("CVE-2024-0001")
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--ignore-config",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fake_fetcher),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(id) {
+          should.equal(record_detail_fetch(id), 1)
+          Error(osv.NetworkFailure)
+        },
+      ),
+      progress.capturing(progress.Verbose, "vulns"),
+    )
+  should.equal(result.exit_code, 0)
+  should.equal(
+    list.length(string.split(result.output, "(details unavailable)")),
+    3,
+  )
+  let warnings =
+    list.filter(events, fn(event) {
+      string.contains(event.message, "Failed to fetch OSV details")
+    })
+  should.equal(list.length(warnings), 1)
+}
+
 fn write_project_root_fixture(project_root: String) -> String {
   let manifest_path = project_root <> "/manifest.toml"
   let assert Ok(Nil) = simplifile.create_directory_all(project_root)
@@ -1818,6 +1891,7 @@ fn project_root_fetcher(
 pub fn audit_manifest_path_uses_manifest_project_config_test() {
   let manifest_path =
     write_project_root_fixture("build/tmp/project-root-audit-config")
+    |> path_test.absolute_native_path
   let result =
     licence_audit.run_configured(
       ["--manifest=" <> manifest_path, "check"],

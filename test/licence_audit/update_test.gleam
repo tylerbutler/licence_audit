@@ -193,7 +193,7 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
   let _ = simplifile.delete(path)
 }
 
-pub fn write_failure_exits_1_test() {
+pub fn invalid_target_parent_fails_before_writing_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.delete(blocker)
@@ -213,9 +213,117 @@ pub fn write_failure_exits_1_test() {
       reporter(),
     )
 
-  should.equal(result.exit_code, 1)
-  let assert True = string.contains(result.output, "Failed to write")
+  should.equal(result.exit_code, 2)
+  let assert True = string.contains(result.output, "Failed to read")
   let _ = simplifile.delete(blocker)
+}
+
+pub fn update_preserves_unreadable_text_before_picker_test() {
+  let path = fresh_path("unreadable")
+  let original = <<255, 254>>
+  let assert Ok(_) = simplifile.write_bits(to: path, bits: original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  let #(ignored, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(ignored.exit_code, 2)
+  should.equal(simplifile.read_bits(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+@external(erlang, "notice_test_ffi", "with_unreadable_file")
+fn with_unreadable_file(path: String, check: fn() -> a) -> option.Option(a)
+
+pub fn update_preserves_writable_file_without_read_permission_test() {
+  let path = fresh_path("write_only")
+  let original = "name = \"keep_me\"\nversion = \"1.0.0\"\n"
+  let assert Ok(_) = simplifile.write(to: path, contents: original)
+  let _ =
+    with_unreadable_file(path, fn() {
+      let #(result, _) =
+        update.run_with_picker(
+          manifest_path,
+          ".",
+          Some(path),
+          False,
+          True,
+          None,
+          successful_fetcher,
+          should_not_pick,
+          reporter(),
+        )
+      should.equal(result.exit_code, 2)
+    })
+  should.equal(simplifile.read(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_preserves_file_when_read_fails_after_selection_test() {
+  let path = fresh_path("read_after_picker")
+  let original = <<255, 254>>
+  let assert Ok(_) =
+    simplifile.write(to: path, contents: "name = \"keep_me\"\n")
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      fn(_title, _labels, _allow, _deny) {
+        let assert Ok(_) = simplifile.write_bits(to: path, bits: original)
+        Ok(picker.Selection(["MIT"], []))
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Failed to read")
+  should.equal(simplifile.read_bits(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_creates_missing_explicit_config_test() {
+  let path = fresh_path("new_policy")
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  let assert Ok(policy) = config.parse(contents)
+  should.equal(policy.allow, ["MIT"])
+  let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn update_preserves_reviewed_exceptions_and_comments_test() {

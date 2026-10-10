@@ -26,6 +26,18 @@ fn extract_tar_gz_raw(
   data: BitArray,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
 
+@external(erlang, "source_archive_ffi", "extract_tar_selected")
+fn extract_tar_selected_raw(
+  data: BitArray,
+  select: fn(List(String)) -> List(#(String, String)),
+) -> Result(List(#(String, BitArray)), ArchiveError)
+
+@external(erlang, "source_archive_ffi", "extract_tar_gz_selected")
+fn extract_tar_gz_selected_raw(
+  data: BitArray,
+  select: fn(List(String)) -> List(#(String, String)),
+) -> Result(List(#(String, BitArray)), ArchiveError)
+
 @external(erlang, "source_archive_ffi", "extract_root_file_tar_gz")
 pub fn extract_root_file_tar_gz(
   data: BitArray,
@@ -42,6 +54,34 @@ pub fn extract_tar_gz(
 ) -> Result(List(ArchiveFile), ArchiveError) {
   use files <- result.try(extract_tar_gz_raw(data))
   Ok(files_to_archive_files(files))
+}
+
+/// Select archive members from the full regular-file inventory before loading
+/// their contents. Each selected pair contains the member and its output path.
+pub fn extract_tar_gz_selected(
+  data: BitArray,
+  select: fn(List(String)) -> List(#(String, String)),
+) -> Result(List(ArchiveFile), ArchiveError) {
+  extract_tar_gz_selected_raw(data, select)
+  |> result.map(files_to_archive_files)
+}
+
+pub fn extract_hex_contents_selected(
+  data: BitArray,
+  select: fn(List(String)) -> List(#(String, String)),
+) -> Result(List(ArchiveFile), ArchiveError) {
+  use files <- result.try(
+    extract_tar_selected_raw(data, fn(paths) {
+      paths
+      |> list.filter(fn(path) { path == "contents.tar.gz" })
+      |> list.map(fn(path) { #(path, path) })
+    }),
+  )
+  use contents <- result.try(
+    list.key_find(files, "contents.tar.gz")
+    |> result.replace_error(MissingContentsArchive),
+  )
+  extract_tar_gz_selected(contents, select)
 }
 
 pub fn extract_hex_contents(

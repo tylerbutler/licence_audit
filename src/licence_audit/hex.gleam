@@ -137,6 +137,7 @@ fn describe_http_error(error: httpc_adaptive.Error) -> String {
       <> " ms (HTTP client did not report which stage timed out)"
     httpc_adaptive.FailedToConnect(reason) ->
       "connection setup failed: " <> reason
+    httpc_adaptive.RequestFailed(reason) -> "HTTP request failed: " <> reason
   }
 }
 

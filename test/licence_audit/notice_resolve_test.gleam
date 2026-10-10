@@ -15,6 +15,49 @@ const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
 
 const tmp_dir = "build/tmp/notices_resolve_test"
 
+@external(erlang, "cache_process_test_ffi", "corrupt_entry")
+fn corrupt_entry(cache_path: String, key: String) -> Result(Nil, Nil)
+
+pub fn corrupt_spdx_text_is_refetched_and_renders_without_crashing_test() {
+  let path = fresh_cache_path("corrupt_spdx_text")
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let key = "spdx:" <> spdx.license_list_commit <> ":license:MIT"
+  notice_cache.put_text(cache, key, "previous text")
+  let assert Ok(_) = corrupt_entry(path, key)
+  let source = read_bytes("notice_only_hex.tar")
+  let package =
+    hex_package("corrupt_spdx_text", checksum_of(source), ["MIT"], [])
+  let assert Ok(resolution) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        fn(_name, _version) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        fn(requirement) {
+          should.equal(requirement, spdx.LicenseRequirement("MIT"))
+          Ok(Some("Refetched canonical MIT text"))
+        },
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = resolution.outcome
+  let rendered =
+    notice.render(
+      [notice.NoticeEntry(package, files)],
+      manifest_path: "manifest.toml",
+    )
+  assert string.contains(rendered, "Refetched canonical MIT text")
+  let assert Some(_) = notice_cache.close(cache)
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  should.equal(
+    notice_cache.get_text(cache, key),
+    Ok("Refetched canonical MIT text"),
+  )
+  let assert None = notice_cache.close(cache)
+}
+
 fn read_bytes(name: String) -> BitArray {
   let assert Ok(bytes) =
     simplifile.read_bits(archive_fixture_dir <> "/" <> name)
@@ -96,6 +139,7 @@ fn fresh_cache_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
   let path = tmp_dir <> "/" <> name <> ".dets"
   let _ = simplifile.delete(path)
+  let _ = simplifile.delete(path <> ".entries")
   path
 }
 

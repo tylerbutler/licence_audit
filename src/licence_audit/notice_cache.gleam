@@ -1,7 +1,8 @@
 //// Namespaced cache for notice/licence materials.
 ////
-//// Stores extracted files and text in DETS. `notice_resolve` supplies immutable
-//// keys and bypasses this storage for mutable path dependencies.
+//// Stores extracted files and text in atomic per-entry files. `notice_resolve`
+//// supplies immutable keys and bypasses this storage for mutable path
+//// dependencies.
 ////
 //// The cache is purely an optimisation. Any failure to open, read, or write
 //// lets the resolver read live. Open and close failures produce deferred
@@ -9,7 +10,6 @@
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
-import slate/set as dets_set
 
 import licence_audit/cache_dir
 import licence_audit/notice
@@ -22,9 +22,9 @@ pub type Mode {
   Disabled
 }
 
-/// Opaque cache handle. May or may not hold an open DETS table.
+/// Opaque cache handle. May or may not hold an open directory-backed store.
 pub opaque type Cache {
-  Cache(table: Option(dets_set.Set(String, String)), warning: Option(String))
+  Cache(table: Option(cache_dir.Store), warning: Option(String))
 }
 
 /// On-disk cache format version. Bumped to 3 for the fallback feature, which
@@ -33,7 +33,7 @@ pub opaque type Cache {
 /// materials, repository tag→commit resolutions, repository-extracted licence
 /// files, pinned SPDX indexes, and canonical SPDX records shared across
 /// packages. The version is encoded into the
-/// filename so a file written by an older format is ignored rather than
+/// directory name so data written by an older format is ignored rather than
 /// mis-decoded; `notice.decode_notice_files` also treats any unparseable entry
 /// as a miss, so forward-compatible drift self-heals without a bump.
 const cache_format_version = 3
@@ -44,7 +44,7 @@ fn cache_filename() -> String {
 
 /// Open a cache according to `mode`.
 ///
-/// Never returns an error. If the cache file can't be opened or the parent
+/// Never returns an error. If the cache directory can't be opened or the parent
 /// directory can't be created, the returned `Cache` is in a passthrough state
 /// and includes a deferred warning accessible via `close`.
 pub fn open(mode: Mode) -> Cache {
@@ -98,7 +98,7 @@ pub fn get_text(cache: Cache, key: String) -> Result(String, Nil) {
   case cache.table {
     None -> Error(Nil)
     Some(table) ->
-      case dets_set.lookup(from: table, key: key) {
+      case cache_dir.lookup(table, key) {
         Ok("") -> Error(Nil)
         Ok(value) -> Ok(value)
         Error(_) -> Error(Nil)
@@ -111,32 +111,27 @@ pub fn put_text(cache: Cache, key: String, value: String) -> Nil {
   case cache.table {
     None -> Nil
     Some(table) -> {
-      let _ = dets_set.insert(into: table, key: key, value: value)
+      let _ = cache_dir.insert(table, key, value)
       Nil
     }
   }
 }
 
 fn lookup(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
 ) -> Result(List(notice.NoticeFile), Nil) {
-  case dets_set.lookup(from: table, key: key) {
+  case cache_dir.lookup(table, key) {
     Ok(encoded) -> notice.decode_notice_files(encoded)
     Error(_) -> Error(Nil)
   }
 }
 
 fn store(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
   files: List(notice.NoticeFile),
 ) -> Nil {
-  let _ =
-    dets_set.insert(
-      into: table,
-      key: key,
-      value: notice.encode_notice_files(files),
-    )
+  let _ = cache_dir.insert(table, key, notice.encode_notice_files(files))
   Nil
 }
