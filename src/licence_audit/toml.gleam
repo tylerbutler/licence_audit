@@ -5,6 +5,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
 import tomlet.{type Value}
 
@@ -34,18 +35,12 @@ pub type TableLookupError {
 
 /// Parse TOML source, collapsing tomlet's rich parse error to `Error(Nil)`.
 pub fn parse(input: String) -> Result(Document, Nil) {
-  case tomlet.parse(input) {
-    Ok(doc) -> Ok(doc)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.parse(input) |> result.replace_error(Nil)
 }
 
 /// Read a top-level (or path-addressed) string scalar.
 pub fn get_string(doc: Document, path: List(String)) -> Result(String, Nil) {
-  case tomlet.get_string(doc, path) {
-    Ok(value) -> Ok(value)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.get_string(doc, path) |> result.replace_error(Nil)
 }
 
 /// Read the array at `path` as its item values.
@@ -69,11 +64,7 @@ pub fn get_table(
 ) -> Result(Entry, TableLookupError) {
   case tomlet.get(doc, path) {
     Error(_) -> Error(TableLookupMissing)
-    Ok(value) ->
-      case as_table(value) {
-        Ok(entries) -> Ok(entries)
-        Error(_) -> Error(TableLookupNotTable)
-      }
+    Ok(value) -> as_table(value) |> result.replace_error(TableLookupNotTable)
   }
 }
 
@@ -83,34 +74,22 @@ pub fn table_keys(
   doc: Document,
   path: List(String),
 ) -> Result(List(String), Nil) {
-  case tomlet.table_keys(doc, path) {
-    Ok(keys) -> Ok(keys)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.table_keys(doc, path) |> result.replace_error(Nil)
 }
 
 /// Look up a simple (single-segment) field within a table's entries.
 pub fn field(entry: Entry, name: String) -> Result(Value, Nil) {
-  case list.find(entry, fn(pair) { pair.0 == [name] }) {
-    Ok(pair) -> Ok(pair.1)
-    Error(_) -> Error(Nil)
-  }
+  list.key_find(entry, [name])
 }
 
 /// Value -> String.
 pub fn as_string(value: Value) -> Result(String, Nil) {
-  case tomlet.as_string(value) {
-    Ok(s) -> Ok(s)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.as_string(value) |> result.replace_error(Nil)
 }
 
 /// Value -> Bool.
 pub fn as_bool(value: Value) -> Result(Bool, Nil) {
-  case tomlet.as_bool(value) {
-    Ok(value) -> Ok(value)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.as_bool(value) |> result.replace_error(Nil)
 }
 
 /// Value -> array item list.

@@ -7,7 +7,6 @@ import gleam/string
 import licence_audit/exception
 import licence_audit/toml
 import simplifile
-import tomlet.{type Value}
 
 pub type Policy {
   Policy(
@@ -240,23 +239,14 @@ fn optional_string_list(
     Ok(value) -> {
       case toml.as_array(value) {
         Error(_) -> Error(InvalidField(field: field, expected: "List(String)"))
-        Ok(values) -> strings_from_toml(values, field, [])
-      }
-    }
-  }
-}
-
-fn strings_from_toml(
-  values: List(Value),
-  field: String,
-  decoded: List(String),
-) -> Result(List(String), Error) {
-  case values {
-    [] -> Ok(list.reverse(decoded))
-    [value, ..rest] -> {
-      case toml.as_string(value) {
-        Ok(value) -> strings_from_toml(rest, field, [value, ..decoded])
-        Error(_) -> Error(InvalidField(field: field, expected: "List(String)"))
+        Ok(values) ->
+          list.try_map(values, fn(value) {
+            toml.as_string(value)
+            |> result.replace_error(InvalidField(
+              field: field,
+              expected: "List(String)",
+            ))
+          })
       }
     }
   }

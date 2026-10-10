@@ -7,14 +7,6 @@ import licence_audit/toml
 import simplifile
 import tomlet.{type Document, type Value}
 
-/// Where a package sits in the resolved dependency tree relative to the
-/// project. `Direct` packages are listed in the manifest's `[requirements]`
-/// table; everything else is `Transitive`.
-pub type Kind {
-  Direct
-  Transitive
-}
-
 /// Whether a package is part of the production dependency tree (`Prod`) or only
 /// reachable through development dependencies (`Dev`). Prod wins: a package
 /// reachable from any production direct dependency is `Prod`.
@@ -24,7 +16,7 @@ pub type Scope {
 }
 
 pub type Package {
-  Package(name: String, version: String, kind: Kind, requirements: List(String))
+  Package(name: String, version: String, requirements: List(String))
 }
 
 /// A node in the full dependency graph. Includes non-Hex packages so that
@@ -51,7 +43,6 @@ pub type SkippedPackage {
     name: String,
     version: String,
     source: String,
-    kind: Kind,
     requirements: List(String),
   )
 }
@@ -79,7 +70,6 @@ pub type SbomEntry {
   SbomEntry(
     name: String,
     version: String,
-    kind: Kind,
     requirements: List(String),
     provenance: Provenance,
   )
@@ -105,11 +95,7 @@ fn sbom_entries_from_document(
       Error(InvalidPackageField("<manifest>", "packages", "Array"))
     Ok(packages) -> {
       let direct_names = decode_direct_names(document)
-      use entries <- result.try(
-        list.try_map(packages, fn(package) {
-          decode_sbom_entry(package, direct_names)
-        }),
-      )
+      use entries <- result.try(list.try_map(packages, decode_sbom_entry))
       Ok(SbomManifest(entries: entries, root_requirements: direct_names))
     }
   }
@@ -122,20 +108,12 @@ pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
   }
 }
 
-fn decode_sbom_entry(
-  package: Value,
-  direct_names: List(String),
-) -> Result(SbomEntry, Error) {
+fn decode_sbom_entry(package: Value) -> Result(SbomEntry, Error) {
   use #(raw, table) <- result.try(decode_package(package))
   use provenance <- result.try(decode_provenance(raw.source, table, raw.name))
-  let kind = case list.contains(direct_names, raw.name) {
-    True -> Direct
-    False -> Transitive
-  }
   Ok(SbomEntry(
     name: raw.name,
     version: raw.version,
-    kind: kind,
     requirements: raw.requirements,
     provenance: provenance,
   ))
@@ -213,26 +191,16 @@ fn build_locked(
   raw_packages: List(RawPackage),
   direct_names: List(String),
 ) -> LockedPackages {
-  let direct_set =
-    list.fold(direct_names, dict.new(), fn(acc, name) {
-      dict.insert(acc, name, Nil)
-    })
-
   let #(hex_packages, skipped_pkgs, graph) =
     list.fold(raw_packages, #([], [], []), fn(acc, raw) {
       let #(hex_acc, skipped_pkgs_acc, graph_acc) = acc
       let node = GraphNode(name: raw.name, requirements: raw.requirements)
-      let kind = case dict.has_key(direct_set, raw.name) {
-        True -> Direct
-        False -> Transitive
-      }
       case raw.source {
         "hex" -> {
           let package =
             Package(
               name: raw.name,
               version: raw.version,
-              kind: kind,
               requirements: raw.requirements,
             )
           #([package, ..hex_acc], skipped_pkgs_acc, [node, ..graph_acc])
@@ -243,7 +211,6 @@ fn build_locked(
               name: raw.name,
               version: raw.version,
               source: raw.source,
-              kind: kind,
               requirements: raw.requirements,
             )
           #(hex_acc, [skipped_pkg, ..skipped_pkgs_acc], [node, ..graph_acc])
@@ -474,29 +441,15 @@ fn optional_string_list(
             field: field,
             expected: "Array",
           ))
-        Ok(items) -> decode_string_list(items, package_name, field, [])
-      }
-  }
-}
-
-fn decode_string_list(
-  items: List(Value),
-  package_name: String,
-  field: String,
-  acc: List(String),
-) -> Result(List(String), Error) {
-  case items {
-    [] -> Ok(list.reverse(acc))
-    [item, ..rest] ->
-      case toml.as_string(item) {
-        Error(_) ->
-          Error(InvalidPackageField(
-            package: package_name,
-            field: field,
-            expected: "String",
-          ))
-        Ok(value) ->
-          decode_string_list(rest, package_name, field, [value, ..acc])
+        Ok(items) ->
+          list.try_map(items, fn(item) {
+            toml.as_string(item)
+            |> result.replace_error(InvalidPackageField(
+              package: package_name,
+              field: field,
+              expected: "String",
+            ))
+          })
       }
   }
 }

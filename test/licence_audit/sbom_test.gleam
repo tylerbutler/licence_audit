@@ -57,7 +57,6 @@ pub fn purl_for_hex_test() {
     manifest.SbomEntry(
       name: "birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",
@@ -72,7 +71,6 @@ pub fn purl_for_hex_lowercases_name_segment_only_test() {
     manifest.SbomEntry(
       name: "Birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",
@@ -167,7 +165,6 @@ pub fn purl_for_non_github_git_errors_test() {
     manifest.SbomEntry(
       name: "foo",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.GitProvenance(
         repo: "https://gitlab.com/x/foo",
@@ -185,7 +182,6 @@ pub fn purl_for_path_dep_errors_test() {
     manifest.SbomEntry(
       name: "local_dep",
       version: "0.1.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.PathProvenance(path: "../local_dep"),
     )
@@ -200,7 +196,6 @@ pub fn purl_for_unknown_source_errors_test() {
     manifest.SbomEntry(
       name: "weird",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.UnknownProvenance(source: "rebar3"),
     )
@@ -213,7 +208,6 @@ fn github_git_entry(repo: String) -> manifest.SbomEntry {
   manifest.SbomEntry(
     name: "gluegun",
     version: "0.1.0",
-    kind: manifest.Direct,
     requirements: [],
     provenance: manifest.GitProvenance(
       repo: repo,
@@ -465,7 +459,6 @@ pub fn render_errors_on_unsupported_source_test() {
     manifest.SbomEntry(
       name: "foo",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.PathProvenance(path: "../foo"),
     )
@@ -502,7 +495,6 @@ pub fn reproducible_serial_changes_with_dependency_set_test() {
     manifest.SbomEntry(
       name: "gleam_stdlib",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "ABCD",
@@ -542,7 +534,6 @@ pub fn render_omits_component_version_when_empty_test() {
     manifest.SbomEntry(
       name: "GlueGun",
       version: "",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.GitProvenance(
         repo: "https://github.com/TylerButler/GlueGun",
@@ -604,7 +595,6 @@ fn hex_entry(name: String, version: String) -> manifest.SbomEntry {
   manifest.SbomEntry(
     name: name,
     version: version,
-    kind: manifest.Direct,
     requirements: [],
     provenance: manifest.HexProvenance(
       outer_checksum: "DEADBEEF",
@@ -618,7 +608,6 @@ fn minimal_input() -> sbom.SbomInput {
     manifest.SbomEntry(
       name: "birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",
@@ -813,7 +802,6 @@ pub fn render_emits_inner_checksum_property_when_present_test() {
     manifest.SbomEntry(
       name: "birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",

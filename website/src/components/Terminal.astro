@@ -8,9 +8,8 @@ interface Props {
   title?: string;
   lift?: boolean;
   class?: string;
-  bodyId?: string;
 }
-const { title, lift = false, class: klass, bodyId } = Astro.props;
+const { title, lift = false, class: klass } = Astro.props;
 ---
 
 <div class:list={["term", { "term--lift": lift }, klass]}>
@@ -25,7 +24,6 @@ const { title, lift = false, class: klass, bodyId } = Astro.props;
   </div>
   <div
     class="term__body"
-    id={bodyId}
     tabindex="0"
     role="region"
     aria-label={title ?? "Terminal output"}

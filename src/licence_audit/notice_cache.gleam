@@ -1,23 +1,18 @@
-//// Read-through cache for extracted notice/licence files.
+//// Namespaced cache for notice/licence materials.
 ////
-//// Wraps the `notices` source-read step with a DETS-backed cache keyed by a
-//// content address (Hex `outer_checksum` or GitHub `commit`). Because the key
-//// is content-addressed, cached entries are immutable and never expire: a hit
-//// is always valid for the exact package version it was stored for.
+//// Stores extracted files and text in DETS. `notice_resolve` supplies immutable
+//// keys and bypasses this storage for mutable path dependencies.
 ////
 //// The cache is purely an optimisation. Any failure to open, read, or write
-//// falls back silently to the live source read and (for open failures) records
-//// a deferred warning surfaced via `close`. Path (local) dependencies are not
-//// cacheable and always read live.
+//// lets the resolver read live. Open and close failures produce deferred
+//// warnings surfaced via `close`.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
-import gleam/string
 import slate/set as dets_set
 
 import licence_audit/cache_dir
 import licence_audit/notice
-import licence_audit/repository
 
 /// Configures how the cache behaves for a given run.
 pub type Mode {
@@ -68,48 +63,6 @@ pub fn close(cache: Cache) -> Option(String) {
   case cache.table {
     None -> cache.warning
     Some(table) -> cache_dir.close_table(table, "notices", cache.warning)
-  }
-}
-
-/// Read a package's notice files, consulting the cache first.
-///
-/// On a hit, returns the stored notice files without any network or extraction
-/// work. On a miss, calls `read` and best-effort writes the result back. When
-/// the cache is disabled or the package is not cacheable (a path dependency),
-/// `read` is called directly.
-pub fn read_cached(
-  cache: Cache,
-  package: notice.NoticePackage,
-  read: fn(notice.NoticePackage) ->
-    Result(List(notice.NoticeFile), notice.Error),
-) -> Result(List(notice.NoticeFile), notice.Error) {
-  case cache.table, cache_key(package) {
-    Some(table), Ok(key) ->
-      case lookup(table, key) {
-        Ok(files) -> Ok(files)
-        Error(_) ->
-          case read(package) {
-            Ok(files) -> {
-              store(table, key, files)
-              Ok(files)
-            }
-            Error(error) -> Error(error)
-          }
-      }
-    _, _ -> read(package)
-  }
-}
-
-/// Content-addressed cache key for a package, or `Error(Nil)` when the source
-/// is not cacheable (path dependencies, whose contents are local and mutable).
-fn cache_key(package: notice.NoticePackage) -> Result(String, Nil) {
-  let base = package.name <> "@" <> package.version <> "@"
-  case package.source {
-    notice.HexPackage(outer_checksum) ->
-      Ok(base <> "hex:" <> string.uppercase(outer_checksum))
-    notice.GitPackage(repo, _url, commit) ->
-      Ok(base <> "git:" <> repository.describe(repo) <> "@" <> commit)
-    notice.PathPackage(_) -> Error(Nil)
   }
 }
 
