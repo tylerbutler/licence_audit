@@ -1,5 +1,17 @@
 # licence_audit changelog
 
+## v0.12.2 - 2026-10-11
+
+### Fixed
+
+- Extract only selected licence and notice members from source archives, preserving root priority and nested fallback. Gzip archives are decompressed once before selection and extraction instead of twice.
+- HTTP disconnects and other transport failures return normal diagnostics instead of crashing licence audits, OSV checks, or notice generation. TLS verification and the bounded IPv6 fallback remain enabled.
+- `notices` reads only selected licence and notice files from local dependencies. Unreadable unrelated files and directories no longer block packages with root licence files, and symlink targets remain excluded.
+- Prevent concurrent CLI processes from losing shared cache entries by publishing per-entry files atomically under `<cache-path>.entries`. Legacy DETS files remain untouched; invalid UTF-8 cache entries produce warnings and are refetched.
+- Resolve Windows manifest, dependency, and cache paths with the Hex `filepath` package, including drive-qualified and network-share paths, without custom path FFI.
+- `update` preserves existing project configuration when a file read fails, including after policy selection and with `--ignore-config`. Read failures return exit code 2 instead of replacing the file with an empty policy.
+- `vulns` fetches each shared OSV advisory once per command, including failed lookups, while preserving per-package findings and exception decisions.
+
 ## v0.12.1 - 2026-09-15
 
 ### Fixed
