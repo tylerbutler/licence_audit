@@ -284,6 +284,16 @@ Trellis preserves existing exact tags and releases. This command does not
 backfill older versions. If the tag exists but artifact publishing failed,
 rerun the failed Publish job or dispatch `publish.yml` with that tag.
 
+If you fix the Publish workflow, merge the fix to `main` and dispatch the
+workflow from `main` with the existing tag:
+
+```sh
+gh workflow run publish.yml --ref main -f tag=v0.12.2
+```
+
+Replace `v0.12.2` with the tag to rebuild. Rerunning the original failed run
+uses the old workflow, without the fix.
+
 Releases include the existing escript artifacts plus self-contained Queso
 archives for Linux (glibc and musl), macOS, and Windows x86_64 targets. Linux
 static targets are excluded because Queso static binaries do not export the NIF

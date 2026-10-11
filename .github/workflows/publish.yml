@@ -125,12 +125,13 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
+          # Consume full listings to avoid SIGPIPE with pipefail.
           tar -tzf "dist/licence_audit-${REF_NAME}.tar.gz" |
-            grep -qx "licence_audit-${REF_NAME}/LICENSE"
+            grep -Fx "licence_audit-${REF_NAME}/LICENSE" > /dev/null
           unzip -Z1 "dist/licence_audit-${REF_NAME}-x86_64-windows.zip" |
-            grep -qx "LICENSE"
+            grep -Fx "LICENSE" > /dev/null
           tar -tzf "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz" |
-            grep -qx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE"
+            grep -Fx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE" > /dev/null
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
@@ -222,7 +223,7 @@ jobs:
           # Idempotent: skip if a previous run already appended the section
           # (e.g. when the publish workflow is re-run for the same tag).
           body="$(gh release view "$REF_NAME" --json body --jq .body)"
-          if printf '%s' "$body" | grep -qF "$marker"; then
+          if printf '%s' "$body" | grep -F "$marker" > /dev/null; then
             echo "Install instructions already present; nothing to do."
             exit 0
           fi
