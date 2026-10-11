@@ -2,10 +2,156 @@ import gleam/bit_array
 import gleam/list
 import gleam/string
 import gleeunit/should
+import licence_audit/notice
 import licence_audit/source_archive
 import simplifile
 
 const fixture_dir = "test/fixtures/notices/archive_fixture"
+
+@external(erlang, "source_archive_test_ffi", "with_tar_gz")
+pub fn with_tar_gz(
+  entries: List(#(String, BitArray)),
+  check: fn(BitArray) -> a,
+) -> a
+
+@external(erlang, "source_archive_test_ffi", "large_binary")
+fn large_binary() -> BitArray
+
+@external(erlang, "source_archive_test_ffi", "with_inflation_count")
+fn with_inflation_count(check: fn() -> a) -> #(a, Int)
+
+@external(erlang, "source_archive_test_ffi", "gunzip")
+fn gunzip(bytes: BitArray) -> BitArray
+
+pub fn selected_extraction_omits_large_unrelated_member_test() {
+  with_tar_gz(
+    [
+      #("repo/LICENSE", <<"Licence text":utf8>>),
+      #("repo/assets/large.bin", large_binary()),
+      #("repo/vendor/LICENSE", <<"Vendored licence":utf8>>),
+    ],
+    fn(bytes) {
+      let #(extracted, inflations) =
+        with_inflation_count(fn() {
+          source_archive.extract_tar_gz_selected(
+            bytes,
+            notice.selected_notice_paths,
+          )
+        })
+      should.equal(inflations, 1)
+      let assert Ok(files) = extracted
+      should.equal(files, [
+        source_archive.ArchiveFile("LICENSE", <<"Licence text":utf8>>),
+      ])
+      should.equal(
+        list.fold(files, 0, fn(total, file) {
+          total + bit_array.byte_size(file.contents)
+        }),
+        12,
+      )
+    },
+  )
+}
+
+pub fn selected_extraction_preserves_full_inventory_root_test() {
+  with_tar_gz(
+    [
+      #("repo/README.md", <<"readme":utf8>>),
+      #("repo/vendor/LICENSE", <<"licence":utf8>>),
+    ],
+    fn(bytes) {
+      should.equal(
+        source_archive.extract_tar_gz_selected(
+          bytes,
+          notice.selected_notice_paths,
+        ),
+        Ok([source_archive.ArchiveFile("vendor/LICENSE", <<"licence":utf8>>)]),
+      )
+    },
+  )
+}
+
+pub fn selected_extraction_does_not_infer_root_from_selected_subset_test() {
+  with_tar_gz(
+    [
+      #("README.md", <<"readme":utf8>>),
+      #("vendor/LICENSE", <<"licence":utf8>>),
+    ],
+    fn(bytes) {
+      should.equal(
+        source_archive.extract_tar_gz_selected(
+          bytes,
+          notice.selected_notice_paths,
+        ),
+        Ok([source_archive.ArchiveFile("vendor/LICENSE", <<"licence":utf8>>)]),
+      )
+    },
+  )
+}
+
+pub fn selected_extraction_handles_no_matches_test() {
+  with_tar_gz([#("repo/README.md", <<"readme":utf8>>)], fn(bytes) {
+    let #(extracted, inflations) =
+      with_inflation_count(fn() {
+        source_archive.extract_tar_gz_selected(
+          bytes,
+          notice.selected_notice_paths,
+        )
+      })
+    should.equal(extracted, Ok([]))
+    should.equal(inflations, 1)
+  })
+  should.equal(
+    source_archive.extract_tar_gz_selected(
+      <<1:size(1)>>,
+      notice.selected_notice_paths,
+    ),
+    Error(source_archive.InvalidArchive),
+  )
+}
+
+pub fn selected_extraction_accepts_uncompressed_tar_like_otp_test() {
+  with_tar_gz([#("repo/LICENSE", <<"licence":utf8>>)], fn(bytes) {
+    should.equal(
+      source_archive.extract_tar_gz_selected(
+        gunzip(bytes),
+        notice.selected_notice_paths,
+      ),
+      source_archive.extract_tar_gz_selected(
+        bytes,
+        notice.selected_notice_paths,
+      ),
+    )
+  })
+}
+
+pub fn selected_extraction_reports_invalid_gzip_test() {
+  should.equal(
+    source_archive.extract_tar_gz_selected(
+      <<31, 139, 0>>,
+      notice.selected_notice_paths,
+    ),
+    Error(source_archive.InvalidArchive),
+  )
+}
+
+pub fn selected_extraction_preserves_unicode_names_test() {
+  with_tar_gz(
+    [
+      #("repo/README.md", <<"readme":utf8>>),
+      #("repo/LICENCE-\u{00F1}", <<"licence":utf8>>),
+    ],
+    fn(bytes) {
+      should.equal(
+        source_archive.extract_tar_gz_selected(
+          bytes,
+          notice.selected_notice_paths,
+        ),
+        Ok([source_archive.ArchiveFile("LICENCE-\u{00F1}", <<"licence":utf8>>)]),
+      )
+    },
+  )
+}
 
 pub fn sha256_hex_is_uppercase_test() {
   let assert Ok(bits) = simplifile.read_bits(fixture_dir <> "/hex.tar")

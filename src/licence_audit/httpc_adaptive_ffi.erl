@@ -55,11 +55,14 @@ normalise_error(Error = {failed_connect, Options}) ->
             case lists:keyfind(inet6, 1, Options) of
                 {inet6, _, Reason} ->
                     {failed_to_connect, <<"IPv6: ", (describe_connect_error(Reason))/binary>>};
-                false -> erlang:error({unexpected_httpc_adaptive_error, Error})
+                false -> {failed_to_connect, describe_error(Error)}
             end
     end;
 normalise_error(Error) ->
-    erlang:error({unexpected_httpc_adaptive_error, Error}).
+    {request_failed, describe_error(Error)}.
+
+describe_error(Error) ->
+    unicode:characters_to_binary(io_lib:format("~tp", [Error])).
 
 describe_connect_error(nxdomain) ->
     <<"DNS lookup failed (nxdomain)">>;
@@ -83,4 +86,4 @@ describe_connect_error({tls_alert, {Code, Detail}}) ->
         ")"
     ]);
 describe_connect_error(Error) ->
-    erlang:error({unexpected_httpc_adaptive_connect_error, Error}).
+    describe_error(Error).

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "`notices` reads only selected licence and notice files from local dependencies. Unreadable unrelated files and directories no longer block packages with root licence files, and symlink targets remain excluded."

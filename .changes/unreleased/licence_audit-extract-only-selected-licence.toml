@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Extract only selected licence and notice members from source archives, preserving root priority and nested fallback. Gzip archives are decompressed once before selection and extraction instead of twice."

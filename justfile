@@ -1,6 +1,7 @@
 # Gleam licence audit command-line tool
 
-# Persisted Hex licence metadata cache (DETS file). Kept in-repo so CI can
+# Persisted Hex licence metadata cache path. Entries are published atomically
+# under a directory with an `.entries` suffix. Kept in-repo so CI can
 # restore it between runs via actions/cache, cutting calls to the Hex API.
 hex_cache := ".hex-cache/hex-v2.dets"
 
