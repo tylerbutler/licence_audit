@@ -12,7 +12,7 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the cache base path (entries are stored in PATH.entries) |
+| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the cache base path (the cache is one DETS file at PATH) |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |

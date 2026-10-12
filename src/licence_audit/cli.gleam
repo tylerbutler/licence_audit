@@ -314,7 +314,7 @@ fn cache_path_flag() -> glint.Flag(String) {
   glint.string_flag("cache-path")
   |> glint.flag_default(absent_string_flag)
   |> glint.flag_help(
-    "Override the cache base path (entries are stored in PATH.entries)",
+    "Override the cache base path (the cache is one DETS file at PATH)",
   )
 }
 

@@ -1,7 +1,7 @@
 # Gleam licence audit command-line tool
 
-# Persisted Hex licence metadata cache path. Entries are published atomically
-# under a directory with an `.entries` suffix. Kept in-repo so CI can
+# Persisted Hex licence metadata cache path. Accessed through slate exclusive
+# sessions. Kept in-repo so CI can
 # restore it between runs via actions/cache, cutting calls to the Hex API.
 hex_cache := ".hex-cache/hex-v2.dets"
 
@@ -111,11 +111,20 @@ xerj-reference query:
 build:
     mise exec -- gleam build
     mise exec -- gleam run -m gleescript
+    just slate-native
+
+# Copy slate's native lock library beside the escript (escripts cannot bundle it).
+slate-native:
+    rm -rf slate_native
+    mkdir slate_native
+    cp -r build/packages/slate/priv/slate_lock/. slate_native/
+    rm -rf slate_native/source
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
     mise exec -- gleam run -m gleescript
+    just slate-native
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:

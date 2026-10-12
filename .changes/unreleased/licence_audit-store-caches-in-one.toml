@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Changed"
+body = "Store caches in one DETS file per cache, protected by slate exclusive sessions. Release archives include a slate_native directory for the lock library."

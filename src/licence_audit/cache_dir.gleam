@@ -1,23 +1,29 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Each cache uses a directory next to its former DETS filename. Every key is
-//// stored in a separate file and published with an atomic rename, so separate
-//// Erlang VMs can safely add entries without replacing each other's writes.
+//// Each cache is one DETS file. Every read and write runs in a short slate
+//// exclusive session, so separate Erlang VMs cannot corrupt the file or
+//// replace each other's entries.
 
-import gleam/bit_array
+import gleam/dynamic/decode
+import gleam/erlang/reference.{type Reference}
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import simplifile
+import slate
+import slate/exclusive
+import slate/set
 
 import licence_audit/env
 import licence_audit/path
 
 const cache_subdir = "licence_audit"
 
-const entries_suffix = ".entries"
+const lock_wait = exclusive.WaitUpTo(5000)
 
-/// A directory-backed string cache.
-pub type Store
+/// A DETS-backed string cache.
+pub opaque type Store {
+  Store(path: String, warnings: Reference)
+}
 
 /// Why a cache path could not be resolved or prepared.
 type PathError {
@@ -39,10 +45,8 @@ fn resolve_path(
   filename: String,
 ) -> Result(String, PathError) {
   case override {
-    Some(cache_path) -> Ok(cache_path <> entries_suffix)
-    None ->
-      default_path(filename)
-      |> result.map(fn(cache_path) { cache_path <> entries_suffix })
+    Some(cache_path) -> Ok(cache_path)
+    None -> default_path(filename)
   }
 }
 
@@ -64,21 +68,9 @@ fn default_path(filename: String) -> Result(String, PathError) {
 
 fn ensure_cache_dir(cache_path: String) -> Result(Nil, PathError) {
   let parent = path.dirname(cache_path)
-  use _ <- result.try(
-    simplifile.create_directory_all(parent)
-    |> result.map_error(fn(error) {
-      CacheDirCreateFailed(
-        dir: parent,
-        reason: simplifile.describe_error(error),
-      )
-    }),
-  )
-  simplifile.create_directory_all(cache_path)
+  simplifile.create_directory_all(parent)
   |> result.map_error(fn(error) {
-    CacheDirCreateFailed(
-      dir: cache_path,
-      reason: simplifile.describe_error(error),
-    )
+    CacheDirCreateFailed(dir: parent, reason: simplifile.describe_error(error))
   })
 }
 
@@ -92,7 +84,7 @@ pub fn open_table(
     resolve_path(cache_path, filename) |> result.map_error(describe_path_error),
   )
   case ensure_cache_dir(resolved) {
-    Ok(Nil) -> Ok(new_store(resolved))
+    Ok(Nil) -> Ok(Store(path: resolved, warnings: reference.new()))
     Error(error) ->
       Error(
         "Unable to open "
@@ -105,24 +97,45 @@ pub fn open_table(
   }
 }
 
-/// Read one complete cache entry.
+/// Read one cache entry in a short exclusive session.
 pub fn lookup(store: Store, key: String) -> Result(String, Nil) {
-  case read(store, key) {
-    Error(_) -> Error(Nil)
-    Ok(contents) ->
-      case bit_array.to_string(contents) {
-        Ok(value) -> Ok(value)
-        Error(_) -> {
-          warn(store, "cache entry for " <> key <> " contains invalid UTF-8")
-          Error(Nil)
-        }
-      }
+  case
+    set.with_exclusive_table(
+      path: store.path,
+      repair: slate.AutoRepair,
+      access: slate.ReadWrite,
+      wait: lock_wait,
+      key_decoder: decode.string,
+      value_decoder: decode.string,
+      callback: fn(table) { set.lookup(table, key: key) },
+    )
+  {
+    Ok(value) -> Ok(value)
+    Error(exclusive.SessionFailed(exclusive.CallbackFailure(slate.NotFound))) ->
+      Error(Nil)
+    Error(error) -> {
+      warn(store, "read " <> key <> ": " <> exclusive.error_message(error))
+      Error(Nil)
+    }
   }
 }
 
-/// Atomically publish one complete cache entry.
+/// Publish one cache entry in a short exclusive session.
 pub fn insert(store: Store, key: String, value: String) -> Result(Nil, String) {
-  write(store, key, value)
+  set.with_exclusive_table(
+    path: store.path,
+    repair: slate.AutoRepair,
+    access: slate.ReadWrite,
+    wait: lock_wait,
+    key_decoder: decode.string,
+    value_decoder: decode.string,
+    callback: fn(table) { set.insert(table, key, value) },
+  )
+  |> result.map_error(fn(error) {
+    let message = "write " <> key <> ": " <> exclusive.error_message(error)
+    warn(store, message)
+    message
+  })
 }
 
 /// Close a store and return the latest deferred warning.
@@ -131,23 +144,18 @@ pub fn close_table(
   name: String,
   warning: Option(String),
 ) -> Option(String) {
-  case take_warning(store) {
+  case ffi_take_warning(store.warnings) {
     None -> warning
     Some(error) -> Some("Failed to access " <> name <> " cache: " <> error)
   }
 }
 
-@external(erlang, "cache_dir_ffi", "new_store")
-fn new_store(path: String) -> Store
-
-@external(erlang, "cache_dir_ffi", "read")
-fn read(store: Store, key: String) -> Result(BitArray, String)
-
-@external(erlang, "cache_dir_ffi", "write")
-fn write(store: Store, key: String, value: String) -> Result(Nil, String)
-
 @external(erlang, "cache_dir_ffi", "warn")
-fn warn(store: Store, warning: String) -> Nil
+fn ffi_warn(warnings: Reference, warning: String) -> Nil
 
 @external(erlang, "cache_dir_ffi", "take_warning")
-fn take_warning(store: Store) -> Option(String)
+fn ffi_take_warning(warnings: Reference) -> Option(String)
+
+fn warn(store: Store, warning: String) -> Nil {
+  ffi_warn(store.warnings, warning)
+}
