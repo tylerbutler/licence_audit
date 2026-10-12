@@ -23,7 +23,7 @@ pub type Mode {
   Disabled
 }
 
-/// Opaque cache handle. May or may not hold an open directory-backed store.
+/// Opaque cache handle. Holds a store when caching is enabled and available.
 pub opaque type Cache {
   Cache(table: Option(cache_dir.Store), warning: Option(String))
 }
@@ -34,7 +34,7 @@ const cached_at_prefix = "$cached_at:"
 
 /// On-disk cache format version. Bump on any incompatible change to the cached
 /// value shape (see `hex.encode_cache_entry`). The version is encoded into the
-/// cache directory name so data written by an older format is simply ignored
+/// cache filename so data written by an older format is ignored
 /// rather than read back with the wrong decoder. `hex.decode_cache_entry` also
 /// treats any unparseable entry as a miss, so minor/forward-compatible drift
 /// self-heals without a bump — reserve bumps for changes that would mis-decode
@@ -48,9 +48,9 @@ fn cache_filename() -> String {
 
 /// Open a cache according to `mode`.
 ///
-/// Never returns an error. If the cache directory can't be opened or the parent
-/// directory can't be created, the returned `Cache` is in a passthrough
-/// state and includes a deferred warning message accessible via `close`.
+/// Never returns an error. If the cache path cannot be prepared, the returned
+/// `Cache` bypasses storage and includes a deferred warning accessible via
+/// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)

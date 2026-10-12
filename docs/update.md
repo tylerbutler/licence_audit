@@ -12,11 +12,11 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the cache base path (the cache is one DETS file at PATH) |
+| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache location |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

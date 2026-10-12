@@ -194,11 +194,10 @@ bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Both runners add `--no-cache`, so they do not touch the on-disk
-cache directories. The CLI uses atomic per-entry files under directories such
-as `hex-v2.dets.entries/`; separate Erlang VMs can safely share them.
-`--no-cache` bypasses the caches, and `--cache-path=PATH` places the licence
-metadata cache in the adjacent `PATH.entries/` directory. Legacy DETS files are
-not migrated and can be removed after the cache is regenerated.
+caches. Concurrent CLI runs can share cached entries. `--no-cache` bypasses
+the caches, and `--cache-path=PATH` overrides the licence metadata cache
+location. Source-built escripts require the `slate_native/` directory beside
+the executable for cache access; `just build` copies it there.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 

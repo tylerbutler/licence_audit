@@ -1,8 +1,8 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Each cache is one DETS file. Every read and write runs in a short slate
-//// exclusive session, so separate Erlang VMs cannot corrupt the file or
-//// replace each other's entries.
+//// Reads and writes use short exclusive sessions so concurrent CLI runs
+//// can share cached entries without corrupting or overwriting each other's
+//// data.
 
 import gleam/dynamic/decode
 import gleam/erlang/reference.{type Reference}
@@ -20,7 +20,7 @@ const cache_subdir = "licence_audit"
 
 const lock_wait = exclusive.WaitUpTo(5000)
 
-/// A DETS-backed string cache.
+/// An on-disk string cache.
 pub opaque type Store {
   Store(path: String, warnings: Reference)
 }

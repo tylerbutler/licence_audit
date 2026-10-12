@@ -293,7 +293,7 @@ fn color_flag() -> glint.Flag(String) {
 fn no_cache_flag() -> glint.Flag(Bool) {
   glint.bool_flag("no-cache")
   |> glint.flag_default(False)
-  |> glint.flag_help("Bypass the on-disk licence metadata cache")
+  |> glint.flag_help("Bypass the on-disk caches")
 }
 
 fn version_flag() -> glint.Flag(Bool) {
@@ -313,9 +313,7 @@ fn prod_only_flag() -> glint.Flag(Bool) {
 fn cache_path_flag() -> glint.Flag(String) {
   glint.string_flag("cache-path")
   |> glint.flag_default(absent_string_flag)
-  |> glint.flag_help(
-    "Override the cache base path (the cache is one DETS file at PATH)",
-  )
+  |> glint.flag_help("Override the licence metadata cache location")
 }
 
 fn check_vulns_flag() -> glint.Flag(Bool) {

@@ -1,8 +1,7 @@
 # Gleam licence audit command-line tool
 
-# Persisted Hex licence metadata cache path. Accessed through slate exclusive
-# sessions. Kept in-repo so CI can
-# restore it between runs via actions/cache, cutting calls to the Hex API.
+# Persisted package metadata cache path. Kept in-repo so CI can restore
+# .hex-cache/ between runs via actions/cache and avoid repeated downloads.
 hex_cache := ".hex-cache/hex-v2.dets"
 
 # OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
