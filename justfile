@@ -30,6 +30,23 @@ default:
 deps:
     mise exec -- gleam deps download
 
+# === VENDORED SOURCES ===
+
+# Regenerate committed source copies after a git-subrepo update.
+vendor-sync:
+    mise exec -- python3 -B scripts/vendor_sync.py
+
+# Check source drift without changing files or fetching upstream repositories.
+vendor-check:
+    mise exec -- python3 -B scripts/vendor_sync.py --check
+
+vendor-test:
+    mise exec -- python3 -B -m unittest discover -s test -p vendor_sync_test.py
+
+# Check the production application and the shipped escript.
+test-vendor-production: build
+    mise exec -- bash test/vendor_production.sh
+
 # === REFERENCE CODING ===
 
 # Install the pinned local search tool.
@@ -109,13 +126,12 @@ xerj-reference query:
 
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
-    mise exec -- gleam build
-    mise exec -- gleam run -m gleescript
+    mise exec -- gleam export escript
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
-    mise exec -- gleam run -m gleescript
+    mise exec -- gleam export escript
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:
@@ -148,11 +164,11 @@ check:
 
 # Format code
 format:
-    mise exec -- gleam format src test
+    mise exec -- gleam format src test dev
 
 # Check formatting without making changes
 format-check:
-    mise exec -- gleam format --check src test
+    mise exec -- gleam format --check src test dev
 
 # Run the glinter linter (exits non-zero only on error-level rules)
 glint:
@@ -290,6 +306,6 @@ docs-check: build
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor format-check glint check test test-runtime-startup build-strict docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci

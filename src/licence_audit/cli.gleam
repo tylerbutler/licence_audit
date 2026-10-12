@@ -2,9 +2,9 @@ import gleam/bool
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import glint
-import glint/constraint
 import licence_audit/color
+import licence_audit/internal/vendor/glint
+import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
 
 const absent_string_flag = "__licence_audit_absent_string_flag__"

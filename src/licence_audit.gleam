@@ -8,7 +8,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/time/timestamp
-import glint
 import licence_audit/cache
 import licence_audit/cli
 import licence_audit/color
@@ -18,6 +17,7 @@ import licence_audit/exception
 import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/httpc_adaptive
+import licence_audit/internal/vendor/glint
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/notice_cache
