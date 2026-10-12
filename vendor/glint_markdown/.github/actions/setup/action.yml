@@ -1,0 +1,22 @@
+name: "Setup glint_markdown build environment"
+description: "Install mise-managed toolchain (Erlang, Gleam, changie) and cache build outputs"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup mise
+      uses: jdx/mise-action@5083fe46898c414b2475087cc79da59e7da859e8 # ratchet:jdx/mise-action@v3
+
+    - name: Cache Gleam dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # ratchet:actions/cache@v4
+      with:
+        path: |
+          build/packages
+          ~/.cache/gleam
+        key: gleam-${{ runner.os }}-${{ hashFiles('gleam.toml', 'manifest.toml') }}
+        restore-keys: |
+          gleam-${{ runner.os }}-
+
+    - name: Download Gleam dependencies
+      shell: bash
+      run: just deps

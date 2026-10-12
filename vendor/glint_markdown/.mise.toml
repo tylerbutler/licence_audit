@@ -1,0 +1,6 @@
+[tools]
+changie = "1.24.0"
+erlang = "28.3"
+gleam = "1.16.0"
+just = "latest"
+rebar = "3.26.0"

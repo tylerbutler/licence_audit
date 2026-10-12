@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  `to_files` no longer duplicates each topic's heading and description. The per-file `#` title now serves as the topic section, and only descendant subcommands are rendered as `##` sections.
+time: 2026-05-31T21:30:00.000000000-07:00

@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  New `glint_markdown/cli` module exposing a ready-made `gen-docs` subcommand that callers mount into their own glint CLI with one line: `app |> glint_markdown_cli.mount(at: ["gen-docs"])`. Supports `--mode single|multi`, `--out`, `--readme` (sentinel injection in place), `--repo-prefix`, `--include-hidden`, `--no-toc`, `--check` (CI-friendly diff mode that exits 1 on drift), and `--quiet`. `mount` is restricted to `Glint(Nil)` host apps; non-`Nil` hosts use the lower-level `glint_markdown_cli.command/1` with `glint.map_command`. Adds `simplifile` as a direct dependency for filesystem IO.
+time: 2026-05-31T19:48:00.000000000-07:00

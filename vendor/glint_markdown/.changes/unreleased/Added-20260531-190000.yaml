@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  Initial release. Renders a `glint/help.Tree` (from `glint.document/1`) to Markdown reference documentation. Patterned after [oclif's readme generator][oclif] — supports single-file output (one README with TOC + every command) and multi-file output (one file per top-level subcommand plus an index). Sentinel-comment injection via `glint_markdown.inject/3` mirrors oclif's `replaceTag`. Anchor slugs delegated to the [`glugify`](https://hex.pm/packages/glugify) Hex package. [oclif]: https://github.com/oclif/oclif/blob/main/src/readme-generator.ts
+time: 2026-05-31T19:00:00.000000000-07:00
