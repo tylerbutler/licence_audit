@@ -109,12 +109,12 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
+| `--config` | `STRING` |  | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |

@@ -7,6 +7,15 @@ import licence_audit/cli
 import licence_audit/color
 import licence_audit/progress
 
+const optional_path_flags = [
+  #([], ["manifest", "config", "cache-path"]),
+  #(["check"], ["manifest", "config", "cache-path"]),
+  #(["update"], ["manifest", "config", "cache-path"]),
+  #(["sbom"], ["manifest", "cache-path", "output"]),
+  #(["notices"], ["manifest", "cache-path", "output"]),
+  #(["vulns"], ["manifest", "config"]),
+]
+
 fn parse_options(args: List(String)) -> cli.Options {
   let assert Ok(glint.Out(cli.RunAudit(options))) =
     glint.execute(cli.app(), cli.normalize_args(args))
@@ -59,7 +68,68 @@ pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
   should.equal(options.check, True)
+  should.equal(options.vuln_severity, None)
   should.equal(options.vuln_block_unknown, False)
+}
+
+pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
+  use expected <- list.each([
+    None,
+    Some("custom/path.toml"),
+    Some(""),
+    Some("__licence_audit_absent_string_flag__"),
+    Some("path=with=equals"),
+  ])
+  use command <- list.each(optional_path_flags)
+  let #(command, names) = command
+  let args = case expected {
+    None -> command
+    Some(value) ->
+      list.append(
+        command,
+        list.map(names, fn(name) { "--" <> name <> "=" <> value }),
+      )
+  }
+  let assert Ok(glint.Out(action)) = glint.execute(cli.app(), args)
+  let paths = case action {
+    cli.RunAudit(options) -> [
+      options.manifest_path,
+      options.config_path,
+      options.cache_path,
+    ]
+    cli.UpdateConfig(options) -> [
+      options.manifest_path,
+      options.config_path,
+      options.cache_path,
+    ]
+    cli.RunSbom(options) -> [
+      options.manifest_path,
+      options.cache_path,
+      options.output,
+    ]
+    cli.RunNotices(options) -> [
+      options.manifest_path,
+      options.cache_path,
+      options.output,
+    ]
+    cli.RunVulns(options) -> [options.manifest_path, options.config_path]
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
+  }
+
+  should.equal(paths, list.map(names, fn(_) { expected }))
+}
+
+pub fn optional_string_flags_still_require_values_when_supplied_test() {
+  use command <- list.each([
+    #(["check"], ["vuln-severity"]),
+    ..optional_path_flags
+  ])
+  let #(command, names) = command
+  use name <- list.each(names)
+  let message = usage_error(list.append(command, ["--" <> name]))
+
+  assert string.contains(message, name)
+  assert string.contains(message, "has no assigned value")
 }
 
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
@@ -272,10 +342,18 @@ pub fn vulns_vuln_block_unknown_option_returns_usage_error_test() {
 }
 
 pub fn invalid_check_vuln_severity_returns_usage_error_test() {
-  let message = usage_error(["check", "--vuln-severity=crit"])
+  use value <- list.each(["crit", "", "__licence_audit_absent_string_flag__"])
+  let message = usage_error(["check", "--vuln-severity=" <> value])
 
   assert string.contains(message, "vuln-severity")
-  assert string.contains(message, "crit")
+  assert string.contains(message, "must be one of")
+}
+
+pub fn check_vuln_severity_preserves_supported_values_test() {
+  use severity <- list.each(["low", "medium", "high", "critical"])
+  let options = parse_options(["check", "--vuln-severity=" <> severity])
+
+  should.equal(options.vuln_severity, Some(severity))
 }
 
 pub fn update_subcommand_parses_defaults_test() {

@@ -1,13 +1,10 @@
-import gleam/bool
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option, None}
 import gleam/string
 import glint
 import glint/constraint
 import licence_audit/color
 import licence_audit/progress
-
-const absent_string_flag = "__licence_audit_absent_string_flag__"
 
 pub type Options {
   Options(
@@ -128,14 +125,14 @@ fn audit_command(
   use <- glint.unnamed_args(glint.EqArgs(0))
   use allow <- glint.flag(allow_flag())
   use deny <- glint.flag(deny_flag())
-  use config <- glint.flag(config_flag())
-  use manifest <- glint.flag(manifest_flag())
+  use config <- glint.optional_flag(config_flag())
+  use manifest <- glint.optional_flag(manifest_flag())
   use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.flag(cache_path_flag())
+  use cache_path <- glint.optional_flag(cache_path_flag())
   use prod_only <- glint.flag(prod_only_flag())
   use show_version <- glint.flag(version_flag())
   use _, _, flags <- glint.command()
@@ -164,8 +161,8 @@ fn audit_command(
       InvalidUsage(color.mode_error_message(color_error))
     _, Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
-        manifest_path: optional_string(manifest_path),
-        config_path: optional_string(config_path),
+        manifest_path: manifest_path,
+        config_path: config_path,
         allow_licences: allow_licences,
         deny_licences: deny_licences,
         ignore_config: ignore_config,
@@ -173,7 +170,7 @@ fn audit_command(
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: optional_string(cache_path_value),
+        cache_path: cache_path_value,
         check_vulns: False,
         vuln_severity: None,
         vuln_block_unknown: False,
@@ -187,17 +184,17 @@ fn check_command() -> glint.Command(CliAction) {
   use <- glint.unnamed_args(glint.EqArgs(0))
   use allow <- glint.flag(allow_flag())
   use deny <- glint.flag(deny_flag())
-  use config <- glint.flag(config_flag())
-  use manifest <- glint.flag(manifest_flag())
+  use config <- glint.optional_flag(config_flag())
+  use manifest <- glint.optional_flag(manifest_flag())
   use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.flag(cache_path_flag())
+  use cache_path <- glint.optional_flag(cache_path_flag())
   use prod_only <- glint.flag(prod_only_flag())
   use check_vulns <- glint.flag(check_vulns_flag())
-  use vuln_severity <- glint.flag(vuln_severity_flag())
+  use vuln_severity <- glint.optional_flag(vuln_severity_flag())
   use vuln_block_unknown <- glint.flag(vuln_block_unknown_flag())
   use _, _, flags <- glint.command()
 
@@ -222,8 +219,8 @@ fn check_command() -> glint.Command(CliAction) {
     _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunAudit(Options(
-        manifest_path: optional_string(manifest_path),
-        config_path: optional_string(config_path),
+        manifest_path: manifest_path,
+        config_path: config_path,
         allow_licences: allow_licences,
         deny_licences: deny_licences,
         ignore_config: ignore_config,
@@ -231,9 +228,9 @@ fn check_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: optional_string(cache_path_value),
+        cache_path: cache_path_value,
         check_vulns: check_vulns_value,
-        vuln_severity: optional_string(vuln_severity_value),
+        vuln_severity: vuln_severity_value,
         vuln_block_unknown: vuln_block_unknown_value,
         prod_only: prod_only_value,
       ))
@@ -254,13 +251,11 @@ fn deny_flag() -> glint.Flag(List(String)) {
 
 fn config_flag() -> glint.Flag(String) {
   glint.string_flag("config")
-  |> glint.flag_default(absent_string_flag)
   |> glint.flag_help("Read configuration from PATH")
 }
 
 fn manifest_flag() -> glint.Flag(String) {
   glint.string_flag("manifest")
-  |> glint.flag_default(absent_string_flag)
   |> glint.flag_help("Read manifest from PATH")
 }
 
@@ -312,7 +307,6 @@ fn prod_only_flag() -> glint.Flag(Bool) {
 
 fn cache_path_flag() -> glint.Flag(String) {
   glint.string_flag("cache-path")
-  |> glint.flag_default(absent_string_flag)
   |> glint.flag_help("Override the licence metadata cache location")
 }
 
@@ -326,13 +320,9 @@ fn check_vulns_flag() -> glint.Flag(Bool) {
 
 fn vuln_severity_flag() -> glint.Flag(String) {
   glint.string_flag("vuln-severity")
-  |> glint.flag_default(absent_string_flag)
-  |> glint.flag_constraint(fn(value) {
-    case value == absent_string_flag {
-      True -> Ok(value)
-      False -> constraint.one_of(["low", "medium", "high", "critical"])(value)
-    }
-  })
+  |> glint.flag_constraint(
+    constraint.one_of(["low", "medium", "high", "critical"]),
+  )
   |> glint.flag_help(
     "Minimum severity that triggers `check --vulns` failure: low|medium|high|critical (default high)",
   )
@@ -367,24 +357,19 @@ fn verbosity_error_message(error: VerbosityError) -> String {
   "--quiet and --verbose cannot be used together"
 }
 
-fn optional_string(value: String) -> Option(String) {
-  use <- bool.guard(when: value == absent_string_flag, return: None)
-  Some(value)
-}
-
 fn update_command() -> glint.Command(CliAction) {
   use <- glint.command_help(
     "Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.",
   )
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use config <- glint.flag(config_flag())
-  use manifest <- glint.flag(manifest_flag())
+  use config <- glint.optional_flag(config_flag())
+  use manifest <- glint.optional_flag(manifest_flag())
   use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.flag(cache_path_flag())
+  use cache_path <- glint.optional_flag(cache_path_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(config_path) = config(flags)
@@ -401,20 +386,19 @@ fn update_command() -> glint.Command(CliAction) {
     _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       UpdateConfig(UpdateOptions(
-        manifest_path: optional_string(manifest_path),
-        config_path: optional_string(config_path),
+        manifest_path: manifest_path,
+        config_path: config_path,
         ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: optional_string(cache_path_value),
+        cache_path: cache_path_value,
       ))
   }
 }
 
 fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
-  |> glint.flag_default(absent_string_flag)
   |> glint.flag_help(help)
 }
 
@@ -452,12 +436,14 @@ const sbom_help =
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use manifest <- glint.flag(manifest_flag())
+  use manifest <- glint.optional_flag(manifest_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.flag(cache_path_flag())
-  use output <- glint.flag(output_flag("Write SBOM to PATH instead of stdout"))
+  use cache_path <- glint.optional_flag(cache_path_flag())
+  use output <- glint.optional_flag(output_flag(
+    "Write SBOM to PATH instead of stdout",
+  ))
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
@@ -490,11 +476,11 @@ fn sbom_command() -> glint.Command(CliAction) {
       )
     Ok(verbosity), False, False ->
       RunSbom(SbomOptions(
-        manifest_path: optional_string(manifest_path),
+        manifest_path: manifest_path,
         verbosity: verbosity,
         no_cache: no_cache,
-        cache_path: optional_string(cache_path_value),
-        output: optional_string(output_value),
+        cache_path: cache_path_value,
+        output: output_value,
         offline: offline_value,
         reproducible: reproducible_value,
         with_vulns: with_vulns_value,
@@ -508,15 +494,15 @@ const notices_help =
 fn notices_command() -> glint.Command(CliAction) {
   use <- glint.command_help(notices_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use manifest <- glint.flag(manifest_flag())
+  use manifest <- glint.optional_flag(manifest_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
-  use output <- glint.flag(output_flag(
+  use output <- glint.optional_flag(output_flag(
     "Write notices to PATH instead of stdout",
   ))
   use include_dev <- glint.flag(include_dev_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.flag(cache_path_flag())
+  use cache_path <- glint.optional_flag(cache_path_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -532,12 +518,12 @@ fn notices_command() -> glint.Command(CliAction) {
       InvalidUsage(verbosity_error_message(verbosity_error))
     Ok(verbosity) ->
       RunNotices(NoticesOptions(
-        manifest_path: optional_string(manifest_path),
+        manifest_path: manifest_path,
         verbosity: verbosity,
-        output: optional_string(output_value),
+        output: output_value,
         include_dev: include_dev_value,
         no_cache: no_cache,
-        cache_path: optional_string(cache_path_value),
+        cache_path: cache_path_value,
       ))
   }
 }
@@ -548,8 +534,8 @@ const vulns_help =
 fn vulns_command() -> glint.Command(CliAction) {
   use <- glint.command_help(vulns_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use manifest <- glint.flag(manifest_flag())
-  use config <- glint.flag(config_flag())
+  use manifest <- glint.optional_flag(manifest_flag())
+  use config <- glint.optional_flag(config_flag())
   use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
@@ -572,8 +558,8 @@ fn vulns_command() -> glint.Command(CliAction) {
     _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunVulns(VulnsOptions(
-        manifest_path: optional_string(manifest_path),
-        config_path: optional_string(config_path),
+        manifest_path: manifest_path,
+        config_path: config_path,
         ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
