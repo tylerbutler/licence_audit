@@ -44,18 +44,19 @@ pub type PrettyHelp {
 
 /// default config
 ///
-const default_config = Config(
-  pretty_help: None,
-  name: None,
-  as_module: False,
-  description: None,
-  exit: True,
-  indent_width: 4,
-  max_output_width: 80,
-  min_first_column_width: 20,
-  column_gap: 2,
-  show_flag_defaults: False,
-)
+const default_config =
+  Config(
+    pretty_help: None,
+    name: None,
+    as_module: False,
+    description: None,
+    exit: True,
+    indent_width: 4,
+    max_output_width: 80,
+    min_first_column_width: 20,
+    column_gap: 2,
+    show_flag_defaults: False,
+  )
 
 // -- CONFIGURATION: FUNCTIONS --
 

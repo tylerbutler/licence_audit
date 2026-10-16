@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/tylerbutler/glint.git
 	branch = glint-markdown
-	commit = c082b4afef5dc35bacaf03a2921284c527e6afeb
+	commit = 6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab
 	parent = 8bc2070c2409f7e09d2d8013b99f282db9a7ce06
 	method = merge
 	cmdver = 0.4.9

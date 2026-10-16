@@ -133,6 +133,36 @@ Glint flags are a type-safe way to provide options to your commands.
 - Add a flag to a command with `glint.flag`.
 - Add a `constraint.Constraint(a)` to a `glint.Flag(a)` with `glint.flag_constraint`
 
+#### Optional flags
+
+Use `glint.optional_flag` to get a `Result(Option(a), snag.Snag)` for any flag
+type. An omitted flag without a default returns `Ok(None)`. Supplied values and
+configured defaults return `Ok(Some(value))`. An explicitly empty string remains
+`Some("")`. Invalid input and failed constraints still stop command execution.
+
+```gleam
+import gleam/option
+import glint
+import snag
+
+fn export_command() -> glint.Command(Result(option.Option(String), snag.Snag)) {
+  use output <- glint.optional_flag(
+    glint.string_flag("output")
+    |> glint.flag_help("Write output to PATH"),
+  )
+  use _, _, flags <- glint.command()
+  output(flags)
+}
+```
+
+For flags registered with `glint.group_flag`, use
+`glint.get_optional_flag(flags, flag)`. Unregistered flags and type mismatches
+still return errors. The existing `glint.flag` and `glint.get_flag` getters keep
+their behavior: an omitted value without a default is an error.
+
+Optional flags need no placeholder default. `glint.document` reports `None`
+unless a default was explicitly configured.
+
 #### Glint flag constraints: `constraint.Constraint(a)`
 
 Constraints are functions of shape `fn(a) -> Result(a, snag.Snag)` that are executed after a flag value has been successfully parsed, all constraints applied to a flag must succeed for that flag to be successfully processed.

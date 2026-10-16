@@ -143,3 +143,26 @@ pub fn group_flags_document_on_leaf_commands_test() {
   verbose.default
   |> should.equal(Some("yes"))
 }
+
+pub fn optional_flags_document_only_configured_defaults_test() -> Nil {
+  let tree =
+    glint.new()
+    |> glint.add(at: [], do: {
+      use _output <- glint.optional_flag(glint.string_flag("output"))
+      use _format <- glint.optional_flag(
+        glint.string_flag("format") |> glint.flag_default("json"),
+      )
+      nil_command()
+    })
+    |> glint.document
+
+  let output = flag_named(tree.flags, "output")
+  output.type_
+  |> should.equal("STRING")
+  output.default
+  |> should.equal(None)
+
+  let format = flag_named(tree.flags, "format")
+  format.default
+  |> should.equal(Some("json"))
+}

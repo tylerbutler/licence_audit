@@ -2,6 +2,10 @@
 
 ## [Unreleased](https://github.com/TanklesXL/glint/compare/v1.1.0...HEAD)
 
+- added `glint.optional_flag` and `glint.get_optional_flag` for all flag types.
+  Omitted flags without defaults return `Ok(None)` instead of requiring
+  placeholder values. Supplied values, configured defaults, validation errors,
+  and the existing getters keep their behavior
 - added the `glint.document/1` accessor and the public `glint/help` module,
   exposing a recursive `Tree` view of the command graph for downstream
   documentation generators (closes #49). `glint/help.ArgsCount` is declared
