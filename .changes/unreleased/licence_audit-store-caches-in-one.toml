@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Change the on-disk cache format while preserving safe sharing between concurrent CLI runs. In CI, save the parent cache directory (for example, `.hex-cache/`) instead of a `*.entries/` subdirectory. Keep the bundled `slate_native/` directory beside the escript when you install or move it."
