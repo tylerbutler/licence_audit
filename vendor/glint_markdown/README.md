@@ -1,7 +1,7 @@
 # glint_markdown
 
 [![CI](https://github.com/tylerbutler/glint_markdown/actions/workflows/ci.yml/badge.svg)](https://github.com/tylerbutler/glint_markdown/actions/workflows/ci.yml)
-[![Package Version](https://img.shields.io/hexpm/v/glint_markdown)](https://hex.pm/packages/glint_markdown)
+[![Release](https://img.shields.io/github/v/release/tylerbutler/glint_markdown)](https://github.com/tylerbutler/glint_markdown/releases)
 
 Auto-generate Markdown reference documentation from a [`glint`](https://hex.pm/packages/glint) CLI.
 
@@ -14,21 +14,18 @@ main README).
 
 ## Installation
 
-Until the upstream `glint.document/1` API is merged + released to Hex, this
-library depends on a fork of `glint` via git ref. Add both pinned to the same
-fork commit:
+This library has Git-only releases and is not published to Hex. Choose a
+`vX.Y.Z` tag from [GitHub Releases](https://github.com/tylerbutler/glint_markdown/releases)
+and pin `glint_markdown` to its commit SHA.
+
+Until the upstream `glint.document/1` API is released to Hex, also add the
+`glint` fork at the commit recorded in that release's `manifest.toml`:
 
 ```toml
 # gleam.toml
 [dependencies]
-glint = { git = "https://github.com/tylerbutler/glint.git", ref = "26c55e3" }
+glint = { git = "https://github.com/tylerbutler/glint.git", ref = "6b72c59f2ae7a09672650d6dd2295ec9930c4ebe" }
 glint_markdown = { git = "https://github.com/tylerbutler/glint_markdown.git", ref = "..." }
-```
-
-Once on Hex:
-
-```sh
-gleam add glint_markdown
 ```
 
 ## Quick start
@@ -72,6 +69,10 @@ let body = glint_markdown.to_commands_body(tree, opts)
 let toc  = glint_markdown.to_toc_body(tree, opts)
 ```
 
+Command sections have explicit `command-` anchors. The renderer assigns unique
+IDs, including when command names contain punctuation, accented letters, or
+produce the same slug. Separate TOC and command-body calls use the same IDs.
+
 ### Multi-file (one file per top-level subcommand)
 
 ```gleam
@@ -86,6 +87,10 @@ let files = glint_markdown.to_files(tree, opts)
 // Index body to inject into your main README between sentinel comments.
 let index = glint_markdown.to_topics_index_body(tree, opts)
 ```
+
+Index links encode spaces and other URL characters without changing filenames.
+The CLI makes injected links relative to the README's directory, not the
+working directory.
 
 ## Sentinel-comment injection
 
@@ -156,6 +161,21 @@ Now `myapp gen-docs [FLAGS]` renders the rest of your CLI as Markdown.
 | `--no-toc` | `false` | Skip the table of contents in single-file mode |
 | `--check` | `false` | Render + diff against disk; exit 1 if anything would change, write nothing — ideal for CI |
 | `--quiet` | `false` | Suppress the "wrote N, injected M" summary line |
+
+Markdown sent to stdout contains no status messages. Summaries and errors go to
+stderr, so `myapp gen-docs > reference.md` produces a Markdown document.
+
+Multi-file generation rejects unsafe topic filenames and a README that would
+also be replaced by a generated topic file. These checks run before any writes.
+
+File replacements are staged beside the destination and renamed only after a
+successful write. Existing permission bits are preserved, and symbolic links
+continue to point to their updated referents. Changed hardlinked files are
+refused rather than silently separating their links. Failed writes leave the
+original file intact.
+
+`--check` compares bytes on both targets, including UTF-8 byte-order marks.
+README injection preserves a byte-order mark and rejects invalid UTF-8.
 
 ### ⚠️ `mount` restriction: `Glint(Nil)` only
 

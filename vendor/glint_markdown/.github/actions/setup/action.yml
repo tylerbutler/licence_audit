@@ -1,5 +1,5 @@
 name: "Setup glint_markdown build environment"
-description: "Install mise-managed toolchain (Erlang, Gleam, changie) and cache build outputs"
+description: "Install mise-managed toolchain (Erlang, Gleam, Trellis) and cache build outputs"
 
 runs:
   using: "composite"

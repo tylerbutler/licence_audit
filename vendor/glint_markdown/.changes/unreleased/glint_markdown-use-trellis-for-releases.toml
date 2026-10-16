@@ -1,0 +1,3 @@
+package = "glint_markdown"
+kind = "Changed"
+body = "Use Trellis to manage changelogs and Git-only releases. Release tags and GitHub Releases replace Hex publishing."

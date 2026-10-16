@@ -1,17 +1,22 @@
 //// Side-effecting execution layer for plans produced by
 //// [`glint_markdown/internal/plan`](./plan.html).
 ////
-//// This module is intentionally tiny: it walks a list of `Action`s and either
-//// applies them to disk (normal mode) or compares them to disk and reports
-//// would-change descriptions (check mode). It never calls `exit_with` itself —
-//// the caller decides how to surface failures.
+//// All destinations are preflighted before any output or filesystem mutation.
+//// Normal mode stages replacements before renaming; check mode compares bytes.
+//// It never calls `exit_with` — the caller decides how to surface failures.
 
+import gleam/bit_array
 import gleam/bool
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import glint_markdown
+import glint_markdown/internal/exit
+import glint_markdown/internal/filesystem
 import glint_markdown/internal/plan.{
   type Action, InjectFile, WriteFile, WriteStdout,
 }
@@ -33,6 +38,28 @@ pub type Summary {
   Summary(written: Int, injected: Int, unchanged: Int)
 }
 
+type Destination {
+  Destination(path: String, resolved: String, identity: Option(#(Int, Int)))
+}
+
+type PreparedAction {
+  PreparedStdout(contents: String)
+  PreparedWrite(destination: Destination, contents: String)
+  PreparedInject(destination: Destination, tag: String, body: String)
+}
+
+type Intent {
+  FullFile(contents: String)
+  Injection
+}
+
+type SeenDestinations {
+  SeenDestinations(
+    paths: Dict(String, Intent),
+    identities: Dict(#(Int, Int), Intent),
+  )
+}
+
 /// Execute the given actions.
 ///
 /// - When `check` is `True`, no files are written. Any prospective change is
@@ -51,13 +78,17 @@ pub fn execute(
   check: Bool,
   quiet: Bool,
 ) -> Result(Summary, List(String)) {
-  let init = Summary(written: 0, injected: 0, unchanged: 0)
+  use prepared <- result.try(
+    preflight(actions)
+    |> result.map_error(fn(reason) { [reason] }),
+  )
+  let initial = Summary(written: 0, injected: 0, unchanged: 0)
   let #(summary, errors) =
-    list.fold(actions, #(init, []), fn(acc, action) {
-      let #(s, errs) = acc
-      case run_action(action, s, check) {
-        Ok(next) -> #(next, errs)
-        Error(msg) -> #(s, [msg, ..errs])
+    list.fold(prepared, #(initial, []), fn(accumulator, action) {
+      let #(previous, failures) = accumulator
+      case run_action(action, previous, check) {
+        Ok(next) -> #(next, failures)
+        Error(message) -> #(previous, [message, ..failures])
       }
     })
 
@@ -71,17 +102,119 @@ pub fn execute(
   }
 }
 
+fn preflight(actions: List(Action)) -> Result(List(PreparedAction), String) {
+  use prepared <- result.try(list.try_map(actions, prepare_action))
+  let initial = SeenDestinations(dict.new(), dict.new())
+  use _ <- result.try(list.try_fold(prepared, initial, record_destination))
+  Ok(prepared)
+}
+
+fn prepare_action(action: Action) -> Result(PreparedAction, String) {
+  case action {
+    WriteStdout(contents) -> Ok(PreparedStdout(contents))
+    WriteFile(path, contents) ->
+      prepare_destination(path)
+      |> result.map(PreparedWrite(_, contents))
+    InjectFile(path, tag, body) ->
+      prepare_destination(path)
+      |> result.map(PreparedInject(_, tag, body))
+  }
+}
+
+fn prepare_destination(path: String) -> Result(Destination, String) {
+  use resolved <- result.try(
+    filesystem.canonical_path(path)
+    |> result.map_error(fn(reason) {
+      "could not resolve destination " <> path <> ": " <> reason
+    }),
+  )
+  case simplifile.file_info(resolved) {
+    Ok(information) ->
+      Ok(Destination(
+        path,
+        resolved,
+        // Some filesystems do not supply an inode; do not make unrelated
+        // destinations collide on a placeholder zero.
+        case information.inode {
+          0 -> None
+          _ -> Some(#(information.dev, information.inode))
+        },
+      ))
+    Error(simplifile.Enoent) -> Ok(Destination(path, resolved, None))
+    Error(reason) ->
+      Error(
+        "could not inspect destination " <> path <> ": " <> describe(reason),
+      )
+  }
+}
+
+fn record_destination(
+  seen: SeenDestinations,
+  action: PreparedAction,
+) -> Result(SeenDestinations, String) {
+  case action {
+    PreparedStdout(_) -> Ok(seen)
+    PreparedWrite(destination, contents) ->
+      record_intent(seen, destination, FullFile(contents))
+    PreparedInject(destination, _, _) ->
+      record_intent(seen, destination, Injection)
+  }
+}
+
+fn record_intent(
+  seen: SeenDestinations,
+  destination: Destination,
+  intent: Intent,
+) -> Result(SeenDestinations, String) {
+  let previous_identity = case destination.identity {
+    None -> Error(Nil)
+    Some(identity) -> dict.get(seen.identities, identity)
+  }
+  case
+    conflicts(dict.get(seen.paths, destination.resolved), intent)
+    || conflicts(previous_identity, intent)
+  {
+    True ->
+      Error(
+        "conflicting file actions target "
+        <> destination.path
+        <> " (resolved: "
+        <> destination.resolved
+        <> "); full-file writes cannot overlap injections or differing writes",
+      )
+    False -> {
+      let identities = case destination.identity {
+        None -> seen.identities
+        Some(identity) -> dict.insert(seen.identities, identity, intent)
+      }
+      Ok(SeenDestinations(
+        dict.insert(seen.paths, destination.resolved, intent),
+        identities,
+      ))
+    }
+  }
+}
+
+fn conflicts(previous: Result(Intent, Nil), proposed: Intent) -> Bool {
+  case previous, proposed {
+    Error(Nil), FullFile(_) | Error(Nil), Injection -> False
+    Ok(Injection), Injection -> False
+    Ok(FullFile(before)), FullFile(after) -> before != after
+    Ok(Injection), FullFile(_) | Ok(FullFile(_)), Injection -> True
+  }
+}
+
 fn run_action(
-  action: Action,
+  action: PreparedAction,
   summary: Summary,
   check: Bool,
 ) -> Result(Summary, String) {
   case action {
-    WriteStdout(contents) -> handle_stdout(contents, summary, check)
-    WriteFile(path, contents) ->
-      handle_write_file(path, contents, summary, check)
-    InjectFile(path, tag, body) ->
-      handle_inject_file(path, tag, body, summary, check)
+    PreparedStdout(contents) -> handle_stdout(contents, summary, check)
+    PreparedWrite(destination, contents) ->
+      handle_write_file(destination, contents, summary, check)
+    PreparedInject(destination, tag, body) ->
+      handle_inject_file(destination, tag, body, summary, check)
   }
 }
 
@@ -101,40 +234,31 @@ fn handle_stdout(
 }
 
 fn handle_write_file(
-  path: String,
+  destination: Destination,
   contents: String,
   summary: Summary,
   check: Bool,
 ) -> Result(Summary, String) {
+  let path = destination.path
+  let proposed = bit_array.from_string(contents)
   case check {
     True ->
-      case simplifile.read(path) {
-        Ok(existing) if existing == contents ->
+      case simplifile.read_bits(destination.resolved) {
+        Ok(existing) if existing == proposed ->
           Ok(Summary(..summary, unchanged: summary.unchanged + 1))
         Ok(existing) ->
-          Error(diff_hint("would change", path, existing, contents))
+          Error(diff_hint("would change", path, existing, proposed))
         Error(simplifile.Enoent) -> Error("would create " <> path)
         Error(reason) ->
           Error("could not read " <> path <> ": " <> describe(reason))
       }
     False ->
-      case maybe_skip_write(path, contents) {
+      case maybe_skip_write(destination.resolved, proposed) {
         Ok(True) -> Ok(Summary(..summary, unchanged: summary.unchanged + 1))
         Ok(False) ->
-          case ensure_parent_dir(path) {
-            Error(reason) ->
-              Error(
-                "could not create parent of "
-                <> path
-                <> ": "
-                <> describe(reason),
-              )
-            Ok(_) ->
-              case simplifile.write(to: path, contents: contents) {
-                Ok(_) -> Ok(Summary(..summary, written: summary.written + 1))
-                Error(reason) ->
-                  Error("could not write " <> path <> ": " <> describe(reason))
-              }
+          case filesystem.replace(destination.resolved, proposed) {
+            Ok(_) -> Ok(Summary(..summary, written: summary.written + 1))
+            Error(reason) -> Error("could not write " <> path <> ": " <> reason)
           }
         Error(reason) ->
           Error("could not read " <> path <> ": " <> describe(reason))
@@ -143,19 +267,27 @@ fn handle_write_file(
 }
 
 fn handle_inject_file(
-  path: String,
+  destination: Destination,
   tag: String,
   body: String,
   summary: Summary,
   check: Bool,
 ) -> Result(Summary, String) {
-  case simplifile.read(path) {
+  let path = destination.path
+  case simplifile.read_bits(destination.resolved) {
     Error(simplifile.Enoent) -> Error("inject target missing: " <> path)
     Error(reason) ->
       Error("could not read " <> path <> ": " <> describe(reason))
-    Ok(existing) -> {
+    Ok(existing_bytes) -> {
+      use existing <- result.try(
+        decode_utf8(existing_bytes)
+        |> result.map_error(fn(reason) {
+          "could not read injection target " <> path <> ": " <> describe(reason)
+        }),
+      )
       let updated = glint_markdown.inject(existing, tag, body)
-      case updated == existing {
+      let updated_bytes = bit_array.from_string(updated)
+      case updated_bytes == existing_bytes {
         True ->
           case string.contains(existing, "<!-- " <> tag <> " -->") {
             // No marker present — inject silently no-ops. Surface this to
@@ -173,16 +305,16 @@ fn handle_inject_file(
                 <> " (tag: "
                 <> tag
                 <> ", "
-                <> int.to_string(string.byte_size(existing))
+                <> int.to_string(bit_array.byte_size(existing_bytes))
                 <> " -> "
-                <> int.to_string(string.byte_size(updated))
+                <> int.to_string(bit_array.byte_size(updated_bytes))
                 <> " bytes)",
               )
             False ->
-              case simplifile.write(to: path, contents: updated) {
+              case filesystem.replace(destination.resolved, updated_bytes) {
                 Ok(_) -> Ok(Summary(..summary, injected: summary.injected + 1))
                 Error(reason) ->
-                  Error("could not write " <> path <> ": " <> describe(reason))
+                  Error("could not inject " <> path <> ": " <> reason)
               }
           }
       }
@@ -193,49 +325,44 @@ fn handle_inject_file(
 /// `Ok(True)` means "file on disk already matches; skip the write".
 fn maybe_skip_write(
   path: String,
-  contents: String,
+  contents: BitArray,
 ) -> Result(Bool, simplifile.FileError) {
-  case simplifile.read(path) {
+  case simplifile.read_bits(path) {
     Ok(existing) -> Ok(existing == contents)
     Error(simplifile.Enoent) -> Ok(False)
     Error(reason) -> Error(reason)
   }
 }
 
-fn ensure_parent_dir(path: String) -> Result(Nil, simplifile.FileError) {
-  case parent_dir(path) {
-    "" -> Ok(Nil)
-    "." -> Ok(Nil)
-    dir -> simplifile.create_directory_all(dir)
-  }
-}
-
-fn parent_dir(path: String) -> String {
-  case string.split(path, "/") {
-    [] -> ""
-    [_] -> ""
-    parts ->
-      parts
-      |> list.reverse
+fn decode_utf8(contents: BitArray) -> Result(String, simplifile.FileError) {
+  // JS TextDecoder in the installed stdlib strips a leading UTF-8 BOM.
+  // Prefixing ASCII protects the BOM; removing only the prefix is lossless.
+  case bit_array.to_string(<<0x78, contents:bits>>) {
+    Ok(prefixed) ->
+      // Remove one codepoint, not one grapheme. A leading combining mark
+      // joins the sentinel's grapheme on Erlang, including during splitting.
+      prefixed
+      |> string.to_utf_codepoints
       |> list.drop(1)
-      |> list.reverse
-      |> string.join("/")
+      |> string.from_utf_codepoints
+      |> Ok
+    Error(Nil) -> Error(simplifile.NotUtf8)
   }
 }
 
 fn diff_hint(
   prefix: String,
   path: String,
-  existing: String,
-  proposed: String,
+  existing: BitArray,
+  proposed: BitArray,
 ) -> String {
   prefix
   <> " "
   <> path
   <> " ("
-  <> int.to_string(string.byte_size(existing))
+  <> int.to_string(bit_array.byte_size(existing))
   <> " -> "
-  <> int.to_string(string.byte_size(proposed))
+  <> int.to_string(bit_array.byte_size(proposed))
   <> " bytes)"
 }
 
@@ -250,12 +377,12 @@ fn log_summary(summary: Summary, check: Bool) -> Nil {
       case summary.written + summary.injected {
         0 -> Nil
         _ ->
-          io.println(
+          exit.stderr(
             "wrote "
             <> int.to_string(summary.written)
             <> " file(s), injected "
             <> int.to_string(summary.injected)
-            <> " section(s)",
+            <> " section(s)\n",
           )
       }
   }

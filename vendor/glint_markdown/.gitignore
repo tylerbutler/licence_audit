@@ -3,3 +3,7 @@
 /build
 /dist
 erl_crash.dump
+
+
+# APM dependencies
+apm_modules/

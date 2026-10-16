@@ -23,15 +23,15 @@
 
 import gleam/bool
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/option
 import gleam/result
 import glint
 import glint/help
 import glint_markdown/internal/exit
-import glint_markdown/internal/io as gm_io
+import glint_markdown/internal/io as file_io
 import glint_markdown/internal/plan
+import simplifile
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -74,7 +74,7 @@ pub fn command(tree: help.Tree) -> glint.Command(Nil) {
     |> glint.flag_default("single")
     |> glint.flag_help("Output mode: 'single' or 'multi'."),
   )
-  use out_get <- glint.flag(
+  use output_get <- glint.flag(
     glint.string_flag("out")
     |> glint.flag_help(
       "Output file (single mode) or directory (multi mode, defaults to './docs').",
@@ -86,7 +86,7 @@ pub fn command(tree: help.Tree) -> glint.Command(Nil) {
       "Inject rendered Markdown into the README at this path between sentinel comments.",
     ),
   )
-  use repo_prefix_get <- glint.flag(
+  use repository_prefix_get <- glint.flag(
     glint.string_flag("repo-prefix")
     |> glint.flag_help(
       "Repository URL prefix used for '_See code:_' links beneath each command.",
@@ -115,43 +115,49 @@ pub fn command(tree: help.Tree) -> glint.Command(Nil) {
     |> glint.flag_help("Suppress the 'wrote N files' summary line."),
   )
 
-  use _named, _args, flags <- glint.command()
+  use _named, _arguments, flags <- glint.command()
 
   let mode_raw = result.unwrap(mode_get(flags), "single")
-  let out = option.from_result(out_get(flags))
+  let output = option.from_result(output_get(flags))
   let readme = option.from_result(readme_get(flags))
-  let repo_prefix = option.from_result(repo_prefix_get(flags))
+  let repository_prefix = option.from_result(repository_prefix_get(flags))
   let include_hidden = result.unwrap(include_hidden_get(flags), False)
   let no_toc = result.unwrap(no_toc_get(flags), False)
   let check = result.unwrap(check_get(flags), False)
   let quiet = result.unwrap(quiet_get(flags), False)
 
   case plan.parse_mode(mode_raw) {
-    Error(plan.InvalidMode(value)) -> {
-      exit.stderr(
-        "glint_markdown: invalid --mode value: "
-        <> value
-        <> " (expected 'single' or 'multi')\n",
-      )
+    Error(error) -> {
+      exit.stderr("glint_markdown: " <> plan.describe_error(error) <> "\n")
       exit.exit_with(2)
       Nil
     }
     Ok(mode_choice) -> {
       let bin = case tree.meta.name {
         "" -> "app"
-        n -> n
+        name -> name
       }
-      let opts =
-        plan.PlanOpts(
-          bin: bin,
-          mode: mode_choice,
-          out: out,
-          readme: readme,
-          repo_prefix: repo_prefix,
-          include_hidden: include_hidden,
-          no_toc: no_toc,
-        )
-      run_plan(tree, opts, check, quiet)
+      case simplifile.current_directory() {
+        Error(reason) ->
+          report_errors([
+            "could not read working directory: "
+            <> simplifile.describe_error(reason),
+          ])
+        Ok(working_directory) -> {
+          let options =
+            plan.PlanOptions(
+              bin: bin,
+              working_directory: working_directory,
+              mode: mode_choice,
+              output: output,
+              readme: readme,
+              repository_prefix: repository_prefix,
+              include_hidden: include_hidden,
+              no_toc: no_toc,
+            )
+          run_plan(tree, options, check, quiet)
+        }
+      }
     }
   }
 }
@@ -183,20 +189,12 @@ pub fn mount(app: glint.Glint(Nil), at path: List(String)) -> glint.Glint(Nil) {
 
 fn run_plan(
   tree: help.Tree,
-  opts: plan.PlanOpts,
+  options: plan.PlanOptions,
   check: Bool,
   quiet: Bool,
 ) -> Nil {
-  case plan.plan(tree, opts) {
-    Error(plan.InvalidMode(value)) -> {
-      exit.stderr(
-        "glint_markdown: invalid --mode value: "
-        <> value
-        <> " (expected 'single' or 'multi')\n",
-      )
-      exit.exit_with(2)
-      Nil
-    }
+  case plan.plan(tree, options) {
+    Error(error) -> report_errors([plan.describe_error(error)])
     Ok(actions) -> execute_plan(actions, check, quiet)
   }
 }
@@ -204,26 +202,29 @@ fn run_plan(
 fn execute_plan(actions: List(plan.Action), check: Bool, quiet: Bool) -> Nil {
   // The CLI owns all human-facing summary output, so suppress the
   // internal io module's own log line by passing `quiet: True`.
-  case gm_io.execute(actions, check, True) {
+  case file_io.execute(actions, check, True) {
     Ok(summary) -> report_summary(summary, quiet)
     Error(diagnostics) -> report_errors(diagnostics)
   }
 }
 
-fn report_summary(summary: gm_io.Summary, quiet: Bool) -> Nil {
+fn report_summary(summary: file_io.Summary, quiet: Bool) -> Nil {
   use <- bool.guard(quiet, Nil)
-  io.println(
+  exit.stderr(
     "glint_markdown: wrote "
     <> int.to_string(summary.written)
     <> ", injected "
     <> int.to_string(summary.injected)
     <> ", unchanged "
-    <> int.to_string(summary.unchanged),
+    <> int.to_string(summary.unchanged)
+    <> "\n",
   )
 }
 
 fn report_errors(diagnostics: List(String)) -> Nil {
-  list.each(diagnostics, fn(d) { exit.stderr("glint_markdown: " <> d <> "\n") })
+  list.each(diagnostics, fn(diagnostic) {
+    exit.stderr("glint_markdown: " <> diagnostic <> "\n")
+  })
   exit.exit_with(1)
   Nil
 }

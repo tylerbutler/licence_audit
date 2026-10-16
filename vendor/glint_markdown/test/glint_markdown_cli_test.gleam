@@ -4,7 +4,7 @@ import glint
 import glint/help
 import glint_markdown/cli
 
-fn nil_command() {
+fn nil_command() -> glint.Command(Nil) {
   glint.command(fn(_, _, _) { Nil })
 }
 
@@ -22,14 +22,14 @@ fn sample_app() -> glint.Glint(Nil) {
 }
 
 fn subcommand_named(tree: help.Tree, name: String) -> Result(help.Tree, Nil) {
-  list.find(tree.subcommands, fn(s) { s.meta.name == name })
+  list.find(tree.subcommands, fn(subcommand) { subcommand.meta.name == name })
 }
 
 // ---------------------------------------------------------------------------
 // command
 // ---------------------------------------------------------------------------
 
-pub fn command_can_be_added_to_a_glint_app_test() {
+pub fn command_can_be_added_to_a_glint_app_test() -> Nil {
   // Round-trip smoke test: build the command from the sample app's tree, add
   // it back to the same app under a fresh path, and assert the subcommand
   // shows up in the resulting tree. This is the strongest contract we can
@@ -41,7 +41,8 @@ pub fn command_can_be_added_to_a_glint_app_test() {
     |> glint.add(at: ["gen-docs"], do: cli.command(glint.document(app)))
     |> glint.document
 
-  let names = list.map(tree.subcommands, fn(s) { s.meta.name })
+  let names =
+    list.map(tree.subcommands, fn(subcommand) { subcommand.meta.name })
   should.be_true(list.contains(names, "gen-docs"))
 }
 
@@ -49,17 +50,18 @@ pub fn command_can_be_added_to_a_glint_app_test() {
 // mount
 // ---------------------------------------------------------------------------
 
-pub fn mount_adds_command_at_path_test() {
+pub fn mount_adds_command_at_path_test() -> Nil {
   let app =
     sample_app()
     |> cli.mount(at: ["gen-docs"])
 
   let tree = glint.document(app)
-  let names = list.map(tree.subcommands, fn(s) { s.meta.name })
+  let names =
+    list.map(tree.subcommands, fn(subcommand) { subcommand.meta.name })
   should.be_true(list.contains(names, "gen-docs"))
 }
 
-pub fn mount_at_nested_path_test() {
+pub fn mount_at_nested_path_test() -> Nil {
   let app =
     sample_app()
     |> cli.mount(at: ["tools", "gen-docs"])
@@ -70,15 +72,30 @@ pub fn mount_at_nested_path_test() {
   Nil
 }
 
-pub fn mount_preserves_existing_subcommands_test() {
+pub fn mount_preserves_existing_subcommands_test() -> Nil {
   let app =
     sample_app()
     |> cli.mount(at: ["gen-docs"])
 
   let tree = glint.document(app)
-  let names = list.map(tree.subcommands, fn(s) { s.meta.name })
+  let names =
+    list.map(tree.subcommands, fn(subcommand) { subcommand.meta.name })
 
   // `serve` from the original app must survive the mount.
   should.be_true(list.contains(names, "serve"))
   should.be_true(list.contains(names, "gen-docs"))
+}
+
+pub fn run_fixture(arguments: List(String)) -> Nil {
+  sample_app()
+  |> cli.mount(at: ["gen-docs"])
+  |> glint.run(arguments)
+}
+
+pub fn run_unsafe_fixture(arguments: List(String)) -> Nil {
+  glint.new()
+  |> glint.with_name("myapp")
+  |> glint.add(at: ["../README"], do: nil_command())
+  |> cli.mount(at: ["gen-docs"])
+  |> glint.run(arguments)
 }

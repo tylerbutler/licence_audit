@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleeunit/should
 import glint
 import glint_markdown
@@ -9,7 +10,7 @@ import glint_markdown/internal/plan
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-fn nil_command() {
+fn nil_command() -> glint.Command(Nil) {
   glint.command(fn(_, _, _) { Nil })
 }
 
@@ -35,13 +36,14 @@ fn sample_app() -> glint.Glint(Nil) {
   })
 }
 
-fn default_opts() -> plan.PlanOpts {
-  plan.PlanOpts(
+fn default_options() -> plan.PlanOptions {
+  plan.PlanOptions(
     bin: "myapp",
+    working_directory: "/project",
     mode: plan.SingleMode,
-    out: None,
+    output: None,
     readme: None,
-    repo_prefix: None,
+    repository_prefix: None,
     include_hidden: False,
     no_toc: False,
   )
@@ -51,17 +53,17 @@ fn default_opts() -> plan.PlanOpts {
 // parse_mode
 // ---------------------------------------------------------------------------
 
-pub fn parse_mode_single_test() {
+pub fn parse_mode_single_test() -> Nil {
   plan.parse_mode("single")
   |> should.equal(Ok(plan.SingleMode))
 }
 
-pub fn parse_mode_multi_test() {
+pub fn parse_mode_multi_test() -> Nil {
   plan.parse_mode("multi")
   |> should.equal(Ok(plan.MultiMode))
 }
 
-pub fn parse_mode_invalid_test() {
+pub fn parse_mode_invalid_test() -> Nil {
   plan.parse_mode("foo")
   |> should.equal(Error(plan.InvalidMode("foo")))
 }
@@ -70,19 +72,20 @@ pub fn parse_mode_invalid_test() {
 // single mode → stdout / file
 // ---------------------------------------------------------------------------
 
-pub fn plan_single_to_stdout_test() {
+pub fn plan_single_to_stdout_test() -> Nil {
   let tree = glint.document(sample_app())
-  let assert Ok(actions) = plan.plan(tree, default_opts())
+  let assert Ok(actions) = plan.plan(tree, default_options())
 
   let expected = glint_markdown.to_string(tree, glint_markdown.options("myapp"))
   actions
   |> should.equal([plan.WriteStdout(contents: expected)])
 }
 
-pub fn plan_single_to_file_test() {
+pub fn plan_single_to_file_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts = plan.PlanOpts(..default_opts(), out: Some("docs/REF.md"))
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let options =
+    plan.PlanOptions(..default_options(), output: Some("docs/REF.md"))
+  let assert Ok(actions) = plan.plan(tree, options)
 
   let expected = glint_markdown.to_string(tree, glint_markdown.options("myapp"))
   actions
@@ -93,15 +96,15 @@ pub fn plan_single_to_file_test() {
 // single mode → readme injection
 // ---------------------------------------------------------------------------
 
-pub fn plan_single_inject_readme_test() {
+pub fn plan_single_inject_readme_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts = plan.PlanOpts(..default_opts(), readme: Some("README.md"))
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let options = plan.PlanOptions(..default_options(), readme: Some("README.md"))
+  let assert Ok(actions) = plan.plan(tree, options)
 
-  let render_opts = glint_markdown.options("myapp")
-  let root = glint_markdown.to_root_body(tree, render_opts)
-  let toc = glint_markdown.to_toc_body(tree, render_opts)
-  let body = glint_markdown.to_commands_body(tree, render_opts)
+  let render_options = glint_markdown.options("myapp")
+  let root = glint_markdown.to_root_body(tree, render_options)
+  let toc = glint_markdown.to_toc_body(tree, render_options)
+  let body = glint_markdown.to_commands_body(tree, render_options)
 
   actions
   |> should.equal([
@@ -111,22 +114,22 @@ pub fn plan_single_inject_readme_test() {
   ])
 }
 
-pub fn plan_single_inject_readme_ignores_out_test() {
+pub fn plan_single_inject_readme_ignores_out_test() -> Nil {
   // --readme wins; --out should be silently ignored in single+readme mode.
   let tree = glint.document(sample_app())
-  let opts =
-    plan.PlanOpts(
-      ..default_opts(),
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
       readme: Some("README.md"),
-      out: Some("docs/REF.md"),
+      output: Some("docs/REF.md"),
     )
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let assert Ok(actions) = plan.plan(tree, options)
 
   // No WriteFile actions should be present.
-  list.any(actions, fn(a) {
-    case a {
+  list.any(actions, fn(action) {
+    case action {
       plan.WriteFile(..) -> True
-      _ -> False
+      plan.InjectFile(..) | plan.WriteStdout(..) -> False
     }
   })
   |> should.be_false
@@ -140,10 +143,10 @@ pub fn plan_single_inject_readme_ignores_out_test() {
 // single mode + no_toc
 // ---------------------------------------------------------------------------
 
-pub fn plan_single_no_toc_stdout_test() {
+pub fn plan_single_no_toc_stdout_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts = plan.PlanOpts(..default_opts(), no_toc: True)
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let options = plan.PlanOptions(..default_options(), no_toc: True)
+  let assert Ok(actions) = plan.plan(tree, options)
 
   let body =
     glint_markdown.to_commands_body(tree, glint_markdown.options("myapp"))
@@ -152,11 +155,15 @@ pub fn plan_single_no_toc_stdout_test() {
   |> should.equal([plan.WriteStdout(contents: expected)])
 }
 
-pub fn plan_single_no_toc_inject_readme_test() {
+pub fn plan_single_no_toc_inject_readme_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts =
-    plan.PlanOpts(..default_opts(), readme: Some("README.md"), no_toc: True)
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
+      readme: Some("README.md"),
+      no_toc: True,
+    )
+  let assert Ok(actions) = plan.plan(tree, options)
 
   let body =
     glint_markdown.to_commands_body(tree, glint_markdown.options("myapp"))
@@ -172,44 +179,44 @@ pub fn plan_single_no_toc_inject_readme_test() {
 // multi mode
 // ---------------------------------------------------------------------------
 
-pub fn plan_multi_default_dir_test() {
+pub fn plan_multi_default_directory_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts = plan.PlanOpts(..default_opts(), mode: plan.MultiMode)
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let options = plan.PlanOptions(..default_options(), mode: plan.MultiMode)
+  let assert Ok(actions) = plan.plan(tree, options)
 
   // sample_app exposes two top-level subcommands.
   list.length(actions)
   |> should.equal(2)
 
   // Every action is a WriteFile under ./docs/.
-  list.all(actions, fn(a) {
-    case a {
-      plan.WriteFile(path: p, contents: _) ->
-        case p {
+  list.all(actions, fn(action) {
+    case action {
+      plan.WriteFile(path: path, contents: _) ->
+        case path {
           "./docs/serve.md" | "./docs/user.md" -> True
           _ -> False
         }
-      _ -> False
+      plan.InjectFile(..) | plan.WriteStdout(..) -> False
     }
   })
   |> should.be_true
 }
 
-pub fn plan_multi_custom_dir_test() {
+pub fn plan_multi_custom_directory_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts =
-    plan.PlanOpts(
-      ..default_opts(),
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
       mode: plan.MultiMode,
-      out: Some("reference"),
+      output: Some("reference"),
     )
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let assert Ok(actions) = plan.plan(tree, options)
 
   let paths =
-    list.map(actions, fn(a) {
-      case a {
-        plan.WriteFile(path: p, contents: _) -> p
-        _ -> ""
+    list.map(actions, fn(action) {
+      case action {
+        plan.WriteFile(path: path, contents: _) -> path
+        plan.InjectFile(..) | plan.WriteStdout(..) -> ""
       }
     })
 
@@ -220,16 +227,16 @@ pub fn plan_multi_custom_dir_test() {
   |> should.be_true
 }
 
-pub fn plan_multi_inject_readme_test() {
+pub fn plan_multi_inject_readme_test() -> Nil {
   let tree = glint.document(sample_app())
-  let opts =
-    plan.PlanOpts(
-      ..default_opts(),
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
       mode: plan.MultiMode,
-      out: Some("docs"),
+      output: Some("docs"),
       readme: Some("README.md"),
     )
-  let assert Ok(actions) = plan.plan(tree, opts)
+  let assert Ok(actions) = plan.plan(tree, options)
 
   // 2 file writes + 2 injects = 4 actions.
   list.length(actions)
@@ -241,10 +248,10 @@ pub fn plan_multi_inject_readme_test() {
   |> should.equal(plan.InjectFile(path: "README.md", tag: "root", body: root))
 
   // Last action should be the index injection.
-  let render_opts =
+  let render_options =
     glint_markdown.options("myapp")
     |> glint_markdown.with_mode(glint_markdown.Multi(output_dir: "docs"))
-  let index = glint_markdown.to_topics_index_body(tree, render_opts)
+  let index = glint_markdown.to_topics_index_body(tree, render_options)
 
   let assert Ok(last) = list.last(actions)
   last
@@ -253,4 +260,74 @@ pub fn plan_multi_inject_readme_test() {
     tag: "commands",
     body: index,
   ))
+}
+
+pub fn plan_multi_rejects_unsafe_topic_names_test() -> Nil {
+  list.each(["../README", "nested/name", "nested\\name", "C:README"], fn(name) {
+    let tree =
+      glint.new()
+      |> glint.add(at: [name], do: nil_command())
+      |> glint.document
+    let options = plan.PlanOptions(..default_options(), mode: plan.MultiMode)
+
+    plan.plan(tree, options) |> should.equal(Error(plan.UnsafeTopic(name)))
+  })
+}
+
+pub fn plan_multi_rejects_injection_write_collision_test() -> Nil {
+  let tree = glint.document(sample_app())
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
+      mode: plan.MultiMode,
+      output: Some("docs"),
+      readme: Some("./docs/../docs/serve.md"),
+    )
+
+  plan.plan(tree, options)
+  |> should.equal(Error(plan.ConflictingDestination("docs/serve.md")))
+}
+
+pub fn plan_multi_links_relative_to_nested_readme_test() -> Nil {
+  let tree = glint.document(sample_app())
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
+      mode: plan.MultiMode,
+      output: Some("docs"),
+      readme: Some("docs/README.md"),
+    )
+  let assert Ok(actions) = plan.plan(tree, options)
+  let assert Ok(plan.InjectFile(_, "commands", index)) = list.last(actions)
+
+  string.contains(index, "(./serve.md)") |> should.be_true
+  string.contains(index, "(docs/serve.md)") |> should.be_false
+}
+
+pub fn plan_multi_links_relative_to_parent_readme_test() -> Nil {
+  let tree = glint.document(sample_app())
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
+      mode: plan.MultiMode,
+      output: Some("/project/reference docs"),
+      readme: Some("guides/README.md"),
+    )
+  let assert Ok(actions) = plan.plan(tree, options)
+  let assert Ok(plan.InjectFile(_, "commands", index)) = list.last(actions)
+
+  string.contains(index, "(../reference%20docs/serve.md)") |> should.be_true
+}
+
+pub fn plan_multi_rejects_absolute_relative_destination_collision_test() -> Nil {
+  let options =
+    plan.PlanOptions(
+      ..default_options(),
+      mode: plan.MultiMode,
+      output: Some("/project/docs"),
+      readme: Some("./docs/serve.md"),
+    )
+
+  plan.plan(glint.document(sample_app()), options)
+  |> should.equal(Error(plan.ConflictingDestination("/project/docs/serve.md")))
 }

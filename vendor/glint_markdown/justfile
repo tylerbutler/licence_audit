@@ -31,10 +31,12 @@ build-strict:
 # Run tests (Erlang target)
 test:
     mise exec -- gleam test
+    mise exec -- node test/cli_integration.mjs erlang
 
 # Run tests on the JavaScript target (nodejs runtime)
 test-js:
     mise exec -- gleam test --target javascript --runtime nodejs
+    mise exec -- node test/cli_integration.mjs javascript
 
 # Type check without producing artifacts
 check:
@@ -62,31 +64,31 @@ clean:
 
 # === CHANGELOG ===
 
-# Create a new changelog entry
-change:
-    mise exec -- changie new
+# Check release configuration and changelog fragments
+doctor:
+    mise exec -- trellis doctor
 
-# Preview unreleased changelog
+# Create a changelog entry: just change Fixed "Describe the change"
+change kind body:
+    mise exec -- trellis changelog new --kind {{quote(kind)}} --body {{quote(body)}}
+
+# Preview the version bump from unreleased fragments
 changelog-preview:
-    mise exec -- changie batch auto --dry-run
+    mise exec -- trellis version plan
 
-# Generate CHANGELOG.md from unreleased fragments
+# Bump the version, generate CHANGELOG.md, and consume unreleased fragments
 changelog:
-    mise exec -- changie merge
+    mise exec -- trellis version apply
 
-# === HEX PUBLISHING ===
+# === GIT RELEASES ===
 
-# Dry-run a Hex publish (does not actually publish)
-publish-dry:
-    mise exec -- gleam publish --replace --yes
-
-# Publish to Hex. Requires HEX_API_KEY env var (or interactive auth).
-publish:
-    mise exec -- gleam publish
+# Open or update the release PR (requires a clean worktree and GitHub auth)
+release-pr:
+    mise exec -- trellis release pr --base main --branch release/pending
 
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: format-check glint check test test-js build-strict
+ci: doctor format-check glint check test test-js build-strict
 
 alias pr := ci
