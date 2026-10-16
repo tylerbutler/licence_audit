@@ -2,6 +2,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit/cache_support.{corrupt_entry}
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/notice_cache
@@ -14,9 +15,6 @@ import simplifile
 const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
 
 const tmp_dir = "build/tmp/notices_resolve_test"
-
-@external(erlang, "cache_process_test_ffi", "corrupt_entry")
-fn corrupt_entry(cache_path: String, key: String) -> Result(Nil, Nil)
 
 pub fn corrupt_spdx_text_is_refetched_and_renders_without_crashing_test() {
   let path = fresh_cache_path("corrupt_spdx_text")
@@ -139,7 +137,6 @@ fn fresh_cache_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
   let path = tmp_dir <> "/" <> name <> ".dets"
   let _ = simplifile.delete(path)
-  let _ = simplifile.delete(path <> ".entries")
   path
 }
 

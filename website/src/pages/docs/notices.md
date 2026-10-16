@@ -82,8 +82,10 @@ Immutable content addresses are the cache keys. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
 licence files from repositories, and canonical SPDX records. Packages that
 declare the same identifier share one SPDX record. Cache entries do not expire.
-Use `--cache-path=PATH` to change the location, or use `--no-cache` to bypass
-the cache.
+Use `XDG_CACHE_HOME` to relocate the caches, or use `--no-cache` to bypass
+both the metadata and licence materials caches. `--cache-path=PATH` overrides
+only the metadata cache location. The command reads local path dependencies
+live and does not cache them.
 
 ## Flags
 
@@ -93,5 +95,5 @@ the cache.
 | `--include-dev` | Include development-only dependencies in the bundle. |
 | `--manifest` | Read `manifest.toml` from `PATH`. |
 | `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
+| `--no-cache` | Bypass the on-disk metadata and licence materials caches. |
 | `--quiet` / `--verbose` | Suppress or expand progress output. |

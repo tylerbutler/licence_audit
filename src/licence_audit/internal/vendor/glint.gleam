@@ -440,7 +440,33 @@ pub fn flag(
   of flag: Flag(a),
   with f: fn(fn(Flags) -> snag.Result(a)) -> Command(b),
 ) -> Command(b) {
-  let cmd = f(flag.getter(_, flag.name))
+  let cmd = f(get_flag(_, flag))
+  Command(..cmd, flags: insert(cmd.flags, flag.name, build_flag(flag)))
+}
+
+/// Add a flag with an optional value to a command.
+///
+/// The getter returns `Ok(None)` when the flag has no default and is omitted.
+/// Supplied values and configured defaults are returned as `Ok(Some(value))`.
+/// An explicitly empty string is `Some("")`, not `None`.
+///
+/// Works with every flag type. Parsing and constraints are unchanged: invalid
+/// input fails before the command runs. No default is added to the help data.
+/// For group flags, use [`get_optional_flag`](#get_optional_flag).
+///
+/// ```gleam
+/// use output <- glint.optional_flag(
+///   glint.string_flag("output")
+///   |> glint.flag_help("Write output to PATH")
+/// )
+/// use _, _, flags <- glint.command()
+/// output(flags)
+/// ```
+pub fn optional_flag(
+  of flag: Flag(a),
+  with f: fn(fn(Flags) -> snag.Result(Option(a))) -> Command(b),
+) -> Command(b) {
+  let cmd = f(get_optional_flag(_, flag))
   Command(..cmd, flags: insert(cmd.flags, flag.name, build_flag(flag)))
 }
 
@@ -910,7 +936,7 @@ pub opaque type Flag(a) {
     desc: String,
     parser: Parser(a, Snag),
     value: fn(FlagInternals(a)) -> Value,
-    getter: fn(Flags, String) -> snag.Result(a),
+    getter: fn(Flags, String) -> snag.Result(Option(a)),
     default: Option(a),
   )
 }
@@ -995,7 +1021,7 @@ pub fn bool_flag(named name: String) -> Flag(Bool) {
 fn new_builder(
   name: String,
   valuer: fn(FlagInternals(a)) -> Value,
-  getter: fn(Flags, String) -> snag.Result(a),
+  getter: fn(Flags, String) -> snag.Result(Option(a)),
   p: Parser(a, Snag),
 ) -> Flag(a) {
   Flag(
@@ -1185,10 +1211,6 @@ fn access_type_error(flag_type) {
   snag.error("cannot access flag as " <> flag_type)
 }
 
-fn flag_not_provided_error() {
-  snag.error("no value provided")
-}
-
 fn construct_value(
   input: String,
   internal: FlagInternals(a),
@@ -1264,16 +1286,39 @@ fn get_value(
 /// For local flags please use the getter functions provided when calling [`glint.flag`](#flag).
 ///
 pub fn get_flag(from flags: Flags, for flag: Flag(a)) -> snag.Result(a) {
+  use value <- result.try(get_optional_flag(flags, flag))
+  case value {
+    Some(value) -> Ok(value)
+    None ->
+      snag.error("no value provided")
+      |> snag.context("failed to retrieve value for flag '" <> flag.name <> "'")
+  }
+}
+
+/// Gets the optional value for a group flag.
+///
+/// Returns `Ok(None)` when a registered flag has no default and is omitted.
+/// Supplied values and configured defaults are returned as `Ok(Some(value))`.
+/// An unregistered flag or a flag with a different type still returns an error.
+///
+/// For local flags, use the getter provided by
+/// [`optional_flag`](#optional_flag).
+pub fn get_optional_flag(
+  from flags: Flags,
+  for flag: Flag(a),
+) -> snag.Result(Option(a)) {
   flag.getter(flags, flag.name)
 }
 
 /// Gets the current value for the associated int flag
 ///
-fn get_int_flag(from flags: Flags, for name: String) -> snag.Result(Int) {
+fn get_int_flag(
+  from flags: Flags,
+  for name: String,
+) -> snag.Result(Option(Int)) {
   use flag <- get_value(flags, name)
   case flag.value {
-    I(FlagInternals(value: Some(val), ..)) -> Ok(val)
-    I(FlagInternals(value: None, ..)) -> flag_not_provided_error()
+    I(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("int")
   }
 }
@@ -1283,33 +1328,36 @@ fn get_int_flag(from flags: Flags, for name: String) -> snag.Result(Int) {
 fn get_ints_flag(
   from flags: Flags,
   for name: String,
-) -> snag.Result(List(Int)) {
+) -> snag.Result(Option(List(Int))) {
   use flag <- get_value(flags, name)
   case flag.value {
-    LI(FlagInternals(value: Some(val), ..)) -> Ok(val)
-    LI(FlagInternals(value: None, ..)) -> flag_not_provided_error()
+    LI(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("int list")
   }
 }
 
 /// Gets the current value for the associated bool flag
 ///
-fn get_bool_flag(from flags: Flags, for name: String) -> snag.Result(Bool) {
+fn get_bool_flag(
+  from flags: Flags,
+  for name: String,
+) -> snag.Result(Option(Bool)) {
   use flag <- get_value(flags, name)
   case flag.value {
-    B(FlagInternals(Some(val), ..)) -> Ok(val)
-    B(FlagInternals(None, ..)) -> flag_not_provided_error()
+    B(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("bool")
   }
 }
 
 /// Gets the current value for the associated string flag
 ///
-fn get_string_flag(from flags: Flags, for name: String) -> snag.Result(String) {
+fn get_string_flag(
+  from flags: Flags,
+  for name: String,
+) -> snag.Result(Option(String)) {
   use flag <- get_value(flags, name)
   case flag.value {
-    S(FlagInternals(value: Some(val), ..)) -> Ok(val)
-    S(FlagInternals(value: None, ..)) -> flag_not_provided_error()
+    S(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("string")
   }
 }
@@ -1319,22 +1367,23 @@ fn get_string_flag(from flags: Flags, for name: String) -> snag.Result(String) {
 fn get_strings_flag(
   from flags: Flags,
   for name: String,
-) -> snag.Result(List(String)) {
+) -> snag.Result(Option(List(String))) {
   use flag <- get_value(flags, name)
   case flag.value {
-    LS(FlagInternals(value: Some(val), ..)) -> Ok(val)
-    LS(FlagInternals(value: None, ..)) -> flag_not_provided_error()
+    LS(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("string list")
   }
 }
 
 /// Gets the current value for the associated float flag
 ///
-fn get_floats(from flags: Flags, for name: String) -> snag.Result(Float) {
+fn get_floats(
+  from flags: Flags,
+  for name: String,
+) -> snag.Result(Option(Float)) {
   use flag <- get_value(flags, name)
   case flag.value {
-    F(FlagInternals(value: Some(val), ..)) -> Ok(val)
-    F(FlagInternals(value: None, ..)) -> flag_not_provided_error()
+    F(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("float")
   }
 }
@@ -1344,11 +1393,10 @@ fn get_floats(from flags: Flags, for name: String) -> snag.Result(Float) {
 fn get_floats_flag(
   from flags: Flags,
   for name: String,
-) -> snag.Result(List(Float)) {
+) -> snag.Result(Option(List(Float))) {
   use flag <- get_value(flags, name)
   case flag.value {
-    LF(FlagInternals(value: Some(val), ..)) -> Ok(val)
-    LF(FlagInternals(value: None, ..)) -> flag_not_provided_error()
+    LF(FlagInternals(value: value, ..)) -> Ok(value)
     _ -> access_type_error("float list")
   }
 }

@@ -1,6 +1,6 @@
 //// Namespaced cache for notice/licence materials.
 ////
-//// Stores extracted files and text in atomic per-entry files. `notice_resolve`
+//// Caches extracted files and licence text between runs. `notice_resolve`
 //// supplies immutable keys and bypasses this storage for mutable path
 //// dependencies.
 ////
@@ -22,7 +22,7 @@ pub type Mode {
   Disabled
 }
 
-/// Opaque cache handle. May or may not hold an open directory-backed store.
+/// Opaque cache handle. Holds a store when caching is enabled and available.
 pub opaque type Cache {
   Cache(table: Option(cache_dir.Store), warning: Option(String))
 }
@@ -33,7 +33,7 @@ pub opaque type Cache {
 /// materials, repository tag→commit resolutions, repository-extracted licence
 /// files, pinned SPDX indexes, and canonical SPDX records shared across
 /// packages. The version is encoded into the
-/// directory name so data written by an older format is ignored rather than
+/// cache filename so data written by an older format is ignored rather than
 /// mis-decoded; `notice.decode_notice_files` also treats any unparseable entry
 /// as a miss, so forward-compatible drift self-heals without a bump.
 const cache_format_version = 3
@@ -44,9 +44,9 @@ fn cache_filename() -> String {
 
 /// Open a cache according to `mode`.
 ///
-/// Never returns an error. If the cache directory can't be opened or the parent
-/// directory can't be created, the returned `Cache` is in a passthrough state
-/// and includes a deferred warning accessible via `close`.
+/// Never returns an error. If the cache path cannot be prepared, the returned
+/// `Cache` bypasses storage and includes a deferred warning accessible via
+/// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)

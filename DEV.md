@@ -111,6 +111,8 @@ just build
 `just build` uses `gleam export escript` to compile production sources and
 produce the escript at `./licence_audit`. The pinned compiler provides this
 exporter, so the build does not need `gleescript`.
+The build also copies slate's native lock library to `./slate_native/`.
+Keep that directory beside the escript when you move or distribute it.
 
 ### Vendored packages
 
@@ -125,6 +127,9 @@ The repository tracks `glint` and `glint_markdown` with
 Normal builds use the committed source copies. You need git-subrepo only to
 pull upstream changes or push patches. Do not edit the generated copies.
 Make upstream patches in `vendor/`, then run `just vendor-sync`.
+The `glint` snapshot includes the optional-flag API backport from
+[`tylerbutler/glint` commit `6ee30abb`](https://github.com/tylerbutler/glint/commit/6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab)
+(`src/glint.gleam:441` and `src/glint.gleam:1286`), required by the CLI.
 
 To update a snapshot, start with a clean worktree:
 
@@ -239,11 +244,10 @@ bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Both runners add `--no-cache`, so they do not touch the on-disk
-cache directories. The CLI uses atomic per-entry files under directories such
-as `hex-v2.dets.entries/`; separate Erlang VMs can safely share them.
-`--no-cache` bypasses the caches, and `--cache-path=PATH` places the licence
-metadata cache in the adjacent `PATH.entries/` directory. Legacy DETS files are
-not migrated and can be removed after the cache is regenerated.
+caches. Concurrent CLI runs can share cached entries. `--no-cache` bypasses
+the caches, and `--cache-path=PATH` overrides the licence metadata cache
+location. Source-built escripts require the `slate_native/` directory beside
+the executable for cache access; `just build` copies it there.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 

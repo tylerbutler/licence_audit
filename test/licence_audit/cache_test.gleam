@@ -25,7 +25,7 @@ fn concurrent_writes(
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
   let path = tmp_dir <> "/" <> name <> ".dets"
-  let _ = simplifile.delete_all([path, path <> ".entries"])
+  let _ = simplifile.delete(path)
   path
 }
 
@@ -98,15 +98,14 @@ pub fn open_failure_preserves_licence_warning_test() {
   let assert Some(warning) = cache.close(handle)
   should.be_true(string.starts_with(
     warning,
-    "Unable to open licence cache at " <> path <> ".entries: ",
+    "Unable to open licence cache at " <> path <> ": ",
   ))
 }
 
 pub fn write_failure_preserves_licence_warning_test() {
   let path = fresh_path("write_failure")
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let _ = simplifile.delete(path <> ".entries")
-  let _ = simplifile.write("block writes", to: path <> ".entries")
+  let _ = simplifile.write("block writes", to: path)
   let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
   let #(result, _) =
     cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())

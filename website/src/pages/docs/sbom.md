@@ -59,6 +59,10 @@ gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
 the variable is not set. The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
 
+The command reuses the shared [metadata cache](/docs/#caching). Entries from
+locked archives do not expire. Use `--cache-path=PATH` to override the cache
+location, or `--no-cache` to fetch the metadata again.
+
 ## Flags
 
 | Flag | What it does |

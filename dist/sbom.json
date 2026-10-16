@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:c5eab710-cde4-8cb4-9e5b-df1f83a6da87",
+  "serialNumber": "urn:uuid:7415086e-67c9-877f-a168-f6165008504d",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -125,11 +125,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/casefold@2.1.0",
+      "bom-ref": "pkg:hex/casefold@2.2.0",
       "type": "library",
       "name": "casefold",
-      "purl": "pkg:hex/casefold@2.1.0",
-      "version": "2.1.0",
+      "purl": "pkg:hex/casefold@2.2.0",
+      "version": "2.2.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -141,7 +141,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "6e1ebb01b945448ee43be5618f122341f9d876442e65f28fd3948009c31ce3e5"
+          "content": "6d097acb08037dba523199d9c8a3875d9f67fa35e06fc384bf3be247a0658b6d"
         }
       ],
       "licenses": [
@@ -154,7 +154,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/casefold-2.1.0.tar",
+          "url": "https://repo.hex.pm/tarballs/casefold-2.2.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -540,11 +540,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleam_http@4.3.0",
+      "bom-ref": "pkg:hex/gleam_http@4.5.0",
       "type": "library",
       "name": "gleam_http",
-      "purl": "pkg:hex/gleam_http@4.3.0",
-      "version": "4.3.0",
+      "purl": "pkg:hex/gleam_http@4.5.0",
+      "version": "4.5.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -556,7 +556,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "82ea6a717c842456188c190afb372665ea56ce13d8559bf3b1dd9e40f619ee0c"
+          "content": "38d7e5698759d44f21436f365259f7015104f6fafa23181cd0b2bb0e5b67be2b"
         }
       ],
       "licenses": [
@@ -569,7 +569,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/gleam_http-4.3.0.tar",
+          "url": "https://repo.hex.pm/tarballs/gleam_http-4.5.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -790,11 +790,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleam_time@1.10.0",
+      "bom-ref": "pkg:hex/gleam_time@1.11.0",
       "type": "library",
       "name": "gleam_time",
-      "purl": "pkg:hex/gleam_time@1.10.0",
-      "version": "1.10.0",
+      "purl": "pkg:hex/gleam_time@1.11.0",
+      "version": "1.11.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -806,7 +806,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "56539216e4c4b1748714652ab38f0bd16b9101f61db62769fdc7cd42a8e5e833"
+          "content": "3ab789c3ed4eb9dda7283f46c3cf83a5487c9cfb790dc3ff8f8acb5bf7b7a6c1"
         }
       ],
       "licenses": [
@@ -819,7 +819,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/gleam_time-1.10.0.tar",
+          "url": "https://repo.hex.pm/tarballs/gleam_time-1.11.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1061,11 +1061,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/mork@1.12.1",
+      "bom-ref": "pkg:hex/mork@1.12.3",
       "type": "library",
       "name": "mork",
-      "purl": "pkg:hex/mork@1.12.1",
-      "version": "1.12.1",
+      "purl": "pkg:hex/mork@1.12.3",
+      "version": "1.12.3",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -1077,7 +1077,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "73ceb1dbf2c4e827d420970729eee8931d324d23612869938f729deffedbb820"
+          "content": "a82e60876cf037ecd8d21cdd226831c8f6e9d9d0f6f7f6b7a53bad993a9188ce"
         }
       ],
       "licenses": [
@@ -1090,7 +1090,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/mork-1.12.1.tar",
+          "url": "https://repo.hex.pm/tarballs/mork-1.12.3.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1152,6 +1152,47 @@
         },
         {
           "url": "https://github.com/bcpeinhardt/simplifile",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:hex/slate@2.1.0",
+      "type": "library",
+      "name": "slate",
+      "purl": "pkg:hex/slate@2.1.0",
+      "version": "2.1.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/slate"
+        ]
+      },
+      "description": "Type-safe Gleam wrapper for Erlang DETS (Disk Erlang Term Storage)",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ee70d348d94ce5a451c365c1d4894e986c7fd2823603d112cc044db1bf42922c"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/slate-2.1.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://github.com/tylerbutler/slate",
           "type": "vcs",
           "comment": "Repository"
         }
@@ -1255,11 +1296,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/splitter@1.2.0",
+      "bom-ref": "pkg:hex/splitter@1.3.0",
       "type": "library",
       "name": "splitter",
-      "purl": "pkg:hex/splitter@1.2.0",
-      "version": "1.2.0",
+      "purl": "pkg:hex/splitter@1.3.0",
+      "version": "1.3.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -1271,7 +1312,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "3dfd6b6c49e61edaf6f7b27a42054a17cff6ca2135ff553d0cb61c234d281dd0"
+          "content": "8f1485306e0d59168a39e12ed8844f9f616ec59c3c63afcfdae04dbd68690cbc"
         }
       ],
       "licenses": [
@@ -1284,7 +1325,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/splitter-1.2.0.tar",
+          "url": "https://repo.hex.pm/tarballs/splitter-1.3.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1534,14 +1575,15 @@
         "pkg:hex/gleam_community_colour@2.0.4",
         "pkg:hex/gleam_crypto@1.6.0",
         "pkg:hex/gleam_erlang@1.3.0",
-        "pkg:hex/gleam_http@4.3.0",
+        "pkg:hex/gleam_http@4.5.0",
         "pkg:hex/gleam_json@3.1.0",
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/gleam_time@1.10.0",
+        "pkg:hex/gleam_time@1.11.0",
         "pkg:hex/gleeunit@1.11.0",
         "pkg:hex/glinter@2.19.2",
         "pkg:hex/glugify@2.0.3",
         "pkg:hex/simplifile@2.7.0",
+        "pkg:hex/slate@2.1.0",
         "pkg:hex/snag@1.2.0",
         "pkg:hex/tomlet@1.4.1",
         "pkg:hex/tty@1.1.1"
@@ -1552,7 +1594,7 @@
       "dependsOn": [
         "pkg:hex/gleam_community_ansi@1.5.0",
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/mork@1.12.1",
+        "pkg:hex/mork@1.12.3",
         "pkg:hex/smalto@3.0.0",
         "pkg:hex/tty@1.1.1"
       ]
@@ -1562,7 +1604,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:hex/casefold@2.1.0",
+      "ref": "pkg:hex/casefold@2.2.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
@@ -1620,9 +1662,10 @@
       ]
     },
     {
-      "ref": "pkg:hex/gleam_http@4.3.0",
+      "ref": "pkg:hex/gleam_http@4.5.0",
       "dependsOn": [
-        "pkg:hex/gleam_stdlib@1.0.5"
+        "pkg:hex/gleam_stdlib@1.0.5",
+        "pkg:hex/splitter@1.3.0"
       ]
     },
     {
@@ -1648,7 +1691,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:hex/gleam_time@1.10.0",
+      "ref": "pkg:hex/gleam_time@1.11.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
@@ -1663,7 +1706,7 @@
       "ref": "pkg:hex/glexer@2.5.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/splitter@1.2.0"
+        "pkg:hex/splitter@1.3.0"
       ]
     },
     {
@@ -1688,18 +1731,25 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:hex/mork@1.12.1",
+      "ref": "pkg:hex/mork@1.12.3",
       "dependsOn": [
-        "pkg:hex/casefold@2.1.0",
+        "pkg:hex/casefold@2.2.0",
         "pkg:hex/gleam_regexp@1.1.1",
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/splitter@1.2.0"
+        "pkg:hex/splitter@1.3.0"
       ]
     },
     {
       "ref": "pkg:hex/simplifile@2.7.0",
       "dependsOn": [
         "pkg:hex/filepath@1.1.2",
+        "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:hex/slate@2.1.0",
+      "dependsOn": [
+        "pkg:hex/gleam_erlang@1.3.0",
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
     },
@@ -1718,7 +1768,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/splitter@1.2.0",
+      "ref": "pkg:hex/splitter@1.3.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
@@ -1727,7 +1777,7 @@
       "ref": "pkg:hex/tom@2.1.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/gleam_time@1.10.0"
+        "pkg:hex/gleam_time@1.11.0"
       ]
     },
     {
@@ -1749,7 +1799,7 @@
         "pkg:hex/gleam_community_ansi@1.5.0",
         "pkg:hex/gleam_stdlib@1.0.5",
         "pkg:hex/houdini@1.2.1",
-        "pkg:hex/splitter@1.2.0"
+        "pkg:hex/splitter@1.3.0"
       ]
     }
   ],
