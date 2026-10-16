@@ -1,5 +1,16 @@
 # licence_audit changelog
 
+## v0.13.0 - 2026-10-16
+
+### Changed
+
+- Bundle the CLI argument parser instead of downloading it from Git, and exclude Markdown documentation tooling from production builds.
+- Change the on-disk cache format while preserving safe sharing between concurrent CLI runs. In CI, save the parent cache directory (for example, `.hex-cache/`) instead of a `*.entries/` subdirectory. Keep the bundled `slate_native/` directory beside the escript when you install or move it.
+
+### Fixed
+
+- Remove internal sentinel defaults from CLI documentation and preserve literal optional path values with native glint optional flags.
+
 ## v0.12.2 - 2026-10-11
 
 ### Fixed

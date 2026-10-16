@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Bundle the CLI argument parser instead of downloading it from Git, and exclude Markdown documentation tooling from production builds."

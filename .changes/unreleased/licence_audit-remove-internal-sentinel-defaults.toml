@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Remove internal sentinel defaults from CLI documentation and preserve literal optional path values with native glint optional flags."
