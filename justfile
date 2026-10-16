@@ -29,6 +29,23 @@ default:
 deps:
     mise exec -- gleam deps download
 
+# === VENDORED SOURCES ===
+
+# Regenerate committed source copies after a git-subrepo update.
+vendor-sync:
+    mise exec -- python3 -B scripts/vendor_sync.py
+
+# Check source drift without changing files or fetching upstream repositories.
+vendor-check:
+    mise exec -- python3 -B scripts/vendor_sync.py --check
+
+vendor-test:
+    mise exec -- python3 -B -m unittest discover -s test -p vendor_sync_test.py
+
+# Check the production application and the shipped escript.
+test-vendor-production: build
+    mise exec -- bash test/vendor_production.sh
+
 # === REFERENCE CODING ===
 
 # Install the pinned local search tool.
@@ -108,8 +125,7 @@ xerj-reference query:
 
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
-    mise exec -- gleam build
-    mise exec -- gleam run -m gleescript
+    mise exec -- gleam export escript
     just slate-native
 
 # Copy slate's native lock library beside the escript (escripts cannot bundle it).
@@ -122,7 +138,7 @@ slate-native:
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
-    mise exec -- gleam run -m gleescript
+    mise exec -- gleam export escript
     just slate-native
 
 # Build self-contained native executables with Queso into `build/queso/`.
@@ -156,11 +172,11 @@ check:
 
 # Format code
 format:
-    mise exec -- gleam format src test
+    mise exec -- gleam format src test dev
 
 # Check formatting without making changes
 format-check:
-    mise exec -- gleam format --check src test
+    mise exec -- gleam format --check src test dev
 
 # Run the glinter linter (exits non-zero only on error-level rules)
 glint:
@@ -286,18 +302,22 @@ ort-clean:
 
 # === DOCS ===
 
+_docs-ffi: build
+    mise exec -- gleam build
+    mise exec -- erlc -o build/dev/erlang/licence_audit/ebin native/dev/licence_audit/internal/vendor/licence_audit_vendor_glint_markdown_filesystem_ffi.erl
+
 # Generate Markdown reference docs into ./docs and inject the topics index
 # into README.md between the <!-- commands --> sentinels.
-docs: build
+docs: _docs-ffi
     mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md
 
 # Fail if `just docs` would change anything on disk (use in CI to catch drift).
-docs-check: build
+docs-check: _docs-ffi
     mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md --check
 
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor format-check glint check test test-runtime-startup build-strict docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci

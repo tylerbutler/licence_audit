@@ -72,11 +72,20 @@ jobs:
           mkdir -p dist
 
           version="${REF_NAME#v}"
+          # Tags before vendoring do not have a NOTICE file.
+          notice_files=()
+          if [ -d vendor/glint ]; then
+            test -f NOTICE
+          fi
+          if [ -f NOTICE ]; then
+            notice_files=(NOTICE)
+            cp NOTICE dist/
+          fi
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
           cp -r slate_native "$escript_stage/"
-          cp LICENSE "$escript_stage/"
+          cp LICENSE "${notice_files[@]}" "$escript_stage/"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
           (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
@@ -112,7 +121,7 @@ jobs:
               chmod +x "$archive_stage/licence_audit"
             fi
 
-            cp LICENSE "$archive_stage/"
+            cp LICENSE "${notice_files[@]}" "$archive_stage/"
             [ -f README.md ] && cp README.md "$archive_stage/" || true
 
             if [[ "$target" == *-windows ]]; then
@@ -137,7 +146,7 @@ jobs:
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
-          (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
+          (cd dist && sha256sum licence_audit "${notice_files[@]}" *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
       - name: Test packaged native HTTP without system Erlang

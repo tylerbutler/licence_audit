@@ -1,3 +1,5 @@
+<a id="command-licence-audit-vulns"></a>
+
 # `licence_audit vulns`
 
 Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.

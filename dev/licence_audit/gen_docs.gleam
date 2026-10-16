@@ -1,6 +1,6 @@
-import glint
-import glint_markdown/cli as glint_markdown_cli
 import licence_audit/cli
+import licence_audit/internal/vendor/glint
+import licence_audit/internal/vendor/glint_markdown/cli as glint_markdown_cli
 
 @external(erlang, "args_ffi", "arguments")
 fn arguments() -> List(String)

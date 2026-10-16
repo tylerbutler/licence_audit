@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:7f9b5195-f330-86b8-a4f2-ac40e800fd35",
+  "serialNumber": "urn:uuid:c56273a5-144b-89cc-a9e3-20a1fd57bff0",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -43,64 +43,6 @@
     }
   },
   "components": [
-    {
-      "bom-ref": "pkg:github/tylerbutler/glint@6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab",
-      "type": "library",
-      "name": "glint",
-      "purl": "pkg:github/tylerbutler/glint@6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab",
-      "version": "1.3.0",
-      "scope": "required",
-      "description": "Gleam command-line argument parsing with flags and automated help text generation.",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://hex.pm/packages/glint",
-          "type": "other",
-          "comment": "Hex"
-        },
-        {
-          "url": "https://hexdocs.pm/glint/",
-          "type": "documentation",
-          "comment": "Docs"
-        },
-        {
-          "url": "https://github.com/tylerbutler/glint",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-      "type": "library",
-      "name": "glint_markdown",
-      "purl": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-      "version": "0.0.0",
-      "scope": "required",
-      "description": "Auto-generate Markdown reference documentation from a glint CLI.",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://github.com/tylerbutler/glint_markdown",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
     {
       "bom-ref": "pkg:github/tylerbutler/spruce@bc7daff38e2506923f4496ef14937786e1223c42",
       "type": "library",
@@ -894,57 +836,6 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleescript@1.5.2",
-      "type": "library",
-      "name": "gleescript",
-      "purl": "pkg:hex/gleescript@1.5.2",
-      "version": "1.5.2",
-      "scope": "optional",
-      "supplier": {
-        "name": "Hex",
-        "url": [
-          "https://hex.pm/packages/gleescript"
-        ]
-      },
-      "description": "Bundle your Gleam-on-Erlang project into an escript, a single executable file!",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "27ac58481742ed29d9b37c506f78958a8ad798750a79ed08c8f8afba8f23563b"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://repo.hex.pm/tarballs/gleescript-1.5.2.tar",
-          "type": "distribution",
-          "comment": "Hex package tarball"
-        },
-        {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
-        },
-        {
-          "url": "https://github.com/sponsors/lpil",
-          "type": "other",
-          "comment": "Sponsor"
-        },
-        {
-          "url": "https://github.com/lpil/gleescript",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
       "bom-ref": "pkg:hex/gleeunit@1.11.0",
       "type": "library",
       "name": "gleeunit",
@@ -1078,12 +969,12 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/glugify@2.0.3",
+      "bom-ref": "pkg:hex/glugify@3.1.1",
       "type": "library",
       "name": "glugify",
-      "purl": "pkg:hex/glugify@2.0.3",
-      "version": "2.0.3",
-      "scope": "required",
+      "purl": "pkg:hex/glugify@3.1.1",
+      "version": "3.1.1",
+      "scope": "optional",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -1094,7 +985,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "03ad4c205d43cb055f03137173af8e94b4d98e8047a8fe51d7ed14512a797065"
+          "content": "335fdf5b353557a53bb0ffe5acfa01d7a52c4e7239f43f0c0a28f9c3ac7cbd71"
         }
       ],
       "licenses": [
@@ -1107,7 +998,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/glugify-2.0.3.tar",
+          "url": "https://repo.hex.pm/tarballs/glugify-3.1.1.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1115,6 +1006,11 @@
           "url": "https://hexdocs.pm/glugify",
           "type": "documentation",
           "comment": "Documentation"
+        },
+        {
+          "url": "https://maxh213.github.io/glugify/",
+          "type": "other",
+          "comment": "Live Playground"
         },
         {
           "url": "https://github.com/maxh213/glugify/blob/main/CHANGELOG.md",
@@ -1676,43 +1572,26 @@
     {
       "ref": "root",
       "dependsOn": [
-        "pkg:github/tylerbutler/glint@6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab",
-        "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
         "pkg:github/tylerbutler/spruce@bc7daff38e2506923f4496ef14937786e1223c42",
         "pkg:hex/cvss@0.1.1",
         "pkg:hex/etch@1.3.3",
         "pkg:hex/filepath@1.1.2",
+        "pkg:hex/gleam_community_ansi@1.5.0",
+        "pkg:hex/gleam_community_colour@2.0.4",
         "pkg:hex/gleam_crypto@1.6.0",
         "pkg:hex/gleam_erlang@1.3.0",
         "pkg:hex/gleam_http@4.5.0",
         "pkg:hex/gleam_json@3.1.0",
         "pkg:hex/gleam_stdlib@1.0.5",
         "pkg:hex/gleam_time@1.11.0",
-        "pkg:hex/gleescript@1.5.2",
         "pkg:hex/gleeunit@1.11.0",
         "pkg:hex/glinter@2.19.2",
+        "pkg:hex/glugify@3.1.1",
         "pkg:hex/simplifile@2.7.0",
         "pkg:hex/slate@2.1.0",
+        "pkg:hex/snag@1.2.0",
         "pkg:hex/tomlet@1.4.1",
         "pkg:hex/tty@1.1.1"
-      ]
-    },
-    {
-      "ref": "pkg:github/tylerbutler/glint@6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab",
-      "dependsOn": [
-        "pkg:hex/gleam_community_ansi@1.5.0",
-        "pkg:hex/gleam_community_colour@2.0.4",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/snag@1.2.0"
-      ]
-    },
-    {
-      "ref": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-      "dependsOn": [
-        "pkg:github/tylerbutler/glint@6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/glugify@2.0.3",
-        "pkg:hex/simplifile@2.7.0"
       ]
     },
     {
@@ -1823,18 +1702,6 @@
       ]
     },
     {
-      "ref": "pkg:hex/gleescript@1.5.2",
-      "dependsOn": [
-        "pkg:hex/argv@1.1.0",
-        "pkg:hex/filepath@1.1.2",
-        "pkg:hex/gleam_erlang@1.3.0",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/simplifile@2.7.0",
-        "pkg:hex/snag@1.2.0",
-        "pkg:hex/tom@2.1.0"
-      ]
-    },
-    {
       "ref": "pkg:hex/gleeunit@1.11.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
@@ -1859,7 +1726,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/glugify@2.0.3",
+      "ref": "pkg:hex/glugify@3.1.1",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]

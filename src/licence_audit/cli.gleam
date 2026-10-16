@@ -1,9 +1,9 @@
 import gleam/list
 import gleam/option.{type Option, None}
 import gleam/string
-import glint
-import glint/constraint
 import licence_audit/color
+import licence_audit/internal/vendor/glint
+import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
 
 pub type Options {

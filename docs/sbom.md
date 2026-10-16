@@ -1,3 +1,5 @@
+<a id="command-licence-audit-sbom"></a>
+
 # `licence_audit sbom`
 
 Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.

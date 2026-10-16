@@ -108,8 +108,59 @@ the corpus. Exit code `4` asks for a decision; do not bypass that gate.
 just build
 ```
 
-`just build` compiles the Gleam project and produces the escript at
-`./licence_audit`.
+`just build` uses `gleam export escript` to compile production sources and
+produce the escript at `./licence_audit`. The pinned compiler provides this
+exporter, so the build does not need `gleescript`.
+The build also copies slate's native lock library to `./slate_native/`.
+Keep that directory beside the escript when you move or distribute it.
+
+### Vendored packages
+
+The repository tracks `glint` and `glint_markdown` with
+[git-subrepo](https://github.com/ingydotnet/git-subrepo):
+
+| Upstream snapshot | Compiled sources |
+|---|---|
+| `vendor/glint/` | `src/licence_audit/internal/vendor/glint.gleam` and `glint/` |
+| `vendor/glint_markdown/` | `dev/licence_audit/internal/vendor/glint_markdown.gleam` and `glint_markdown/` |
+
+Normal builds use the committed source copies. You need git-subrepo only to
+pull upstream changes or push patches. Do not edit the generated copies.
+Make upstream patches in `vendor/`, then run `just vendor-sync`.
+
+To update a snapshot, start with a clean worktree:
+
+```sh
+git subrepo pull vendor/glint -m "chore(deps): update vendored glint"
+git subrepo pull vendor/glint_markdown -m "chore(deps): update vendored glint_markdown"
+just vendor-sync
+just vendor-check vendor-test test-vendor-production
+```
+
+Each pull creates an import commit. Review and commit the regenerated copies
+after the pull. The `.gitrepo` files record the upstream repositories and
+commits.
+
+`scripts/vendor_sync.py` copies source files, rewrites vendored imports and
+Erlang FFI names, formats Gleam sources, and writes the root `NOTICE`.
+It excludes upstream tests, examples, and package configuration. If an update
+adds dependencies, declare their Hex requirements in the root `gleam.toml`.
+The script rejects unreviewed licence changes and unsupported source files.
+Run these recipes with Python 3.11 or later.
+
+`dev/licence_audit/gen_docs.gleam` uses the development-only Markdown generator.
+Production builds and Hex packages exclude `dev/` and its `glugify` dependency.
+Gleam compiles native files from `dev/` in production, so the sync script
+replaces the Markdown generator's exit shims with core-library calls. It
+keeps the reviewed Erlang filesystem helper under `native/dev/`, outside
+the compiler's source roots. The docs recipes compile that helper into the
+development build only. Its JavaScript companion stays in `dev/`.
+The script rejects new or changed native development files until a
+contributor reviews them.
+`just test-vendor-production` checks the production application, BEAM files,
+and shipped escript.
+The root `NOTICE` records both vendored packages and includes their Apache-2.0
+licence text. Release archives include this notice.
 
 To build self-contained native executables with Queso, install Queso's
 package-time dependencies for your target and run:
@@ -161,11 +212,11 @@ when Queso calls `main()` directly.
 ```sh
 just test           # gleam test
 just check          # gleam check (type check only)
-just format         # gleam format src test
-just format-check   # gleam format --check src test
+just format         # gleam format src test dev
+just format-check   # gleam format --check src test dev
 just glint          # gleam run -m glinter (linter; fails only on error-level rules)
 just lint           # format-check + glint
-just ci             # full validation (format-check + glint + check + test + runtime startup + strict build + docs-check + sbom-drift-check + sbom-validate)
+just ci             # full validation (vendoring + formatting + lint + check + tests + builds + docs + SBOM)
 just clean          # remove build artifacts
 ```
 

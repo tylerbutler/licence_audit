@@ -1,3 +1,5 @@
+<a id="command-licence-audit-update"></a>
+
 # `licence_audit update`
 
 Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.

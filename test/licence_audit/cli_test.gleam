@@ -2,9 +2,9 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
-import glint
 import licence_audit/cli
 import licence_audit/color
+import licence_audit/internal/vendor/glint
 import licence_audit/progress
 
 const optional_path_flags = [
