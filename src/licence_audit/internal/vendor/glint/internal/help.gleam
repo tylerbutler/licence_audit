@@ -1,4 +1,4 @@
-// Vendored from vendor/glint/src/glint/internal/help.gleam at c082b4afef5dc35bacaf03a2921284c527e6afeb.
+// Vendored from vendor/glint/src/glint/internal/help.gleam at 6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab.
 // Modified for licence_audit vendoring. Run just vendor-sync to update.
 import gleam/bool
 import gleam/int

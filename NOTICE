@@ -7,12 +7,12 @@ Each copied source file identifies its upstream file and commit.
 
 glint 1.3.0 (runtime)
 Source: https://github.com/tylerbutler/glint.git
-Commit: c082b4afef5dc35bacaf03a2921284c527e6afeb
+Commit: 6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab
 Licence: Apache-2.0
 
 glint_markdown 0.0.0 (development only)
 Source: https://github.com/tylerbutler/glint_markdown.git
-Commit: ec5065feb4993c95dd1bf4ad1094ee262743d8bf
+Commit: 9c66ec3a62e43c639b06c3dfa582f223fc2fef14
 Licence: Apache-2.0
 
                                  Apache License

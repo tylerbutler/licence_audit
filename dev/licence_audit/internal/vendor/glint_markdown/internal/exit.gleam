@@ -1,7 +1,7 @@
 //// Process-exit and stderr shims, isolated behind FFI so the rest of the
 //// library stays pure Gleam.
 
-// Vendored from vendor/glint_markdown/src/glint_markdown/internal/exit.gleam at ec5065feb4993c95dd1bf4ad1094ee262743d8bf.
+// Vendored from vendor/glint_markdown/src/glint_markdown/internal/exit.gleam at 9c66ec3a62e43c639b06c3dfa582f223fc2fef14.
 // Modified for licence_audit vendoring. Run just vendor-sync to update.
 
 import gleam/io

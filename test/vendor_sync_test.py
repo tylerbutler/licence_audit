@@ -1,3 +1,4 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ class VendorSyncTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         (self.root / "gleam.toml").write_text(
             '[dependencies]\ngleam_stdlib = ">= 1.0.0 and < 2.0.0"\n'
-            '[dev_dependencies]\nglugify = ">= 2.0.0 and < 3.0.0"\n'
+            '[dev_dependencies]\nglugify = ">= 3.0.0 and < 4.0.0"\n'
         )
         for name in vendor_sync.PACKAGES:
             package = self.root / "vendor" / name
@@ -22,7 +23,7 @@ class VendorSyncTest(unittest.TestCase):
                 'gleam_stdlib = ">= 1.0.0 and < 2.0.0"'
                 if name == "glint"
                 else 'glint = { git = "https://example.com/glint", ref = "main" }\n'
-                'glugify = ">= 2.0.0 and < 3.0.0"'
+                'glugify = ">= 3.0.0 and < 4.0.0"'
             )
             (package / "gleam.toml").write_text(
                 f'name = "{name}"\nversion = "1.0.0"\n'
@@ -112,6 +113,48 @@ class VendorSyncTest(unittest.TestCase):
         path.write_text(vendor_sync.EXIT_NATIVE_FILES[relative] + "% New code\n")
         with self.assertRaisesRegex(ValueError, "Review the updated"):
             vendor_sync.generated_files(self.root)
+
+    def test_separates_reviewed_native_development_sources_from_production(self):
+        package = self.root / "vendor/glint_markdown/src"
+        native_sources = {
+            "glint_markdown_filesystem_ffi.erl": "-module(glint_markdown_filesystem_ffi).\n",
+            "glint_markdown/internal/filesystem_ffi.mjs": 'import { Ok } from "../../gleam.mjs";\n',
+        }
+        for relative, text in native_sources.items():
+            path = package / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        declarations = package / "glint_markdown/internal/filesystem.gleam"
+        declarations.write_text(
+            '@external(erlang, "glint_markdown_filesystem_ffi", "canonical_path")\n'
+            '@external(javascript, "./filesystem_ffi.mjs", "canonical_path")\n'
+            "pub fn canonical_path(path: String) -> Result(String, String)\n"
+        )
+        fingerprints = {
+            relative: hashlib.sha256(text.encode()).hexdigest()
+            for relative, text in native_sources.items()
+        }
+        with patch.dict(vendor_sync.DEVELOPMENT_NATIVE_FILES, fingerprints):
+            generated = vendor_sync.generated_files(self.root)
+            erlang = Path("native/dev") / vendor_sync.NAMESPACE / "licence_audit_vendor_glint_markdown_filesystem_ffi.erl"
+            javascript = Path("dev") / vendor_sync.NAMESPACE / "glint_markdown/internal/filesystem_ffi.mjs"
+            self.assertIn(erlang, generated)
+            self.assertIn("-module(licence_audit_vendor_glint_markdown_filesystem_ffi).", generated[erlang])
+            self.assertIn('from "../../../../../gleam.mjs"', generated[javascript])
+            source = generated[Path("dev") / vendor_sync.NAMESPACE / "glint_markdown/internal/filesystem.gleam"]
+            self.assertIn('"licence_audit_vendor_glint_markdown_filesystem_ffi"', source)
+            self.assertFalse(any(
+                path.parts[0] in {"src", "dev", "test"} and path.suffix == ".erl"
+                for path in generated
+            ))
+            vendor_sync.sync(self.root, check=False)
+            self.assertEqual(vendor_sync.sync(self.root, check=True), [])
+            stale = self.root / erlang.parent / "stale.erl"
+            stale.write_text("-module(stale).\n")
+            self.assertIn(stale.relative_to(self.root), vendor_sync.sync(self.root, check=True))
+            (package / "glint_markdown_filesystem_ffi.erl").write_text("% Changed\n")
+            with self.assertRaisesRegex(ValueError, "Review the updated native"):
+                vendor_sync.generated_files(self.root)
 
     def test_separates_runtime_and_development_sources_and_preserves_notices(self):
         (self.root / "vendor/glint/NOTICE").write_text("Upstream attribution\n")

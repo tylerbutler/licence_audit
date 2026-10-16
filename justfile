@@ -302,13 +302,17 @@ ort-clean:
 
 # === DOCS ===
 
+_docs-ffi: build
+    mise exec -- gleam build
+    mise exec -- erlc -o build/dev/erlang/licence_audit/ebin native/dev/licence_audit/internal/vendor/licence_audit_vendor_glint_markdown_filesystem_ffi.erl
+
 # Generate Markdown reference docs into ./docs and inject the topics index
 # into README.md between the <!-- commands --> sentinels.
-docs: build
+docs: _docs-ffi
     mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md
 
 # Fail if `just docs` would change anything on disk (use in CI to catch drift).
-docs-check: build
+docs-check: _docs-ffi
     mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md --check
 
 # === CI ===

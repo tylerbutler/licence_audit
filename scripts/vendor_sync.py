@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import hashlib
 import re
 import subprocess
 import sys
@@ -51,6 +52,10 @@ export function exit_with(code) {
   return undefined;
 }
 """,
+}
+DEVELOPMENT_NATIVE_FILES = {
+    "glint_markdown_filesystem_ffi.erl": "69c746ac62a726ecb6cdd21b138e4173d7614e25a20e8dacf148c2181650808e",
+    "glint_markdown/internal/filesystem_ffi.mjs": "bd08948e32cb555b6298d2ffb017e1c369b02dda322adca9a6721e8153822313",
 }
 
 
@@ -140,9 +145,16 @@ def generated_files(root: Path) -> dict[Path, str]:
                 if path.read_text() != EXIT_NATIVE_FILES[relative.as_posix()]:
                     raise ValueError(f"Review the updated development exit shim: {path}")
                 continue
+            destination_scope = scope
             if scope == "dev" and path.suffix in {".erl", ".hrl", ".mjs", ".js"}:
-                raise ValueError(f"Review native development sources that can ship in production: {path}")
-            destination = Path(scope) / NAMESPACE / relative
+                expected = DEVELOPMENT_NATIVE_FILES.get(relative.as_posix())
+                if package != "glint_markdown" or expected is None:
+                    raise ValueError(f"Review native development sources that can ship in production: {path}")
+                if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    raise ValueError(f"Review the updated native development source: {path}")
+                if path.suffix == ".erl":
+                    destination_scope = "native/dev"
+            destination = Path(destination_scope) / NAMESPACE / relative
             if path.suffix == ".gleam":
                 original = relative.with_suffix("").as_posix()
                 if original in modules:
@@ -172,6 +184,9 @@ def generated_files(root: Path) -> dict[Path, str]:
     generated = {}
     for source, destination, commit in sources:
         text = source.read_text()
+        if source.suffix in {".mjs", ".js"}:
+            runtime = "../" * (len(destination.parts) - 2) + "gleam.mjs"
+            text = text.replace('"../../gleam.mjs"', f'"{runtime}"')
         if source.relative_to(root).as_posix() == "vendor/glint_markdown/src/glint_markdown/internal/exit.gleam":
             if text.count(EXIT_DECLARATIONS) != 1:
                 raise ValueError(f"Review the updated development exit declarations: {source}")
@@ -194,7 +209,7 @@ def generated_files(root: Path) -> dict[Path, str]:
 def sync(root: Path, check: bool) -> list[Path]:
     generated = generated_files(root)
     existing = {Path("NOTICE")} if (root / "NOTICE").exists() else set()
-    for scope in set(PACKAGES.values()):
+    for scope in set(PACKAGES.values()) | {"native/dev"}:
         directory = root / scope / NAMESPACE
         existing.update(
             path.relative_to(root) for path in directory.rglob("*") if path.is_file()

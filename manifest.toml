@@ -26,7 +26,7 @@ packages = [
   { name = "gleeunit", version = "1.11.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "EC31ABA74256AEA531EDF8169931D775BBB384FED0A8A1BDC4DD9354E3E21826" },
   { name = "glexer", version = "2.5.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "splitter"], otp_app = "glexer", source = "hex", outer_checksum = "D423CF63B8D4F9654EF53D0AF4904B249EB0679BD41C63440170AC508C9CC65E" },
   { name = "glinter", version = "2.19.2", build_tools = ["gleam"], requirements = ["argv", "glance", "gleam_json", "gleam_stdlib", "simplifile", "tom"], otp_app = "glinter", source = "hex", outer_checksum = "19CBB4D78E58E54D6B0E8554C389DC01071334FB11E9140C9487C9A4BBCA6158" },
-  { name = "glugify", version = "2.0.3", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "glugify", source = "hex", outer_checksum = "03AD4C205D43CB055F03137173AF8E94B4D98E8047A8FE51D7ED14512A797065" },
+  { name = "glugify", version = "3.1.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "glugify", source = "hex", outer_checksum = "335FDF5B353557A53BB0FFE5ACFA01D7A52C4E7239F43F0C0A28F9C3AC7CBD71" },
   { name = "houdini", version = "1.2.1", build_tools = ["gleam"], requirements = [], otp_app = "houdini", source = "hex", outer_checksum = "6F8AC2F12974567FB744BEA66AC93CEB76AAEA19AD28564623F76CDA9BC26A85" },
   { name = "mork", version = "1.12.3", build_tools = ["gleam"], requirements = ["casefold", "gleam_regexp", "gleam_stdlib", "splitter"], otp_app = "mork", source = "hex", outer_checksum = "A82E60876CF037ECD8D21CDD226831C8F6E9D9D0F6F7F6B7A53BAD993A9188CE" },
   { name = "simplifile", version = "2.7.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "A2727627B063E87351934C7F7F008F2D1FDB16F6DE0B8C79F9E46459CFC9C164" },
@@ -55,7 +55,7 @@ gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_time = { version = ">= 1.8.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
 glinter = { version = ">= 2.19.0 and < 3.0.0" }
-glugify = { version = ">= 2.0.0 and < 3.0.0" }
+glugify = { version = ">= 3.0.0 and < 4.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 slate = { version = ">= 2.1.0 and < 3.0.0" }
 snag = { version = ">= 1.0.0 and < 2.0.0" }

@@ -53,14 +53,16 @@
 //// case. For non-`Nil` hosts, use `glint_markdown_cli.command/1` directly
 //// with `glint.map_command`.
 
-// Vendored from vendor/glint_markdown/src/glint_markdown.gleam at ec5065feb4993c95dd1bf4ad1094ee262743d8bf.
+// Vendored from vendor/glint_markdown/src/glint_markdown.gleam at 9c66ec3a62e43c639b06c3dfa582f223fc2fef14.
 // Modified for licence_audit vendoring. Run just vendor-sync to update.
 
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/string
+import gleam/uri
 import glugify
 import licence_audit/internal/vendor/glint/help.{type Flag, type Tree}
 
@@ -105,15 +107,15 @@ pub fn options(bin: String) -> Options {
 }
 
 /// Switch between [`Single`](#Mode) and [`Multi`](#Mode) output.
-pub fn with_mode(opts: Options, mode: Mode) -> Options {
-  Options(..opts, mode: mode)
+pub fn with_mode(options: Options, mode: Mode) -> Options {
+  Options(..options, mode: mode)
 }
 
 /// Set a repository URL prefix used for `_See code:_` links beneath each
 /// rendered command. Currently a no-op; will be wired up once `glint/help.Tree`
 /// carries source-location data.
-pub fn with_repository_prefix(opts: Options, prefix: String) -> Options {
-  Options(..opts, repository_prefix: Some(prefix))
+pub fn with_repository_prefix(options: Options, prefix: String) -> Options {
+  Options(..options, repository_prefix: Some(prefix))
 }
 
 // ---------------------------------------------------------------------------
@@ -127,12 +129,12 @@ pub fn with_repository_prefix(opts: Options, prefix: String) -> Options {
 /// [`to_root_body`](#to_root_body) +
 /// [`to_commands_body`](#to_commands_body) +
 /// [`to_toc_body`](#to_toc_body) + [`inject`](#inject).
-pub fn to_string(tree: Tree, opts: Options) -> String {
-  let entries = flatten(tree, opts)
+pub fn to_string(tree: Tree, options: Options) -> String {
+  let entries = flatten(tree, options)
   let toc = render_toc(entries)
-  let body = render_entries(entries, opts)
+  let body = render_entries(entries)
   let parts = [
-    "# " <> opts.bin,
+    "# " <> options.bin,
     toc,
     body,
   ]
@@ -144,24 +146,24 @@ pub fn to_string(tree: Tree, opts: Options) -> String {
 /// Render the body that should go between `<!-- commands -->` and
 /// `<!-- commandsstop -->` sentinels in an existing README — a flat sequence
 /// of `##`-headed command sections, with no enclosing title.
-pub fn to_commands_body(tree: Tree, opts: Options) -> String {
-  flatten(tree, opts)
-  |> render_entries(opts)
+pub fn to_commands_body(tree: Tree, options: Options) -> String {
+  flatten(tree, options)
+  |> render_entries
 }
 
 /// Render the body for `<!-- toc -->` / `<!-- tocstop -->` sentinels — a
 /// bulleted list of links to every command in the tree.
-pub fn to_toc_body(tree: Tree, opts: Options) -> String {
-  flatten(tree, opts)
+pub fn to_toc_body(tree: Tree, options: Options) -> String {
+  flatten(tree, options)
   |> render_toc
 }
 
 /// Render the body for `<!-- root -->` / `<!-- rootstop -->` sentinels — the
 /// root command's description, usage, flags, and arguments, with no enclosing
 /// title or subcommand list.
-pub fn to_root_body(tree: Tree, opts: Options) -> String {
-  let entry = Entry(path: [opts.bin], tree: tree)
-  [tree.meta.description, render_entry_body(entry, opts, False)]
+pub fn to_root_body(tree: Tree, options: Options) -> String {
+  let entry = Entry(path: [options.bin], tree: tree, anchor: "")
+  [tree.meta.description, render_entry_body(entry, [], False)]
   |> list.filter(non_empty)
   |> string.join("\n\n")
 }
@@ -179,38 +181,33 @@ pub fn to_root_body(tree: Tree, opts: Options) -> String {
 /// Top-level flags and the root command's description are **not** included
 /// in the per-topic files; render them separately into your main README via
 /// [`to_topics_index_body`](#to_topics_index_body) and [`inject`](#inject).
-pub fn to_files(tree: Tree, opts: Options) -> Dict(String, String) {
-  let dir = case opts.mode {
-    Multi(output_dir: d) -> d
+pub fn to_files(tree: Tree, options: Options) -> Dict(String, String) {
+  let directory = case options.mode {
+    Multi(output_dir: output_directory) -> output_directory
     Single -> "."
   }
   tree.subcommands
-  |> filter_visible(opts)
+  |> filter_visible(options)
   |> sort_subcommands
   |> list.fold(dict.new(), fn(acc, topic) {
-    let filename = dir <> "/" <> topic.meta.name <> ".md"
-    let path = [opts.bin, topic.meta.name]
-    let topic_entry = Entry(path: path, tree: topic)
+    let filename = directory <> "/" <> topic.meta.name <> ".md"
+    let path = [options.bin, topic.meta.name]
+    let entries =
+      flatten_with_path(topic, options, path)
+      |> sort_entries
+      |> assign_anchors
     // The file's `#` heading and description already title the topic, so the
     // topic's own section is rendered without re-emitting them. Descendant
     // subcommands are still rendered as their own `##` sections.
-    let descendants =
-      topic.subcommands
-      |> filter_visible(opts)
-      |> list.flat_map(fn(sub) {
-        flatten_with_path(sub, opts, list.append(path, [sub.meta.name]))
-      })
-      |> sort_entries
-    let header = "# `" <> opts.bin <> " " <> topic.meta.name <> "`"
-    let description = case topic.meta.description {
-      "" -> ""
-      d -> d
-    }
-    let topic_body = render_entry_body(topic_entry, opts, True)
-    let descendants_body = render_entries(descendants, opts)
     let contents =
-      [header, description, topic_body, descendants_body]
-      |> list.filter(non_empty)
+      entries
+      |> list.map(fn(entry) {
+        let heading_level = case entry.path == path {
+          True -> "#"
+          False -> "##"
+        }
+        render_entry(entry, entries, heading_level)
+      })
       |> string.join("\n\n")
     dict.insert(acc, filename, contents <> "\n")
   })
@@ -219,24 +216,24 @@ pub fn to_files(tree: Tree, opts: Options) -> Dict(String, String) {
 /// Render the body for `<!-- commands -->` when using [`Multi`](#Mode) mode —
 /// a `## Subcommands` heading followed by a bulleted index linking each
 /// topic file produced by [`to_files`](#to_files).
-pub fn to_topics_index_body(tree: Tree, opts: Options) -> String {
-  let dir = case opts.mode {
-    Multi(output_dir: d) -> d
+pub fn to_topics_index_body(tree: Tree, options: Options) -> String {
+  let directory = case options.mode {
+    Multi(output_dir: output_directory) -> output_directory
     Single -> "."
   }
   let topics =
     tree.subcommands
-    |> filter_visible(opts)
+    |> filter_visible(options)
     |> sort_subcommands
   let bullets =
     topics
-    |> list.map(fn(t) {
-      let label = "`" <> opts.bin <> " " <> t.meta.name <> "`"
-      let link = dir <> "/" <> t.meta.name <> ".md"
-      let summary = first_line(t.meta.description)
+    |> list.map(fn(topic) {
+      let label = "`" <> options.bin <> " " <> topic.meta.name <> "`"
+      let link = encode_link_path(directory <> "/" <> topic.meta.name <> ".md")
+      let summary = first_line(topic.meta.description)
       let suffix = case summary {
         "" -> ""
-        s -> " - " <> s
+        description -> " - " <> description
       }
       "* [" <> label <> "](" <> link <> ")" <> suffix
     })
@@ -278,16 +275,16 @@ pub fn inject(readme: String, tag: String, body: String) -> String {
 }
 
 fn replace_between(
-  s: String,
+  input: String,
   start: String,
   stop: String,
   replacement: String,
 ) -> String {
-  case string.split_once(s, start) {
-    Error(_) -> s
+  case string.split_once(input, start) {
+    Error(_) -> input
     Ok(#(before, after)) ->
       case string.split_once(after, stop) {
-        Error(_) -> s
+        Error(_) -> input
         Ok(#(_, rest)) -> before <> replacement <> rest
       }
   }
@@ -298,25 +295,30 @@ fn replace_between(
 // ---------------------------------------------------------------------------
 
 type Entry {
-  Entry(path: List(String), tree: Tree)
+  Entry(path: List(String), tree: Tree, anchor: String)
 }
 
-fn flatten(tree: Tree, opts: Options) -> List(Entry) {
-  flatten_with_path(tree, opts, [opts.bin])
+fn flatten(tree: Tree, options: Options) -> List(Entry) {
+  flatten_with_path(tree, options, [options.bin])
   |> sort_entries
+  |> assign_anchors
 }
 
 fn flatten_with_path(
   tree: Tree,
-  opts: Options,
+  options: Options,
   path: List(String),
 ) -> List(Entry) {
-  let head = Entry(path: path, tree: tree)
+  let head = Entry(path: path, tree: tree, anchor: "")
   let children =
     tree.subcommands
-    |> filter_visible(opts)
-    |> list.flat_map(fn(sub) {
-      flatten_with_path(sub, opts, list.append(path, [sub.meta.name]))
+    |> filter_visible(options)
+    |> list.flat_map(fn(subcommand) {
+      flatten_with_path(
+        subcommand,
+        options,
+        list.append(path, [subcommand.meta.name]),
+      )
     })
   [head, ..children]
 }
@@ -327,77 +329,106 @@ fn sort_entries(entries: List(Entry)) -> List(Entry) {
   })
 }
 
-fn sort_subcommands(subs: List(Tree)) -> List(Tree) {
-  list.sort(subs, fn(a, b) { string.compare(a.meta.name, b.meta.name) })
+fn assign_anchors(entries: List(Entry)) -> List(Entry) {
+  let #(_, anchored_entries) =
+    list.map_fold(entries, set.new(), fn(used, entry) {
+      let base = "command-" <> glugify.slugify(string.join(entry.path, " "))
+      let anchor = unique_anchor(base, used, 0)
+      #(set.insert(used, anchor), Entry(..entry, anchor: anchor))
+    })
+  anchored_entries
 }
 
-fn filter_visible(subs: List(Tree), _opts: Options) -> List(Tree) {
+fn unique_anchor(base: String, used: Set(String), suffix: Int) -> String {
+  let candidate = case suffix {
+    0 -> base
+    _ -> base <> "-" <> int.to_string(suffix)
+  }
+  case set.contains(used, candidate) {
+    True -> unique_anchor(base, used, suffix + 1)
+    False -> candidate
+  }
+}
+
+fn sort_subcommands(subcommands: List(Tree)) -> List(Tree) {
+  list.sort(subcommands, fn(a, b) { string.compare(a.meta.name, b.meta.name) })
+}
+
+fn filter_visible(subcommands: List(Tree), _options: Options) -> List(Tree) {
   // Placeholder: glint/help.Tree has no `hidden` marker yet.
-  // When it lands, gate filtering on `opts.include_hidden`.
-  subs
+  // When it lands, gate filtering on `options.include_hidden`.
+  subcommands
 }
 
 // ---------------------------------------------------------------------------
 // Section rendering
 // ---------------------------------------------------------------------------
 
-fn render_entries(entries: List(Entry), opts: Options) -> String {
+fn render_entries(entries: List(Entry)) -> String {
   entries
-  |> list.map(render_entry(_, opts))
+  |> list.map(render_entry(_, entries, "##"))
   |> string.join("\n\n")
 }
 
-fn render_entry(entry: Entry, opts: Options) -> String {
+fn render_entry(
+  entry: Entry,
+  entries: List(Entry),
+  heading_level: String,
+) -> String {
   let title = string.join(entry.path, " ")
-  let heading = "## `" <> title <> "`"
-  let description = case entry.tree.meta.description {
-    "" -> ""
-    d -> d
-  }
-  let body = render_entry_body(entry, opts, True)
+  let heading =
+    "<a id=\""
+    <> entry.anchor
+    <> "\"></a>\n\n"
+    <> heading_level
+    <> " `"
+    <> title
+    <> "`"
+  let body = render_entry_body(entry, entries, True)
 
-  [heading, description, body]
+  [heading, entry.tree.meta.description, body]
   |> list.filter(non_empty)
   |> string.join("\n\n")
 }
 
 fn render_entry_body(
   entry: Entry,
-  opts: Options,
+  entries: List(Entry),
   include_subcommands: Bool,
 ) -> String {
-  let usage = render_usage(entry, opts)
+  let usage = render_usage(entry)
   let arguments = render_arguments(entry.tree)
   let flags = render_flags(entry.tree.flags)
-  let subs = case include_subcommands {
-    True -> render_subcommands_list(entry, opts)
+  let subcommands = case include_subcommands {
+    True -> render_subcommands_list(entry, entries)
     False -> ""
   }
 
-  [usage, arguments, flags, subs]
+  [usage, arguments, flags, subcommands]
   |> list.filter(non_empty)
   |> string.join("\n\n")
 }
 
-fn render_usage(entry: Entry, _opts: Options) -> String {
+fn render_usage(entry: Entry) -> String {
   let path = string.join(entry.path, " ")
   let named =
     entry.tree.named_args
-    |> list.map(fn(n) { "<" <> n <> ">" })
+    |> list.map(fn(name) { "<" <> name <> ">" })
     |> string.join(" ")
   let unnamed = case entry.tree.unnamed_args {
     Some(help.EqArgs(0)) -> ""
     Some(help.EqArgs(1)) -> "[1 argument]"
-    Some(help.EqArgs(n)) -> "[" <> int.to_string(n) <> " arguments]"
-    Some(help.MinArgs(n)) -> "[" <> int.to_string(n) <> " or more arguments]"
+    Some(help.EqArgs(count)) -> "[" <> int.to_string(count) <> " arguments]"
+    Some(help.MinArgs(count)) ->
+      "[" <> int.to_string(count) <> " or more arguments]"
     None -> "[ARGS]"
   }
-  let subs = case entry.tree.subcommands {
+  let subcommands = case entry.tree.subcommands {
     [] -> ""
     _ ->
       "("
       <> entry.tree.subcommands
-      |> list.map(fn(s) { s.meta.name })
+      |> list.map(fn(subcommand) { subcommand.meta.name })
       |> sort_strings
       |> string.join(" | ")
       <> ")"
@@ -407,7 +438,7 @@ fn render_usage(entry: Entry, _opts: Options) -> String {
     _ -> "[--flags]"
   }
   let parts =
-    [path, subs, named, unnamed, flags_token]
+    [path, subcommands, named, unnamed, flags_token]
     |> list.filter(non_empty)
     |> string.join(" ")
   "**Usage:**\n\n```\n" <> parts <> "\n```"
@@ -416,10 +447,10 @@ fn render_usage(entry: Entry, _opts: Options) -> String {
 fn render_arguments(tree: Tree) -> String {
   case tree.named_args {
     [] -> ""
-    args -> {
+    arguments -> {
       let items =
-        args
-        |> list.map(fn(n) { "- `<" <> n <> ">`" })
+        arguments
+        |> list.map(fn(name) { "- `<" <> name <> ">`" })
         |> string.join("\n")
       "**Arguments:**\n\n" <> items
     }
@@ -447,11 +478,11 @@ fn render_flag_row(flag: Flag) -> String {
   let name = "`--" <> flag.meta.name <> "`"
   let type_ = case flag.type_ {
     "" -> ""
-    t -> "`" <> t <> "`"
+    flag_type -> "`" <> flag_type <> "`"
   }
   let default = case flag.default {
     None -> ""
-    Some(v) -> "`" <> escape_table_cell(v) <> "`"
+    Some(value) -> "`" <> escape_table_cell(value) <> "`"
   }
   let description = escape_table_cell(flag.meta.description)
   "| "
@@ -465,23 +496,26 @@ fn render_flag_row(flag: Flag) -> String {
   <> " |"
 }
 
-fn render_subcommands_list(entry: Entry, _opts: Options) -> String {
-  case entry.tree.subcommands {
+fn render_subcommands_list(entry: Entry, entries: List(Entry)) -> String {
+  let children =
+    entries
+    |> list.filter(fn(child) {
+      list.length(child.path) == list.length(entry.path) + 1
+      && list.take(child.path, list.length(entry.path)) == entry.path
+    })
+  case children {
     [] -> ""
-    subs -> {
+    subcommands -> {
       let items =
-        subs
-        |> sort_subcommands
-        |> list.map(fn(sub) {
-          let sub_title =
-            string.join(list.append(entry.path, [sub.meta.name]), " ")
-          let label = "`" <> sub_title <> "`"
-          let summary = first_line(sub.meta.description)
+        subcommands
+        |> list.map(fn(child) {
+          let label = "`" <> string.join(child.path, " ") <> "`"
+          let summary = first_line(child.tree.meta.description)
           let suffix = case summary {
             "" -> ""
-            s -> " - " <> s
+            description -> " - " <> description
           }
-          "- [" <> label <> "](#" <> slugify(sub_title) <> ")" <> suffix
+          "- [" <> label <> "](#" <> child.anchor <> ")" <> suffix
         })
         |> string.join("\n")
       "**Subcommands:**\n\n" <> items
@@ -495,9 +529,9 @@ fn render_toc(entries: List(Entry)) -> String {
     _ -> {
       let bullets =
         entries
-        |> list.map(fn(e) {
-          let title = string.join(e.path, " ")
-          "* [`" <> title <> "`](#" <> slugify(title) <> ")"
+        |> list.map(fn(entry) {
+          let title = string.join(entry.path, " ")
+          "* [`" <> title <> "`](#" <> entry.anchor <> ")"
         })
         |> string.join("\n")
       "## Table of Contents\n\n" <> bullets
@@ -509,14 +543,14 @@ fn render_toc(entries: List(Entry)) -> String {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-fn non_empty(s: String) -> Bool {
-  s != ""
+fn non_empty(input: String) -> Bool {
+  input != ""
 }
 
-fn first_line(s: String) -> String {
-  case string.split_once(s, "\n") {
+fn first_line(input: String) -> String {
+  case string.split_once(input, "\n") {
     Ok(#(first, _)) -> first
-    Error(_) -> s
+    Error(_) -> input
   }
 }
 
@@ -524,14 +558,21 @@ fn sort_strings(items: List(String)) -> List(String) {
   list.sort(items, string.compare)
 }
 
-fn escape_table_cell(s: String) -> String {
-  s
+fn escape_table_cell(input: String) -> String {
+  input
   |> string.replace("|", "\\|")
   |> string.replace("\n", " ")
 }
 
-/// GitHub-style anchor slug, delegating to the
-/// [`glugify`](https://hex.pm/packages/glugify) library.
-fn slugify(s: String) -> String {
-  glugify.slugify(s)
+fn encode_link_path(path: String) -> String {
+  path
+  |> string.split("/")
+  |> list.map(fn(segment) {
+    segment
+    |> uri.percent_encode
+    |> string.replace("(", "%28")
+    |> string.replace(")", "%29")
+    |> string.replace("$", "%24")
+  })
+  |> string.join("/")
 }

@@ -127,9 +127,6 @@ The repository tracks `glint` and `glint_markdown` with
 Normal builds use the committed source copies. You need git-subrepo only to
 pull upstream changes or push patches. Do not edit the generated copies.
 Make upstream patches in `vendor/`, then run `just vendor-sync`.
-The `glint` snapshot includes the optional-flag API backport from
-[`tylerbutler/glint` commit `6ee30abb`](https://github.com/tylerbutler/glint/commit/6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab)
-(`src/glint.gleam:441` and `src/glint.gleam:1286`), required by the CLI.
 
 To update a snapshot, start with a clean worktree:
 
@@ -155,7 +152,11 @@ Run these recipes with Python 3.11 or later.
 Production builds and Hex packages exclude `dev/` and its `glugify` dependency.
 Gleam compiles native files from `dev/` in production, so the sync script
 replaces the Markdown generator's exit shims with core-library calls. It
-rejects new native development files until a contributor reviews them.
+keeps the reviewed Erlang filesystem helper under `native/dev/`, outside
+the compiler's source roots. The docs recipes compile that helper into the
+development build only. Its JavaScript companion stays in `dev/`.
+The script rejects new or changed native development files until a
+contributor reviews them.
 `just test-vendor-production` checks the production application, BEAM files,
 and shipped escript.
 The root `NOTICE` records both vendored packages and includes their Apache-2.0

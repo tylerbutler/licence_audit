@@ -28,7 +28,7 @@ fn assert_optional_and_required_getters(flag: glint.Flag(a)) -> Nil {
   |> should.be_true()
 }
 
-pub fn backported_getters_preserve_absence_for_every_type_test() -> Nil {
+pub fn optional_getters_preserve_absence_for_every_type_test() -> Nil {
   assert_optional_and_required_getters(glint.string_flag("value"))
   assert_optional_and_required_getters(glint.int_flag("value"))
   assert_optional_and_required_getters(glint.float_flag("value"))
@@ -49,7 +49,7 @@ fn optional_group_app(
   })
 }
 
-pub fn backported_group_getters_preserve_defaults_and_values_test() -> Nil {
+pub fn optional_group_getters_preserve_defaults_and_values_test() -> Nil {
   let flag = glint.string_flag("output")
 
   optional_group_app(flag)

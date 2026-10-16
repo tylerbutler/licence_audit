@@ -5,7 +5,7 @@
 //// other formats. Use `glint.document/1` as the entry point for producing
 //// these public help values.
 
-// Vendored from vendor/glint/src/glint/help.gleam at c082b4afef5dc35bacaf03a2921284c527e6afeb.
+// Vendored from vendor/glint/src/glint/help.gleam at 6ee30abb9ffca3a05eed7c9dc00a77e146ac65ab.
 // Modified for licence_audit vendoring. Run just vendor-sync to update.
 
 import gleam/option.{type Option}

@@ -1,3 +1,5 @@
+<a id="command-licence-audit-check"></a>
+
 # `licence_audit check`
 
 Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
