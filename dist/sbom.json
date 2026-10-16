@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:7d6584f2-e9a1-8904-b345-9e58f1c4184d",
+  "serialNumber": "urn:uuid:7f9b5195-f330-86b8-a4f2-ac40e800fd35",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -1267,6 +1267,47 @@
       ]
     },
     {
+      "bom-ref": "pkg:hex/slate@2.1.0",
+      "type": "library",
+      "name": "slate",
+      "purl": "pkg:hex/slate@2.1.0",
+      "version": "2.1.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/slate"
+        ]
+      },
+      "description": "Type-safe Gleam wrapper for Erlang DETS (Disk Erlang Term Storage)",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ee70d348d94ce5a451c365c1d4894e986c7fd2823603d112cc044db1bf42922c"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/slate-2.1.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://github.com/tylerbutler/slate",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
       "bom-ref": "pkg:hex/smalto@3.0.0",
       "type": "library",
       "name": "smalto",
@@ -1651,6 +1692,7 @@
         "pkg:hex/gleeunit@1.11.0",
         "pkg:hex/glinter@2.19.2",
         "pkg:hex/simplifile@2.7.0",
+        "pkg:hex/slate@2.1.0",
         "pkg:hex/tomlet@1.4.1",
         "pkg:hex/tty@1.1.1"
       ]
@@ -1839,6 +1881,13 @@
       "ref": "pkg:hex/simplifile@2.7.0",
       "dependsOn": [
         "pkg:hex/filepath@1.1.2",
+        "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:hex/slate@2.1.0",
+      "dependsOn": [
+        "pkg:hex/gleam_erlang@1.3.0",
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
     },

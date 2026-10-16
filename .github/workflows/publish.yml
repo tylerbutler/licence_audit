@@ -75,6 +75,7 @@ jobs:
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
+          cp -r slate_native "$escript_stage/"
           cp LICENSE "$escript_stage/"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"

@@ -93,14 +93,15 @@ integration interfaces.
 
 `licence_audit` caches Hex licence metadata on disk between runs at
 `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`. Override it with
-`--cache-path=PATH`, or bypass it with `--no-cache`. `licence_audit` reuses entries for 7 days, so metadata changes on Hex can take
-up to 7 days to appear. Use
-`--no-cache` when you need fresh data.
+`--cache-path=PATH`, or bypass the caches with `--no-cache`. `licence_audit`
+reuses Hex API entries for 7 days, so metadata changes on Hex can take up to
+7 days to appear. Use `--no-cache` when you need fresh data.
 
 The cache is shared across projects and commands for each package name and
-version. In CI, restore and save the cache file between jobs, for example
-with `actions/cache` and `--cache-path=.hex-cache/hex-v2.dets`. Use
-`--verbose` to see cache hits and misses.
+version. Concurrent commands can share the cache on a local filesystem. In
+CI, restore and save the cache directory between jobs, for example with
+`actions/cache`, `--cache-path=.hex-cache/hex-v2.dets`, and `.hex-cache/` as
+the path to save. Use `--verbose` to see cache hits and misses.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the

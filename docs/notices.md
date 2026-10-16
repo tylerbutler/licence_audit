@@ -12,10 +12,10 @@ licence_audit notices [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the cache base path (entries are stored in PATH.entries) |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
 | `--include-dev` | `BOOL` | `false` | Include dev-only dependencies in the notice file |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--output` | `STRING` |  | Write notices to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

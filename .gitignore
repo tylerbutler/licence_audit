@@ -5,6 +5,7 @@
 **/.wrangler/
 /.hex-cache
 /licence_audit
+/slate_native
 erl_crash.dump
 /priv/
 

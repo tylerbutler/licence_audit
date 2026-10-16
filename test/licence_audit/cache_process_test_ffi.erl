@@ -1,5 +1,5 @@
 -module(cache_process_test_ffi).
--export([concurrent_writes/5, corrupt_entry/2, worker/0]).
+-export([concurrent_writes/5, worker/0]).
 
 concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
     case os:find_executable("erl") of
@@ -8,18 +8,9 @@ concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
         Erl ->
             run_workers(
                 Erl,
-                <<CachePath/binary, ".entries">>,
+                CachePath,
                 [{FirstKey, FirstValue}, {SecondKey, SecondValue}]
             )
-    end.
-
-corrupt_entry(CachePath, Key) ->
-    Root = <<CachePath/binary, ".entries">>,
-    Digest = crypto:hash(sha256, Key),
-    Filename = <<(binary:encode_hex(Digest, lowercase))/binary, ".cache">>,
-    case file:write_file(filename:join(Root, Filename), <<255>>) of
-        ok -> {ok, nil};
-        {error, _Reason} -> {error, nil}
     end.
 
 run_workers(Erl, Root, Entries) ->
@@ -49,6 +40,7 @@ run_workers(Erl, Root, Entries) ->
 
 start_worker(Erl, Root, Key, Value, Port) ->
     Ebin = filename:dirname(code:which(cache_dir_ffi)),
+    LibDirs = filelib:wildcard(filename:join(filename:dirname(filename:dirname(filename:dirname(code:which(gleam@result)))), "*/ebin")),
     TestEbin = filename:dirname(code:which(?MODULE)),
     open_port(
         {spawn_executable, Erl},
@@ -59,6 +51,8 @@ start_worker(Erl, Root, Key, Value, Port) ->
                 "-noshell",
                 "-pa",
                 Ebin,
+                "-pa"
+            ] ++ LibDirs ++ [
                 "-pa",
                 TestEbin,
                 "-eval",
@@ -126,7 +120,8 @@ worker() ->
     ok = gen_tcp:send(Socket, term_to_binary({ready, Key})),
     {ok, Go} = gen_tcp:recv(Socket, 0, 10000),
     go = binary_to_term(Go, [safe]),
-    Result = cache_dir_ffi:write(cache_dir_ffi:new_store(Root), Key, Value),
+    {ok, Store} = licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>),
+    Result = licence_audit@cache_dir:insert(Store, Key, Value),
     ok = gen_tcp:send(Socket, term_to_binary(Result)),
     gen_tcp:close(Socket),
     halt().

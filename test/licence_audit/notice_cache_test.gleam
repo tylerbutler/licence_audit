@@ -2,19 +2,17 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit/cache_dir
+import licence_audit/cache_support.{corrupt_entry}
 import licence_audit/notice
 import licence_audit/notice_cache
 import simplifile
 
 const tmp_dir = "build/tmp/notices_cache_test"
 
-@external(erlang, "cache_process_test_ffi", "corrupt_entry")
-fn corrupt_entry(cache_path: String, key: String) -> Result(Nil, Nil)
-
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
   let path = tmp_dir <> "/" <> name <> ".dets"
-  let _ = simplifile.delete_all([path, path <> ".entries"])
+  let _ = simplifile.delete(path)
   path
 }
 
@@ -42,7 +40,7 @@ pub fn open_failure_preserves_notices_warning_test() {
   let assert Some(warning) = notice_cache.close(handle)
   should.be_true(string.starts_with(
     warning,
-    "Unable to open notices cache at " <> path <> ".entries: ",
+    "Unable to open notices cache at " <> path <> ": ",
   ))
 }
 
@@ -63,8 +61,7 @@ pub fn parent_directory_failure_preserves_warning_test() {
 pub fn write_failure_preserves_notices_warning_test() {
   let path = fresh_path("write_failure")
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  let _ = simplifile.delete(path <> ".entries")
-  let _ = simplifile.write("block writes", to: path <> ".entries")
+  let _ = simplifile.write("block writes", to: path)
   notice_cache.put_text(handle, "spdx:MIT", "MIT text")
   let assert Some(warning) = notice_cache.close(handle)
   should.be_true(string.starts_with(warning, "Failed to access notices cache: "))
@@ -132,8 +129,8 @@ pub fn empty_text_is_treated_as_miss_test() {
   let assert None = notice_cache.close(handle)
 }
 
-pub fn invalid_utf8_text_is_warned_miss_and_can_be_refetched_test() {
-  let path = fresh_path("invalid_utf8")
+pub fn invalid_value_text_is_warned_miss_and_can_be_refetched_test() {
+  let path = fresh_path("invalid_value")
   let key = "spdx:MIT"
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let assert Ok(Nil) = corrupt_entry(path, key)
@@ -142,7 +139,7 @@ pub fn invalid_utf8_text_is_warned_miss_and_can_be_refetched_test() {
   notice_cache.put_text(handle, key, "refetched MIT text")
   should.equal(notice_cache.get_text(handle, key), Ok("refetched MIT text"))
   let assert Some(warning) = notice_cache.close(handle)
-  should.be_true(string.contains(warning, "invalid UTF-8"))
+  should.be_true(string.contains(warning, "read spdx:MIT"))
 
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   should.equal(notice_cache.get_text(handle, key), Ok("refetched MIT text"))
