@@ -25,6 +25,46 @@ pub fn encode_batch_body_emits_querybatch_shape_test() {
   assert string.contains(body, "purl")
 }
 
+pub fn git_commit_queries_preserve_mixed_batch_order_and_pagination_test() {
+  let commit = "6879efc2c1596d11a6a6ad296f80063b558d5e0f"
+  let github = "pkg:github/harfbuzz/harfbuzz@" <> commit
+  let client = fn(req: request.Request(String)) {
+    let body = case string.contains(req.body, "page_token") {
+      False -> {
+        should.equal(
+          req.body,
+          "{\"queries\":[{\"package\":{\"purl\":\"pkg:hex/first@1.0.0\"}},"
+            <> "{\"commit\":\""
+            <> commit
+            <> "\"},{\"package\":{\"purl\":\"pkg:hex/last@2.0.0\"}}]}",
+        )
+        "{\"results\":[{},{\"vulns\":[{\"id\":\"OSV-1\"}],\"next_page_token\":\"next\"},{\"vulns\":[{\"id\":\"OSV-hex\"}]}]}"
+      }
+      True -> {
+        should.equal(
+          req.body,
+          "{\"queries\":[{\"page_token\":\"next\",\"commit\":\""
+            <> commit
+            <> "\"}]}",
+        )
+        "{\"results\":[{\"vulns\":[{\"id\":\"OSV-2\"}]}]}"
+      }
+    }
+    Ok(Response(status: 200, headers: [], body:))
+  }
+  should.equal(
+    osv.query_batch(
+      ["pkg:hex/first@1.0.0", github, "pkg:hex/last@2.0.0"],
+      client,
+    ),
+    Ok([
+      osv.BatchEntry("pkg:hex/first@1.0.0", []),
+      osv.BatchEntry(github, ["OSV-1", "OSV-2"]),
+      osv.BatchEntry("pkg:hex/last@2.0.0", ["OSV-hex"]),
+    ]),
+  )
+}
+
 pub fn empty_purls_short_circuits_without_calling_client_test() {
   let client = fn(_req) {
     panic as "client should not be invoked for empty purls"

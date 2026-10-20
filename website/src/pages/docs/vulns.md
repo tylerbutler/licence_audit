@@ -25,6 +25,11 @@ and network errors cause a failure. The command queries Hex and GitHub
 dependencies. It skips other sources and lists them at the end. The command
 gets advisories through HTTPS and does **not** cache them.
 
+Hex queries identify the package and locked version. GitHub queries send the
+locked commit through OSV's `commit` field. Reports, scoped exceptions, and
+SBOM component references keep the GitHub purl. These query rules also apply
+to `check --vulns` and `sbom --vulns`.
+
 ## Reviewed advisory exceptions
 
 `vulns` reads `[tools.licence_audit]` from the project selected by `--manifest`.
