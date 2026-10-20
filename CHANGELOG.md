@@ -1,5 +1,12 @@
 # licence_audit changelog
 
+## v0.13.1 - 2026-10-20
+
+### Fixed
+
+- Evaluate SPDX licence expressions in policy checks, preserve scoped exceptions for required terms, and reject malformed expressions even with a deny-only policy.
+- Use OSV commit queries for GitHub dependencies in `vulns`, `check --vulns`, and `sbom --vulns` so affected commits do not appear clean.
+
 ## v0.13.0 - 2026-10-16
 
 ### Changed
