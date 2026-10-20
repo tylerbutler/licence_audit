@@ -94,6 +94,7 @@ pub fn is_failure(status: Status) -> Bool {
     Checked(policy.Allowed) -> False
     Checked(policy.NoLicencesDeclared)
     | Checked(policy.DeniedLicence(_))
+    | Checked(policy.InvalidLicenceExpression(_))
     | Checked(policy.UnallowedLicence(_)) -> True
     NotChecked | Failed(_) | Skipped(_) -> False
     Reviewed(findings) ->
@@ -448,6 +449,8 @@ fn status_text(status: Status) -> String {
     Checked(policy.NoLicencesDeclared) -> "no licences declared"
     Checked(policy.DeniedLicence(licence)) -> "denied: " <> licence
     Checked(policy.UnallowedLicence(licence)) -> "unknown: " <> licence
+    Checked(policy.InvalidLicenceExpression(licence)) ->
+      "invalid SPDX expression: " <> licence
     Reviewed(findings) ->
       findings
       |> list.map(fn(finding) {

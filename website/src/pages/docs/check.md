@@ -28,6 +28,32 @@ update`](/docs/update). The command gets metadata, selects existing entries,
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
 
+### SPDX expressions
+
+`AND` requires both terms to pass. `OR` needs one passing alternative.
+With the policy above, `MIT AND GPL-3.0-only` fails, but
+`MIT OR GPL-3.0-only` passes through MIT. The same branch must satisfy both
+the allow and deny rules.
+
+Operators must be uppercase. `WITH` binds first, then `AND`, then `OR`;
+parentheses change grouping. Treat `GPL-2.0-only WITH Classpath-exception-2.0`
+as one term: allowing or denying bare `GPL-2.0-only` does not match it.
+A trailing `+` is also part of the term. Use the complete term in your policy.
+SPDX identifiers match without regard to case; custom `LicenseRef-`
+identifiers remain case-sensitive. The parser checks syntax, not membership
+in the SPDX licence list. It does not infer equivalence between identifiers.
+
+Separate strings in a package's licence list must all pass. An exact
+expression in `allow` accepts its terms but does not override operand deny
+rules. An exact expression in `deny` rejects that declaration.
+Expression matching ignores whitespace between tokens and SPDX identifier
+case, but preserves custom-reference case and the expression's tokens.
+
+Malformed expressions fail the gate, even with a deny-only policy.
+For untrusted metadata, the parser limits each expression to 64 KiB,
+1024 tokens, and 64 nested parentheses. Expressions above these limits fail
+the gate.
+
 ## Ad-hoc and merged policy
 
 The command merges CLI `--allow` and `--deny` values with the configuration.
@@ -112,10 +138,12 @@ Put global settings such as `allow`, `deny`, and `vuln_severity` in
 | `no-licences-declared` | None | A successful metadata response with an empty licence list. |
 | `advisory` | `advisory = "CVE-2026-12345"` | An OSV advisory ID or a direct alias in the fetched record. |
 
-Use the complete licence string from the report. The command does not parse
-SPDX expressions for policy matching. A denied licence takes precedence over
-an unallowed licence. An exception for one selector cannot accept another
-selector, a second licence, or another advisory.
+Use the licence term from the finding in the report, rather than the full
+declared expression. A denied term takes precedence over an unallowed term.
+An exception for one selector cannot accept another selector, a second
+required term, or another advisory. For `OR`, an accepted alternative is
+sufficient. The report prefers an alternative that passes global policy over
+one that needs an exception. Malformed expressions cannot be excepted.
 
 ### Exact package scope
 

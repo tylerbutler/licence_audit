@@ -82,6 +82,7 @@ const max_batch_pages = 32
 /// Query OSV for vulnerabilities affecting each of `purls`. Returns one
 /// `BatchEntry` per input purl, preserving input order. Empty `vuln_ids`
 /// means OSV reports no known vulnerabilities for that purl.
+/// GitHub purls use commit queries; Hex purls use package queries.
 pub fn query_batch(
   purls: List(String),
   client: fn(Request(String)) -> Result(Response(String), Error),
@@ -181,9 +182,10 @@ fn encode_batch_body_with_tokens(
   let queries =
     list.map(purls, fn(entry) {
       let #(purl, page_token) = entry
-      let fields = [
-        #("package", json.object([#("purl", json.string(purl))])),
-      ]
+      let fields = case string.split(purl, "@") {
+        ["pkg:github/" <> _, commit] -> [#("commit", json.string(commit))]
+        _ -> [#("package", json.object([#("purl", json.string(purl))]))]
+      }
       let fields = case page_token {
         None -> fields
         Some(token) -> [#("page_token", json.string(token)), ..fields]

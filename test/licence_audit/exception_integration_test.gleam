@@ -174,6 +174,80 @@ pub fn accepted_licence_cannot_hide_a_second_finding_or_tree_test() {
   assert string.contains(result.output, "excepted #1")
 }
 
+pub fn expression_exceptions_follow_and_or_without_hiding_findings_test() {
+  let root =
+    project("expression_decisions", licence_rules <> licence_waiver(""))
+  [
+    #("GPL-3.0-only AND Apache-2.0", 1),
+    #("GPL-3.0-only OR Apache-2.0", 0),
+    #("GPL-3.0-only AND", 1),
+  ]
+  |> list.each(fn(test_case) {
+    let #(expression, expected_exit) = test_case
+    let result =
+      run(
+        root,
+        ["check"],
+        fn(name) {
+          Ok(
+            hex.licences_only(case name {
+              "first" -> [expression]
+              _ -> ["MIT"]
+            }),
+          )
+        },
+        batch,
+        detail,
+      )
+    should.equal(result.exit_code, expected_exit)
+    case expression {
+      "GPL-3.0-only AND" -> {
+        assert string.contains(result.output, "invalid SPDX expression:")
+      }
+      _ -> {
+        assert string.contains(
+          result.output,
+          "denied: GPL-3.0-only [excepted #1",
+        )
+      }
+    }
+    case expected_exit, expression {
+      1, "GPL-3.0-only AND Apache-2.0" -> {
+        assert string.contains(result.output, "unknown: Apache-2.0")
+      }
+      _, _ -> Nil
+    }
+  })
+}
+
+pub fn custom_reference_exception_casing_cannot_bypass_deny_test() {
+  let root =
+    project(
+      "custom_reference_casing",
+      "[tools.licence_audit]\ndeny = [\"LicenseRef-Custom WITH Classpath-exception-2.0\"]\n",
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(name) {
+        Ok(
+          hex.licences_only(case name {
+            "first" -> ["LicenseRef-Custom WITH classpath-exception-2.0"]
+            _ -> ["MIT"]
+          }),
+        )
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 1)
+  assert string.contains(
+    result.output,
+    "denied: LicenseRef-Custom WITH classpath-exception-2.0",
+  )
+}
+
 pub fn expired_and_updated_scope_do_not_accept_findings_test() {
   let root =
     project(

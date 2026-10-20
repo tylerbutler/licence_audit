@@ -1,4 +1,5 @@
 import gleam/dynamic/decode
+import gleam/http/response
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -976,15 +977,40 @@ fn vulnerability_with_severity(
 fn github_only_vuln_batch(
   purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
-  Ok(
-    list.map(purls, fn(purl) {
-      let vuln_ids = case string.contains(purl, "pkg:github/") {
-        True -> ["CVE-GITHUB-0001"]
-        False -> []
-      }
-      osv.BatchEntry(purl: purl, vuln_ids: vuln_ids)
-    }),
-  )
+  osv.query_batch(purls, fn(request) {
+    let assert Ok(commits) =
+      json.parse(
+        request.body,
+        decode.field(
+          "queries",
+          decode.list(decode.optional_field(
+            "commit",
+            "",
+            decode.string,
+            decode.success,
+          )),
+          decode.success,
+        ),
+      )
+    let results =
+      json.array(commits, fn(commit) {
+        let ids = case commit {
+          "" -> []
+          _ -> ["CVE-GITHUB-0001"]
+        }
+        json.object([
+          #(
+            "vulns",
+            json.array(ids, fn(id) { json.object([#("id", json.string(id))]) }),
+          ),
+        ])
+      })
+    Ok(response.Response(
+      status: 200,
+      headers: [],
+      body: json.to_string(json.object([#("results", results)])),
+    ))
+  })
 }
 
 pub fn check_vulns_gates_affected_github_dependency_test() {
@@ -1008,6 +1034,48 @@ pub fn check_vulns_gates_affected_github_dependency_test() {
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "CVE-GITHUB-0001")
   assert string.contains(result.output, "gluegun@0.1.0")
+}
+
+pub fn github_commit_queries_reach_vulns_and_sbom_test() {
+  [["vulns"], ["sbom", "--vulns"]]
+  |> list.each(fn(args) {
+    let result =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=test/fixtures/manifest_github_git.toml"]),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: github_only_vuln_batch,
+          osv_detail_fetcher: vulnerability_with_severity(osv.High),
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "CVE-GITHUB-0001")
+    case args {
+      ["sbom", ..] -> {
+        let assert Ok(affected) =
+          json.parse(
+            result.output,
+            decode.at(
+              ["vulnerabilities"],
+              decode.list(decode.field(
+                "affects",
+                decode.list(decode.field("ref", decode.string, decode.success)),
+                decode.success,
+              )),
+            ),
+          )
+        should.equal(affected, [
+          [
+            "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+          ],
+        ])
+      }
+      _ -> {
+        assert string.contains(result.output, "gluegun 0.1.0")
+      }
+    }
+  })
 }
 
 pub fn check_vulns_reports_unsupported_sources_test() {

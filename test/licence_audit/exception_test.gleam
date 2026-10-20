@@ -231,14 +231,18 @@ pub fn complete_licence_findings_preserve_deny_precedence_test() {
   let assert Ok(rules) =
     policy.new(allow: ["MIT"], deny: ["MIT", "GPL-3.0-only"], check_mode: True)
   should.equal(
-    policy.findings(rules, ["Apache-2.0", "MIT", "GPL-3.0-only", "MIT"]),
+    policy.findings(rules, ["Apache-2.0", "MIT", "GPL-3.0-only", "MIT"], fn(_) {
+      False
+    }),
     [
       exception.DeniedLicence("MIT"),
       exception.DeniedLicence("GPL-3.0-only"),
       exception.UnallowedLicence("Apache-2.0"),
     ],
   )
-  should.equal(policy.findings(rules, []), [exception.NoLicencesDeclared])
+  should.equal(policy.findings(rules, [], fn(_) { False }), [
+    exception.NoLicencesDeclared,
+  ])
 }
 
 pub fn summary_distinguishes_unused_disabled_and_expired_test() {

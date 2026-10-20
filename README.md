@@ -146,7 +146,21 @@ deny  = ["GPL-3.0-only"]
 ```
 
 An `allow` list means *only* those licences are accepted; a `deny` list rejects
-matching licences. The easiest way to create this is `licence_audit update`,
+matching licences. SPDX expressions use `AND` for required terms and `OR` for
+alternatives: `MIT AND GPL-3.0-only` fails the policy above, while
+`MIT OR GPL-3.0-only` passes through MIT. `WITH` forms a distinct licence term;
+list the complete term, such as `GPL-2.0-only WITH Classpath-exception-2.0`.
+Operators must be uppercase. Parentheses set grouping, and `AND` binds more
+tightly than `OR`. A trailing `+` remains part of the licence term.
+
+Deny takes precedence for each term. SPDX identifiers match without regard to
+case; custom `LicenseRef-` identifiers remain case-sensitive. Separate strings
+in a package's licence list must all pass. An exact expression in `allow`
+accepts its terms but cannot override a denied term. Malformed expressions
+fail the gate, including with a deny-only policy; scoped exceptions cannot
+accept malformed expressions.
+
+The easiest way to create a policy is `licence_audit update`,
 which fetches metadata, preselects any existing entries, prompts you, and writes
 the result back (comment-preserving). `update` needs an interactive terminal: it
 exits `1` on non-interactive stdin and `130` if you cancel.
@@ -335,6 +349,10 @@ manifest, or network errors. Hex and GitHub deps are queried; other sources are
 skipped and listed at the end. Severity comes from OSV's
 `database_specific.severity`, falling back to the CVSS vector. Advisories are
 fetched over HTTPS and are **not** cached.
+
+Hex dependencies use package-version queries. GitHub dependencies use OSV
+commit queries at the locked commit; reports and exceptions keep the original
+GitHub purl. The same query rules apply to `check --vulns` and `sbom --vulns`.
 
 To fail when vulnerabilities meet a severity threshold, add `--vulns` to
 `check`:

@@ -1833,7 +1833,7 @@ fn review_licence_rows(
     case row.status {
       report.Checked(_) -> {
         use findings <- result.try(
-          policy.findings(audit_policy, row.licences)
+          policy.findings(audit_policy, row.licences, fn(_) { False })
           |> list.try_map(fn(finding) {
             use decision <- result.try(exception.decide(
               exceptions,
@@ -1845,6 +1845,16 @@ fn review_licence_rows(
             Ok(#(finding, decision))
           }),
         )
+        let selected =
+          policy.findings(audit_policy, row.licences, fn(finding) {
+            list.any(findings, fn(reviewed) {
+              reviewed.0 == finding && exception.accepted(reviewed.1)
+            })
+          })
+        let findings =
+          list.filter(findings, fn(reviewed) {
+            list.contains(selected, reviewed.0)
+          })
         case exception.matched(list.map(findings, fn(finding) { finding.1 })) {
           [] -> Ok(row)
           _ -> Ok(report.Row(..row, status: report.Reviewed(findings)))

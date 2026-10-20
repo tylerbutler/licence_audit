@@ -13,6 +13,7 @@ import licence_audit/toml
 pub type Finding {
   DeniedLicence(String)
   UnallowedLicence(String)
+  InvalidLicenceExpression(String)
   NoLicencesDeclared
   Advisory(String)
 }
@@ -182,7 +183,10 @@ pub fn is_expired(entry: Exception, today: String) -> Bool {
 fn is_advisory(finding: Finding) -> Bool {
   case finding {
     Advisory(_) -> True
-    DeniedLicence(_) | UnallowedLicence(_) | NoLicencesDeclared -> False
+    DeniedLicence(_)
+    | UnallowedLicence(_)
+    | InvalidLicenceExpression(_)
+    | NoLicencesDeclared -> False
   }
 }
 
@@ -276,6 +280,7 @@ pub fn finding_text(finding: Finding) -> String {
   case finding {
     DeniedLicence(licence) -> "denied: " <> licence
     UnallowedLicence(licence) -> "unknown: " <> licence
+    InvalidLicenceExpression(licence) -> "invalid SPDX expression: " <> licence
     NoLicencesDeclared -> "no licences declared"
     Advisory(id) -> id
   }
