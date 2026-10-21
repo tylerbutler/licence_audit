@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Evaluate SPDX licence expressions in policy checks, preserve scoped exceptions for required terms, and reject malformed expressions even with a deny-only policy."
