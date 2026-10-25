@@ -218,6 +218,49 @@ pub fn invalid_target_parent_fails_before_writing_test() {
   let _ = simplifile.delete(blocker)
 }
 
+pub fn toml_edit_failure_exits_2_without_changing_file_test() {
+  let path = fresh_path("toml_edit_failure")
+  let original = "name = [\n"
+  let assert Ok(_) = simplifile.write(to: path, contents: original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "TOML edit failed")
+  should.equal(simplifile.read(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn file_write_failure_exits_2_test() {
+  let path = fresh_path("missing_parent") <> "/gleam.toml"
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Failed to write " <> path)
+  let assert Error(_) = simplifile.read(path)
+}
+
 pub fn update_preserves_unreadable_text_before_picker_test() {
   let path = fresh_path("unreadable")
   let original = <<255, 254>>

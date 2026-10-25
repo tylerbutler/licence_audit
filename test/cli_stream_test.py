@@ -122,6 +122,58 @@ class CliStreamTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr)
 
+    def test_incomplete_reports_exit_two_on_stdout(self):
+        packages = [
+            '{ name = "' + name + '", version = "1.0.0", '
+            'build_tools = ["gleam"], requirements = [], '
+            'otp_app = "' + name + '", source = "hex", outer_checksum = "ABC" }'
+            for name in ("healthy", "unavailable")
+        ]
+        (self.project / "manifest.toml").write_text(
+            "packages = [" + ", ".join(packages) + "]\n"
+            '[requirements]\nhealthy = ">= 1.0.0"\nunavailable = ">= 1.0.0"\n'
+        )
+        # Replace only Hex fetching in a fresh VM; exercise the real main/dispatch.
+        evaluation = """
+            Metadata = 'licence_audit@hex':licences_only([<<"MIT">>]),
+            Forms = [
+                {attribute, 1, module, 'licence_audit@hex'},
+                {attribute, 1, export, [{fetch_package_metadata_from_hex, 1}]},
+                {function, 1, fetch_package_metadata_from_hex, 1, [
+                    {clause, 1, [erl_parse:abstract(<<"healthy">>)], [],
+                        [erl_parse:abstract({ok, Metadata})]},
+                    {clause, 1, [{var, 1, '_'}], [],
+                        [erl_parse:abstract({error,
+                            {network_failure, <<"fixture metadata failure">>}})]}
+                ]}
+            ],
+            {ok, Module, Binary} = compile:forms(Forms, [binary]),
+            {module, Module} = code:load_binary(Module, "stream_fixture", Binary),
+            licence_audit:main().
+        """
+        for command in ([], ["check", "--allow=MIT"]):
+            with self.subTest(command=command):
+                result = subprocess.run(
+                    [
+                        "erl", "-noshell", "-pa",
+                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                        "-eval", evaluation, "-extra",
+                        *command, "--quiet", "--no-cache",
+                    ],
+                    cwd=self.project,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={**os.environ, "NO_COLOR": "1"},
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("healthy", result.stdout)
+                self.assertIn("MIT", result.stdout)
+                self.assertIn("unavailable", result.stdout)
+                self.assertIn("fixture metadata failure", result.stdout)
+                self.assertIn("package metadata could not be fetched", result.stderr)
+                self.assertNotIn("healthy", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -203,7 +203,8 @@ fn write_selection(
       let message = write_error_message(error)
       let exit_code = case error {
         FileReadFailed(_, _) -> error.exit_code(error.Input(message))
-        TomlEditFailed(_) | FileWriteFailed(_) -> 1
+        TomlEditFailed(_) -> error.exit_code(error.Config(message))
+        FileWriteFailed(_) -> error.exit_code(error.Input(message))
       }
       let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
