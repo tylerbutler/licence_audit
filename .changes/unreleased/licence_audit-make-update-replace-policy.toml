@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `update` replace policy files atomically so interrupted writes leave the original configuration intact, while preserving permissions, ownership, comments, and unrelated TOML."
