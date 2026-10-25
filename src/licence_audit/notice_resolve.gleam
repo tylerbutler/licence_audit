@@ -61,7 +61,7 @@ pub fn resolve(
 ) -> Result(Resolution, notice.Error) {
   case final_key(package) {
     Ok(key) ->
-      case notice_cache.get_files(cache, key) {
+      case cached_final_files(cache, key, package) {
         Ok(files) -> Ok(Resolution(outcome: Resolved(files), warnings: []))
         Error(_) -> {
           use resolution <- result.try(resolve_fresh(cache, package, clients))
@@ -83,11 +83,49 @@ pub fn resolve(
   }
 }
 
+fn cached_final_files(
+  cache: notice_cache.Cache,
+  key: String,
+  package: notice.NoticePackage,
+) -> Result(List(notice.NoticeFile), Nil) {
+  use files <- result.try(notice_cache.get_files(cache, key))
+  case notice.has_licence_file(files) {
+    True -> Ok(files)
+    False -> {
+      use requirements <- result.try(spdx.required_identifiers(
+        package.declared_licences,
+      ))
+      use synthetic <- result.try(
+        list.try_map(requirements, cached_spdx_file(cache, _)),
+      )
+      case synthetic != [] && list.all(synthetic, list.contains(files, _)) {
+        True -> Ok(files)
+        False -> Error(Nil)
+      }
+    }
+  }
+}
+
+fn cached_spdx_file(
+  cache: notice_cache.Cache,
+  requirement: spdx.Requirement,
+) -> Result(notice.NoticeFile, Nil) {
+  let kind = spdx.index_kind(requirement)
+  let index_key =
+    "spdx-index:" <> spdx.license_list_commit <> ":" <> spdx.index_slug(kind)
+  use encoded <- result.try(notice_cache.get_text(cache, index_key))
+  use ids <- result.try(spdx.decode_cached_index(encoded))
+  use canonical <- result.try(spdx.canonical_requirement(requirement, ids))
+  use text <- result.try(notice_cache.get_text(cache, spdx_key(canonical)))
+  Ok(notice.spdx_file(canonical, text))
+}
+
+// Version material keys so old empty selections cannot hide nested licences.
 fn final_key(package: notice.NoticePackage) -> Result(String, Nil) {
   use source <- result.try(source_identity(package))
   use metadata <- result.try(metadata_fingerprint(package))
   Ok(
-    "pkg:"
+    "pkg:v2:"
     <> source
     <> ":metadata:"
     <> metadata
@@ -98,7 +136,7 @@ fn final_key(package: notice.NoticePackage) -> Result(String, Nil) {
 
 fn source_key(package: notice.NoticePackage) -> Result(String, Nil) {
   source_identity(package)
-  |> result.map(fn(identity) { "source:" <> identity })
+  |> result.map(fn(identity) { "source:v2:" <> identity })
 }
 
 fn source_identity(package: notice.NoticePackage) -> Result(String, Nil) {
@@ -358,9 +396,9 @@ fn repo_licence_files(
   commit: String,
   clients: notice.Clients,
 ) -> Result(List(notice.NoticeFile), RepoFallbackError) {
-  let key = "repo:" <> repository.describe(repo) <> "@" <> commit
+  let key = "repo:v2:" <> repository.describe(repo) <> "@" <> commit
   case notice_cache.get_files(cache, key) {
-    Ok(files) -> Ok(files)
+    Ok(files) -> Ok(notice.licence_files_only(files))
     Error(_) ->
       case clients.fetch_repo_archive(repo, commit) {
         Error(fetch_error) ->
@@ -527,10 +565,14 @@ fn resolve_spdx(
     Ok(text) -> Ok(Some(notice.spdx_file(requirement, text)))
     Error(_) ->
       case clients.fetch_spdx(requirement) {
-        Ok(Some(text)) -> {
-          notice_cache.put_text(cache, key, text)
-          Ok(Some(notice.spdx_file(requirement, text)))
-        }
+        Ok(Some(text)) ->
+          case notice.has_text(text) {
+            False -> Ok(None)
+            True -> {
+              notice_cache.put_text(cache, key, text)
+              Ok(Some(notice.spdx_file(requirement, text)))
+            }
+          }
         Ok(None) -> Ok(None)
         Error(fetch_error) ->
           Error(notice.SpdxFetchFailed(

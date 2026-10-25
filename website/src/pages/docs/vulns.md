@@ -20,9 +20,12 @@ command first reads `database_specific.severity` from OSV. If this value is not
 available, it uses the CVSS vector. The report ends with the numbers of checked,
 affected, and clean packages.
 
-The presence of a vulnerability does not cause `vulns` to fail. I/O, manifest,
-and network errors cause a failure. The command queries Hex and GitHub
-dependencies. It skips other sources and lists them at the end. The command
+The presence of a vulnerability does not cause `vulns` to fail: findings exit
+`0`. Input, configuration, manifest, and OSV batch network/decode errors exit
+`2`. Individual advisory-detail failures are tolerated: the report keeps the
+advisory ID with unknown severity and a warning, and still exits `0`. This is
+optional enrichment, not a complete severity assessment. The command queries
+Hex and GitHub dependencies. It skips other sources and lists them at the end. The command
 gets advisories through HTTPS and does **not** cache them.
 
 Hex queries identify the package and locked version. GitHub queries send the

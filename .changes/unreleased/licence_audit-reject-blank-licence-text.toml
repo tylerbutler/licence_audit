@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Ignore blank licence files and attribution-only files in SPDX-like paths in `notices`; use usable fallbacks and refresh stale material caches."

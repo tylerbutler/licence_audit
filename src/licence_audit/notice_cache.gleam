@@ -94,14 +94,17 @@ pub fn put_files(
 }
 
 /// Read a cached plain-text value (e.g. a resolved commit SHA or canonical SPDX
-/// text) stored under `key`. An empty stored value is treated as a miss.
+/// text) stored under `key`. A blank stored value is treated as a miss.
 pub fn get_text(cache: Cache, key: String) -> Result(String, Nil) {
   case cache.table {
     None -> Error(Nil)
     Some(table) ->
       case cache_dir.lookup(table, key) {
-        Ok("") -> Error(Nil)
-        Ok(value) -> Ok(value)
+        Ok(value) ->
+          case notice.has_text(value) {
+            False -> Error(Nil)
+            True -> Ok(value)
+          }
         Error(_) -> Error(Nil)
       }
   }

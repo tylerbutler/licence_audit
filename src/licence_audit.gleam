@@ -1351,46 +1351,17 @@ fn prepare_audit(
       #(diagnostic(error.from_manifest_error(e)), reporter)
     }),
   )
-  let sbom_manifest = case options.check && options.check_vulns {
-    False -> None
+  use sbom_manifest <- result.try(case options.check && options.check_vulns {
+    False -> Ok(None)
     True ->
-      Some(case manifest.load_sbom(manifest_path) {
-        Ok(sbom_manifest) -> sbom_manifest
-        Error(_) -> audit_sbom_fallback(locked)
+      manifest.load_vulns(manifest_path)
+      |> result.map(Some)
+      |> result.map_error(fn(e) {
+        #(diagnostic(error.from_manifest_error(e)), reporter)
       })
-  }
+  })
   let scopes = compute_scopes(project_root, locked)
   Ok(#(config_policy, audit_policy, locked, sbom_manifest, scopes, reporter))
-}
-
-fn audit_sbom_fallback(
-  locked: manifest.LockedPackages,
-) -> manifest.SbomManifest {
-  let hex_entries =
-    list.map(locked.packages, fn(package) {
-      manifest.SbomEntry(
-        name: package.name,
-        version: package.version,
-        requirements: package.requirements,
-        provenance: manifest.HexProvenance(
-          outer_checksum: "",
-          inner_checksum: None,
-        ),
-      )
-    })
-  let unsupported_entries =
-    list.map(locked.skipped_packages, fn(package) {
-      manifest.SbomEntry(
-        name: package.name,
-        version: package.version,
-        requirements: package.requirements,
-        provenance: manifest.UnknownProvenance(source: package.source),
-      )
-    })
-  manifest.SbomManifest(
-    entries: list.append(hex_entries, unsupported_entries),
-    root_requirements: locked.direct_names,
-  )
 }
 
 /// Run the audit over a loaded manifest: fetch licences, render the report,
@@ -1624,7 +1595,7 @@ fn finalize_audit(
   output: String,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
-  use <- bool.guard(when: check && fetch_failed, return: #(
+  use <- bool.guard(when: fetch_failed, return: #(
     RunResult(2, output),
     progress.defer_error(
       reporter,
