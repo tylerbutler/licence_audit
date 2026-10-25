@@ -288,6 +288,8 @@ pub type SbomInput {
     scopes: Dict(String, manifest.Scope),
     /// Vulnerabilities to embed (CycloneDX `vulnerabilities`); empty omits it.
     vulnerabilities: List(EmbeddedVulnerability),
+    /// Canonical SPDX text by licence ID; empty preserves the default output.
+    license_texts: Dict(String, String),
   )
 }
 
@@ -304,7 +306,12 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
     manifest.SbomManifest(..input.manifest, entries: sorted_entries)
   use components <- result.try(
     list.try_map(sorted_entries, fn(entry) {
-      build_component(entry, input.package_metadata, input.scopes)
+      build_component(
+        entry,
+        input.package_metadata,
+        input.scopes,
+        input.license_texts,
+      )
     }),
   )
   let dependencies = build_dependencies(sorted_manifest)
@@ -345,7 +352,7 @@ fn resolve_serial(
         json.to_string(json.preprocessed_array(components))
         <> json.to_string(json.preprocessed_array(dependencies))
         <> json.to_string(json.preprocessed_array(vulnerabilities))
-        <> json.to_string(root_component_json(input.root))
+        <> json.to_string(root_component_json(input.root, input.license_texts))
         <> input.tool_version
       sbom_uuid.serial_number_from_content(content)
       |> result.replace_error(error.SbomSerialNumberFailed)
@@ -357,6 +364,7 @@ fn build_component(
   entry: manifest.SbomEntry,
   package_metadata: Dict(String, hex.PackageMetadata),
   scopes: Dict(String, manifest.Scope),
+  license_texts: Dict(String, String),
 ) -> Result(json.Json, error.Error) {
   use purl <- result.try(purl_for(entry))
   let metadata = dict.get(package_metadata, entry.name)
@@ -374,7 +382,7 @@ fn build_component(
     |> append_publisher(metadata)
     |> append_description(metadata)
     |> append_hashes(entry)
-    |> append_licenses(metadata)
+    |> append_licenses(metadata, license_texts)
     |> append_external_references(entry, metadata)
     |> append_properties(entry)
 
@@ -475,6 +483,7 @@ fn append_hashes(
 fn append_licenses(
   fields: List(Field),
   metadata: Result(hex.PackageMetadata, Nil),
+  license_texts: Dict(String, String),
 ) -> List(Field) {
   case metadata {
     Ok(meta) ->
@@ -484,7 +493,11 @@ fn append_licenses(
           list.append(fields, [
             #(
               "licenses",
-              json.preprocessed_array(list.map(entries, license_to_json)),
+              json.preprocessed_array(
+                list.map(entries, fn(entry) {
+                  license_to_json(entry, license_texts)
+                }),
+              ),
             ),
           ])
       }
@@ -614,12 +627,30 @@ fn reference_type(label: String) -> String {
   }
 }
 
-fn license_to_json(entry: LicenseEntry) -> json.Json {
+fn license_to_json(
+  entry: LicenseEntry,
+  license_texts: Dict(String, String),
+) -> json.Json {
   // `acknowledgement: declared` (CycloneDX 1.6) records that these licences are
   // as declared by the package's own metadata (Hex / gleam.toml), not concluded
   // by scanning the source.
   let fields = case entry {
-    LicenseId(id) -> [#("id", json.string(id))]
+    LicenseId(id) -> {
+      let fields = [#("id", json.string(id))]
+      case dict.get(license_texts, id) {
+        Error(_) -> fields
+        Ok(text) ->
+          list.append(fields, [
+            #(
+              "text",
+              json.object([
+                #("contentType", json.string("text/plain")),
+                #("content", json.string(text)),
+              ]),
+            ),
+          ])
+      }
+    }
     LicenseName(name) -> [#("name", json.string(name))]
   }
   json.object([
@@ -691,7 +722,10 @@ const bom_vendor = "tylerbutler"
 
 /// Build the `metadata.component` object for the project being described,
 /// enriching the bare name/version with whatever `gleam.toml` provided.
-fn root_component_json(root: RootComponent) -> json.Json {
+fn root_component_json(
+  root: RootComponent,
+  license_texts: Dict(String, String),
+) -> json.Json {
   [
     #("bom-ref", json.string("root")),
     #("type", json.string("application")),
@@ -721,7 +755,11 @@ fn root_component_json(root: RootComponent) -> json.Json {
         list.append(fields, [
           #(
             "licenses",
-            json.preprocessed_array(list.map(entries, license_to_json)),
+            json.preprocessed_array(
+              list.map(entries, fn(entry) {
+                license_to_json(entry, license_texts)
+              }),
+            ),
           ),
         ])
     }
@@ -809,7 +847,7 @@ fn build_document(
             json.object([#("name", json.string(bom_vendor))]),
           ]),
         ),
-        #("component", root_component_json(input.root)),
+        #("component", root_component_json(input.root, input.license_texts)),
       ]),
     ),
     #("components", json.preprocessed_array(components)),
