@@ -19,11 +19,14 @@ import uuid
 @contextmanager
 def isolated_network(environment):
     if platform.system() == "Linux":
-        command = [shutil.which("unshare"), "--net", "--"]
+        command = [shutil.which("unshare"), "--net"]
         if os.geteuid() != 0:
-            command = [shutil.which("sudo"), "-n", *command]
+            command = [
+                shutil.which("sudo"), "-n", *command,
+                "--setgid", str(os.getgid()), "--setuid", str(os.getuid()),
+            ]
         # sudo normally resets HOME and the cache environment.
-        yield [*command, shutil.which("env"), "-i",
+        yield [*command, "--", shutil.which("env"), "-i",
                *(f"{key}={value}" for key, value in environment.items())]
     elif platform.system() == "Darwin":
         yield ["/usr/bin/sandbox-exec", "-p", "(version 1)(allow default)(deny network*)"]
