@@ -5,6 +5,8 @@ import ctypes
 from ctypes import wintypes
 import os
 import pathlib
+import socket
+import struct
 import subprocess
 import threading
 import time
@@ -117,19 +119,37 @@ ebin = [str(directory) for directory in pathlib.Path("build/dev/erlang").glob("*
 
 
 def start(mode, contents=""):
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    listener.settimeout(20)
     environment = dict(
         os.environ, POLICY_TEST_PATH=str(path),
         POLICY_TEST_MODE=mode, POLICY_TEST_CONTENTS=contents,
+        POLICY_CONTROL_PORT=str(listener.getsockname()[1]),
     )
-    return subprocess.Popen(
-        ["erl", "-noshell", "-pa", *ebin, "-eval", "update_test_ffi:windows_worker()."],
-        env=environment, stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    )
+    try:
+        process = subprocess.Popen(
+            ["erl", "-noshell", "-pa", *ebin, "-eval", "update_test_ffi:windows_worker()."],
+            env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        process.control, _ = listener.accept()
+        return process
+    finally:
+        listener.close()
+
+
+def command(process, message):
+    data = message.encode("utf-8")
+    process.control.sendall(struct.pack("!I", len(data)) + data)
 
 
 def finish(process, input=None):
-    output, _ = process.communicate(input=input, timeout=120)
+    if input is not None:
+        command(process, input.strip())
+    output, _ = process.communicate(timeout=120)
+    process.control.close()
     assert process.returncode == 0 and "PASS" in output, (process.returncode, output)
     return output
 
@@ -151,8 +171,7 @@ def active_helper(process):
 
 
 def kill_owner(process):
-    process.stdin.write("kill-owner\n")
-    process.stdin.flush()
+    command(process, "kill-owner")
     assert process.stdout.readline().strip() == "OWNER_DEAD"
 
 
@@ -254,8 +273,7 @@ try:
                 kill_owner(process)  # Kill only the Erlang owner, not the VM or its children.
             elif mode == "port":
                 closed = time.monotonic()
-                process.stdin.write("close-port\n")
-                process.stdin.flush()
+                command(process, "close-port")
                 finish(process)
                 assert time.monotonic() - closed < 20
             else:

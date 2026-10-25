@@ -39,6 +39,9 @@ make_link(Target, Link) ->
 
 windows_worker() ->
     Path = unicode:characters_to_binary(os:getenv("POLICY_TEST_PATH")),
+    ControlPort = list_to_integer(os:getenv("POLICY_CONTROL_PORT")),
+    {ok, Control} = gen_tcp:connect({127, 0, 0, 1}, ControlPort,
+        [binary, {active, false}, {packet, 4}], 10000),
     case os:getenv("POLICY_TEST_MODE") of
         "update" ->
             Fetcher = fun(_) ->
@@ -64,7 +67,7 @@ windows_worker() ->
             ),
             ok = file:del_dir(Directory);
         "partial" ->
-            owner_session(fun(Ready) ->
+            owner_session(Control, fun(Ready) ->
                 policy_file_ffi:write(Path, <<"replacement">>, fun(File, _) ->
                     ok = file:write(File, binary:copy(<<"private!">>, 128)),
                     io:format("PARTIAL~n"),
@@ -77,7 +80,7 @@ windows_worker() ->
                 Path, <<"replacement">>, fun file:write/2, delayed_replace(3000)
             );
         "owner" ->
-            owner_session(fun(Ready) ->
+            owner_session(Control, fun(Ready) ->
                 Delayed = delayed_replace(60000),
                 policy_file_ffi:write(
                     Path, <<"replacement">>, fun file:write/2, fun(From, To) ->
@@ -87,7 +90,7 @@ windows_worker() ->
                 )
             end);
         "port" ->
-            closed_port_session(Path);
+            closed_port_session(Path, Control);
         "loop" ->
             {ok, Original} = file:read_file(Path),
             Replacement = unicode:characters_to_binary(os:getenv("POLICY_TEST_CONTENTS")),
@@ -96,6 +99,7 @@ windows_worker() ->
                 windows_write(Path, Original)
             end, lists:seq(1, 4))
     end,
+    gen_tcp:close(Control),
     io:format("PASS~n"),
     halt().
 
@@ -108,7 +112,7 @@ windows_write(Path, Contents) ->
         Error -> erlang:error(Error)
     end.
 
-owner_session(Work) ->
+owner_session(Control, Work) ->
     Parent = self(),
     {Owner, Monitor} = spawn_monitor(fun() ->
         Result = Work(fun() -> Parent ! owner_ready end),
@@ -120,7 +124,7 @@ owner_session(Work) ->
         {'DOWN', Monitor, process, Owner, EarlyReason} ->
             erlang:error({owner_failed_before_ready, EarlyReason})
     end,
-    "kill-owner" = string:trim(io:get_line("")),
+    {ok, <<"kill-owner">>} = gen_tcp:recv(Control, 0, 15000),
     exit(Owner, kill),
     receive
         {'DOWN', Monitor, process, Owner, killed} -> ok;
@@ -132,7 +136,7 @@ owner_session(Work) ->
             end
     end,
     io:format("OWNER_DEAD~n"),
-    "finish" = string:trim(io:get_line("")).
+    {ok, <<"finish">>} = gen_tcp:recv(Control, 0, 15000).
 
 delayed_replace(Timeout) ->
     fun(From, To) ->
@@ -146,7 +150,7 @@ delayed_replace(Timeout) ->
         ], Timeout)
     end.
 
-closed_port_session(Path) ->
+closed_port_session(Path, Control) ->
     Parent = self(),
     {Owner, OwnerMonitor} = spawn_monitor(fun() ->
         Delayed = delayed_replace(60000),
@@ -164,7 +168,7 @@ closed_port_session(Path) ->
         {'DOWN', OwnerMonitor, process, Owner, Reason} ->
             erlang:error({owner_failed_before_ready, Reason})
     end,
-    "close-port" = string:trim(io:get_line("")),
+    {ok, <<"close-port">>} = gen_tcp:recv(Control, 0, 15000),
     {monitors, [{process, Guardian}]} = process_info(Owner, monitors),
     GuardianMonitor = monitor(process, Guardian),
     {links, Links} = process_info(Guardian, links),
