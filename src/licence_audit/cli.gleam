@@ -418,7 +418,7 @@ fn offline_flag() -> glint.Flag(Bool) {
   glint.bool_flag("offline")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Skip Hex metadata fetch; leave Hex dependency licences unknown",
+    "Skip Hex metadata fetch; leave Hex dependency licences unknown; with --reproducible, skip all dependency enrichment including Git",
   )
 }
 
@@ -426,7 +426,7 @@ fn reproducible_flag() -> glint.Flag(Bool) {
   glint.bool_flag("reproducible")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Reproducible output from locked package archives: serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
+    "Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
   )
 }
 

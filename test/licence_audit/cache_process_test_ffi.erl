@@ -1,5 +1,8 @@
 -module(cache_process_test_ffi).
--export([concurrent_writes/5, worker/0]).
+-export([concurrent_writes/5, worker/0, monotonic_milliseconds/0]).
+
+monotonic_milliseconds() ->
+    erlang:monotonic_time(millisecond).
 
 concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
     case os:find_executable("erl") of
@@ -122,7 +125,7 @@ worker() ->
     go = binary_to_term(Go, [safe]),
     {ok, Store} = licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>),
     Result =
-        case licence_audit@cache_dir:insert(Store, Key, Value) of
+        case insert_when_available(Store, Key, Value, 100) of
             {ok, nil} -> {ok, nil};
             {error, Error} ->
                 {error, licence_audit@cache_dir:describe_error(Error)}
@@ -130,6 +133,21 @@ worker() ->
     ok = gen_tcp:send(Socket, term_to_binary(Result)),
     gen_tcp:close(Socket),
     halt().
+
+%% Immediate cache writes can skip a busy lock; retry here to verify both
+%% successful writes survive the cross-VM race.
+insert_when_available(Store, Key, Value, Retries) ->
+    case licence_audit@cache_dir:insert(Store, Key, Value) of
+        {error, Error} when Retries > 0 ->
+            Message = licence_audit@cache_dir:describe_error(Error),
+            case binary:match(Message, <<"Another session owns the table.">>) of
+                nomatch -> {error, Error};
+                _ ->
+                    timer:sleep(10),
+                    insert_when_available(Store, Key, Value, Retries - 1)
+            end;
+        Result -> Result
+    end.
 
 env_binary(Name) ->
     unicode:characters_to_binary(os:getenv(Name)).

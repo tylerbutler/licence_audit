@@ -166,6 +166,11 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
+# Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
+test-env-cache-paths: build
+    mise exec -- gleam build
+    mise exec -- bash test/env_cache_paths.sh
+
 # Type check without producing artifacts
 check:
     mise exec -- gleam check
@@ -322,6 +327,6 @@ docs-check: _docs-ffi
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup build-strict test-vendor-production docs-check sbom-drift-check sbom-validate sbom-spdx-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate sbom-spdx-validate
 
 alias pr := ci

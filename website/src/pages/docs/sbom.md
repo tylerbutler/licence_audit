@@ -39,6 +39,20 @@ include path dependencies and non-GitHub git dependencies. `--offline` skips
 licence requests but continues to validate purls. The [`vulns`](/docs/vulns)
 command has different behavior: it identifies and skips unsupported sources.
 
+## Completion and optional enrichment
+
+Default `sbom` generation exits `0` when optional Hex or local Git dependency
+metadata is unavailable. It warns and omits the unavailable fields.
+`--offline` intentionally skips Hex enrichment. This differs from a licence
+audit, where unavailable package metadata makes the report incomplete (exit `2`).
+
+Root metadata, valid supported purls, and successful artifact generation/writes
+are required; failures exit `2`. Without `--offline`, `--reproducible` also
+requires metadata from the locked source archives and exits `2` if it cannot
+obtain it. `--reproducible --offline` skips all dependency enrichment, including
+local Git metadata. It omits dependency licence fields and can exit `0`
+without fetching locked-source metadata.
+
 ## Embedded vulnerabilities
 
 `--vulns` queries OSV.dev and adds the results to the CycloneDX
@@ -48,14 +62,19 @@ ratings, and an `affects` list. The list refers to affected components by
 VEX-style document. Advisory data changes over time. Therefore, you cannot use
 `--vulns` with `--offline` or `--reproducible`.
 
+An OSV batch request failure exits `2`. An individual advisory-detail failure
+warns and retains its ID with unknown severity; generation still exits `0`.
+In contrast, `check --vulns` exits `2` when details are unavailable because it
+cannot evaluate the severity gate.
+
 ## Reproducible output
 
 By default, `sbom` uses a random `serialNumber` and the current time for
 `timestamp`. Thus, the output from two runs is different. With
-`--reproducible`, the command reads Hex metadata from each checksum-verified
-package archive and Git metadata from the archive at the locked commit. It
-omits mutable Hex publisher data, uses a content hash for `serialNumber`, and
-gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
+`--reproducible` without `--offline`, the command reads Hex metadata from each
+checksum-verified package archive and Git metadata from the archive at the
+locked commit. It omits mutable Hex publisher data, uses a content hash for
+`serialNumber`, and gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
 the variable is not set. The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
 
@@ -68,8 +87,8 @@ location, or `--no-cache` to fetch the metadata again.
 | Flag | What it does |
 |---|---|
 | `--output` | Write the SBOM to `PATH` (compact) instead of stdout (pretty). |
-| `--offline` | Skip the Hex metadata fetch and omit licence fields. |
-| `--reproducible` | Use locked package archives, a content hash, and `SOURCE_DATE_EPOCH` for reproducible output. |
+| `--offline` | Skip Hex metadata; with `--reproducible`, skip all dependency enrichment, including Git. |
+| `--reproducible` | Use locked package archives (unless `--offline`), a content hash, and `SOURCE_DATE_EPOCH` for reproducible output. |
 | `--vulns` | Query OSV.dev and embed a `vulnerabilities` array. Conflicts with `--offline` and `--reproducible`. |
 | `--manifest` | Read `manifest.toml` from `PATH`. |
 | `--cache-path` | Override the licence metadata cache location. |
