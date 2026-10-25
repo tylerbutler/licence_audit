@@ -4,16 +4,15 @@
 corrupt_entry(Path, Key) ->
     {ok, Connection} = esqlite3:open(binary_to_list(filename:absname(Path))),
     try
-        {ok, Statement} = esqlite3:prepare(Connection,
+        [] = esqlite3:q(Connection,
             <<"INSERT INTO cache_entries(key, value) VALUES (?, x'FF')
-               ON CONFLICT(key) DO UPDATE SET value = excluded.value">>),
-        ok = esqlite3:bind(Statement, [Key]),
-        '$done' = esqlite3:step(Statement),
-        ok = esqlite3:reset(Statement),
-        {ok, nil}
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value">>, [Key])
     after
         ok = esqlite3:close(Connection)
-    end.
+    end,
+    false = filelib:is_regular(<<Path/binary, "-wal">>),
+    false = filelib:is_regular(<<Path/binary, "-shm">>),
+    {ok, nil}.
 
 with_writer(Path, Action) ->
     {ok, Connection} = esqlite3:open(binary_to_list(filename:absname(Path))),
