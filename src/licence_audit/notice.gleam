@@ -208,10 +208,57 @@ pub fn package_source(
 pub fn licence_files(
   files: List(source_archive.ArchiveFile),
 ) -> Result(List(NoticeFile), source_archive.ArchiveError) {
-  files
-  |> strip_common_archive_root
-  |> matched_archive_files
-  |> list.try_map(to_notice_file)
+  let files = strip_common_archive_root(files)
+  use selected <- result.try(
+    usable_notice_files(fn(include_nested) {
+      Ok(case include_nested {
+        True -> list.filter(files, fn(file) { is_any_notice_file(file.path) })
+        False -> matched_archive_files(files)
+      })
+    }),
+  )
+  list.try_map(selected, to_notice_file)
+}
+
+fn usable_notice_files(
+  read: fn(Bool) -> Result(List(source_archive.ArchiveFile), error),
+) -> Result(List(source_archive.ArchiveFile), error) {
+  use files <- result.try(read(False))
+  let usable = list.filter(files, fn(file) { !blank_archive_file(file) })
+  let discarded_blank = list.any(files, blank_archive_file)
+  let usable_licence =
+    list.any(usable, fn(file) { is_licence_basename(basename(file.path)) })
+  case discarded_blank && !usable_licence {
+    True ->
+      read(True)
+      |> result.map(list.filter(_, fn(file) { !blank_archive_file(file) }))
+    False -> Ok(usable)
+  }
+}
+
+fn blank_archive_file(file: source_archive.ArchiveFile) -> Bool {
+  case source_archive.text_contents(file) {
+    Ok(contents) -> !has_text(contents)
+    // Keep invalid text so the normal decoder reports the existing error.
+    Error(_) -> False
+  }
+}
+
+/// Check Unicode whitespace too: `string.trim` leaves spaces such as NBSP.
+@external(erlang, "notice_ffi", "has_text")
+pub fn has_text(contents: String) -> Bool
+
+fn extract_notices(
+  bytes: BitArray,
+  extract: fn(BitArray, fn(List(String)) -> List(#(String, String))) ->
+    Result(List(source_archive.ArchiveFile), source_archive.ArchiveError),
+) -> Result(List(source_archive.ArchiveFile), source_archive.ArchiveError) {
+  usable_notice_files(fn(include_nested) {
+    extract(bytes, case include_nested {
+      True -> all_notice_paths
+      False -> selected_notice_paths
+    })
+  })
 }
 
 /// Serialise notice files for the on-disk cache as a JSON array of
@@ -228,10 +275,16 @@ pub fn encode_notice_files(files: List(NoticeFile)) -> String {
 }
 
 /// Parse notice files written by `encode_notice_files`. Returns `Error(Nil)` on
-/// any malformed entry so the caller can treat it as a cache miss.
+/// any malformed or blank entry so old blank results become cache misses.
 pub fn decode_notice_files(encoded: String) -> Result(List(NoticeFile), Nil) {
-  json.parse(encoded, decode.list(notice_file_decoder()))
-  |> result.replace_error(Nil)
+  use files <- result.try(
+    json.parse(encoded, decode.list(notice_file_decoder()))
+    |> result.replace_error(Nil),
+  )
+  case list.any(files, fn(file) { !has_text(file.contents) }) {
+    True -> Error(Nil)
+    False -> Ok(files)
+  }
 }
 
 fn notice_file_decoder() -> decode.Decoder(NoticeFile) {
@@ -278,7 +331,7 @@ pub fn read_source_notices(
         package,
         checksum,
         clients.fetch_hex_tarball,
-        source_archive.extract_hex_contents_selected(_, selected_notice_paths),
+        extract_notices(_, source_archive.extract_hex_contents_selected),
       )
     GitPackage(repo, _url, commit) ->
       read_git_source(
@@ -286,7 +339,7 @@ pub fn read_source_notices(
         repo,
         commit,
         clients.fetch_git_archive,
-        source_archive.extract_tar_gz_selected(_, selected_notice_paths),
+        extract_notices(_, source_archive.extract_tar_gz_selected),
       )
     PathPackage(path) -> read_path_notices(package.name, path)
   })
@@ -298,19 +351,24 @@ pub fn read_source_notices(
 }
 
 pub fn selected_notice_paths(paths: List(String)) -> List(#(String, String)) {
+  let candidates = all_notice_paths(paths)
+  let roots =
+    list.filter(candidates, fn(candidate) { is_root_notice_file(candidate.1) })
+  case roots {
+    [] -> candidates
+    _ -> roots
+  }
+}
+
+fn all_notice_paths(paths: List(String)) -> List(#(String, String)) {
   let candidates = case common_archive_root(paths) {
     Ok(_) ->
       list.map(paths, fn(path) { #(path, strip_archive_root_path(path)) })
     Error(Nil) -> list.map(paths, fn(path) { #(path, path) })
   }
-  let roots =
-    list.filter(candidates, fn(candidate) { is_root_notice_file(candidate.1) })
-  let selected = case roots {
-    [] ->
-      list.filter(candidates, fn(candidate) { is_any_notice_file(candidate.1) })
-    _ -> roots
-  }
-  list.sort(selected, fn(a, b) { string.compare(a.1, b.1) })
+  candidates
+  |> list.filter(fn(candidate) { is_any_notice_file(candidate.1) })
+  |> list.sort(fn(a, b) { string.compare(a.1, b.1) })
 }
 
 fn fetch_hex_tarball_from_hex(
@@ -597,20 +655,25 @@ fn read_path_notices(
   root: String,
 ) -> Result(List(source_archive.ArchiveFile), Error) {
   use roots <- result.try(read_root_notice_paths(package_name, root))
-  use paths <- result.try(case roots {
-    [] -> read_path_files(package_name, root)
-    _ -> Ok(roots)
-  })
-  let relative_paths = list.map(paths, relative_path(_, root))
-  selected_notice_paths(relative_paths)
-  |> list.try_map(fn(candidate) {
-    let #(original, selected) = candidate
-    use file <- result.try(read_path_file(
-      package_name,
-      root,
-      join_path(root, original),
-    ))
-    Ok(source_archive.ArchiveFile(..file, path: selected))
+  usable_notice_files(fn(include_nested) {
+    use paths <- result.try(case roots, include_nested {
+      [], _ | _, True -> read_path_files(package_name, root)
+      _, False -> Ok(roots)
+    })
+    let relative_paths = list.map(paths, relative_path(_, root))
+    let candidates = case include_nested {
+      True -> all_notice_paths(relative_paths)
+      False -> selected_notice_paths(relative_paths)
+    }
+    list.try_map(candidates, fn(candidate) {
+      let #(original, selected) = candidate
+      use file <- result.try(read_path_file(
+        package_name,
+        root,
+        join_path(root, original),
+      ))
+      Ok(source_archive.ArchiveFile(..file, path: selected))
+    })
   })
 }
 
@@ -892,26 +955,20 @@ fn matches_basename(name: String, bases: List(String)) -> Bool {
 
 /// Whether `files` already contain an actual licence-text file (LICENSE,
 /// LICENCE, or COPYING). A package whose source ships only a NOTICE file — or
-/// nothing — returns `False` and must obtain its licence via the fallback.
+/// nothing, or blank licence files — returns `False` and must use the fallback.
 pub fn has_licence_file(files: List(NoticeFile)) -> Bool {
-  list.any(files, fn(file) {
-    file.path
-    |> drop_optional_current_dir
-    |> basename
-    |> is_licence_basename
-  })
+  list.any(files, is_source_licence_file)
 }
 
 /// Keep only the licence-text files from a list, dropping ancillary NOTICE
 /// files. Used to lift a licence out of a fallback repository archive without
 /// pulling in that repo's own NOTICE.
 pub fn licence_files_only(files: List(NoticeFile)) -> List(NoticeFile) {
-  list.filter(files, fn(file) {
-    file.path
-    |> drop_optional_current_dir
-    |> basename
-    |> is_licence_basename
-  })
+  list.filter(files, is_source_licence_file)
+}
+
+fn is_source_licence_file(file: NoticeFile) -> Bool {
+  is_licence_basename(basename(file.path)) && has_text(file.contents)
 }
 
 /// Extract the licence-text files from a fallback repository's gzip tar
@@ -923,7 +980,7 @@ pub fn repo_licence_files(
   bytes: BitArray,
 ) -> Result(List(NoticeFile), Error) {
   use files <- result.try(
-    source_archive.extract_tar_gz_selected(bytes, selected_notice_paths)
+    extract_notices(bytes, source_archive.extract_tar_gz_selected)
     |> result.map_error(fn(error) {
       ArchiveFailed(package_name, source_archive.describe_error(error))
     }),
@@ -1029,8 +1086,10 @@ fn ancillary_notice_entries(entries: List(NoticeEntry)) -> List(NoticeEntry) {
 
 fn is_licence_file(file: NoticeFile) -> Bool {
   let path = drop_optional_current_dir(file.path)
-  string.starts_with(path, "SPDX-License-List/")
-  || path |> basename |> is_licence_basename
+  is_source_licence_file(file)
+  || string.starts_with(path, "SPDX-License-List/")
+  && string.ends_with(path, ".txt")
+  && !matches_basename(basename(path), ["notice"])
 }
 
 fn render_licence_group(group: LicenceGroup) -> String {
