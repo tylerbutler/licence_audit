@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -19,6 +20,54 @@ on:
         default: false
 
 jobs:
+  windows-policy:
+    runs-on: windows-latest
+    name: Windows atomic policy writes
+    timeout-minutes: 20
+    env:
+      ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
+      CC: clang-cl.exe
+      CXX: clang-cl.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup pinned toolchain
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          gleam-version: "1.19.0-rc3"
+          rebar3-version: "3.26.0"
+          version-type: strict
+
+      - name: Setup SQLite NIF C compiler
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # ratchet:ilammy/msvc-dev-cmd@v1
+
+      - name: Use LLVM for the SQLite NIF
+        run: |
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "C:\Program Files\LLVM\bin\clang-cl.exe" --version
+
+      # Gleam's Windows directory copy cannot copy cvss's licence symlink.
+      - name: Prepare dependencies
+        run: |
+          gleam deps download
+          python -c "from pathlib import Path; p = Path('build/packages/cvss/LICENSE.txt'); text = Path('build/packages/cvss/LICENSES/Apache-2.0.txt').read_bytes(); p.unlink(); p.write_bytes(text)"
+
+      - name: Build Erlang modules
+        run: gleam build --target erlang --warnings-as-errors
+
+      - name: Test real Windows replacement and interruption
+        run: python -u -B test/update_atomic_windows.py
+
+      - name: Test Windows escript SQLite sidecar
+        run: |
+          gleam export escript
+          python -B scripts/sqlite_native.py
+          python -B test/native_cache_smoke.py licence_audit --escript
+          python -B test/native_cache_smoke.py licence_audit --bare-escript
+
   test:
     runs-on: ubuntu-latest
     name: Test
@@ -33,6 +82,12 @@ jobs:
       - name: Check vendored sources
         run: just vendor-check vendor-test
 
+      - name: Test release notice staging
+        run: just test-release-notices
+
+      - name: Test SQLite sidecar staging
+        run: mise exec -- python3 -B test/native_cache_smoke.py --self-test
+
       - name: Check formatting
         run: just format-check
 
@@ -45,14 +100,37 @@ jobs:
       - name: Build (warnings as errors)
         run: just build-strict
 
+      - name: Check bare escript with embedded notices
+        run: |
+          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
+          mise exec -- python3 -B scripts/release_notices.py check licence_audit
+          ./licence_audit --help
+
+      - name: Test relocated escript SQLite cache
+        run: |
+          mise exec -- python3 -B test/native_cache_smoke.py licence_audit --escript
+          mise exec -- python3 -B test/native_cache_smoke.py licence_audit --bare-escript
+
       - name: Check vendored production boundary
         run: just test-vendor-production
 
       - name: Run tests
         run: just test
 
+      - name: Test notices filtering with CLI caches
+        run: just test-notices-filter
+
       - name: Test runtime startup
         run: just test-runtime-startup
+
+      - name: Test SQLite runtime failures and uncached fallback
+        run: just test-cache-runtime
+
+      - name: Test interrupted policy writes
+        run: just test-update-atomic
+
+      - name: Test CLI output streams
+        run: just test-cli-streams
 
       - name: Test Unicode cache paths
         run: just test-env-cache-paths
@@ -78,31 +156,7 @@ jobs:
       - name: Validate SBOM (schema)
         run: just sbom-validate
 
-  native-http:
-    runs-on: ubuntu-latest
-    name: Native HTTP
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-        with:
-          ref: ${{ inputs.checkout_ref }}
-
-      - name: Setup environment
-        uses: ./.github/actions/setup
-
-      - name: Install Queso glibc packaging dependencies
-        # Queso treats glibc as a cross target even on Linux glibc hosts.
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user 'ziglang==0.14.1'
-          cargo install --locked cargo-zigbuild --version 0.23.4
-
-      - name: Build native Linux executable
-        run: mise exec -- queso build --target x86_64-linux-glibc
-
-      - name: Test native HTTP without system Erlang
-        run: |
-          set -euo pipefail
-          binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
-          test "${#binaries[@]}" -eq 1
-          just smoke-native-http "${binaries[0]}"
+  native:
+    uses: ./.github/workflows/native-build.yml
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}

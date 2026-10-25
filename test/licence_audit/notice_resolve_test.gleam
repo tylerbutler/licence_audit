@@ -138,8 +138,10 @@ fn paths(files: List(notice.NoticeFile)) -> List(String) {
 
 fn fresh_cache_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
-  let path = tmp_dir <> "/" <> name <> ".dets"
-  let _ = simplifile.delete(path)
+  let path = tmp_dir <> "/" <> name <> ".sqlite3"
+  list.each(["", "-wal", "-shm"], fn(suffix) {
+    let _ = simplifile.delete(path <> suffix)
+  })
   path
 }
 

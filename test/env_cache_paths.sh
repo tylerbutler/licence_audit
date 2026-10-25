@@ -37,16 +37,15 @@ for character in é 中; do
         Variable = list_to_binary(os:getenv("CACHE_TEST_VARIABLE")),
         Root = unicode:characters_to_binary(os:getenv("CACHE_TEST_ROOT")),
         {ok, Root} = env_ffi:get(Variable),
-        {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2.dets">>, <<"licence">>),
+        {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2.sqlite3">>, <<"licence">>),
         Key = <<"gleam_stdlib@1.0.5">>,
-        {ok, nil} = licence_audit@cache_dir:insert(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>),
-        {ok, nil} = licence_audit@cache_dir:insert(Store, <<"$cached_at:", Key/binary>>, integer_to_binary(erlang:system_time(second))),
+        {ok, nil} = licence_audit@cache_dir:insert_at(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>, {some, erlang:system_time(second)}),
         none = licence_audit@cache_dir:close_table(Store, <<"licence">>, none),
-        Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2.dets"),
+        Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2.sqlite3"),
         true = filelib:is_regular(Expected),
         halt().
       '
-    test -s "$expected/hex-v2.dets"
+    test -s "$expected/hex-v2.sqlite3"
 
     # A fresh, cache-enabled CLI must read this entry without a network request.
     (

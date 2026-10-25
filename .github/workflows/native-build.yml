@@ -1,0 +1,153 @@
+name: Native release builds
+
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: Git ref to build and test
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  native:
+    name: Native ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux-glibc
+            runner: ubuntu-24.04
+            image: hexpm/erlang:28.3-debian-bookworm-20260610-slim
+            runtime: debian:bookworm-slim
+          - target: aarch64-linux-glibc
+            runner: ubuntu-24.04-arm
+            image: hexpm/erlang:28.3-debian-bookworm-20260610-slim
+            runtime: debian:bookworm-slim
+          - target: x86_64-linux-musl
+            runner: ubuntu-24.04
+            image: hexpm/erlang:28.3-alpine-3.21.7
+            runtime: alpine:3.21
+          - target: aarch64-linux-musl
+            runner: ubuntu-24.04-arm
+            image: hexpm/erlang:28.3-alpine-3.21.7
+            runtime: alpine:3.21
+          - target: aarch64-macos
+            runner: macos-15
+          - target: x86_64-macos
+            runner: macos-15-intel
+          - target: x86_64-windows
+            runner: windows-latest
+    env:
+      TARGET: ${{ matrix.target }}
+      GH_TOKEN: ${{ github.token }}
+      ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup host Erlang and Gleam
+        if: runner.os != 'Linux'
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          gleam-version: "1.19.0-rc3"
+          rebar3-version: "3.26.0"
+          version-type: strict
+
+      - name: Setup Windows NIF C compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # ratchet:ilammy/msvc-dev-cmd@v1
+
+      - name: Use LLVM for the SQLite NIF
+        if: runner.os == 'Windows'
+        run: |
+          echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
+          echo 'CC=clang-cl.exe' >> "$GITHUB_ENV"
+          echo 'CXX=clang-cl.exe' >> "$GITHUB_ENV"
+          "/c/Program Files/LLVM/bin/clang-cl.exe" --version
+
+      - name: Setup Windows GNU launcher C compiler
+        if: runner.os == 'Windows'
+        id: mingw
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # ratchet:msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          location: ${{ github.workspace }}/build/native-tools/msys64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Add GNU launcher compiler to PATH
+        if: runner.os == 'Windows'
+        env:
+          MINGW_BIN: ${{ steps.mingw.outputs.msys2-location }}\mingw64\bin
+        run: echo "$MINGW_BIN" >> "$GITHUB_PATH"
+
+      - name: Build on the target architecture and libc
+        if: runner.os == 'Linux'
+        env:
+          BUILD_IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          # No host build tree is mounted into a different target's job.
+          docker run --rm \
+            --env GH_TOKEN --env ERL_FLAGS --env TARGET \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            "$BUILD_IMAGE" sh -c \
+            'if command -v apk >/dev/null; then apk add --no-cache bash; fi; exec bash scripts/native_build.sh "$TARGET"'
+
+      - name: Build on native macOS or Windows
+        if: runner.os != 'Linux'
+        run: bash scripts/native_build.sh "$TARGET"
+
+      - name: Test SQLite and HTTPS without system Erlang
+        if: runner.os == 'Linux'
+        env:
+          RUNTIME_IMAGE: ${{ matrix.runtime }}
+        run: |
+          set -euo pipefail
+          binaries=(build/queso/licence_audit-*-"$TARGET")
+          test "${#binaries[@]}" -eq 1
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            "$RUNTIME_IMAGE" sh -ec '
+              if command -v apk >/dev/null; then
+                apk add --no-cache ca-certificates libstdc++ ncurses-libs python3
+              else
+                apt-get update -qq
+                apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
+              fi
+              exec python3 -B test/native_cache_smoke.py "$1"
+            ' sh "${binaries[0]}"
+
+      - name: Test relocated native macOS or Windows executable
+        if: runner.os != 'Linux'
+        run: |
+          set -euo pipefail
+          binaries=(build/queso/licence_audit-*-"$TARGET"*)
+          test "${#binaries[@]}" -eq 1
+          python3 -B test/native_cache_smoke.py "${binaries[0]}"
+
+      - name: Upload native executable and runtime attribution
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: licence-audit-native-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            build/queso/licence_audit-*
+            build/release-notices/${{ matrix.target }}/
+            build/native-logs/${{ matrix.target }}.log
+
+      - name: Upload bookworm-built escript and SQLite sidecar
+        if: matrix.target == 'x86_64-linux-glibc'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: licence-audit-escript
+          if-no-files-found: error
+          path: build/escript/

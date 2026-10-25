@@ -577,7 +577,7 @@ local_dep = { path = \"deps/local_dep\" }
 }
 
 pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
-  let cache_path = "build/tmp/run-with-notice-clients-cache.dets"
+  let cache_path = "build/tmp/run-with-notice-clients-cache.sqlite3"
   let _ = simplifile.create_directory_all("build/tmp")
   let _ = simplifile.delete(cache_path)
 

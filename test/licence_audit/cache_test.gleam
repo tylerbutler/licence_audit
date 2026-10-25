@@ -1,4 +1,3 @@
-import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -7,13 +6,11 @@ import gleam/time/timestamp
 import gleeunit/should
 import licence_audit/cache
 import licence_audit/cache_dir
+import licence_audit/cache_support
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/progress
 import simplifile
-import slate
-import slate/exclusive
-import slate/set
 
 const tmp_dir = "build/tmp/cache_test"
 
@@ -33,8 +30,10 @@ fn concurrent_writes(
 
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
-  let path = tmp_dir <> "/" <> name <> ".dets"
-  let _ = simplifile.delete(path)
+  let path = tmp_dir <> "/" <> name <> ".sqlite3"
+  list.each(["", "-wal", "-shm"], fn(suffix) {
+    let _ = simplifile.delete(path <> suffix)
+  })
   path
 }
 
@@ -118,7 +117,7 @@ pub fn open_failure_preserves_licence_warning_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/open-blocker"
   let _ = simplifile.write("data", to: blocker)
-  let path = blocker <> "/cache.dets"
+  let path = blocker <> "/cache.sqlite3"
   let handle = cache.open(cache.Enabled(path: Some(path)))
   let assert Some(warning) = cache.close(handle)
   should.be_true(string.starts_with(
@@ -130,11 +129,13 @@ pub fn open_failure_preserves_licence_warning_test() {
 pub fn write_failure_preserves_licence_warning_test() {
   let path = fresh_path("write_failure")
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let _ = simplifile.write("block writes", to: path)
   let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
-  let #(result, _) =
-    cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
-  let assert Ok(_) = result
+  cache_support.with_writer(path, fn() {
+    let #(result, _) =
+      cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
+    let assert Ok(_) = result
+    Nil
+  })
   let assert Some(warning) = cache.close(handle)
   should.be_true(string.starts_with(warning, "Failed to access licence cache: "))
 }
@@ -199,46 +200,25 @@ pub fn held_lock_bounds_total_fetch_latency_test() {
   let path = fresh_path("held_lock")
   let handle = cache.open(cache.Enabled(path: Some(path)))
   let started = monotonic_milliseconds()
-  // Slate releases ownership even when an assertion in the callback fails.
-  let held =
-    set.with_exclusive_table(
-      path: path,
-      repair: slate.AutoRepair,
-      access: slate.ReadWrite,
-      wait: exclusive.Immediate,
-      key_decoder: decode.string,
-      value_decoder: decode.string,
-      callback: fn(table) {
-        list.each(["first", "second", "third"], fn(name) {
-          should.equal(
-            cache.fetch_cached_quiet(handle, name, "1.0.0", fn(_) {
-              Ok(hex.licences_only(["MIT"]))
-            }),
-            Ok(hex.licences_only(["MIT"])),
-          )
-          should.equal(
-            set.lookup(table, name <> "@1.0.0"),
-            Error(slate.NotFound),
-          )
-          should.equal(
-            set.lookup(table, "$cached_at:" <> name <> "@1.0.0"),
-            Error(slate.NotFound),
-          )
-        })
-        let assert Some(warning) = cache.close(handle)
-        should.be_true(string.contains(
-          warning,
-          "Another session owns the table",
-        ))
-        should.be_false(string.contains(warning, "$cached_at:"))
-        Ok(Nil)
-      },
-    )
+  cache_support.with_writer(path, fn() {
+    list.each(["first", "second", "third"], fn(name) {
+      should.equal(
+        cache.fetch_cached_quiet(handle, name, "1.0.0", fn(_) {
+          Ok(hex.licences_only(["MIT"]))
+        }),
+        Ok(hex.licences_only(["MIT"])),
+      )
+    })
+    let assert Some(warning) = cache.close(handle)
+    should.be_true(string.contains(warning, "SQLite error 5:"))
+  })
   let elapsed = monotonic_milliseconds() - started
-  let assert Ok(Nil) = held
   should.be_true(elapsed < 1000)
 
   let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  list.each(["first", "second", "third"], fn(name) {
+    should.equal(cache_dir.lookup(store, name <> "@1.0.0"), Error(Nil))
+  })
   should.equal(cache_dir.insert(store, "after-release", "safe"), Ok(Nil))
   should.equal(cache_dir.lookup(store, "after-release"), Ok("safe"))
   let assert None = cache_dir.close_table(store, "test", None)
@@ -292,16 +272,11 @@ pub fn cache_reuses_metadata_for_seven_days_test() {
     list.each(["reported", "quiet"], fn(name) {
       let key = name <> "@1.0.0"
       let assert Ok(_) =
-        cache_dir.insert(
+        cache_dir.insert_at(
           table,
           key,
           hex.encode_cache_entry(metadata_with_publisher("cached")),
-        )
-      let assert Ok(_) =
-        cache_dir.insert(
-          table,
-          "$cached_at:" <> key,
-          int.to_string(now - age_seconds),
+          Some(now - age_seconds),
         )
     })
     let assert None = cache_dir.close_table(table, "test", None)
@@ -348,12 +323,12 @@ pub fn cache_refetches_legacy_enriched_entry_instead_of_stale_publisher_test() {
 pub fn corrupt_cache_entry_is_refetched_test() {
   let path = fresh_path("corrupt")
   let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
-  let assert Ok(_) = cache_dir.insert(table, "example@1.0.0", "not valid json")
   let assert Ok(_) =
-    cache_dir.insert(
+    cache_dir.insert_at(
       table,
-      "$cached_at:example@1.0.0",
-      int.to_string(now_seconds()),
+      "example@1.0.0",
+      "not valid json",
+      Some(now_seconds()),
     )
   let assert None = cache_dir.close_table(table, "test", None)
 
@@ -467,7 +442,7 @@ pub fn unwritable_path_returns_warning_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.write("data", to: blocker)
-  let bad_path = blocker <> "/nested/hex.dets"
+  let bad_path = blocker <> "/nested/hex.sqlite3"
 
   let handle = cache.open(cache.Enabled(path: Some(bad_path)))
   let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
@@ -478,4 +453,66 @@ pub fn unwritable_path_returns_warning_test() {
 
   let warning = cache.close(handle)
   let assert Some(_) = warning
+}
+
+pub fn busy_upsert_preserves_value_and_timestamp_test() {
+  let path = fresh_path("atomic_timestamp")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  should.equal(cache_dir.insert_at(store, "key", "old", Some(10)), Ok(Nil))
+  cache_support.with_writer(path, fn() {
+    let assert Error(_) = cache_dir.insert_at(store, "key", "new", Some(20))
+    should.equal(
+      cache_dir.lookup_entry(store, "key"),
+      Ok(cache_dir.Entry("old", Some(10))),
+    )
+  })
+  should.equal(cache_dir.insert_at(store, "key", "new", Some(20)), Ok(Nil))
+  should.equal(
+    cache_dir.lookup_entry(store, "key"),
+    Ok(cache_dir.Entry("new", Some(20))),
+  )
+  let assert Some(_) = cache_dir.close_table(store, "test", None)
+}
+
+pub fn legacy_dets_file_is_not_modified_test() {
+  let path = fresh_path("legacy_dets")
+  cache_support.create_legacy(path)
+  let assert Ok(before) = simplifile.read_bits(path)
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.contains(warning, "SQLite error 26:"))
+  should.equal(simplifile.read_bits(path), Ok(before))
+}
+
+pub fn corrupt_database_is_not_replaced_test() {
+  let path = fresh_path("invalid_database")
+  let assert Ok(_) = simplifile.write("not a database", to: path)
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let assert Some(_) = cache.close(handle)
+  should.equal(simplifile.read(path), Ok("not a database"))
+}
+
+pub fn nul_filename_returns_warning_test() {
+  let handle = cache.open(cache.Enabled(Some(fresh_path("nul") <> "\u{0000}")))
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.contains(warning, "NUL"))
+}
+
+pub fn cache_operations_release_all_connections_before_return_test() {
+  let path = fresh_path("connection_lifetime")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  list.each(list.repeat("value", 25), fn(value) {
+    should.equal(cache_dir.insert_at(store, "key", value, Some(1)), Ok(Nil))
+    should.equal(
+      cache_dir.lookup_entry(store, "key"),
+      Ok(cache_dir.Entry(value, Some(1))),
+    )
+    let assert Error(_) = simplifile.read_bits(path <> "-wal")
+    let assert Error(_) = simplifile.read_bits(path <> "-shm")
+  })
+  let assert None = cache_dir.close_table(store, "test", None)
+}
+
+pub fn concurrent_independent_caches_release_connections_test() {
+  cache_support.assert_concurrent_cleanup(fresh_path("parallel_cleanup"))
 }

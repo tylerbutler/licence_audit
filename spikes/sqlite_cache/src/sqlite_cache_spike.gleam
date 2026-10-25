@@ -1,8 +1,12 @@
 import gleam/dynamic/decode
 import gleam/int
 import gleam/io
+import gleam/list
 import gleam/result
+import gleam/string
 import sqlight
+
+type Row
 
 const upsert =
   "
@@ -52,7 +56,7 @@ fn run(arguments: List(String)) -> Result(String, String) {
           decode.success(#(value, cached_at))
         }
         use rows <- result.try(
-          sqlight.query(
+          query(
             "SELECT value, cached_at FROM entries WHERE key = ?",
             on: connection,
             with: [sqlight.text(key)],
@@ -69,11 +73,15 @@ fn run(arguments: List(String)) -> Result(String, String) {
     ["hold", path] ->
       with_cache(path, fn(connection) {
         use _ <- result.try(
+          put(connection, "committed-in-wal", "durable", 600)
+          |> result.map_error(describe_error),
+        )
+        use _ <- result.try(
           sqlight.exec("BEGIN IMMEDIATE", on: connection)
           |> result.map_error(describe_error),
         )
         use _ <- result.try(
-          upsert_entry(connection, "example@1.0.0", "uncommitted", 999)
+          put(connection, "example@1.0.0", "uncommitted", 999)
           |> result.map_error(describe_error),
         )
         io.println("writer locked")
@@ -91,7 +99,7 @@ fn with_cache(
   action: fn(sqlight.Connection) -> Result(String, String),
 ) -> Result(String, String) {
   use connection <- result.try(
-    sqlight.open(path)
+    open_connection(path)
     |> result.map_error(fn(error) {
       "open " <> path <> ": " <> describe_error(error)
     }),
@@ -116,7 +124,7 @@ fn configure(connection: sqlight.Connection) -> Result(Nil, String) {
     |> result.map_error(describe_error),
   )
   use modes <- result.try(
-    sqlight.query(
+    query(
       "PRAGMA journal_mode=WAL",
       on: connection,
       with: [],
@@ -145,34 +153,7 @@ fn put(
   value: String,
   cached_at: Int,
 ) -> Result(Nil, sqlight.Error) {
-  // esqlite 0.9.0 crashes on a busy parameterised query; exec returns an error.
-  use _ <- result.try(sqlight.exec("BEGIN IMMEDIATE", on: connection))
-  let outcome = {
-    use _ <- result.try(upsert_entry(connection, key, value, cached_at))
-    sqlight.exec("COMMIT", on: connection)
-  }
-  case outcome {
-    Ok(Nil) -> Ok(Nil)
-    Error(error) -> {
-      case sqlight.exec("ROLLBACK", on: connection) {
-        Ok(Nil) -> Nil
-        Error(rollback_error) ->
-          io.println_error(
-            "Rollback failed: " <> describe_error(rollback_error),
-          )
-      }
-      Error(error)
-    }
-  }
-}
-
-fn upsert_entry(
-  connection: sqlight.Connection,
-  key: String,
-  value: String,
-  cached_at: Int,
-) -> Result(Nil, sqlight.Error) {
-  sqlight.query(
+  query(
     upsert,
     on: connection,
     with: [sqlight.text(key), sqlight.text(value), sqlight.int(cached_at)],
@@ -181,12 +162,47 @@ fn upsert_entry(
   |> result.map(fn(_) { Nil })
 }
 
+fn query(
+  sql: String,
+  on connection: sqlight.Connection,
+  with arguments: List(sqlight.Value),
+  expecting decoder: decode.Decoder(value),
+) -> Result(List(value), sqlight.Error) {
+  use rows <- result.try(query_rows(sql, connection, arguments))
+  list.try_map(rows, fn(row) {
+    decode_row(row, decoder)
+    |> result.map_error(fn(errors) {
+      sqlight.SqlightError(
+        code: sqlight.GenericError,
+        message: "Invalid SQLite result: " <> string.inspect(errors),
+        offset: -1,
+      )
+    })
+  })
+}
+
 fn describe_error(error: sqlight.Error) -> String {
   "SQLite "
   <> int.to_string(sqlight.error_code_to_int(error.code))
   <> ": "
   <> error.message
 }
+
+@external(erlang, "sqlite_cache_spike_ffi", "open")
+fn open_connection(path: String) -> Result(sqlight.Connection, sqlight.Error)
+
+@external(erlang, "sqlite_cache_spike_ffi", "query")
+fn query_rows(
+  sql: String,
+  connection: sqlight.Connection,
+  arguments: List(sqlight.Value),
+) -> Result(List(Row), sqlight.Error)
+
+@external(erlang, "gleam@dynamic@decode", "run")
+fn decode_row(
+  row: Row,
+  decoder: decode.Decoder(value),
+) -> Result(value, List(decode.DecodeError))
 
 @external(erlang, "sqlite_cache_spike_ffi", "arguments")
 fn arguments() -> List(String)

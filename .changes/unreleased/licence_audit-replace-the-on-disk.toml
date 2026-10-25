@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Changed"
+body = "Replace the on-disk metadata and notice caches with SQLite WAL. Busy operations warn without waiting; metadata and its timestamp are written atomically. New `.sqlite3` files refill on first use, and existing DETS caches remain unchanged."

@@ -8,7 +8,6 @@
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
-import gleam/result
 import gleam/time/timestamp
 
 import licence_audit/cache_dir
@@ -31,8 +30,6 @@ pub opaque type Cache {
 
 const cache_entry_ttl_seconds = 604_800
 
-const cached_at_prefix = "$cached_at:"
-
 /// On-disk cache format version. Bump on any incompatible change to the cached
 /// value shape (see `hex.encode_cache_entry`). The version is encoded into the
 /// cache filename so data written by an older format is ignored
@@ -44,7 +41,7 @@ const cached_at_prefix = "$cached_at:"
 const cache_format_version = 2
 
 fn cache_filename() -> String {
-  "hex-v" <> int.to_string(cache_format_version) <> ".dets"
+  "hex-v" <> int.to_string(cache_format_version) <> ".sqlite3"
 }
 
 /// Open a cache according to `mode`.
@@ -195,12 +192,12 @@ fn store_quiet(
   key: String,
   metadata: hex.PackageMetadata,
 ) -> Result(Nil, cache_dir.Error) {
-  use _ <- result.try(cache_dir.insert(
+  cache_dir.insert_at(
     table,
     key,
     hex.encode_cache_entry(metadata),
-  ))
-  cache_dir.insert(table, cached_at_key(key), int.to_string(now_seconds()))
+    Some(now_seconds()),
+  )
 }
 
 /// Handle a cache miss: record the fetch result and, on success, best-effort
@@ -212,12 +209,12 @@ fn lookup_entry(
 ) -> Result(hex.PackageMetadata, Nil) {
   // A stored value that no longer parses (e.g. partial format drift) is
   // reported as a miss so the caller refetches rather than failing.
-  case cache_dir.lookup(table, key) {
-    Ok(encoded) ->
-      case hex.decode_cache_entry(encoded) {
+  case cache_dir.lookup_entry(table, key) {
+    Ok(entry) ->
+      case hex.decode_cache_entry(entry.value) {
         Error(_) -> Error(Nil)
         Ok(metadata) ->
-          case cache_entry_expired(table, key) {
+          case cache_entry_expired(entry.cached_at) {
             True -> Error(Nil)
             False -> Ok(metadata)
           }
@@ -235,18 +232,9 @@ fn fetch_and_store(
   case fetched {
     Error(error) -> fall_back_to_stale(table, key, error, reporter)
     Ok(metadata) -> {
-      let reporter = case
-        cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
-      {
-        Ok(_) -> {
-          let _ =
-            cache_dir.insert(
-              table,
-              cached_at_key(key),
-              int.to_string(now_seconds()),
-            )
+      let reporter = case store_quiet(table, key, metadata) {
+        Ok(_) ->
           progress.detail(reporter, "Cached licence metadata for " <> key)
-        }
         Error(error) ->
           progress.detail(
             reporter,
@@ -302,22 +290,11 @@ fn lookup_stale(
   }
 }
 
-fn cache_entry_expired(table: cache_dir.Store, key: String) -> Bool {
-  case cached_at_seconds(table, key) {
-    Error(_) -> True
-    Ok(cached_at) -> now_seconds() - cached_at > cache_entry_ttl_seconds
+fn cache_entry_expired(cached_at: Option(Int)) -> Bool {
+  case cached_at {
+    None -> True
+    Some(seconds) -> now_seconds() - seconds > cache_entry_ttl_seconds
   }
-}
-
-fn cached_at_seconds(table: cache_dir.Store, key: String) -> Result(Int, Nil) {
-  case cache_dir.lookup(table, cached_at_key(key)) {
-    Error(_) -> Error(Nil)
-    Ok(raw) -> int.parse(raw)
-  }
-}
-
-fn cached_at_key(key: String) -> String {
-  cached_at_prefix <> key
 }
 
 fn now_seconds() -> Int {

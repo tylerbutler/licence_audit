@@ -461,7 +461,7 @@ These optional enrichment failures are distinct from an incomplete licence scan:
 `licence_audit` caches Hex licence metadata on disk between runs at:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.sqlite3
 ```
 
 Override this location with `--cache-path=PATH` or bypass the caches with
@@ -474,13 +474,27 @@ expire.
 Concurrent projects and commands can share the cache. Use a local filesystem
 for the cache location. In CI, restore and save the cache directory between
 jobs, for example with `actions/cache` and
-`--cache-path=.hex-cache/hex-v2.dets` (cache `.hex-cache/`). A fresh runner
+`--cache-path=.hex-cache/hex-v2.sqlite3` (cache `.hex-cache/`). A fresh runner
 with no restored cache must fetch each package again. Use `--verbose` to see
 cache hits and misses.
 
-Cache operations try to acquire exclusive access without waiting. If another
-command holds the cache lock, the operation is skipped and a nonfatal warning
-is reported. The command fetches source data instead of waiting for the cache.
+The caches use SQLite with WAL and no busy wait. Reads can continue while
+another command writes. If an operation needs a busy lock, it is skipped and
+a nonfatal warning is reported. Connections close after each operation;
+no transaction stays open during a network request. Metadata and its fetch
+timestamp are written atomically.
+
+The new `.sqlite3` caches refill on first use. Old `.dets` caches are not
+imported or changed. If `--cache-path` points to a DETS file, the command warns
+and continues without caching. Use a new path instead.
+
+Save CI caches only after all commands that use them have finished. A copy
+of a live database file can omit committed WAL data. Copying an active cache
+directory is not a coordinated SQLite snapshot.
+
+On Linux, the bundled SQLite build limits absolute database paths to 504
+UTF-8 bytes, including directories. A longer path disables caching with a
+warning; the audit still runs. Use a shorter `XDG_CACHE_HOME` or `--cache-path`.
 
 Each successful lookup is cached immediately. A later lookup failure does
 not discard earlier entries, and the audit continues with the remaining
@@ -491,7 +505,7 @@ The `notices` command additionally caches the licence materials it resolves, so
 repeated runs don't re-download package sources or re-resolve fallbacks:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.dets
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.sqlite3
 ```
 
 This cache is keyed by immutable content addresses and holds several
@@ -508,6 +522,11 @@ as a miss, and transient network failures are never cached as successes.
 
 If a cache operation fails, `licence_audit` writes a warning to stderr and
 continues the run. OSV advisories are not cached.
+
+Escript installations need the `sqlite_native/` directory beside the escript
+for caching. Release archives and `just build` include it; no `ERL_LIBS`
+setting is needed. A bare escript or an unavailable native library produces
+a warning and runs without caching. `--no-cache` does not load SQLite.
 
 ## Troubleshooting
 

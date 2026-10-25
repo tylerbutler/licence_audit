@@ -12,8 +12,10 @@ const tmp_dir = "build/tmp/notices_cache_test"
 
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
-  let path = tmp_dir <> "/" <> name <> ".dets"
-  let _ = simplifile.delete(path)
+  let path = tmp_dir <> "/" <> name <> ".sqlite3"
+  list.each(["", "-wal", "-shm"], fn(suffix) {
+    let _ = simplifile.delete(path <> suffix)
+  })
   path
 }
 
@@ -36,7 +38,7 @@ pub fn open_failure_preserves_notices_warning_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/open-blocker"
   let _ = simplifile.write("data", to: blocker)
-  let path = blocker <> "/notices.dets"
+  let path = blocker <> "/notices.sqlite3"
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let assert Some(warning) = notice_cache.close(handle)
   should.be_true(string.starts_with(
@@ -51,7 +53,9 @@ pub fn parent_directory_failure_preserves_warning_test() {
   let _ = simplifile.write("data", to: blocker)
   let dir = blocker <> "/nested"
   let handle =
-    notice_cache.open(notice_cache.Enabled(path: Some(dir <> "/notices.dets")))
+    notice_cache.open(
+      notice_cache.Enabled(path: Some(dir <> "/notices.sqlite3")),
+    )
   let assert Some(warning) = notice_cache.close(handle)
   should.be_true(string.contains(
     warning,
@@ -62,8 +66,9 @@ pub fn parent_directory_failure_preserves_warning_test() {
 pub fn write_failure_preserves_notices_warning_test() {
   let path = fresh_path("write_failure")
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  let _ = simplifile.write("block writes", to: path)
-  notice_cache.put_text(handle, "spdx:MIT", "MIT text")
+  cache_support.with_writer(path, fn() {
+    notice_cache.put_text(handle, "spdx:MIT", "MIT text")
+  })
   let assert Some(warning) = notice_cache.close(handle)
   should.be_true(string.starts_with(warning, "Failed to access notices cache: "))
 }

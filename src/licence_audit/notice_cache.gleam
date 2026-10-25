@@ -39,7 +39,7 @@ pub opaque type Cache {
 const cache_format_version = 3
 
 fn cache_filename() -> String {
-  "notices-v" <> int.to_string(cache_format_version) <> ".dets"
+  "notices-v" <> int.to_string(cache_format_version) <> ".sqlite3"
 }
 
 /// Open a cache according to `mode`.

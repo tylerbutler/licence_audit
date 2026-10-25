@@ -75,7 +75,7 @@ resolved licence materials. The cache prevents repeated downloads and fallback
 operations:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.dets
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.sqlite3
 ```
 
 Immutable content addresses are the cache keys. The cache contains extracted

@@ -2,7 +2,7 @@
 
 # Persisted package metadata cache path. Kept in-repo so CI can restore
 # .hex-cache/ between runs via actions/cache and avoid repeated downloads.
-hex_cache := ".hex-cache/hex-v2.dets"
+hex_cache := ".hex-cache/hex-v2.sqlite3"
 
 # OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
@@ -126,20 +126,17 @@ xerj-reference query:
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
     mise exec -- gleam export escript
-    just slate-native
+    just sqlite-native
 
-# Copy slate's native lock library beside the escript (escripts cannot bundle it).
-slate-native:
-    rm -rf slate_native
-    mkdir slate_native
-    cp -r build/packages/slate/priv/slate_lock/. slate_native/
-    rm -rf slate_native/source
+# Stage SQLite's native application beside the escript.
+sqlite-native:
+    mise exec -- python3 -B scripts/sqlite_native.py
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
     mise exec -- gleam export escript
-    just slate-native
+    just sqlite-native
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:
@@ -166,6 +163,11 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
+# Missing or unloadable SQLite libraries must not fail an audit.
+test-cache-runtime:
+    mise exec -- gleam build
+    mise exec -- bash test/sqlite_cache_runtime.sh
+
 # Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
 test-env-cache-paths: build
     mise exec -- gleam build
@@ -174,6 +176,7 @@ test-env-cache-paths: build
 # Run the isolated SQLite cache experiment without changing production deps.
 spike-sqlite:
     cd spikes/sqlite_cache && mise exec -- gleam format --check src && mise exec -- gleam build --warnings-as-errors
+    mise exec -- erl -noshell -pa "$PWD/spikes/sqlite_cache/build/dev/erlang/"*/ebin -eval 'case eunit:test(sqlite_cache_spike_ffi_tests, [verbose]) of ok -> halt(0); error -> halt(1) end.'
     mise exec -- bash test/sqlite_cache_spike.sh erl -noshell -pa "$PWD/spikes/sqlite_cache/build/dev/erlang/"*/ebin -s sqlite_cache_spike main -s init stop -extra
 
 # Escript NIFs need a real application directory, not the escript archive.
@@ -184,15 +187,17 @@ spike-sqlite-escript:
     cp -r spikes/sqlite_cache/build/prod/erlang/esqlite/ebin spikes/sqlite_cache/build/prod/erlang/esqlite/priv spikes/sqlite_cache/build/spike-escript/lib/esqlite/
     mise exec -- bash test/sqlite_cache_spike.sh env ERL_LIBS="$PWD/spikes/sqlite_cache/build/spike-escript/lib" "$PWD/spikes/sqlite_cache/build/spike-escript/sqlite_cache_spike"
 
-# Build for this Linux x86_64 host and run without system Erlang.
+# Use a downloaded release runtime, not the host's ERTS or its cached copy.
 spike-sqlite-native:
     #!/usr/bin/env bash
     set -euo pipefail
-    (cd spikes/sqlite_cache && mise exec zig@0.14.1 -- queso build --target x86_64-linux-glibc --erts "$(mise where erlang)")
-    docker run --rm --user "$(id -u):$(id -g)" \
-      --mount "type=bind,src=$PWD/spikes/sqlite_cache/build/queso/sqlite_cache_spike-0.1.0-x86_64-linux-glibc,dst=/sqlite_cache_spike,readonly" \
-      --mount "type=bind,src=$PWD/test/sqlite_cache_spike.sh,dst=/sqlite_cache_spike.sh,readonly" \
-      ubuntu:24.04 bash -c 'if command -v erl >/dev/null; then echo "Container must not have Erlang" >&2; exit 1; fi; bash /sqlite_cache_spike.sh /sqlite_cache_spike'
+    (cd spikes/sqlite_cache && XDG_CACHE_HOME="$PWD/build/clean-release-cache" mise exec zig@0.14.1 -- queso build --target x86_64-linux-glibc)
+    for image in debian:bookworm-slim ubuntu:24.04; do
+      docker run --rm --user "$(id -u):$(id -g)" \
+        --mount "type=bind,src=$PWD/spikes/sqlite_cache/build/queso/sqlite_cache_spike-0.1.0-x86_64-linux-glibc,dst=/sqlite_cache_spike,readonly" \
+        --mount "type=bind,src=$PWD/test/sqlite_cache_spike.sh,dst=/sqlite_cache_spike.sh,readonly" \
+        "$image" bash -c 'if command -v erl >/dev/null; then echo "Container must not have Erlang" >&2; exit 1; fi; bash /sqlite_cache_spike.sh /sqlite_cache_spike'
+    done
 
 # Run the same experiment against an exported escript or native executable.
 spike-sqlite-binary binary:
@@ -350,6 +355,6 @@ docs-check: _docs-ffi
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci

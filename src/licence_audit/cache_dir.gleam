@@ -1,17 +1,12 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Reads and writes use short exclusive sessions so concurrent CLI runs
-//// can share cached entries without corrupting or overwriting each other's
-//// data. Busy caches are bypassed without waiting for another owner.
+//// Each operation opens and closes a SQLite connection. WAL lets readers
+//// continue during writes; busy operations are skipped without waiting.
 
-import gleam/dynamic/decode
 import gleam/erlang/reference.{type Reference}
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import simplifile
-import slate
-import slate/exclusive
-import slate/set
 
 import licence_audit/env
 import licence_audit/path
@@ -23,6 +18,10 @@ pub opaque type Store {
   Store(path: String, warnings: Reference)
 }
 
+pub type Entry {
+  Entry(value: String, cached_at: Option(Int))
+}
+
 /// Why a cache path could not be resolved or prepared.
 type PathError {
   CacheDirUnknown
@@ -31,22 +30,16 @@ type PathError {
 
 pub opaque type Error {
   PathFailed(PathError)
-  OpenFailed(name: String, path: String, reason: PathError)
-  WriteFailed(key: String, reason: exclusive.SessionError)
+  OpenFailed(name: String, path: String, reason: String)
+  WriteFailed(key: String, reason: String)
 }
 
 pub fn describe_error(error: Error) -> String {
   case error {
     PathFailed(reason) -> describe_path_error(reason)
     OpenFailed(name, path, reason) ->
-      "Unable to open "
-      <> name
-      <> " cache at "
-      <> path
-      <> ": "
-      <> describe_path_error(reason)
-    WriteFailed(key, reason) ->
-      "write " <> key <> ": " <> exclusive.error_message(reason)
+      "Unable to open " <> name <> " cache at " <> path <> ": " <> reason
+    WriteFailed(key, reason) -> "write " <> key <> ": " <> reason
   }
 }
 
@@ -105,52 +98,69 @@ pub fn open_table(
   use resolved <- result.try(
     resolve_path(cache_path, filename) |> result.map_error(PathFailed),
   )
-  case ensure_cache_dir(resolved) {
-    Ok(Nil) -> Ok(Store(path: resolved, warnings: reference.new()))
-    Error(error) -> Error(OpenFailed(name, resolved, error))
-  }
+  use _ <- result.try(
+    ensure_cache_dir(resolved)
+    |> result.map_error(fn(error) {
+      OpenFailed(name, resolved, describe_path_error(error))
+    }),
+  )
+  use _ <- result.try(
+    ffi_open(resolved)
+    |> result.map_error(fn(error) { OpenFailed(name, resolved, error) }),
+  )
+  Ok(Store(path: resolved, warnings: reference.new()))
 }
 
-/// Read one cache entry in a short exclusive session.
+/// Read one cache value without keeping a connection open.
 pub fn lookup(store: Store, key: String) -> Result(String, Nil) {
-  case
-    set.with_exclusive_table(
-      path: store.path,
-      repair: slate.AutoRepair,
-      access: slate.ReadWrite,
-      wait: exclusive.Immediate,
-      key_decoder: decode.string,
-      value_decoder: decode.string,
-      callback: fn(table) { set.lookup(table, key: key) },
-    )
-  {
-    Ok(value) -> Ok(value)
-    Error(exclusive.SessionFailed(exclusive.CallbackFailure(slate.NotFound))) ->
-      Error(Nil)
+  lookup_entry(store, key) |> result.map(fn(entry) { entry.value })
+}
+
+/// Read a value and its timestamp from the same SQLite row.
+pub fn lookup_entry(store: Store, key: String) -> Result(Entry, Nil) {
+  case ffi_lookup(store.path, key) {
+    Ok(Some(entry)) -> Ok(entry)
+    Ok(None) -> Error(Nil)
     Error(error) -> {
-      warn(store, "read " <> key <> ": " <> exclusive.error_message(error))
+      warn(store, "read " <> key <> ": " <> error)
       Error(Nil)
     }
   }
 }
 
-/// Publish one cache entry in a short exclusive session.
+/// Publish an immutable cache value.
 pub fn insert(store: Store, key: String, value: String) -> Result(Nil, Error) {
-  set.with_exclusive_table(
-    path: store.path,
-    repair: slate.AutoRepair,
-    access: slate.ReadWrite,
-    wait: exclusive.Immediate,
-    key_decoder: decode.string,
-    value_decoder: decode.string,
-    callback: fn(table) { set.insert(table, key, value) },
-  )
+  insert_at(store, key, value, None)
+}
+
+/// Publish a value and optional expiry timestamp atomically.
+pub fn insert_at(
+  store: Store,
+  key: String,
+  value: String,
+  cached_at: Option(Int),
+) -> Result(Nil, Error) {
+  ffi_insert(store.path, key, value, cached_at)
   |> result.map_error(fn(error) {
     let error = WriteFailed(key, error)
     warn(store, describe_error(error))
     error
   })
 }
+
+@external(erlang, "cache_dir_ffi", "open")
+fn ffi_open(path: String) -> Result(Nil, String)
+
+@external(erlang, "cache_dir_ffi", "lookup")
+fn ffi_lookup(path: String, key: String) -> Result(Option(Entry), String)
+
+@external(erlang, "cache_dir_ffi", "insert")
+fn ffi_insert(
+  path: String,
+  key: String,
+  value: String,
+  cached_at: Option(Int),
+) -> Result(Nil, String)
 
 /// Close a store and return the latest deferred warning.
 pub fn close_table(

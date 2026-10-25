@@ -99,7 +99,7 @@ integration interfaces.
 ## Caching
 
 `licence_audit` caches Hex licence metadata on disk between runs at
-`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`. Override it with
+`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.sqlite3`. Override it with
 `--cache-path=PATH`, or bypass the caches with `--no-cache`. `licence_audit`
 reuses Hex API entries for 7 days, so metadata changes on Hex can take up to
 7 days to appear. Use `--no-cache` when you need fresh data.
@@ -107,8 +107,17 @@ reuses Hex API entries for 7 days, so metadata changes on Hex can take up to
 The cache is shared across projects and commands for each package name and
 version. Concurrent commands can share the cache on a local filesystem. In
 CI, restore and save the cache directory between jobs, for example with
-`actions/cache`, `--cache-path=.hex-cache/hex-v2.dets`, and `.hex-cache/` as
+`actions/cache`, `--cache-path=.hex-cache/hex-v2.sqlite3`, and `.hex-cache/` as
 the path to save. Use `--verbose` to see cache hits and misses.
+
+SQLite WAL allows reads during writes. Busy operations are skipped without
+waiting and produce a warning. Save CI caches only after all commands finish;
+copying an active database can omit committed WAL data.
+
+The new SQLite files refill on first use. Existing `.dets` files are not
+imported or changed. Choose a new `--cache-path` if it points to a DETS file.
+On Linux, absolute cache paths must not exceed 504 UTF-8 bytes. Longer paths
+produce a warning and the audit runs without caching.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the
