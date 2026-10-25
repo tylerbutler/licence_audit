@@ -133,7 +133,10 @@ try:
         watcher = threading.Thread(target=observe)
         watcher.start()
         try:
-            assert process.stdout.readline().strip() == "REPLACED"
+            first_line = process.stdout.readline().strip()
+            if first_line != "REPLACED":
+                output, _ = process.communicate(timeout=120)
+                raise AssertionError((first_line, output, failures))
             time.sleep(delay)
             stop_tree(process)
             assert read_shared(path) in (original, complete)

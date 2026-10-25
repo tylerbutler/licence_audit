@@ -58,9 +58,9 @@ windows_worker() ->
             {ok, Original} = file:read_file(Path),
             Replacement = unicode:characters_to_binary(os:getenv("POLICY_TEST_CONTENTS")),
             lists:foreach(fun(_) ->
-                {ok, nil} = policy_file_ffi:write(Path, Replacement),
+                ok = policy_file_ffi:write(Path, Replacement, fun file:write/2),
                 io:format("REPLACED~n"),
-                {ok, nil} = policy_file_ffi:write(Path, Original)
+                ok = policy_file_ffi:write(Path, Original, fun file:write/2)
             end, lists:seq(1, 12))
     end,
     io:format("PASS~n"),

@@ -129,17 +129,20 @@ windows_replace(From, To) ->
                 {args, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
                     binary_to_list(Encoded)]}
             ]) of
-                Port -> replacement_result(Port)
+                Port -> replacement_result(Port, <<>>)
             catch
                 error:Reason -> {error, Reason}
             end
     end.
 
-replacement_result(Port) ->
+replacement_result(Port, Output) ->
     receive
-        {Port, {data, _Output}} -> replacement_result(Port);
+        {Port, {data, Data}} ->
+            Combined = <<Output/binary, Data/binary>>,
+            Start = max(0, byte_size(Combined) - 8192),
+            replacement_result(Port, binary:part(Combined, Start, byte_size(Combined) - Start));
         {Port, {exit_status, 0}} -> ok;
-        {Port, {exit_status, Status}} -> {error, {windows_replace, Status}}
+        {Port, {exit_status, Status}} -> {error, {windows_replace, Status, Output}}
     after 60000 ->
         port_close(Port),
         {error, timeout}
