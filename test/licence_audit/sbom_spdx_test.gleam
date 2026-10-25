@@ -5,9 +5,12 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/notice
+import licence_audit/progress
 import licence_audit/sbom
 import licence_audit/sbom_spdx
 import simplifile
@@ -232,4 +235,97 @@ pub fn spdx_licences_are_not_limited_to_the_cyclonedx_schema_test() {
   licence |> should.equal("MVT-1.1")
   sbom.license_entries(["mvt-1.1"])
   |> should.equal([sbom.LicenseName("mvt-1.1")])
+}
+
+fn forbid_network() -> a {
+  panic as "Offline SBOM generation must not call a network client"
+}
+
+fn offline_git_result(reproducible: Bool) -> licence_audit.RunResult {
+  let root = "build/spdx-offline-project"
+  let local_git = root <> "/build/packages/git_dep"
+  let assert Ok(Nil) = simplifile.create_directory_all(local_git)
+  let assert Ok(Nil) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"offline_fixture\"\nversion = \"1.0.0\"\nlicences = [\"Apache-2.0\"]\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      local_git <> "/gleam.toml",
+      "name = \"git_dep\"\nlicences = [\"MIT\"]\n",
+    )
+  let manifest_path = root <> "/manifest.toml"
+  let assert Ok(Nil) = simplifile.write(manifest_path, "packages = [
+  { name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abcdef\" },
+  { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> string.repeat(
+      "a",
+      64,
+    ) <> "\" },
+]
+[requirements]
+git_dep = { git = \"https://github.com/example/git_dep\" }
+hex_dep = \"1.0.0\"
+")
+  let clients =
+    licence_audit.Clients(
+      fetcher: fn(_) { forbid_network() },
+      osv_batch_fetcher: fn(_) { forbid_network() },
+      osv_detail_fetcher: fn(_) { forbid_network() },
+      notice_clients: notice.Clients(
+        fetch_hex_tarball: fn(_, _) { forbid_network() },
+        fetch_git_archive: fn(_, _) { forbid_network() },
+        resolve_commit: fn(_, _) { forbid_network() },
+        fetch_repo_archive: fn(_, _) { forbid_network() },
+        fetch_spdx_index: fn(_) { forbid_network() },
+        fetch_spdx: fn(_) { forbid_network() },
+      ),
+    )
+  let extra_args = case reproducible {
+    True -> ["--reproducible"]
+    False -> []
+  }
+  licence_audit.run_configured(
+    [
+      "sbom",
+      "--format=spdx-json",
+      "--manifest=" <> manifest_path,
+      "--offline",
+      ..extra_args
+    ],
+    clients,
+    progress.disabled(),
+  ).0
+}
+
+pub fn offline_uses_local_git_licences_without_network_test() {
+  let result = offline_git_result(False)
+  result.exit_code |> should.equal(0)
+  let assert Ok(packages) =
+    json.parse(
+      result.output,
+      decode.at(["packages"], decode.list(package_decoder())),
+    )
+  list.map(packages, fn(package) { #(package.0, package.2) })
+  |> should.equal([
+    #("offline_fixture", "Apache-2.0"),
+    #("git_dep", "MIT"),
+    #("hex_dep", "NOASSERTION"),
+  ])
+}
+
+pub fn offline_reproducible_skips_local_git_licences_without_network_test() {
+  let result = offline_git_result(True)
+  result.exit_code |> should.equal(0)
+  let assert Ok(packages) =
+    json.parse(
+      result.output,
+      decode.at(["packages"], decode.list(package_decoder())),
+    )
+  list.map(packages, fn(package) { #(package.0, package.2) })
+  |> should.equal([
+    #("offline_fixture", "Apache-2.0"),
+    #("git_dep", "NOASSERTION"),
+    #("hex_dep", "NOASSERTION"),
+  ])
 }

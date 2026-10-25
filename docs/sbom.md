@@ -18,7 +18,7 @@ licence_audit sbom [--flags]
 | `--format` | `STRING` | `cyclonedx-json` | Output format: cyclonedx-json or spdx-json |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; leave dependency licences unknown |
+| `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; leave Hex dependency licences unknown |
 | `--output` | `STRING` |  | Write SBOM to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--reproducible` | `BOOL` | `false` | Reproducible output from locked package archives: serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |

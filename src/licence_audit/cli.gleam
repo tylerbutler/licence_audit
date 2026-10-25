@@ -418,7 +418,7 @@ fn offline_flag() -> glint.Flag(Bool) {
   glint.bool_flag("offline")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Skip Hex metadata fetch; leave dependency licences unknown",
+    "Skip Hex metadata fetch; leave Hex dependency licences unknown",
   )
 }
 

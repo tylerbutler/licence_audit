@@ -231,7 +231,7 @@ evidence and attribution. `update` preserves exception entries and comments.
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # compact JSON to a file
-licence_audit sbom --offline           # skip Hex fetch, omit licence fields
+licence_audit sbom --offline           # skip Hex fetch, omit Hex licence fields
 licence_audit sbom --reproducible      # reproducible output (see below)
 licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
 licence_audit sbom --format=spdx-json  # SPDX 2.3 JSON instead of CycloneDX
@@ -270,7 +270,10 @@ and `copyrightText: "NOASSERTION"`. A single recognised licence identifier becom
 expressions, unknown identifiers, and custom licence names also use `NOASSERTION`,
 with the original declarations preserved in `licenseComments`: the tool does not
 infer AND/OR, fabricate custom licence text, or emit unresolved `LicenseRef`s.
-`--offline` leaves dependency licence declarations unknown.
+`--offline` leaves Hex dependency licence declarations unknown. Git dependencies
+can still supply declarations from their local `build/packages/<name>/gleam.toml`.
+Combining `--offline --reproducible` leaves all dependency declarations unknown;
+the root project's declarations remain available.
 
 The SPDX document namespace is a fresh UUID by default, or content-derived with
 `--reproducible`. Its creation time follows the same timestamp rules as CycloneDX.
@@ -278,7 +281,7 @@ The SPDX document namespace is a fresh UUID by default, or content-derived with
 
 `sbom` ignores licence policy. It **fails** on any dependency whose source can't
 become a clean purl (path deps, non-GitHub git deps); only `hex` and GitHub
-`git` are supported. `--offline` skips licence fetches but still validates purls.
+`git` are supported. `--offline` skips network licence fetches but still validates purls.
 (Contrast with `vulns`, which silently skips unsupported sources.)
 
 **Embedded vulnerabilities.** `--vulns` queries OSV.dev (the same pipeline as the
