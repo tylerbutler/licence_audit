@@ -20,7 +20,7 @@ decode(Input) when is_binary(Input), byte_size(Input) =< ?MAX_METADATA_BYTES ->
             ({Label, Url}) -> is_binary(Label) andalso is_binary(Url);
             (_) -> false
         end, Links),
-        {ok, {Licences, Description, lists:sort(Links)}}
+        {ok, {Licences, Description, Links}}
     catch
         error:_ -> {error, nil}
     end;

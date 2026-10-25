@@ -82,6 +82,22 @@ pub fn decode_archive_metadata_rejects_invalid_terms_test() {
   )
 }
 
+pub fn decode_archive_metadata_preserves_source_link_order_test() {
+  let input =
+    "{<<\"licenses\">>, [<<\"MIT\">>]}.\n"
+    <> "{<<\"links\">>, ["
+    <> "{<<\"Website\">>, <<\"https://example.com\">>},"
+    <> "{<<\"Repository\">>, <<\"https://github.com/example/package\">>}"
+    <> "]}.\n"
+  let assert Ok(metadata) =
+    hex.package_metadata_from_archive(bit_array.from_string(input))
+
+  should.equal(metadata.links, [
+    #("Website", "https://example.com"),
+    #("Repository", "https://github.com/example/package"),
+  ])
+}
+
 pub fn decode_archive_metadata_converts_latin1_strings_test() {
   let input = <<
     "{<<\"description\">>, <<\"Caf\\351\">>}.\n{<<\"licenses\">>, []}.\n":utf8,
