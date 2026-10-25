@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Send fatal CLI diagnostics to stderr while keeping gate-failure reports on stdout and failed SBOM output empty."

@@ -41,6 +41,15 @@ pub type RunResult {
   RunResult(exit_code: Int, output: String)
 }
 
+type ActionResult {
+  Report(result: RunResult)
+  Diagnostic(result: RunResult)
+}
+
+fn report_result(exit_code: Int, output: String) -> ActionResult {
+  Report(RunResult(exit_code, output))
+}
+
 pub type Clients {
   Clients(
     fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
@@ -88,7 +97,8 @@ pub fn main() -> Nil {
           case start_runtime() {
             Ok(Nil) -> handle_action(action)
             Error(startup_error) -> {
-              let RunResult(exit_code, output) = diagnostic(startup_error)
+              let result = diagnostic(startup_error)
+              let RunResult(exit_code, output) = result.result
               io.print_error(output)
               halt(exit_code)
             }
@@ -98,25 +108,24 @@ pub fn main() -> Nil {
 }
 
 fn handle_action(action: cli.CliAction) -> Nil {
-  let #(RunResult(exit_code, output), reporter) =
+  let #(result, reporter) =
     execute_action(
       action,
       default_clients(),
       reporter_for_action(action),
       palette_for_action(action),
     )
-  case action {
-    cli.InvalidUsage(_) -> {
+  let RunResult(exit_code, output) = result.result
+  case result {
+    Diagnostic(_) -> {
       io.print_error(output)
-      halt(1)
     }
-    cli.ShowVersion -> io.print(output)
-    _ -> {
+    Report(_) -> {
       io.print(output)
-      let _ = progress.flush(apply_http_warning(reporter))
-      halt(exit_code)
     }
   }
+  let _ = progress.flush(apply_http_warning(reporter))
+  halt(exit_code)
 }
 
 fn reporter_for_action(action: cli.CliAction) -> progress.Reporter {
@@ -168,12 +177,12 @@ pub fn run_configured(
   let #(result, reporter) = case
     glint.execute(cli.app(), cli.normalize_args(library_args(args)))
   {
-    Ok(glint.Help(help)) -> #(RunResult(0, help <> "\n"), reporter)
+    Ok(glint.Help(help)) -> #(report_result(0, help <> "\n"), reporter)
     Ok(glint.Out(action)) ->
       execute_action(action, clients, reporter, color.for_enabled(False))
-    Error(message) -> #(RunResult(1, message <> "\n"), reporter)
+    Error(message) -> #(Diagnostic(RunResult(1, message <> "\n")), reporter)
   }
-  #(result, progress.events(reporter))
+  #(result.result, progress.events(reporter))
 }
 
 fn execute_action(
@@ -181,7 +190,7 @@ fn execute_action(
   clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   case action {
     cli.RunAudit(options) ->
       run_options_with_clients(
@@ -193,12 +202,19 @@ fn execute_action(
         palette,
       )
     cli.UpdateConfig(options) -> {
-      let #(update_cmd.UpdateResult(exit_code, output), reporter) =
+      let #(result, reporter) =
         run_update_options(options, clients.fetcher, reporter)
-      #(RunResult(exit_code, output), reporter)
+      let run_result = RunResult(result.exit_code, result.output)
+      #(
+        case result {
+          update_cmd.UpdateResult(..) -> Report(run_result)
+          update_cmd.UpdateDiagnostic(..) -> Diagnostic(run_result)
+        },
+        reporter,
+      )
     }
     cli.InvalidUsage(message) -> #(
-      RunResult(1, "Error: " <> message <> "\n"),
+      Diagnostic(RunResult(1, "Error: " <> message <> "\n")),
       reporter,
     )
     cli.RunSbom(options) ->
@@ -228,7 +244,7 @@ fn execute_action(
         clients.notice_clients,
         reporter,
       )
-    cli.ShowVersion -> #(RunResult(0, tool_version() <> "\n"), reporter)
+    cli.ShowVersion -> #(report_result(0, tool_version() <> "\n"), reporter)
   }
 }
 
@@ -239,7 +255,7 @@ fn run_sbom_options(
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   source_clients: notice.Clients,
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
   let project_root = project_root_for_manifest(manifest_path)
   let reporter = progress.phase(reporter, "Generating SBOM")
@@ -269,7 +285,7 @@ fn run_notices_options(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   clients: notice.Clients,
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
   let project_root = project_root_for_manifest(manifest_path)
   let reporter = progress.phase(reporter, "Generating licence notices")
@@ -387,7 +403,7 @@ fn build_notice_entries(
   source_cache: notice_cache.Cache,
   clients: notice.Clients,
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let reporter =
     list.fold(packages, reporter, fn(reporter, package) {
       progress.detail(
@@ -620,13 +636,13 @@ fn write_notice_output(
   text: String,
   output: option.Option(String),
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   case output {
-    None -> #(RunResult(0, text), reporter)
+    None -> #(report_result(0, text), reporter)
     Some(path) -> {
       let reporter = progress.detail(reporter, "Writing notices to " <> path)
       case simplifile.write(to: path, contents: text) {
-        Ok(_) -> #(RunResult(0, ""), reporter)
+        Ok(_) -> #(report_result(0, ""), reporter)
         Error(reason) -> #(
           diagnostic(
             error.Notices(
@@ -654,7 +670,7 @@ fn run_sbom_for_manifest(
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   source_clients: notice.Clients,
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let cache_mode = case options.no_cache {
     True -> cache.Disabled
     False -> cache.Enabled(path: options.cache_path)
@@ -889,7 +905,7 @@ fn render_sbom(
   package_metadata: dict.Dict(String, hex.PackageMetadata),
   vulnerabilities: List(sbom.EmbeddedVulnerability),
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let root = read_root_component(project_root)
   let scopes =
     manifest.sbom_scopes(
@@ -1219,23 +1235,23 @@ fn write_sbom_output(
   output: option.Option(String),
   json_str: String,
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   case sbom_json.pretty_print(json_str) {
     Error(reason) -> #(
-      RunResult(
+      Diagnostic(RunResult(
         2,
         "Error: failed to format SBOM JSON: "
           <> sbom_json.describe_error(reason)
           <> "\n",
-      ),
+      )),
       reporter,
     )
     Ok(pretty_json) ->
       case output {
-        option.None -> #(RunResult(0, pretty_json <> "\n"), reporter)
+        option.None -> #(report_result(0, pretty_json <> "\n"), reporter)
         option.Some(path) ->
           case simplifile.write(to: path, contents: pretty_json <> "\n") {
-            Ok(_) -> #(RunResult(0, ""), reporter)
+            Ok(_) -> #(report_result(0, ""), reporter)
             Error(reason) -> #(
               diagnostic(error.SbomWriteFailed(
                 path: path,
@@ -1255,7 +1271,7 @@ fn run_options_with_clients(
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
   let project_root = project_root_for_manifest(manifest_path)
   let reporter = progress.phase(reporter, "Starting licence audit")
@@ -1281,7 +1297,7 @@ fn run_options_with_clients(
 }
 
 /// Load the licence policy and package manifest for an audit run. On any
-/// failure, short-circuits with a `#(RunResult, reporter)` diagnostic.
+/// failure, short-circuits with a diagnostic.
 fn prepare_audit(
   options: cli.Options,
   manifest_path: String,
@@ -1296,7 +1312,7 @@ fn prepare_audit(
     dict.Dict(String, manifest.Scope),
     progress.Reporter,
   ),
-  #(RunResult, progress.Reporter),
+  #(ActionResult, progress.Reporter),
 ) {
   use config_policy <- result.try(
     load_policy(options, project_root)
@@ -1373,7 +1389,7 @@ fn audit_locked(
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let today = exception.utc_date(timestamp.system_time())
   let reporter = progress.package_count(reporter, list.length(locked.packages))
   let evaluate_policy = policy.has_rules(audit_policy)
@@ -1589,27 +1605,27 @@ fn finalize_audit(
   vuln_unknown_failed: Bool,
   output: String,
   reporter: progress.Reporter,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   use <- bool.guard(when: check && fetch_failed, return: #(
-    RunResult(2, output),
+    report_result(2, output),
     progress.defer_error(
       reporter,
       "Licence audit failed: package metadata could not be fetched",
     ),
   ))
   use <- bool.guard(when: vuln_incomplete, return: #(
-    RunResult(2, output),
+    report_result(2, output),
     reporter,
   ))
   use <- bool.guard(when: check && policy_failed, return: #(
-    RunResult(1, output <> error.message(error.AuditFailed) <> "\n"),
+    report_result(1, output <> error.message(error.AuditFailed) <> "\n"),
     progress.defer_error(
       reporter,
       "Licence audit failed: policy violations detected",
     ),
   ))
   use <- bool.guard(when: vuln_failed, return: #(
-    RunResult(
+    report_result(
       1,
       output
         <> case vuln_unknown_failed {
@@ -1626,7 +1642,7 @@ fn finalize_audit(
     }),
   ))
   #(
-    RunResult(0, output),
+    report_result(0, output),
     progress.defer_success(reporter, "Licence audit completed"),
   )
 }
@@ -1867,11 +1883,11 @@ fn review_licence_row(
   }
 }
 
-fn diagnostic(audit_error: error.Error) -> RunResult {
-  RunResult(
+fn diagnostic(audit_error: error.Error) -> ActionResult {
+  Diagnostic(RunResult(
     error.exit_code(audit_error),
     "Error: " <> error.message(audit_error) <> "\n",
-  )
+  ))
 }
 
 fn option_value(value: option.Option(String), default: String) -> String {
@@ -1911,7 +1927,7 @@ fn run_vulns_options(
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
   palette: color.Palette,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
   let project_root = project_root_for_manifest(manifest_path)
   let today = exception.utc_date(timestamp.system_time())
@@ -1964,7 +1980,7 @@ fn run_vulns_options(
             exception.NotEvaluated("licence scan disabled"),
             exception.Evaluated([], []),
           )
-        #(RunResult(0, output), reporter)
+        #(report_result(0, output), reporter)
       }
       _ ->
         query_and_report_vulns(
@@ -1999,7 +2015,7 @@ fn query_and_report_vulns(
   palette: color.Palette,
   exceptions: List(exception.Exception),
   today: String,
-) -> #(RunResult, progress.Reporter) {
+) -> #(ActionResult, progress.Reporter) {
   let reporter =
     progress.detail(
       reporter,
@@ -2011,15 +2027,17 @@ fn query_and_report_vulns(
     Error(osv_error) -> {
       let failure = diagnostic(error.from_osv_error(osv_error))
       #(
-        RunResult(
-          ..failure,
-          output: failure.output
-            <> exception.summary(
-              exceptions,
-              today,
-              exception.NotEvaluated("licence scan disabled"),
-              unavailable_vulns(purl_pairs, "OSV request failed"),
-            ),
+        Diagnostic(
+          RunResult(
+            ..failure.result,
+            output: failure.result.output
+              <> exception.summary(
+                exceptions,
+                today,
+                exception.NotEvaluated("licence scan disabled"),
+                unavailable_vulns(purl_pairs, "OSV request failed"),
+              ),
+          ),
         ),
         reporter,
       )
@@ -2039,7 +2057,7 @@ fn query_and_report_vulns(
               exception.NotEvaluated("licence scan disabled"),
               vuln_row_coverage(rows),
             )
-          #(RunResult(0, output), reporter)
+          #(report_result(0, output), reporter)
         }
       }
     }

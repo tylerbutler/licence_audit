@@ -393,6 +393,10 @@ non-blocking.
 | `sbom --output=PATH` | `PATH` (stdout empty) |
 | Progress, warnings, errors | stderr |
 
+Reports stay on stdout even when an enforced gate fails or a report is
+incomplete. Fatal diagnostics go to stderr, including with `--quiet`.
+If SBOM generation fails before a document is available, stdout stays empty.
+
 Progress messages are written to stderr as the audit runs; use `--quiet` to
 silence them or `--verbose` for package-level detail.
 
