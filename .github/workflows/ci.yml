@@ -30,6 +30,12 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
+      - name: Checkout validation tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .validation
+
       - name: Check vendored sources
         run: just vendor-check vendor-test
 
@@ -55,7 +61,9 @@ jobs:
         run: just test-runtime-startup
 
       - name: Test native smoke harness
-        run: just test-native-smoke
+        run: |
+          python3 -B -m unittest discover -s .validation/test -p native_release_smoke_test.py
+          python3 -B -m unittest discover -s .validation/test -p publish_release_test.py
 
       - name: Smoke test built CLI
         run: ./licence_audit --help
@@ -90,6 +98,12 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
+      - name: Checkout validation tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .validation
+
       - name: Install Queso glibc packaging dependencies
         # Queso treats glibc as a cross target even on Linux glibc hosts.
         run: |
@@ -105,4 +119,4 @@ jobs:
           set -euo pipefail
           binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
           test "${#binaries[@]}" -eq 1
-          just smoke-native-http "${binaries[0]}"
+          just --justfile .validation/justfile smoke-native-http "$PWD/${binaries[0]}"

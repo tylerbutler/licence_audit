@@ -2,6 +2,7 @@
 """Run the same release checks on the target host, not a cross-build host."""
 
 import argparse
+from contextlib import contextmanager
 import errno
 import os
 from pathlib import Path
@@ -13,6 +14,39 @@ import subprocess
 import threading
 import time
 import uuid
+
+
+@contextmanager
+def isolated_network(environment):
+    if platform.system() == "Linux":
+        command = [shutil.which("unshare"), "--net", "--"]
+        if os.geteuid() != 0:
+            command = [shutil.which("sudo"), "-n", *command]
+        # sudo normally resets HOME and the cache environment.
+        yield [*command, shutil.which("env"), "-i",
+               *(f"{key}={value}" for key, value in environment.items())]
+    elif platform.system() == "Darwin":
+        yield ["/usr/bin/sandbox-exec", "-p", "(version 1)(allow default)(deny network*)"]
+    elif platform.system() == "Windows":
+        powershell = shutil.which("powershell")
+        rule = f"licence-audit-smoke-{uuid.uuid4().hex}"
+
+        def firewall(command):
+            subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
+                check=True, capture_output=True,
+            )
+
+        firewall(
+            f"New-NetFirewallRule -DisplayName '{rule}' -Direction Outbound "
+            "-Action Block -Enabled True -Profile Any | Out-Null"
+        )
+        try:
+            yield []
+        finally:
+            firewall(f"Remove-NetFirewallRule -DisplayName '{rule}'")
+    else:
+        raise RuntimeError("No network isolation driver for this platform")
 
 
 def validate_output(name, output, status, expected=0):
@@ -132,20 +166,26 @@ def smoke(binary, work, expected_version):
     fixtures = Path(__file__).resolve().parent / "fixtures" / "native_http"
     for name in ("gleam.toml", "manifest.toml"):
         shutil.copyfile(fixtures / name, work / name)
-    for name in ("home", "empty-path"):
+    for name in ("home-é中", "empty-path"):
         (work / name).mkdir()
     environment = {
         key: value for key, value in os.environ.items()
         if key.upper() in ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT")
     }
     environment.update(
-        HOME=str(work / "home"), USERPROFILE=str(work / "home"),
-        APPDATA=str(work / "home"), LOCALAPPDATA=str(work / "home"),
-        XDG_CACHE_HOME=str(work / "home" / ".cache"),
         PATH=str(work / "empty-path"), TERM="xterm-256color",
         TMPDIR=str(work), TMP=str(work), TEMP=str(work),
         ERL_CRASH_DUMP=os.devnull, ERL_FLAGS="+S 2:2 +SDcpu 1 +SDio 1",
     )
+    if os.name == "nt":
+        # A native Windows shell does not supply HOME or XDG_CACHE_HOME.
+        environment.update(
+            USERPROFILE=str(work / "home-é中"),
+            APPDATA=str(work / "home-é中" / "AppData" / "Roaming"),
+            LOCALAPPDATA=str(work / "home-é中" / "AppData" / "Local"),
+        )
+    else:
+        environment["HOME"] = str(work / "home-é中")
 
     def run(name, *arguments, expected=0):
         result = subprocess.run(
@@ -171,6 +211,34 @@ def smoke(binary, work, expected_version):
         assert re.search(r"gleam_stdlib\s+1\.0\.5\s+Apache-2\.0", output), output
         assert "Skipped non-Hex packages: 0" in output, output
         assert f"{cache_event} gleam_stdlib@1.0.5" in output, output
+
+    with isolated_network(environment) as prefix:
+        arguments = ["--verbose", "--color=never"]
+        cached = subprocess.run(
+            [*prefix, str(binary), *arguments], cwd=work, env=environment,
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
+            encoding="utf-8", errors="replace",
+        )
+        output = cached.stdout + cached.stderr
+        (work / "report-isolated-warm.log").write_text(output, encoding="utf-8")
+        validate_output("report-isolated-warm", output, cached.returncode)
+        assert "Cache hit for gleam_stdlib@1.0.5" in output, output
+        assert re.search(r"gleam_stdlib\s+1\.0\.5\s+Apache-2\.0", output), output
+        missing = subprocess.run(
+            [*prefix, str(binary), *arguments, f"--cache-path={work / 'missing-cache'}"],
+            cwd=work, env=environment, stdin=subprocess.DEVNULL,
+            capture_output=True, timeout=60, encoding="utf-8", errors="replace",
+        )
+        output = missing.stdout + missing.stderr
+        (work / "report-isolated-missing.log").write_text(output, encoding="utf-8")
+        assert "Cache miss for gleam_stdlib@1.0.5" in output, output
+        assert not re.search(r"gleam_stdlib\s+1\.0\.5\s+Apache-2\.0", output), output
+
+    if os.name == "nt":
+        local = environment.pop("LOCALAPPDATA")
+        output = run("report-profile-fallback", "--verbose", "--color=never")
+        assert "Cache hit for gleam_stdlib@1.0.5" in output, output
+        environment["LOCALAPPDATA"] = local
 
     output = run("vulns", "vulns", "--color=never")
     assert re.search(
@@ -199,7 +267,7 @@ def smoke(binary, work, expected_version):
             validate_output("update", output, status)
             setting = "deny" if name == "deny" else "allow"
             assert re.search(rf'{setting}\s*=\s*\["Apache-2\.0"\]', policy.read_text()), policy.read_text()
-    print("Native release smoke passed: startup, HTTPS, cold/warm cache, update PTY.")
+    print("Native release smoke passed: startup, HTTPS, cold/warm/isolated cache, update PTY.")
 
 
 def main():

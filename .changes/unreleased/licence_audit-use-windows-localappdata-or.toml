@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Use Windows LOCALAPPDATA or USERPROFILE for the default metadata cache, including Unicode profile paths, without requiring Unix environment variables."

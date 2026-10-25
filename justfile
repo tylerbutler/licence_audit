@@ -148,6 +148,7 @@ build-queso:
 # Test native smoke failure handling and the Unix terminal driver.
 test-native-smoke:
     mise exec -- python3 -B -m unittest discover -s test -p native_release_smoke_test.py
+    mise exec -- python3 -B -m unittest discover -s test -p publish_release_test.py
 
 # Test a native Linux glibc executable with real HTTPS requests, without Erlang.
 smoke-native-http binary:
@@ -159,7 +160,7 @@ smoke-native-http binary:
     work="$PWD/build/native-http-$$"
     mkdir -p "$work"
     trap 'rm -rf -- "$work"' EXIT
-    docker run --rm --user "$(id -u):$(id -g)" \
+    docker run --rm --cap-add=SYS_ADMIN \
       --workdir /smoke \
       --mount "type=bind,src=$binary,dst=/licence_audit,readonly" \
       --mount "type=bind,src=$PWD/test,dst=/tests,readonly" \

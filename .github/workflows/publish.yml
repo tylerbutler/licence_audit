@@ -9,15 +9,24 @@ on:
         description: Existing release tag to rebuild
         required: true
         type: string
+      validation_only:
+        description: Build and test without creating or publishing a release
+        type: boolean
+        default: false
+      source_ref:
+        description: Optional source ref for validation-only runs
+        type: string
+        default: ''
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   test:
+    if: ${{ !inputs.source_ref || inputs.validation_only }}
     uses: ./.github/workflows/ci.yml
     with:
-      checkout_ref: ${{ inputs.tag || github.ref_name }}
+      checkout_ref: ${{ inputs.source_ref || inputs.tag || github.ref_name }}
       skip_sbom_drift_check: ${{ github.event_name == 'workflow_dispatch' }}
 
   build-release-artifacts:
@@ -27,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ inputs.source_ref || env.RELEASE_TAG }}
 
       - name: Setup environment
         uses: ./.github/actions/setup
@@ -190,6 +199,12 @@ jobs:
           name: licence_audit-release
           path: dist
 
+      - name: Checkout validation tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .validation
+
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # ratchet:actions/setup-python@v6
         with:
           python-version: '3.13'
@@ -205,12 +220,13 @@ jobs:
           EXTENSION: ${{ matrix.extension }}
         run: |
           set -euo pipefail
-          python test/native_release_smoke.py \
+          python .validation/test/native_release_smoke.py \
             --archive "dist/licence_audit-${RELEASE_TAG}-${TARGET}.${EXTENSION}" \
             --target "$TARGET" --version "$RELEASE_TAG"
 
   release:
     needs: [build-release-artifacts, native-runtime]
+    if: ${{ !inputs.validation_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -221,6 +237,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
+
+      - name: Checkout publication tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .validation
 
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
@@ -246,43 +268,16 @@ jobs:
             dist/*.zip
           sbom-path: dist/licence_audit-${{ env.RELEASE_TAG }}.cdx.json
 
-      - name: Attach assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF_NAME: ${{ env.RELEASE_TAG }}
-        run: |
-          set -euo pipefail
-          # The release is created by auto-tag.yml; retry briefly in case it
-          # hasn't been published by the time this job runs.
-          for i in 1 2 3 4 5; do
-            if gh release view "$REF_NAME" >/dev/null 2>&1; then
-              break
-            fi
-            echo "Release $REF_NAME not yet available, sleeping..."
-            sleep 10
-          done
-          gh release upload "$REF_NAME" dist/* --clobber
-
-      - name: Add install instructions to release body
+      - name: Publish validated release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REF_NAME: ${{ env.RELEASE_TAG }}
           REPO: ${{ github.repository }}
+          BUILD_RESULT: ${{ needs.build-release-artifacts.result }}
+          RUNTIME_RESULT: ${{ needs.native-runtime.result }}
         run: |
           set -euo pipefail
-          marker='<!-- install-instructions -->'
-
-          # Idempotent: skip if a previous run already appended the section
-          # (e.g. when the publish workflow is re-run for the same tag).
-          body="$(gh release view "$REF_NAME" --json body --jq .body)"
-          if printf '%s' "$body" | grep -F "$marker" > /dev/null; then
-            echo "Install instructions already present; nothing to do."
-            exit 0
-          fi
-
-          # Render the template, substituting only the two known variables.
-          install_md="$(envsubst '$REPO $REF_NAME' < .github/release-install.md.tmpl)"
-
-          # Append the install section to the existing (changelog) body.
-          printf '%s\n\n%s\n' "$body" "$install_md" > release-body.md
-          gh release edit "$REF_NAME" --notes-file release-body.md
+          python3 .validation/scripts/publish_release.py \
+            --tag "$REF_NAME" --repository "$REPO" \
+            --template .validation/.github/release-install.md.tmpl \
+            --build-result "$BUILD_RESULT" --runtime-result "$RUNTIME_RESULT"

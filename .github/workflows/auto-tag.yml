@@ -35,7 +35,7 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
-      - name: Create tags and GitHub releases
+      - name: Create and push release tags
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: mise exec -- trellis tag create --github-release
+        run: mise exec -- trellis tag create --push

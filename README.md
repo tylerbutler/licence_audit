@@ -429,6 +429,11 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 ```
 
+On Windows, without `XDG_CACHE_HOME`, caches use
+`%LOCALAPPDATA%\licence_audit\`. If `LOCALAPPDATA` is not set,
+`%USERPROFILE%\AppData\Local\licence_audit\` is used. Unicode profile
+paths are supported; `HOME` is not required in a native Windows shell.
+
 Override this location with `--cache-path=PATH` or bypass the caches with
 `--no-cache`. `licence_audit` reuses Hex API entries for 7 days before fetching
 them again. Metadata changes on Hex can take up to 7 days to appear; use

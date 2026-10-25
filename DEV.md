@@ -190,10 +190,18 @@ in a Debian container with CA certificates but no Erlang installation.
 A temporary one-package project, HOME, and cache keep the test separate
 from local configuration. The test makes real Hex and OSV requests for a
 licence report, a vulnerability report, and `check --vulns`. It also checks
-help, version, offline SBOM output, cold/warm cache reads, and
+help, version, manifest-only offline SBOM output, cold/warm cache reads, and
 interactive `update` save/cancel through a real terminal. A redirected
 `update` must report that it needs a terminal. Network failures fail the test;
 failure logs are printed before temporary files are removed.
+The cache test repeats a warm report with networking denied, then uses an
+empty cache as a negative control under the same restriction. Linux uses a
+network namespace, macOS uses `sandbox-exec`, and Windows uses a temporary
+outbound firewall rule removed in a `finally` block. These checks require
+administrator privileges on the target host. The Docker recipe grants
+`SYS_ADMIN` only to the test container so it can create a network namespace.
+Windows checks use a Unicode `USERPROFILE` and `LOCALAPPDATA`, without
+synthetic `HOME` or `XDG_CACHE_HOME`, and check the profile-only fallback too.
 
 PR CI runs this test on the built Linux x86_64 glibc executable. Publishing
 downloads the staged archives and runs the shared Python harness on each
@@ -227,6 +235,9 @@ console test driver with `python -m pip install pywinpty==3.0.2`; it uses
 ConPTY rather than Unix PTYs. The harness removes host Erlang from the child
 process PATH, checks the archive version, and uses its own cache directory.
 Live requests are not part of `just test` or `just ci`.
+Validation scripts and fixtures are checked out from the workflow revision,
+separately from the requested release source. A rebuild of an older tag thus
+uses the fixed checks, not whatever checks shipped with that tag.
 
 To test application startup and its error handling without network access:
 
@@ -349,10 +360,14 @@ workflows; do not edit `CHANGELOG.md` or bump the version in `gleam.toml` by
 hand.
 
 When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
-out its merge commit and runs `trellis tag create --github-release`. This
-uses the tag format in `gleam.toml` and the matching changelog section.
+out its merge commit and runs `trellis tag create --push`. This
+uses the tag format in `gleam.toml`. It creates no GitHub Release.
 It does not require a PR label or Changie configuration. The GitHub App
-token lets the tag push start `publish.yml`.
+token lets the tag push start `publish.yml`. Only after every required runtime
+job passes does the final job create a draft release with the matching
+changelog section, upload assets, add install instructions, and publish it.
+An upload or notes failure leaves the new release as a draft. A required
+runtime failure creates no new published release.
 
 To recover a merged release that has no tag or GitHub Release, run the
 auto-tag workflow manually against the current version on `main`:
@@ -374,6 +389,17 @@ gh workflow run publish.yml --ref main -f tag=v0.12.2
 
 Replace `v0.12.2` with the tag to rebuild. Rerunning the original failed run
 uses the old workflow, without the fix.
+
+To exercise builds and all required runtime hosts without any release or tag
+publication, dispatch with `validation_only=true`. An optional `source_ref`
+can select the source branch to validate; the tag supplies the expected
+package version and artifact names. A source override is rejected for a
+publishing run.
+
+```sh
+gh workflow run publish.yml --ref <workflow-branch> \
+  -f tag=v0.13.1 -f validation_only=true -f source_ref=<source-branch>
+```
 
 Releases include the existing escript artifacts plus self-contained Queso
 archives for Linux (glibc and musl), macOS, and Windows x86_64 targets. Linux

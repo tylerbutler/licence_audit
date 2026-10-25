@@ -55,7 +55,7 @@ pub fn describe_error(error: Error) -> String {
 fn describe_path_error(error: PathError) -> String {
   case error {
     CacheDirUnknown ->
-      "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set"
+      "Unable to determine licence cache directory: set XDG_CACHE_HOME, HOME, or Windows LOCALAPPDATA/USERPROFILE"
     CacheDirCreateFailed(dir, reason) ->
       "Unable to create licence cache directory "
       <> dir
@@ -75,20 +75,46 @@ fn resolve_path(
 }
 
 fn default_path(filename: String) -> Result(String, PathError) {
-  case env.get("XDG_CACHE_HOME") {
-    Ok(cache_home) if cache_home != "" ->
-      Ok(path.join(path.join(cache_home, cache_subdir), filename))
+  case default_directory(is_windows(), env.get) {
+    Ok(directory) -> Ok(path.join(path.join(directory, cache_subdir), filename))
+    Error(Nil) -> Error(CacheDirUnknown)
+  }
+}
+
+pub fn default_directory(
+  windows: Bool,
+  get: fn(String) -> Result(String, Nil),
+) -> Result(String, Nil) {
+  case get("XDG_CACHE_HOME") {
+    Ok(cache_home) if cache_home != "" -> Ok(cache_home)
     _ ->
-      case env.get("HOME") {
-        Ok(home) if home != "" ->
-          Ok(path.join(
-            path.join(path.join(home, ".cache"), cache_subdir),
-            filename,
-          ))
-        _ -> Error(CacheDirUnknown)
+      case windows {
+        True ->
+          case get("LOCALAPPDATA") {
+            Ok(local) if local != "" -> Ok(local)
+            _ ->
+              case get("USERPROFILE") {
+                Ok(profile) if profile != "" ->
+                  Ok(path.join(profile, "AppData/Local"))
+                _ -> unix_cache_directory(get)
+              }
+          }
+        False -> unix_cache_directory(get)
       }
   }
 }
+
+fn unix_cache_directory(
+  get: fn(String) -> Result(String, Nil),
+) -> Result(String, Nil) {
+  case get("HOME") {
+    Ok(home) if home != "" -> Ok(path.join(home, ".cache"))
+    _ -> Error(Nil)
+  }
+}
+
+@external(erlang, "cache_dir_ffi", "is_windows")
+fn is_windows() -> Bool
 
 fn ensure_cache_dir(cache_path: String) -> Result(Nil, PathError) {
   let parent = path.dirname(cache_path)
