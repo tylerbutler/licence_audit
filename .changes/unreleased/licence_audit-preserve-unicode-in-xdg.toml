@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Preserve Unicode in `XDG_CACHE_HOME` and `HOME` when the CLI resolves its cache directory, and handle environment conversion failures without crashing."
