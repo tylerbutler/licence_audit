@@ -143,13 +143,14 @@ pub fn fetch_cached_quiet(
 /// Fetch immutable package metadata under a content-addressed key.
 ///
 /// Unlike normal Hex package metadata, these entries never expire because the
-/// key identifies a locked archive checksum or commit.
+/// key identifies a locked archive checksum or commit. The namespace version
+/// invalidates entries produced by the old, incomplete archive decoder.
 pub fn fetch_immutable(
   cache: Cache,
   key: String,
   fetcher: fn() -> Result(hex.PackageMetadata, error),
 ) -> Result(hex.PackageMetadata, error) {
-  let key = "$immutable:" <> key
+  let key = "$immutable:v2:" <> key
   case cache.table {
     None -> fetcher()
     Some(table) ->
