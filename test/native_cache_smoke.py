@@ -63,6 +63,12 @@ def smoke(binary, escript=False, bare=False):
             TMPDIR=str(scratch), TMP=str(scratch), TEMP=str(scratch),
             ERL_FLAGS="+S 2:2 +SDcpu 1 +SDio 1",
         )
+        if os.name == "nt":
+            # Queso verifies Windows known folders before creating its cache.
+            for name, folder in (("LOCALAPPDATA", "Local"), ("APPDATA", "Roaming")):
+                path = home / "AppData" / folder
+                path.mkdir(parents=True)
+                env[name] = str(path)
         if not escript:
             env["PATH"] = (
                 str(Path(os.environ["SystemRoot"]) / "System32") if os.name == "nt"
