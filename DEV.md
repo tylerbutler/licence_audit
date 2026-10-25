@@ -118,6 +118,12 @@ Release escript archives instead include `sqlite_native/<target>/esqlite/`
 for all seven release targets. The escript selects the native library from
 the Erlang runtime's architecture and operating system, including musl.
 
+Source builds need a C compiler for esqlite. On Windows, use an x64 Visual
+Studio developer shell with LLVM on `PATH`. Set `CC=clang-cl.exe`,
+`CXX=clang-cl.exe`, `LINKER=lld-link.exe`, and `REBAR_TARGET_ARCH=win32` before
+the build. The last setting selects Windows link flags in esqlite's port
+compiler; it does not change the x64 compiler target.
+
 ### Vendored packages
 
 The repository tracks `glint` and `glint_markdown` with

@@ -73,7 +73,8 @@ jobs:
           echo 'CXX=clang-cl.exe' >> "$GITHUB_ENV"
           echo 'DEBUG=1' >> "$GITHUB_ENV"
           echo 'LINKER=lld-link.exe' >> "$GITHUB_ENV"
-          echo 'DRV_LDFLAGS=/DLL' >> "$GITHUB_ENV"
+          echo 'REBAR_TARGET_ARCH=win32' >> "$GITHUB_ENV"
+          echo 'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=lld-link.exe' >> "$GITHUB_ENV"
           "/c/Program Files/LLVM/bin/clang-cl.exe" --version
 
       - name: Setup Windows GNU launcher C compiler

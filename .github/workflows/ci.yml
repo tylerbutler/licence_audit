@@ -29,7 +29,7 @@ jobs:
       CC: clang-cl.exe
       CXX: clang-cl.exe
       LINKER: lld-link.exe
-      DRV_LDFLAGS: /DLL
+      REBAR_TARGET_ARCH: win32
       DEBUG: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7

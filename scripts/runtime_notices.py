@@ -1,6 +1,7 @@
 """Collect upstream runtime attribution from the inputs used by Queso."""
 
 import argparse
+import email
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -120,6 +121,11 @@ def wheel_tags(python, abi, platform):
             for a in abi.split(".") for s in platform.split(".")}
 
 
+def wheel_metadata_tags(wheel):
+    return {expanded for tag in email.message_from_string(wheel).get_all("Tag", [])
+            for expanded in wheel_tags(*"".join(tag.split()).split("-"))}
+
+
 def toolchain_material(targets):
     rust = Path(command("rustc", "--print", "sysroot")) / "share/doc/rust"
     files = {"rust/COPYRIGHT-library.html": (rust / "COPYRIGHT-library.html").read_bytes()}
@@ -160,8 +166,7 @@ def toolchain_material(targets):
     wheel = importlib.metadata.distribution("ziglang").read_text("WHEEL")
     if not wheel:
         raise ValueError("Installed Zig wheel metadata is missing")
-    tags = {expanded for tag in re.findall(r"^Tag: (.+)$", wheel, re.M)
-            for expanded in wheel_tags(*tag.split("-"))}
+    tags = wheel_metadata_tags(wheel)
     wheels = json.loads(fetch(f"https://pypi.org/pypi/ziglang/{zig_version}/json"))["urls"]
     matches = []
     for asset in wheels:

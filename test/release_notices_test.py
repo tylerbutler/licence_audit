@@ -185,6 +185,14 @@ class ReleaseNoticesTest(unittest.TestCase):
             {"py2-abi3-win_amd64", "py2-none-win_amd64",
              "py3-abi3-win_amd64", "py3-none-win_amd64"},
         )
+        self.assertEqual(
+            runtime.wheel_metadata_tags(
+                "Wheel-Version: 1.0\nTag:\n "
+                "py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64\n\n"
+            ),
+            {"py3-none-manylinux_2_17_aarch64", "py3-none-manylinux2014_aarch64",
+             "py3-none-musllinux_1_1_aarch64"},
+        )
 
     def test_otp_collection_preserves_extracted_licences_and_copyright(self):
         bom = json.dumps({
