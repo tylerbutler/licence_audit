@@ -30,6 +30,7 @@ jobs:
       CXX: clang-cl.exe
       LINKER: lld-link.exe
       REBAR_TARGET_ARCH: win32
+      REBAR_TARGET_ARCH_WORDSIZE: "64"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:

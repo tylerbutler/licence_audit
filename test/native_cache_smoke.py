@@ -1,6 +1,7 @@
 """Check a relocated release with real HTTPS and persistent SQLite cache hits."""
 
 import argparse
+from contextlib import closing
 import importlib.util
 import os
 from pathlib import Path
@@ -87,7 +88,7 @@ def smoke(binary, escript=False, bare=False):
         else:
             first = run(command + args, work, env, "fresh")
             assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first
-            with sqlite3.connect(cache) as db:
+            with closing(sqlite3.connect(cache)) as db:
                 row = db.execute(
                     "SELECT value, cached_at FROM cache_entries WHERE key = ?",
                     ("gleam_stdlib@1.0.5",),

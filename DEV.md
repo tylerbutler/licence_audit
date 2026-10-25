@@ -120,9 +120,9 @@ the Erlang runtime's architecture and operating system, including musl.
 
 Source builds need a C compiler for esqlite. On Windows, use an x64 Visual
 Studio developer shell with LLVM on `PATH`. Set `CC=clang-cl.exe`,
-`CXX=clang-cl.exe`, `LINKER=lld-link.exe`, and `REBAR_TARGET_ARCH=win32` before
-the build. The last setting selects Windows link flags in esqlite's port
-compiler; it does not change the x64 compiler target.
+`CXX=clang-cl.exe`, `LINKER=lld-link.exe`, `REBAR_TARGET_ARCH=win32`, and
+`REBAR_TARGET_ARCH_WORDSIZE=64` before the build. The last two settings select
+64-bit Windows link flags in esqlite's port compiler.
 
 ### Vendored packages
 
