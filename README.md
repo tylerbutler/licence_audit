@@ -234,6 +234,7 @@ licence_audit sbom --output=sbom.json  # compact JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
 licence_audit sbom --reproducible      # reproducible output (see below)
 licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
+licence_audit sbom --license-text      # embed canonical SPDX licence text
 ```
 
 `sbom` emits a [CycloneDX 1.6](https://cyclonedx.org/) document. Every locked
@@ -255,6 +256,29 @@ source scanner alongside or downstream of `licence_audit`.
 
 Packages declaring **multiple** licences emit one entry each. Hex doesn't say
 whether the relationship is AND or OR, so no SPDX expression is synthesised.
+
+**Embedded licence text.** `--license-text` adds canonical SPDX License List
+text to recognised licence IDs on dependencies and the root component:
+
+```json
+{"license":{"id":"Apache-2.0","text":{"contentType":"text/plain","content":"..."},"acknowledgement":"declared"}}
+```
+
+Text comes from the same pinned SPDX revision and shared cache as `notices`,
+not from package source. It is canonical reference text, not evidence of
+package-specific copyright or attribution. The flag leaves default output
+unchanged when absent. IDs match without regard to case. Each declared ID
+receives its own text; expressions (including `AND`, `OR`, and `WITH`), custom
+`LicenseRef-*` references, and unknown names remain `name` entries without text.
+There is no attempt to choose an expression alternative or combine texts.
+
+The flag requires network access on a cache miss and cannot be combined with
+`--offline`. It works with `--reproducible` because the SPDX revision is pinned.
+Use `--no-cache` to bypass the shared text cache, or `--cache-path` to relocate
+it. A failed text request, invalid SPDX detail response, or missing text for a
+recognised ID fails with exit code 2, before writing the SBOM. Existing
+best-effort package metadata enrichment is unchanged: if no licence metadata
+is available, that dependency has no licence text.
 
 `sbom` ignores licence policy. It **fails** on any dependency whose source can't
 become a clean purl (path deps, non-GitHub git deps); only `hex` and GitHub

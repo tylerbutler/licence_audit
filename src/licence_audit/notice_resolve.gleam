@@ -503,7 +503,12 @@ fn resolve_spdx_requirements(
   case requirements {
     [] -> Ok(list.reverse(files))
     [requirement, ..rest] -> {
-      use file <- result.try(resolve_spdx(cache, package, requirement, clients))
+      use file <- result.try(resolve_spdx(
+        cache,
+        package.name,
+        requirement,
+        clients,
+      ))
       case file {
         None -> Ok([])
         Some(notice_file) ->
@@ -516,9 +521,11 @@ fn resolve_spdx_requirements(
   }
 }
 
-fn resolve_spdx(
+/// Read canonical text for an already-canonical SPDX requirement, using the
+/// shared pinned-record cache. Unknown identifiers return `Ok(None)`.
+pub fn resolve_spdx(
   cache: notice_cache.Cache,
-  package: notice.NoticePackage,
+  package: String,
   requirement: spdx.Requirement,
   clients: notice.Clients,
 ) -> Result(Option(notice.NoticeFile), notice.Error) {
@@ -534,7 +541,7 @@ fn resolve_spdx(
         Ok(None) -> Ok(None)
         Error(fetch_error) ->
           Error(notice.SpdxFetchFailed(
-            package: package.name,
+            package: package,
             id: requirement_id(requirement),
             reason: notice.describe_fetch_error(fetch_error),
           ))

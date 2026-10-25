@@ -32,6 +32,7 @@ import licence_audit/sbom
 import licence_audit/sbom_json
 import licence_audit/sbom_uuid
 import licence_audit/source_archive
+import licence_audit/spdx
 import licence_audit/toml
 import licence_audit/update as update_cmd
 import licence_audit/version
@@ -722,6 +723,7 @@ fn run_sbom_for_manifest(
             project_root,
             package_metadata,
             vulnerabilities,
+            source_clients,
             reporter,
           )
       }
@@ -888,6 +890,7 @@ fn render_sbom(
   project_root: String,
   package_metadata: dict.Dict(String, hex.PackageMetadata),
   vulnerabilities: List(sbom.EmbeddedVulnerability),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
   let root = read_root_component(project_root)
@@ -912,24 +915,87 @@ fn render_sbom(
     Error(root_error), _ -> #(diagnostic(root_error), reporter)
     _, Error(serial_error) -> #(diagnostic(serial_error), reporter)
     Ok(root), Ok(#(serial_number, timestamp)) -> {
-      let input =
-        sbom.SbomInput(
-          manifest: sbom_manifest,
-          root: root,
-          tool_version: tool_version(),
-          serial_number: serial_number,
-          timestamp: timestamp,
-          package_metadata: package_metadata,
-          scopes: scopes,
-          vulnerabilities: vulnerabilities,
+      let #(texts_result, reporter) =
+        gather_sbom_license_texts(
+          options,
+          root,
+          package_metadata,
+          source_clients,
+          reporter,
         )
-
-      case sbom.try_render(input) {
+      let rendered =
+        texts_result
+        |> result.map(fn(license_texts) {
+          sbom.SbomInput(
+            manifest: sbom_manifest,
+            root: root,
+            tool_version: tool_version(),
+            serial_number: serial_number,
+            timestamp: timestamp,
+            package_metadata: package_metadata,
+            scopes: scopes,
+            vulnerabilities: vulnerabilities,
+            license_texts: license_texts,
+          )
+        })
+        |> result.try(sbom.try_render)
+      case rendered {
         Error(err) -> #(diagnostic(err), reporter)
         Ok(json_str) -> write_sbom_output(options.output, json_str, reporter)
       }
     }
   }
+}
+
+fn gather_sbom_license_texts(
+  options: cli.SbomOptions,
+  root: sbom.RootComponent,
+  metadata: dict.Dict(String, hex.PackageMetadata),
+  clients: notice.Clients,
+  reporter: progress.Reporter,
+) -> #(Result(dict.Dict(String, String), error.Error), progress.Reporter) {
+  use <- bool.guard(when: !options.license_text, return: #(
+    Ok(dict.new()),
+    reporter,
+  ))
+  let ids =
+    metadata
+    |> dict.values
+    |> list.flat_map(fn(package) { package.licences })
+    |> list.append(root.licences)
+    |> sbom.license_entries
+    |> list.filter_map(fn(entry) {
+      case entry {
+        sbom.LicenseId(id) -> Ok(id)
+        sbom.LicenseName(_) -> Error(Nil)
+      }
+    })
+    |> list.sort(by: string.compare)
+  let mode = case options.no_cache {
+    True -> notice_cache.Disabled
+    False -> notice_cache.Enabled(options.cache_path)
+  }
+  let text_cache = notice_cache.open(mode)
+  let texts =
+    list.try_map(ids, fn(id) {
+      case
+        notice_resolve.resolve_spdx(
+          text_cache,
+          "SBOM",
+          spdx.LicenseRequirement(id),
+          clients,
+        )
+      {
+        Ok(Some(file)) -> Ok(#(id, file.contents))
+        Ok(None) ->
+          Error(error.Notices("Canonical SPDX licence text unavailable: " <> id))
+        Error(fetch_error) ->
+          Error(error.Notices(notice.describe_error(fetch_error)))
+      }
+    })
+    |> result.map(dict.from_list)
+  let warning = notice_cache.close(text_cache)
+  #(texts, apply_cache_warning(reporter, warning))
 }
 
 /// Query OSV for every component with a purl and map the results into

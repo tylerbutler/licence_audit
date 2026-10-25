@@ -47,6 +47,7 @@ pub type SbomOptions {
     offline: Bool,
     reproducible: Bool,
     with_vulns: Bool,
+    license_text: Bool,
   )
 }
 
@@ -447,6 +448,13 @@ fn sbom_command() -> glint.Command(CliAction) {
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
+  use license_text <- glint.flag(
+    glint.bool_flag("license-text")
+    |> glint.flag_default(False)
+    |> glint.flag_help(
+      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline)",
+    ),
+  )
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -458,23 +466,27 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(offline_value) = offline(flags)
   let assert Ok(reproducible_value) = reproducible(flags)
   let assert Ok(with_vulns_value) = with_vulns(flags)
+  let assert Ok(license_text_value) = license_text(flags)
 
   case
     verbosity(quiet, verbose),
     offline_value && with_vulns_value,
-    reproducible_value && with_vulns_value
+    reproducible_value && with_vulns_value,
+    offline_value && license_text_value
   {
-    Error(verbosity_error), _, _ ->
+    Error(verbosity_error), _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, True, _ ->
+    _, True, _, _ ->
       InvalidUsage(
         "--vulns requires network access and cannot be combined with --offline",
       )
-    _, _, True ->
+    _, _, True, _ ->
       InvalidUsage(
         "--vulns uses mutable advisory data and cannot be combined with --reproducible",
       )
-    Ok(verbosity), False, False ->
+    _, _, _, True ->
+      InvalidUsage("--license-text cannot be combined with --offline")
+    Ok(verbosity), False, False, False ->
       RunSbom(SbomOptions(
         manifest_path: manifest_path,
         verbosity: verbosity,
@@ -484,6 +496,7 @@ fn sbom_command() -> glint.Command(CliAction) {
         offline: offline_value,
         reproducible: reproducible_value,
         with_vulns: with_vulns_value,
+        license_text: license_text_value,
       ))
   }
 }
