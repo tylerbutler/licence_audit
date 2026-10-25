@@ -68,7 +68,16 @@ jobs:
           ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
 
       - name: Build Queso executables
-        run: just build-queso
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export XDG_CACHE_HOME="$PWD/build/release-cache"
+          mkdir -p build/release-tmp
+          export TMPDIR="$PWD/build/release-tmp"
+          rustup component add rust-docs
+          just build-queso 2>&1 | tee build/queso-build.log
+          mise exec -- python3 -B scripts/runtime_notices.py --build-log build/queso-build.log
 
       - name: Stage release artifacts
         env:

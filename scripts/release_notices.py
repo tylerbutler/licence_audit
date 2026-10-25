@@ -1,14 +1,15 @@
 """Stage and verify release notices. Missing runtime attribution blocks release."""
 
 import argparse
+import hashlib
 import io
+import json
 from pathlib import Path
 import tarfile
 import zipfile
 
 
 APPLICATION = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
-RUNTIME = ("OTP_NOTICES.txt", "NATIVE_NOTICES.txt", "QUESO_NOTICES.txt", "SOURCES.md")
 EMBEDDED = "META-INF/licenses/"
 
 
@@ -19,15 +20,34 @@ def required(path):
     return data
 
 
+def manifest_material(directory, prefix, mandatory):
+    manifest = required(directory / "manifest.json")
+    files = {prefix + "manifest.json": manifest}
+    checksums = json.loads(manifest)["checksums"]
+    if not set(mandatory).issubset(checksums):
+        raise ValueError(f"Notice manifest lacks required documents: {directory}")
+    for name, checksum in checksums.items():
+        if Path(name).is_absolute() or ".." in Path(name).parts:
+            raise ValueError(f"Invalid notice path: {name}")
+        data = required(directory / name)
+        if hashlib.sha256(data).hexdigest() != checksum:
+            raise ValueError(f"Notice checksum mismatch: {directory / name}")
+        files[prefix + name] = data
+    return files
+
+
 def materials(target=None):
     files = {name: required(Path(name)) for name in APPLICATION}
-    slate = Path("slate_native/licenses")
-    for name in ("manifest.json", "THIRD_PARTY_NOTICES.txt"):
-        files[f"slate_native/licenses/{name}"] = required(slate / name)
+    files.update(manifest_material(
+        Path("slate_native/licenses"), "slate_native/licenses/",
+        ("THIRD_PARTY_NOTICES.txt", "rust/COPYRIGHT-library.html"),
+    ))
     if target:
-        for name in RUNTIME:
-            source = Path("native/notices") / target / name
-            files[f"runtime-notices/{name}"] = required(source)
+        files.update(manifest_material(
+            Path("build/release-notices") / target, "runtime-notices/",
+            ("otp/bom.spdx.json", "queso/dependency-notices.json",
+             "rust/COPYRIGHT-library.html", "openssl/LICENSE.txt", "otp-distribution.json"),
+        ))
     return files
 
 
