@@ -33,6 +33,9 @@ def cli(*args, expected=0):
         check=False,
     )
     assert result.returncode == expected, result.stderr + result.stdout
+    if expected != 0:
+        assert result.stdout == "", "Diagnostic leaked onto stdout"
+        assert result.stderr, "Missing diagnostic on stderr"
     return result.stdout
 
 
@@ -86,8 +89,36 @@ def main():
     explicit = cli("--offline", "--reproducible", "--format=cyclonedx-json")
     assert default == explicit
     assert json.loads(default)["bomFormat"] == "CycloneDX"
-    cli("--format=spdx-json", "--vulns", expected=1)
+    rejected_output = Path("build/spdx-rejected-output.json")
+    for flags in (
+        ("--vulns",),
+        ("--license-text",),
+        ("--license-text", "--reproducible"),
+    ):
+        rejected_output.write_text("previous output")
+        cli(
+            "--format=spdx-json", *flags, f"--output={rejected_output}",
+            expected=1,
+        )
+        assert rejected_output.read_text() == "previous output"
     cli("--format=invalid", expected=1)
+
+    invalid_project = Path("build/spdx-invalid-project")
+    invalid_project.mkdir(exist_ok=True)
+    (invalid_project / "gleam.toml").write_text(
+        'name = "invalid_fixture"\nversion = "1.0.0"\n'
+    )
+    invalid_manifest = invalid_project / "manifest.toml"
+    invalid_manifest.write_text(
+        'packages = [{ name = "broken", version = "1.0.0", '
+        'source = "hex", outer_checksum = "invalid" }]\n'
+    )
+    cli(
+        "--format=spdx-json", "--offline", "--reproducible",
+        f"--manifest={invalid_manifest}", f"--output={rejected_output}",
+        expected=2,
+    )
+    assert rejected_output.read_text() == "previous output"
     print("CLI format selection, output, usage errors and reproducibility passed")
 
 

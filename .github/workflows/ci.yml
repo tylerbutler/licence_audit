@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -19,6 +20,38 @@ on:
         default: false
 
 jobs:
+  windows-policy:
+    runs-on: windows-latest
+    name: Windows atomic policy writes
+    timeout-minutes: 15
+    env:
+      ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup pinned toolchain
+        uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # ratchet:erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          gleam-version: "1.19.0-rc3"
+          rebar3-version: "3.26.0"
+          version-type: strict
+
+      # Gleam's Windows directory copy cannot copy cvss's licence symlink.
+      # Keep its exact licence text, but use a regular file in the build cache.
+      - name: Prepare dependencies
+        run: |
+          gleam deps download
+          python -c "from pathlib import Path; p = Path('build/packages/cvss/LICENSE.txt'); text = Path('build/packages/cvss/LICENSES/Apache-2.0.txt').read_bytes(); p.unlink(); p.write_bytes(text)"
+
+      - name: Build Erlang modules
+        run: gleam build --target erlang --warnings-as-errors
+
+      - name: Test real Windows replacement and interruption
+        run: python -u -B test/update_atomic_windows.py
+
   test:
     runs-on: ubuntu-latest
     name: Test
@@ -33,6 +66,9 @@ jobs:
       - name: Check vendored sources
         run: just vendor-check vendor-test
 
+      - name: Test release notice staging
+        run: just test-release-notices
+
       - name: Check formatting
         run: just format-check
 
@@ -45,6 +81,12 @@ jobs:
       - name: Build (warnings as errors)
         run: just build-strict
 
+      - name: Check bare escript with embedded notices
+        run: |
+          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
+          mise exec -- python3 -B scripts/release_notices.py check licence_audit
+          ./licence_audit --help
+
       - name: Check vendored production boundary
         run: just test-vendor-production
 
@@ -53,6 +95,12 @@ jobs:
 
       - name: Test runtime startup
         run: just test-runtime-startup
+
+      - name: Test interrupted policy writes
+        run: just test-update-atomic
+
+      - name: Test CLI output streams
+        run: just test-cli-streams
 
       - name: Test Unicode cache paths
         run: just test-env-cache-paths

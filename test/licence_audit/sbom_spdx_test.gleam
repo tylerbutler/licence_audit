@@ -78,6 +78,7 @@ fn fixture() -> sbom.SbomInput {
     ]),
     scopes: dict.new(),
     vulnerabilities: [],
+    license_texts: dict.new(),
   )
 }
 

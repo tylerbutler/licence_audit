@@ -16,6 +16,7 @@ licence_audit sbom [--flags]
 |------|------|---------|-------------|
 | `--cache-path` | `STRING` |  | Override the licence metadata cache location |
 | `--format` | `STRING` | `cyclonedx-json` | Output format: cyclonedx-json or spdx-json |
+| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs in CycloneDX (requires network on cache miss; conflicts with --offline and --format=spdx-json) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; leave Hex dependency licences unknown; with --reproducible, skip all dependency enrichment including Git |

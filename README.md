@@ -168,7 +168,17 @@ accept malformed expressions.
 
 The easiest way to create a policy is `licence_audit update`,
 which fetches metadata, preselects any existing entries, prompts you, and writes
-the result back (comment-preserving). `update` needs an interactive terminal: it
+the result back (comment-preserving). It writes a complete temporary file in the
+same directory before an atomic replacement, preserving file permissions and
+ownership. Failed writes leave the original intact. A forced process termination
+can leave a `*.licence-audit-*.tmp` file beside the configuration.
+On Windows, replacement uses `MoveFileExW` through the built-in Windows
+PowerShell runtime and preserves the original file's owner, group, and access
+rules. The temporary file has these access rules from creation, before any
+content is written. New Windows policy files allow access only to the current
+user. Timed-out helpers are terminated and awaited before temporary-file cleanup.
+It does not use OTP's non-atomic Windows rename.
+`update` needs an interactive terminal: it
 exits `1` on non-interactive stdin and `130` if you cancel.
 
 Then enforce it:
@@ -242,6 +252,7 @@ licence_audit sbom --offline           # skip Hex fetch, omit Hex licence fields
 licence_audit sbom --reproducible      # reproducible output (see below)
 licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
 licence_audit sbom --format=spdx-json  # SPDX 2.3 JSON instead of CycloneDX
+licence_audit sbom --license-text      # embed canonical SPDX licence text
 ```
 
 `sbom` defaults to a [CycloneDX 1.6](https://cyclonedx.org/) document
@@ -284,7 +295,31 @@ the root project's declarations remain available.
 
 The SPDX document namespace is a fresh UUID by default, or content-derived with
 `--reproducible`. Its creation time follows the same timestamp rules as CycloneDX.
-`--vulns` is supported only for CycloneDX; SPDX rejects it before network access.
+`--vulns` and `--license-text` are supported only for CycloneDX; SPDX rejects
+either flag before network access or output.
+
+**Embedded licence text.** `--license-text` adds canonical SPDX License List
+text to recognised licence IDs on dependencies and the root component:
+
+```json
+{"license":{"id":"Apache-2.0","text":{"contentType":"text/plain","content":"..."},"acknowledgement":"declared"}}
+```
+
+Text comes from the same pinned SPDX revision and shared cache as `notices`,
+not from package source. It is canonical reference text, not evidence of
+package-specific copyright or attribution. The flag leaves default output
+unchanged when absent. IDs match without regard to case. Each declared ID
+receives its own text; expressions (including `AND`, `OR`, and `WITH`), custom
+`LicenseRef-*` references, and unknown names remain `name` entries without text.
+There is no attempt to choose an expression alternative or combine texts.
+
+The flag requires network access on a cache miss and cannot be combined with
+`--offline`. It works with `--reproducible` because the SPDX revision is pinned.
+Use `--no-cache` to bypass the shared text cache, or `--cache-path` to relocate
+it. A failed text request, invalid SPDX detail response, or missing text for a
+recognised ID fails with exit code 2, before writing the SBOM. Existing
+best-effort package metadata enrichment is unchanged: if no licence metadata
+is available, that dependency has no licence text.
 
 `sbom` ignores licence policy. It **fails** on any dependency whose source can't
 become a clean purl (path deps, non-GitHub git deps); only `hex` and GitHub
@@ -439,6 +474,10 @@ non-blocking.
 | `sbom` JSON (no `--output`) | stdout |
 | `sbom --output=PATH` | `PATH` (stdout empty) |
 | Progress, warnings, errors | stderr |
+
+Reports stay on stdout even when an enforced gate fails or a report is
+incomplete. Fatal diagnostics go to stderr, including with `--quiet`.
+If SBOM generation fails before a document is available, stdout stays empty.
 
 Progress messages are written to stderr as the audit runs; use `--quiet` to
 silence them or `--verbose` for package-level detail.
