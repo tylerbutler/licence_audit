@@ -195,7 +195,9 @@ try:
     complete = read_shared(path)
     assert complete.startswith(original)
     assert b'allow = ["MIT-long-policy-entry"' in complete
-    assert security_descriptor() == original_security
+    assert security_descriptor() == original_security, (
+        security_descriptor(), original_security,
+    )
     assert not list(root.glob("*.tmp"))
     print("PASS: existing-file update preserves comments, unrelated TOML, owner/group/DACL")
 
@@ -229,12 +231,16 @@ try:
     partials = list(root.glob("*.tmp"))
     assert len(partials) == 1 and partials[0].stat().st_size == 1024
     assert_private(partials[0], reader)
-    assert security_descriptor(partials[0]) == original_security
+    assert security_descriptor(partials[0]) == original_security, (
+        security_descriptor(partials[0]), original_security,
+    )
     kill_owner(process)
     finish(process, input="finish\n")
     assert read_shared(path) == original
     assert_private(partials[0], reader)
-    assert security_descriptor(partials[0]) == original_security
+    assert security_descriptor(partials[0]) == original_security, (
+        security_descriptor(partials[0]), original_security,
+    )
     partials[0].unlink()
     print("PASS: partial and owner-interrupted temporary deny the same restricted reader")
 
