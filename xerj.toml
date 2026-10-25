@@ -1,0 +1,21 @@
+[server]
+bind_address = "127.0.0.1"
+es_compat_port = 19200
+rest_port = 19201
+grpc_port = 19202
+allow_insecure_network_bind = false
+
+[auth]
+enabled = true
+
+[tls]
+enabled = false
+
+[embedding]
+default_endpoint = ""
+
+[rerank]
+enabled = false
+
+[wal_tap]
+enabled = false

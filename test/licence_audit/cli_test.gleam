@@ -2,10 +2,19 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
-import glint
 import licence_audit/cli
 import licence_audit/color
+import licence_audit/internal/vendor/glint
 import licence_audit/progress
+
+const optional_path_flags = [
+  #([], ["manifest", "config", "cache-path"]),
+  #(["check"], ["manifest", "config", "cache-path"]),
+  #(["update"], ["manifest", "config", "cache-path"]),
+  #(["sbom"], ["manifest", "cache-path", "output"]),
+  #(["notices"], ["manifest", "cache-path", "output"]),
+  #(["vulns"], ["manifest", "config"]),
+]
 
 fn parse_options(args: List(String)) -> cli.Options {
   let assert Ok(glint.Out(cli.RunAudit(options))) =
@@ -50,11 +59,77 @@ pub fn short_help_option_returns_glint_help_test() {
   assert string.contains(help, "USAGE:")
 }
 
+pub fn version_option_returns_version_action_test() {
+  let assert Ok(glint.Out(cli.ShowVersion)) =
+    glint.execute(cli.app(), ["--version"])
+}
+
 pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
   should.equal(options.check, True)
+  should.equal(options.vuln_severity, None)
   should.equal(options.vuln_block_unknown, False)
+}
+
+pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
+  use expected <- list.each([
+    None,
+    Some("custom/path.toml"),
+    Some(""),
+    Some("__licence_audit_absent_string_flag__"),
+    Some("path=with=equals"),
+  ])
+  use command <- list.each(optional_path_flags)
+  let #(command, names) = command
+  let args = case expected {
+    None -> command
+    Some(value) ->
+      list.append(
+        command,
+        list.map(names, fn(name) { "--" <> name <> "=" <> value }),
+      )
+  }
+  let assert Ok(glint.Out(action)) = glint.execute(cli.app(), args)
+  let paths = case action {
+    cli.RunAudit(options) -> [
+      options.manifest_path,
+      options.config_path,
+      options.cache_path,
+    ]
+    cli.UpdateConfig(options) -> [
+      options.manifest_path,
+      options.config_path,
+      options.cache_path,
+    ]
+    cli.RunSbom(options) -> [
+      options.manifest_path,
+      options.cache_path,
+      options.output,
+    ]
+    cli.RunNotices(options) -> [
+      options.manifest_path,
+      options.cache_path,
+      options.output,
+    ]
+    cli.RunVulns(options) -> [options.manifest_path, options.config_path]
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
+  }
+
+  should.equal(paths, list.map(names, fn(_) { expected }))
+}
+
+pub fn optional_string_flags_still_require_values_when_supplied_test() {
+  use command <- list.each([
+    #(["check"], ["vuln-severity"]),
+    ..optional_path_flags
+  ])
+  let #(command, names) = command
+  use name <- list.each(names)
+  let message = usage_error(list.append(command, ["--" <> name]))
+
+  assert string.contains(message, name)
+  assert string.contains(message, "has no assigned value")
 }
 
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
@@ -204,6 +279,7 @@ pub fn help_text_includes_usage_and_supported_options_test() {
     "--colour",
     "--no-cache",
     "--cache-path",
+    "--version",
     "--help",
   ]
   |> list.each(fn(text) {
@@ -227,6 +303,12 @@ pub fn notices_subcommand_is_listed_in_help_test() {
   let help = help_text(["--help"])
 
   assert string.contains(help, "notices")
+}
+
+pub fn internal_gen_docs_subcommand_is_not_listed_in_help_test() {
+  let help = help_text(["--help"])
+
+  assert !string.contains(help, "gen-docs")
 }
 
 pub fn notices_subcommand_help_describes_notice_output_test() {
@@ -260,10 +342,18 @@ pub fn vulns_vuln_block_unknown_option_returns_usage_error_test() {
 }
 
 pub fn invalid_check_vuln_severity_returns_usage_error_test() {
-  let message = usage_error(["check", "--vuln-severity=crit"])
+  use value <- list.each(["crit", "", "__licence_audit_absent_string_flag__"])
+  let message = usage_error(["check", "--vuln-severity=" <> value])
 
   assert string.contains(message, "vuln-severity")
-  assert string.contains(message, "crit")
+  assert string.contains(message, "must be one of")
+}
+
+pub fn check_vuln_severity_preserves_supported_values_test() {
+  use severity <- list.each(["low", "medium", "high", "critical"])
+  let options = parse_options(["check", "--vuln-severity=" <> severity])
+
+  should.equal(options.vuln_severity, Some(severity))
 }
 
 pub fn update_subcommand_parses_defaults_test() {

@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Make `check --vulns` query supported GitHub dependencies and report unsupported sources."

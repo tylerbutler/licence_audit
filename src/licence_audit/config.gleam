@@ -1,11 +1,12 @@
 import gleam/bool
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import licence_audit/exception
 import licence_audit/toml
 import simplifile
-import tomlet.{type Value}
 
 pub type Policy {
   Policy(
@@ -13,6 +14,7 @@ pub type Policy {
     deny: List(String),
     vuln_severity: Option(String),
     vuln_block_unknown: Bool,
+    exceptions: List(exception.Exception),
   )
 }
 
@@ -34,6 +36,7 @@ pub type Error {
   MissingPolicy
   InvalidField(field: String, expected: String)
   InvalidLicenceIdentifier
+  InvalidException(String)
   FileReadError(String)
 }
 
@@ -44,6 +47,7 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
       deny: options.deny_licences,
       vuln_severity: options.vuln_severity,
       vuln_block_unknown: options.vuln_block_unknown,
+      exceptions: [],
     )
 
   use <- bool.guard(when: options.ignore_config, return: validate(cli_policy))
@@ -67,7 +71,7 @@ pub fn parse(input: String) -> Result(Policy, Error) {
         Error(toml.TableLookupMissing) -> Error(MissingPolicy)
         Error(toml.TableLookupNotTable) ->
           Error(InvalidField(field: "tools.licence_audit", expected: "Table"))
-        Ok(section) -> parse_policy_section(section)
+        Ok(section) -> parse_policy_section(section, document)
       }
   }
 }
@@ -85,6 +89,7 @@ pub fn merge(file_policy: Policy, cli_policy: Policy) -> Result(Policy, Error) {
     vuln_severity: resolved_severity,
     vuln_block_unknown: file_policy.vuln_block_unknown
       || cli_policy.vuln_block_unknown,
+    exceptions: file_policy.exceptions,
   )
   |> validate
 }
@@ -139,17 +144,66 @@ fn read_optional(path: String) -> Result(Option(String), Error) {
   }
 }
 
-fn parse_policy_section(section: toml.Entry) -> Result(Policy, Error) {
+fn parse_policy_section(
+  section: toml.Entry,
+  document: toml.Document,
+) -> Result(Policy, Error) {
+  // Tomlet exposes subtable fields in the parent, not in array-of-table items.
+  use _ <- result.try(
+    list.try_each(section, fn(field) {
+      case field.0 {
+        ["exceptions", _, _, ..] ->
+          Error(InvalidException(
+            string.join(field.0, ".")
+            <> ": nested exception fields are not supported",
+          ))
+        _ -> Ok(Nil)
+      }
+    }),
+  )
   use allow <- result.try(optional_string_list(section, "allow"))
   use deny <- result.try(optional_string_list(section, "deny"))
   use severity <- result.try(optional_string(section, "vuln_severity"))
   use block_unknown <- result.try(optional_bool(section, "vuln_block_unknown"))
+  use exceptions <- result.try(parse_exceptions(document))
   validate(Policy(
     allow: allow,
     deny: deny,
     vuln_severity: severity,
     vuln_block_unknown: block_unknown,
+    exceptions: exceptions,
   ))
+}
+
+fn parse_exceptions(
+  document: toml.Document,
+) -> Result(List(exception.Exception), Error) {
+  case toml.get_array(document, ["tools", "licence_audit", "exceptions"]) {
+    Error(toml.ArrayMissing) -> Ok([])
+    Error(toml.ArrayNotArray) ->
+      Error(InvalidException("exceptions must be an array of tables"))
+    Ok(values) -> {
+      list.index_map(values, fn(value, index) { #(value, index + 1) })
+      |> list.try_map(fn(pair) {
+        let #(value, number) = pair
+        use table <- result.try(
+          toml.as_table(value)
+          |> result.replace_error(InvalidException(
+            "exceptions[" <> int.to_string(number) <> "] must be a table",
+          )),
+        )
+        exception.parse(table, number)
+        |> result.map_error(fn(exception_error) {
+          InvalidException(
+            "exceptions["
+            <> int.to_string(number)
+            <> "]: "
+            <> exception.describe_error(exception_error),
+          )
+        })
+      })
+    }
+  }
 }
 
 fn optional_bool(section: toml.Entry, field: String) -> Result(Bool, Error) {
@@ -186,29 +240,25 @@ fn optional_string_list(
     Ok(value) -> {
       case toml.as_array(value) {
         Error(_) -> Error(InvalidField(field: field, expected: "List(String)"))
-        Ok(values) -> strings_from_toml(values, field, [])
-      }
-    }
-  }
-}
-
-fn strings_from_toml(
-  values: List(Value),
-  field: String,
-  decoded: List(String),
-) -> Result(List(String), Error) {
-  case values {
-    [] -> Ok(list.reverse(decoded))
-    [value, ..rest] -> {
-      case toml.as_string(value) {
-        Ok(value) -> strings_from_toml(rest, field, [value, ..decoded])
-        Error(_) -> Error(InvalidField(field: field, expected: "List(String)"))
+        Ok(values) ->
+          list.try_map(values, fn(value) {
+            toml.as_string(value)
+            |> result.replace_error(InvalidField(
+              field: field,
+              expected: "List(String)",
+            ))
+          })
       }
     }
   }
 }
 
 fn validate(policy: Policy) -> Result(Policy, Error) {
+  use _ <- result.try(
+    exception.validate_unique(policy.exceptions)
+    |> result.map_error(exception.describe_error)
+    |> result.map_error(InvalidException),
+  )
   use <- bool.guard(
     when: has_empty_identifier(policy.allow)
       || has_empty_identifier(policy.deny),

@@ -12,12 +12,14 @@
 - Format check: `just format-check`
 - Lint: `just glint` (glinter; configured under `[tools.glinter]` in `gleam.toml`, fails only on error-level rules). `just lint` runs format-check + glint.
 - Full local CI pass: `just ci`
+- Reference coding: use `just xerj-search "<mechanism or symbol>"` for local
+  sources and `just xerj-reference "<problem or mechanism>"` for peer projects.
 - Run a single test module: `mise exec -- gleam test --target erlang -- <module_name>_test`
 - Validate the generated SBOM: `just sbom-validate` runs three validators — `cyclonedx-cli`, `sbom-utility`, and cdxgen's `cdx-validate` (runs in CI). `just sbom-score` adds local-only quality scores from `sbom-tools` (CycloneDX 1.6-aware) and `sbomqs`; `just sbom-check` runs both. SBOM tooling is pinned in `.mise.toml` via the `github:` backend (cdxgen ships ~10 binaries, so its entry uses per-platform `asset_pattern` to select `cdx-validate`).
 
 ## High-level architecture
 
-- **CLI parsing and action dispatch** is split between `src/licence_audit/cli.gleam` (glint command definitions -> `CliAction`) and `src/licence_audit.gleam` (top-level orchestration in `main`, `run_with_reporter`, and per-action handlers).
+- **CLI parsing and action dispatch** is split between `src/licence_audit/cli.gleam` (glint command definitions -> `CliAction`) and `src/licence_audit.gleam` (top-level orchestration in `main`, `execute_action`, and per-action handlers).
 - **Audit/check pipeline** (`run_options_with_clients` in `src/licence_audit.gleam`) is:
   1. load+merge policy/config (`config.gleam`, `policy.gleam`)
   2. parse lockfile (`manifest.gleam`)
@@ -29,11 +31,11 @@
   - `update`: `src/licence_audit/update.gleam` discovers licenses and writes `[tools.licence_audit]` via `toml_port.gleam` (`tomlet`-based, comment-preserving edits).
   - `sbom`: `src/licence_audit/sbom.gleam` + `sbom_json.gleam` generate CycloneDX JSON and enforce supported purl sources.
   - `vulns`: `src/licence_audit.gleam` + `osv.gleam` query OSV batch + per-advisory details and render a separate vulnerability report.
-- **HTTP clients** for Hex and OSV (`hex.gleam`, `osv.gleam`) follow the same pattern: open TLS connection per call, `await_up`, send request, decode response, close connection.
+- **HTTP clients** for Hex and OSV (`hex.gleam`, `osv.gleam`) use `httpc_adaptive.gleam` over Erlang `httpc`. It probes IPv6 for at most one second per unverified host, then remembers IPv4 fallback for the rest of the command. Do not remove it unless a replacement preserves this behavior: removing it in #61 reintroduced the repeated IPv6 timeouts fixed by #43. TLS verification remains enabled.
 
 ## Key repository conventions
 
-- Library entry points (`run_with`, `run_with_clients`, `run_with_progress`) append `--no-cache`; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
+- Library entry points (`run` and `run_configured`) append `--no-cache`; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
 - `manifest.gleam` keeps non-Hex dependencies in graph data for tree/path context, but license auditing only applies to Hex packages.
 - Unsupported sources are handled differently by command:
   - `sbom` fails for unsupported dependency sources (to avoid invalid purls).
@@ -41,5 +43,29 @@
 - Cache failures are non-fatal by design (`cache.gleam`): audits continue, and warnings are deferred/surfaced via progress reporting.
 - Progress/log output is managed through `progress.gleam`; user report output is printed first, then deferred progress events are flushed.
 - Error mapping and exit semantics are centralized in `error.gleam` (`0` success, `1` enforced gate/usage failure, `2` input/config/network/decode/runtime error classes).
-- PR workflow expects Trellis changelog fragments for relevant changes (`just change <kind> "<body>"`) and Conventional Commit-style PR titles (validated in `.github/workflows/pr.yml` / `.commitlintrc.json`).
-- There is no supported public API — the CLI is the only supported interface. Breaking changes to Gleam functions/modules are not considered breaking. Only changes to public CLI behavior or arguments warrant a changelog fragment.
+- Add a Trellis changelog fragment (`just change <kind> "<body>"`) only for
+  product code changes or user-visible behavior changes. Do not add one for
+  documentation, tests, CI, or other internal process changes.
+- PR titles use Conventional Commits and are validated in
+  `.github/workflows/pr.yml` and `.commitlintrc.json`.
+- There is no supported public API — the CLI is the only supported interface.
+  Breaking changes to Gleam functions/modules are not considered breaking.
+
+## Reference coding
+
+- Before writing or changing product code, search the local implementation with
+  `just xerj-search`, then search peer implementations with `just xerj-reference`.
+  Use specific terms such as SPDX expressions, OSV querybatch, CycloneDX
+  dependencies, or Gleam manifest parsing.
+- The reference corpus contains `EmbarkStudios/cargo-deny` (licence policy),
+  `google/osv-scanner` (OSV queries and vulnerability gates),
+  `oss-review-toolkit/ort` (Gleam analysis, SBOMs, and notices), and
+  `gleam-lang/gleam` (manifest and dependency resolution).
+- Read the returned source context and tests before adapting an approach.
+  Cite `repository/path:line` for the mechanism used. Check the repository's
+  licence and attribution requirements before adapting code.
+- If no result matches, state that and use normal source search. Do not treat
+  an empty index or a stopped node as evidence that no implementation exists.
+- Refresh project sources with `just xerj-index`. Refresh reference indexes
+  with `just xerj-reference-index`. See `DEV.md` for node startup, clone updates,
+  and the local storage paths.

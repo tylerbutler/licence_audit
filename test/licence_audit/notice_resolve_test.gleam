@@ -2,6 +2,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit/cache_support
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/notice_cache
@@ -14,6 +15,46 @@ import simplifile
 const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
 
 const tmp_dir = "build/tmp/notices_resolve_test"
+
+pub fn corrupt_spdx_text_is_refetched_and_renders_without_crashing_test() {
+  let path = fresh_cache_path("corrupt_spdx_text")
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let key = "spdx:" <> spdx.license_list_commit <> ":license:MIT"
+  notice_cache.put_text(cache, key, "previous text")
+  let assert Ok(_) = cache_support.corrupt_entry(path, key)
+  let source = read_bytes("notice_only_hex.tar")
+  let package =
+    hex_package("corrupt_spdx_text", checksum_of(source), ["MIT"], [])
+  let assert Ok(resolution) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        fn(_name, _version) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        fn(requirement) {
+          should.equal(requirement, spdx.LicenseRequirement("MIT"))
+          Ok(Some("Refetched canonical MIT text"))
+        },
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = resolution.outcome
+  let rendered =
+    notice.render(
+      [notice.NoticeEntry(package, files)],
+      manifest_path: "manifest.toml",
+    )
+  assert string.contains(rendered, "Refetched canonical MIT text")
+  let assert Some(_) = notice_cache.close(cache)
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  should.equal(
+    notice_cache.get_text(cache, key),
+    Ok("Refetched canonical MIT text"),
+  )
+  let assert None = notice_cache.close(cache)
+}
 
 fn read_bytes(name: String) -> BitArray {
   let assert Ok(bytes) =
@@ -120,6 +161,81 @@ pub fn source_with_licence_needs_no_fallback_test() {
   let assert notice_resolve.Resolved(files) = resolution.outcome
   should.equal(paths(files), ["./LICENSE", "./NOTICE.txt"])
   should.equal(resolution.warnings, [])
+}
+
+pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
+  let path = fresh_cache_path("source_identity")
+  let source = read_bytes("hex.tar")
+  let checksum = checksum_of(source)
+  let package = hex_package("same", string.lowercase(checksum), ["MIT"], [])
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let assert Ok(first) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        fn(_n, _v) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        panic_spdx,
+      ),
+    )
+  let assert None = notice_cache.close(cache)
+
+  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let assert Ok(cached) =
+    notice_resolve.resolve(
+      cache,
+      hex_package("same", checksum, ["MIT"], []),
+      clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx),
+    )
+  should.equal(cached, first)
+
+  let changed_source = read_bytes("notice_only_hex.tar")
+  let assert Ok(changed) =
+    notice_resolve.resolve(
+      cache,
+      hex_package("same", checksum_of(changed_source), ["MIT"], []),
+      clients(
+        fn(_n, _v) { Ok(changed_source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        fn(_requirement) { Ok(Some("Canonical MIT text")) },
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = changed.outcome
+  should.equal(paths(files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
+  let assert None = notice_cache.close(cache)
+}
+
+pub fn path_packages_always_read_mutable_source_test() {
+  let path = fresh_cache_path("path_bypass")
+  let root = tmp_dir <> "/local"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let package =
+    notice.NoticePackage(
+      name: "local",
+      version: "1.0.0",
+      declared_licences: [],
+      repo_links: [],
+      source: notice.PathPackage(root),
+      scope: manifest.Prod,
+    )
+  let client =
+    clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx)
+
+  list.each(["first", "second"], fn(contents) {
+    let assert Ok(_) = simplifile.write(contents, to: root <> "/LICENSE")
+    let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+    let assert Ok(resolution) = notice_resolve.resolve(cache, package, client)
+    should.equal(
+      resolution.outcome,
+      notice_resolve.Resolved([notice.NoticeFile("LICENSE", contents)]),
+    )
+    let assert None = notice_cache.close(cache)
+  })
 }
 
 pub fn notice_only_source_falls_back_to_repository_test() {

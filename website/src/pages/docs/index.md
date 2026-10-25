@@ -19,13 +19,12 @@ have to install Erlang/OTP on the target machine.
 With [mise][mise], install directly from the `github:` provider:
 
 ```sh
-mise use -g "github:tylerbutler/licence_audit@latest[asset_pattern=licence_audit,bin=licence_audit]"
+mise use -g github:tylerbutler/licence_audit@latest
 ```
 
-Replace `latest` with a tag such as `v0.7.0` to select a fixed version. The
-`asset_pattern` selects the escript asset. This asset requires Erlang/OTP 28.x
-or newer on your `PATH`. For source build instructions, refer to
-[DEV.md][dev].
+Replace `latest` with a tag such as `v0.7.0` to select a fixed version. mise
+selects the self-contained archive for your operating system and architecture.
+You do not need Erlang/OTP. For source build instructions, refer to [DEV.md][dev].
 
 ## Standard workflow
 
@@ -82,13 +81,40 @@ The command uses these exit codes:
 | `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
 | `130` | `update` cancelled by the user. |
 
+## Compatibility
+
+From version 1.0.0, the CLI and configuration follow the
+[compatibility policy](/docs/compatibility). Read it for versioning rules,
+stable interfaces, output guarantees, and exceptions for correctness fixes.
+Gleam modules and human-readable report formatting are not supported
+integration interfaces.
+
 ## Caching
 
 `licence_audit` caches Hex licence metadata on disk between runs at
 `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets`. Override it with
-`--cache-path=PATH`, or bypass it with `--no-cache`. If a cache operation
-fails, `licence_audit` continues the audit and writes a warning to stderr. It
-does not cache OSV advisories.
+`--cache-path=PATH`, or bypass the caches with `--no-cache`. `licence_audit`
+reuses Hex API entries for 7 days, so metadata changes on Hex can take up to
+7 days to appear. Use `--no-cache` when you need fresh data.
+
+The cache is shared across projects and commands for each package name and
+version. Concurrent commands can share the cache on a local filesystem. In
+CI, restore and save the cache directory between jobs, for example with
+`actions/cache`, `--cache-path=.hex-cache/hex-v2.dets`, and `.hex-cache/` as
+the path to save. Use `--verbose` to see cache hits and misses.
+
+`licence_audit` caches each successful lookup when it completes. A later
+lookup failure keeps earlier entries, and the audit continues with the
+remaining packages. The cache excludes failed lookups. If a refresh fails
+and an older entry exists, the audit uses that entry and warns.
+
+If a cache operation fails, `licence_audit` continues the audit and writes a
+warning to stderr. It does not cache OSV advisories.
+
+Hex network errors include the request URL and available DNS, connection,
+or TLS details for IPv4 and IPv6. Request timeout errors include the
+5000 ms limit. When the HTTP client does not identify the failed stage,
+the message says so.
 
 [releases]: https://github.com/tylerbutler/licence_audit/releases
 [mise]: https://mise.jdx.dev/

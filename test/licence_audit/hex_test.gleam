@@ -1,6 +1,8 @@
+import gleam/bit_array
 import gleam/http.{Get}
 import gleam/http/request
 import gleam/http/response.{Response}
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/duration
 import gleam/time/timestamp
@@ -8,13 +10,17 @@ import gleam/uri
 import gleeunit/should
 import licence_audit/env
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import simplifile
 
-const british_licences_json = "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
+const british_licences_json =
+  "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
 
-const missing_licences_json = "{\"name\":\"example\",\"meta\":{\"description\":\"Example package\"}}"
+const missing_licences_json =
+  "{\"name\":\"example\",\"meta\":{\"description\":\"Example package\"}}"
 
-const invalid_metadata_json = "{\"name\":\"example\",\"meta\":{\"licences\":\"MIT\"}}"
+const invalid_metadata_json =
+  "{\"name\":\"example\",\"meta\":{\"licences\":\"MIT\"}}"
 
 fn package_fixture() -> String {
   let assert Ok(contents) =
@@ -49,6 +55,40 @@ pub fn decode_package_response_publisher_none_when_unavailable_test() {
   let assert Ok(metadata) = hex.decode_package(json)
 
   should.equal(metadata.publisher, None)
+}
+
+pub fn decode_archive_metadata_uses_immutable_fields_test() {
+  let assert Ok(contents) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex/metadata.config")
+  let assert Ok(metadata) = hex.package_metadata_from_archive(contents)
+
+  should.equal(metadata.licences, ["Apache-2.0"])
+  should.equal(
+    metadata.description,
+    Some("Metadata from the locked Hex archive"),
+  )
+  should.equal(metadata.links, [
+    #("Documentation", "https://hexdocs.pm/hex_dep"),
+    #("Repository", "https://github.com/example/hex_dep"),
+  ])
+  should.equal(metadata.publisher, None)
+}
+
+pub fn decode_archive_metadata_rejects_invalid_terms_test() {
+  should.equal(
+    hex.package_metadata_from_archive(<<"not erlang terms":utf8>>),
+    Error(Nil),
+  )
+}
+
+pub fn decode_archive_metadata_converts_latin1_strings_test() {
+  let input = <<
+    "{<<\"description\">>, <<\"Caf\\351\">>}.\n{<<\"licenses\">>, []}.\n":utf8,
+  >>
+  let assert Ok(metadata) = hex.package_metadata_from_archive(input)
+  let assert Some(description) = metadata.description
+
+  should.equal(bit_array.from_string(description), <<67, 97, 102, 195, 169>>)
 }
 
 pub fn cache_entry_round_trips_full_metadata_test() {
@@ -156,15 +196,63 @@ pub fn injected_network_failure_maps_to_network_failure_test() {
   should.equal(error, hex.NetworkFailure("connection refused"))
 }
 
+pub fn http_failures_include_request_and_connection_details_test() {
+  let assert Ok(req) = request.to("https://hex.pm/api/packages/example")
+  list.each(
+    [
+      #(
+        httpc_adaptive.ResponseTimeout,
+        "HTTP request timed out after 5000 ms (HTTP client did not report which stage timed out)",
+      ),
+      #(httpc_adaptive.InvalidUtf8Response, "response body was not valid UTF-8"),
+      #(
+        httpc_adaptive.RequestFailed("socket_closed_remotely"),
+        "HTTP request failed: socket_closed_remotely",
+      ),
+      #(
+        httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)"),
+        "connection setup failed: IPv4: DNS lookup failed (nxdomain)",
+      ),
+      #(
+        httpc_adaptive.FailedToConnect(
+          "IPv4: TCP connection refused (econnrefused)",
+        ),
+        "connection setup failed: IPv4: TCP connection refused (econnrefused)",
+      ),
+      #(
+        httpc_adaptive.FailedToConnect(
+          "IPv4: connection setup timed out (timeout; HTTP client did not report the DNS/TCP/TLS stage)",
+        ),
+        "connection setup failed: IPv4: connection setup timed out (timeout; HTTP client did not report the DNS/TCP/TLS stage)",
+      ),
+      #(
+        httpc_adaptive.FailedToConnect(
+          "IPv4: TLS handshake failed: unknown_ca (certificate not trusted)",
+        ),
+        "connection setup failed: IPv4: TLS handshake failed: unknown_ca (certificate not trusted)",
+      ),
+    ],
+    fn(test_case) {
+      let #(error, detail) = test_case
+      should.equal(
+        hex.from_http_error(req, error),
+        hex.NetworkFailure(
+          "GET https://hex.pm/api/packages/example: " <> detail,
+        ),
+      )
+    },
+  )
+}
+
 pub fn hex_metadata_fetch_returns_without_ipv6_fallback_delay_test() {
   case env.get("LICENCE_AUDIT_NET_TESTS") {
     Ok(value) if value != "" -> {
       let started = timestamp.system_time()
 
-      let assert Ok(metadata) =
-        hex.fetch_package_metadata_from_hex("gleam_stdlib")
-
-      assert metadata.licences != []
+      list.each(["collie", "gleam_stdlib"], fn(name) {
+        let assert Ok(metadata) = hex.fetch_package_metadata_from_hex(name)
+        assert metadata.licences != []
+      })
       assert timestamp.difference(started, timestamp.system_time())
         |> duration.to_milliseconds
         < 5000

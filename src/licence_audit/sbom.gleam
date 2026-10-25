@@ -1,4 +1,3 @@
-import gleam/bool
 import gleam/list
 import gleam/option
 import gleam/string
@@ -6,14 +5,15 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
+import licence_audit/repository
 
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
     manifest.HexProvenance(_, _) ->
       Ok("pkg:hex/" <> string.lowercase(entry.name) <> "@" <> entry.version)
     manifest.GitProvenance(repo, commit) ->
-      case parse_github_repo(repo) {
-        Ok(#(owner, name)) ->
+      case repository.parse_github_source(repo) {
+        Ok(repository.Repository(owner: owner, repo: name, ..)) ->
           Ok(
             "pkg:github/"
             <> string.lowercase(owner)
@@ -42,42 +42,6 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
         detail: "unsupported source",
       ))
   }
-}
-
-fn parse_github_repo(repo: String) -> Result(#(String, String), Nil) {
-  use path <- result.try(github_repo_path(repo))
-  case string.split(drop_suffix(drop_suffix(path, "/"), ".git"), on: "/") {
-    [owner, name] if owner != "" && name != "" -> Ok(#(owner, name))
-    _ -> Error(Nil)
-  }
-}
-
-fn github_repo_path(repo: String) -> Result(String, Nil) {
-  case strip_prefix(repo, "https://github.com/") {
-    Ok(path) -> Ok(path)
-    Error(_) ->
-      case strip_prefix(repo, "http://github.com/") {
-        Ok(path) -> Ok(path)
-        Error(_) ->
-          case strip_prefix(repo, "git@github.com:") {
-            Ok(path) -> Ok(path)
-            Error(_) -> strip_prefix(repo, "git@github.com/")
-          }
-      }
-  }
-}
-
-fn strip_prefix(value: String, prefix: String) -> Result(String, Nil) {
-  use <- bool.guard(
-    when: !string.starts_with(value, prefix),
-    return: Error(Nil),
-  )
-  Ok(string.drop_start(value, string.length(prefix)))
-}
-
-fn drop_suffix(value: String, suffix: String) -> String {
-  use <- bool.guard(when: !string.ends_with(value, suffix), return: value)
-  string.slice(value, 0, string.length(value) - string.length(suffix))
 }
 
 pub type LicenseEntry {
@@ -264,18 +228,7 @@ pub fn license_entries(licences: List(String)) -> List(LicenseEntry) {
       Error(_) -> LicenseName(raw)
     }
   })
-  |> dedupe_license_entries
-}
-
-fn dedupe_license_entries(entries: List(LicenseEntry)) -> List(LicenseEntry) {
-  entries
-  |> list.fold([], fn(acc, entry) {
-    case list.contains(acc, entry) {
-      True -> acc
-      False -> [entry, ..acc]
-    }
-  })
-  |> list.reverse
+  |> list.unique
 }
 
 fn match_spdx(raw: String) -> Result(String, Nil) {
@@ -796,8 +749,8 @@ fn root_component_json(root: RootComponent) -> json.Json {
 fn root_purl(root: RootComponent) -> option.Option(String) {
   case root.repository {
     option.Some(repo) ->
-      case parse_github_repo(repo) {
-        Ok(#(owner, name)) ->
+      case repository.parse_github_source(repo) {
+        Ok(repository.Repository(owner: owner, repo: name, ..)) ->
           option.Some(
             "pkg:github/"
             <> string.lowercase(owner)
@@ -946,7 +899,7 @@ fn ratings_json(vuln: osv.Vulnerability) -> List(json.Json) {
 }
 
 /// Map an OSV CVSS score to a CycloneDX `ratings.method` enum value. The vector
-/// string's version prefix is authoritative when present (CVSS v2 vectors carry
+/// string's version prefix is authoritative when present (CVSS v2 vectors have
 /// no prefix); otherwise we fall back to the OSV score `type`.
 fn cvss_method(kind: String, vector: String) -> String {
   let upper = string.uppercase(vector)

@@ -1,4 +1,5 @@
 import gleam/string
+import licence_audit/osv
 import spruce
 import spruce/box
 import spruce/style
@@ -133,28 +134,20 @@ pub fn boxed(palette: Palette, title: String, content: String) -> String {
   box.render(sp, content, box.title(box.new(), title))
 }
 
-pub type SeverityLabel {
-  CriticalSeverity
-  HighSeverity
-  MediumSeverity
-  LowSeverity
-  UnknownSeverityLabel
-}
-
 /// Render a fixed-width, color-coded severity tag suitable for the vulns
 /// report. Width is constant (10 chars) regardless of color so columns
 /// align with or without ANSI codes.
-pub fn severity(palette: Palette, label: SeverityLabel) -> String {
+pub fn severity(palette: Palette, label: osv.Severity) -> String {
   let text = case label {
-    CriticalSeverity -> "[CRITICAL]"
-    HighSeverity -> "[HIGH    ]"
-    MediumSeverity -> "[MEDIUM  ]"
-    LowSeverity -> "[LOW     ]"
-    UnknownSeverityLabel -> "[UNKNOWN ]"
+    osv.Critical -> "[CRITICAL]"
+    osv.High -> "[HIGH    ]"
+    osv.Medium -> "[MEDIUM  ]"
+    osv.Low -> "[LOW     ]"
+    osv.UnknownSeverity -> "[UNKNOWN ]"
   }
   case label {
-    UnknownSeverityLabel -> text
-    CriticalSeverity | HighSeverity -> fg(palette, style.Red, text)
-    MediumSeverity | LowSeverity -> fg(palette, style.Yellow, text)
+    osv.UnknownSeverity -> text
+    osv.Critical | osv.High -> fg(palette, style.Red, text)
+    osv.Medium | osv.Low -> fg(palette, style.Yellow, text)
   }
 }

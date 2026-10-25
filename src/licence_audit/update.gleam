@@ -3,9 +3,11 @@
 //// policy, then write the result back to `gleam.toml` under
 //// `[tools.licence_audit]`.
 
+import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import licence_audit/cache
 import licence_audit/config
@@ -60,59 +62,77 @@ pub fn run_with_picker(
 ) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.phase(reporter, "Starting licence policy update")
 
-  let existing = load_existing_policy(config_path, project_root, ignore_config)
-
-  let reporter = progress.detail(reporter, "Loading package manifest")
-  case manifest.load(manifest_path) {
-    Error(err) -> #(
-      UpdateResult(
-        exit_code: error.exit_code(error.from_manifest_error(err)),
-        output: "Error: "
-          <> error.message(error.from_manifest_error(err))
-          <> "\n",
-      ),
-      reporter,
+  let outcome = {
+    use existing <- result.try(
+      load_existing_policy(config_path, project_root, ignore_config)
+      |> result.map_error(fn(config_error) {
+        #(
+          UpdateResult(
+            exit_code: error.exit_code(error.from_config_error(config_error)),
+            output: "Error: "
+              <> error.message(error.from_config_error(config_error))
+              <> "\n",
+          ),
+          reporter,
+        )
+      }),
     )
-    Ok(locked) -> {
-      let reporter =
-        progress.package_count(reporter, list.length(locked.packages))
+    let reporter = progress.detail(reporter, "Loading package manifest")
+    use locked <- result.try(
+      manifest.load(manifest_path)
+      |> result.map_error(fn(err) {
+        #(
+          UpdateResult(
+            exit_code: error.exit_code(error.from_manifest_error(err)),
+            output: "Error: "
+              <> error.message(error.from_manifest_error(err))
+              <> "\n",
+          ),
+          reporter,
+        )
+      }),
+    )
+    let reporter =
+      progress.package_count(reporter, list.length(locked.packages))
 
-      let cache_mode = case no_cache {
-        True -> cache.Disabled
-        False -> cache.Enabled(path: cache_path)
-      }
-      let cache_handle = cache.open(cache_mode)
-      let cached_fetcher = cache.wrap(cache_handle, fetcher)
-
-      let #(discovered, fetch_failed, reporter) =
-        discover_licences(locked.packages, cached_fetcher, reporter, [], False)
-      let cache_warning = cache.close(cache_handle)
-
-      case fetch_failed {
-        True -> {
-          let reporter =
-            progress.fail(reporter, "Could not gather all package licences")
-          let reporter = warn_cache(reporter, cache_warning)
-          #(
-            UpdateResult(
-              exit_code: 2,
-              output: "Error: failed to fetch metadata for one or more packages\n",
-            ),
-            reporter,
-          )
-        }
-        False ->
-          handle_selection(
-            existing,
-            discovered,
-            config_path,
-            project_root,
-            cache_warning,
-            pick,
-            reporter,
-          )
-      }
+    let cache_mode = case no_cache {
+      True -> cache.Disabled
+      False -> cache.Enabled(path: cache_path)
     }
+    let cache_handle = cache.open(cache_mode)
+    let cached_fetcher = cache.wrap(cache_handle, fetcher)
+
+    let #(discovered, fetch_failed, reporter) =
+      discover_licences(locked.packages, cached_fetcher, reporter, [], False)
+    let cache_warning = cache.close(cache_handle)
+
+    Ok(case fetch_failed {
+      True -> {
+        let reporter =
+          progress.fail(reporter, "Could not gather all package licences")
+        let reporter = warn_cache(reporter, cache_warning)
+        #(
+          UpdateResult(
+            exit_code: 2,
+            output: "Error: failed to fetch metadata for one or more packages\n",
+          ),
+          reporter,
+        )
+      }
+      False ->
+        handle_selection(
+          existing,
+          discovered,
+          config_path,
+          project_root,
+          cache_warning,
+          pick,
+          reporter,
+        )
+    })
+  }
+  case outcome {
+    Ok(outcome) | Error(outcome) -> outcome
   }
 }
 
@@ -177,10 +197,14 @@ fn write_selection(
   case write_policy(target, allow, deny) {
     Error(error) -> {
       let message = write_error_message(error)
+      let exit_code = case error {
+        FileReadFailed(_, _) -> error.exit_code(error.Input(message))
+        TomlEditFailed(_) | FileWriteFailed(_) -> 1
+      }
       let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
       #(
-        UpdateResult(exit_code: 1, output: "Error: " <> message <> "\n"),
+        UpdateResult(exit_code: exit_code, output: "Error: " <> message <> "\n"),
         reporter,
       )
     }
@@ -208,7 +232,19 @@ fn discover_licences(
     [pkg, ..rest] -> {
       let #(result, reporter) = fetcher(pkg, reporter)
       case result {
-        Error(_) -> discover_licences(rest, fetcher, reporter, collected, True)
+        Error(fetch_error) -> {
+          let reporter =
+            progress.fail(
+              reporter,
+              "Failed to fetch package metadata for "
+                <> pkg.name
+                <> "@"
+                <> pkg.version
+                <> ": "
+                <> hex.describe_error(fetch_error),
+            )
+          discover_licences(rest, fetcher, reporter, collected, True)
+        }
         Ok(metadata) -> {
           discover_licences(
             rest,
@@ -227,39 +263,38 @@ fn load_existing_policy(
   config_path: Option(String),
   project_root: String,
   ignore_config: Bool,
-) -> config.Policy {
-  case ignore_config {
-    True ->
-      config.Policy(
-        allow: [],
-        deny: [],
-        vuln_severity: None,
-        vuln_block_unknown: False,
-      )
-    False -> {
-      let load_result =
-        config.load(config.LoadOptions(
-          config_path: config_path,
-          project_root: project_root,
-          allow_licences: [],
-          deny_licences: [],
-          vuln_severity: None,
-          vuln_block_unknown: False,
-          ignore_config: False,
-          check: False,
-        ))
-      case load_result {
-        Ok(policy) -> policy
-        Error(_) ->
-          config.Policy(
-            allow: [],
-            deny: [],
-            vuln_severity: None,
-            vuln_block_unknown: False,
-          )
+) -> Result(config.Policy, config.Error) {
+  use <- bool.guard(when: ignore_config, return: Ok(empty_policy()))
+  let load_result =
+    config.load(config.LoadOptions(
+      config_path: config_path,
+      project_root: project_root,
+      allow_licences: [],
+      deny_licences: [],
+      vuln_severity: None,
+      vuln_block_unknown: False,
+      ignore_config: False,
+      check: False,
+    ))
+  case load_result {
+    Ok(policy) -> Ok(policy)
+    Error(config.FileReadError(path) as error) ->
+      case simplifile.read(path) {
+        Error(simplifile.Enoent) -> Ok(empty_policy())
+        Ok(_) | Error(_) -> Error(error)
       }
-    }
+    Error(error) -> Error(error)
   }
+}
+
+fn empty_policy() -> config.Policy {
+  config.Policy(
+    exceptions: [],
+    allow: [],
+    deny: [],
+    vuln_severity: None,
+    vuln_block_unknown: False,
+  )
 }
 
 fn merge_labels(
@@ -292,12 +327,15 @@ fn resolve_output_path(
 
 type WriteError {
   TomlEditFailed(toml.Error)
+  FileReadFailed(path: String, reason: simplifile.FileError)
   FileWriteFailed(path: String)
 }
 
 fn write_error_message(error: WriteError) -> String {
   case error {
     TomlEditFailed(e) -> toml.error_message(e)
+    FileReadFailed(path, reason) ->
+      "Failed to read " <> path <> ": " <> simplifile.describe_error(reason)
     FileWriteFailed(path) -> "Failed to write " <> path
   }
 }
@@ -307,10 +345,11 @@ fn write_policy(
   allow: List(String),
   deny: List(String),
 ) -> Result(Nil, WriteError) {
-  let existing = case simplifile.read(from: path) {
-    Ok(contents) -> contents
-    Error(_) -> ""
-  }
+  use existing <- result.try(case simplifile.read(from: path) {
+    Ok(contents) -> Ok(contents)
+    Error(simplifile.Enoent) -> Ok("")
+    Error(reason) -> Error(FileReadFailed(path, reason))
+  })
   let section = ["tools", "licence_audit"]
   case toml.set_string_array(existing, section, "allow", allow) {
     Error(e) -> Error(TomlEditFailed(e))

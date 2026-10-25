@@ -18,6 +18,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       checkout_ref: ${{ inputs.tag || github.ref_name }}
+      skip_sbom_drift_check: ${{ github.event_name == 'workflow_dispatch' }}
 
   build-release-artifacts:
     needs: test
@@ -37,7 +38,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y binutils-mingw-w64-x86-64 musl-tools
           python3 -m pip install --user 'ziglang==0.14.1'
-          cargo install --locked cargo-zigbuild --version 0.20.1
+          cargo install --locked cargo-zigbuild --version 0.23.4
           rustup target add \
             aarch64-apple-darwin \
             aarch64-unknown-linux-gnu \
@@ -63,18 +64,6 @@ jobs:
       - name: Build Queso executables
         run: just build-queso
 
-      - name: Smoke test Queso executable
-        env:
-          REF_NAME: ${{ env.RELEASE_TAG }}
-        run: |
-          set -euo pipefail
-          version="${REF_NAME#v}"
-          # Use glibc target: linux-static binaries do not export NIF symbols
-          # (crypto/SSL) that this CLI requires. glibc runs on the ubuntu runner.
-          binary="./build/queso/licence_audit-${version}-x86_64-linux-glibc"
-          "$binary" sbom --reproducible --offline --output=smoke-sbom.json
-          test -s smoke-sbom.json
-
       - name: Stage release artifacts
         env:
           REF_NAME: ${{ env.RELEASE_TAG }}
@@ -83,10 +72,20 @@ jobs:
           mkdir -p dist
 
           version="${REF_NAME#v}"
+          # Tags before vendoring do not have a NOTICE file.
+          notice_files=()
+          if [ -d vendor/glint ]; then
+            test -f NOTICE
+          fi
+          if [ -f NOTICE ]; then
+            notice_files=(NOTICE)
+            cp NOTICE dist/
+          fi
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
-          [ -f LICENSE ] && cp LICENSE "$escript_stage/" || true
+          cp -r slate_native "$escript_stage/"
+          cp LICENSE "${notice_files[@]}" "$escript_stage/"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
           (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
@@ -122,7 +121,7 @@ jobs:
               chmod +x "$archive_stage/licence_audit"
             fi
 
-            [ -f LICENSE ] && cp LICENSE "$archive_stage/" || true
+            cp LICENSE "${notice_files[@]}" "$archive_stage/"
             [ -f README.md ] && cp README.md "$archive_stage/" || true
 
             if [[ "$target" == *-windows ]]; then
@@ -136,12 +135,31 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
+          # Consume full listings to avoid SIGPIPE with pipefail.
+          tar -tzf "dist/licence_audit-${REF_NAME}.tar.gz" |
+            grep -Fx "licence_audit-${REF_NAME}/LICENSE" > /dev/null
+          unzip -Z1 "dist/licence_audit-${REF_NAME}-x86_64-windows.zip" |
+            grep -Fx "LICENSE" > /dev/null
+          tar -tzf "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz" |
+            grep -Fx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE" > /dev/null
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
-          (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
+          (cd dist && sha256sum licence_audit "${notice_files[@]}" *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
+
+      - name: Test packaged native HTTP without system Erlang
+        timeout-minutes: 5
+        env:
+          REF_NAME: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          archive="licence_audit-${REF_NAME}-x86_64-linux-glibc"
+          extracted=$(mktemp -d)
+          trap 'rm -rf -- "$extracted"' EXIT
+          tar -xzf "dist/${archive}.tar.gz" -C "$extracted"
+          just smoke-native-http "$extracted/$archive/licence_audit"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
@@ -215,7 +233,7 @@ jobs:
           # Idempotent: skip if a previous run already appended the section
           # (e.g. when the publish workflow is re-run for the same tag).
           body="$(gh release view "$REF_NAME" --json body --jq .body)"
-          if printf '%s' "$body" | grep -qF "$marker"; then
+          if printf '%s' "$body" | grep -F "$marker" > /dev/null; then
             echo "Install instructions already present; nothing to do."
             exit 0
           fi

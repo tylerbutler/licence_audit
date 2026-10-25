@@ -1,31 +1,21 @@
 import gleam/dict
+import gleam/list
 import gleam/option
 import gleeunit/should
 import licence_audit/manifest
 import simplifile
 
-const manifest_fixture = "# Minimal Gleam lockfile fixture for licence audit manifest parsing.\npackages = [\n  { name = \"gleam_stdlib\", version = \"1.0.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"gleam_stdlib\", source = \"hex\", outer_checksum = \"AAAA\" },\n  { name = \"argv\", version = \"1.1.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"argv\", source = \"hex\", outer_checksum = \"BBBB\" },\n  { name = \"local_dep\", version = \"0.1.0\", build_tools = [\"gleam\"], requirements = [], source = \"path\", path = \"../local_dep\" },\n  { name = \"git_dep\", version = \"2.0.0\", build_tools = [\"gleam\"], requirements = [], source = \"git\", repo = \"https://example.invalid/git_dep\" },\n]\n\n[requirements]\ngleam_stdlib = { version = \">= 1.0.0 and < 2.0.0\" }\n"
+const manifest_fixture =
+  "# Minimal Gleam lockfile fixture for licence audit manifest parsing.\npackages = [\n  { name = \"gleam_stdlib\", version = \"1.0.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"gleam_stdlib\", source = \"hex\", outer_checksum = \"AAAA\" },\n  { name = \"argv\", version = \"1.1.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"argv\", source = \"hex\", outer_checksum = \"BBBB\" },\n  { name = \"local_dep\", version = \"0.1.0\", build_tools = [\"gleam\"], requirements = [], source = \"path\", path = \"../local_dep\" },\n  { name = \"git_dep\", version = \"2.0.0\", build_tools = [\"gleam\"], requirements = [], source = \"git\", repo = \"https://example.invalid/git_dep\" },\n]\n\n[requirements]\ngleam_stdlib = { version = \">= 1.0.0 and < 2.0.0\" }\n"
 
-pub fn parse_returns_only_hex_packages_and_skipped_count_test() {
+pub fn parse_returns_only_hex_packages_and_skipped_packages_test() {
   let assert Ok(parsed) = manifest.parse(manifest_fixture)
 
   should.equal(parsed.packages, [
-    manifest.Package(
-      name: "gleam_stdlib",
-      version: "1.0.0",
-      source: manifest.Hex,
-      kind: manifest.Direct,
-      requirements: [],
-    ),
-    manifest.Package(
-      name: "argv",
-      version: "1.1.0",
-      source: manifest.Hex,
-      kind: manifest.Transitive,
-      requirements: [],
-    ),
+    manifest.Package(name: "gleam_stdlib", version: "1.0.0", requirements: []),
+    manifest.Package(name: "argv", version: "1.1.0", requirements: []),
   ])
-  should.equal(parsed.skipped_non_hex, 2)
+  should.equal(list.length(parsed.skipped_packages), 2)
   should.equal(parsed.direct_names, ["gleam_stdlib"])
 }
 
@@ -62,10 +52,55 @@ pub fn parse_errors_when_package_field_has_wrong_type_test() {
 pub fn load_reads_manifest_from_file_test() {
   let assert Ok(parsed) = manifest.load("test/fixtures/manifest.toml")
 
-  should.equal(parsed.skipped_non_hex, 2)
+  should.equal(list.length(parsed.skipped_packages), 2)
 }
 
-const path_fixture = "packages = [
+pub fn audit_accepts_missing_source_specific_fields_test() {
+  let input =
+    "packages = [
+  { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\" },
+  { name = \"git_dep\", version = \"2.0.0\", source = \"git\" },
+]"
+  let assert Ok(parsed) = manifest.parse(input)
+  should.equal(list.length(parsed.packages), 1)
+  should.equal(parsed.skipped_packages, [
+    manifest.SkippedPackage(
+      name: "git_dep",
+      version: "2.0.0",
+      source: "git",
+      requirements: [],
+    ),
+  ])
+}
+
+pub fn sbom_requires_source_specific_fields_test() {
+  let hex_input =
+    "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\" }]"
+  let git_input =
+    "packages = [{ name = \"git_dep\", version = \"2.0.0\", source = \"git\", repo = \"https://example.invalid/git_dep\" }]"
+  should.equal(
+    manifest.sbom_entries(hex_input),
+    Error(manifest.InvalidPackageField("hex_dep", "outer_checksum", "String")),
+  )
+  should.equal(
+    manifest.sbom_entries(git_input),
+    Error(manifest.InvalidPackageField("git_dep", "commit", "String")),
+  )
+}
+
+pub fn audit_and_sbom_share_common_field_errors_test() {
+  let input =
+    "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", requirements = [42] }]"
+  let expected =
+    manifest.InvalidPackageField("hex_dep", "requirements", "String")
+  let assert Error(audit_error) = manifest.parse(input)
+  let assert Error(sbom_error) = manifest.sbom_entries(input)
+  should.equal(audit_error, expected)
+  should.equal(sbom_error, expected)
+}
+
+const path_fixture =
+  "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\", \"git_dep\"] },
   { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [\"lib_c\"] },
   { name = \"lib_c\", version = \"3.0.0\", source = \"hex\", requirements = [] },
@@ -89,32 +124,13 @@ pub fn dep_paths_reconstructs_direct_and_transitive_chains_test() {
   should.equal(dict.get(paths, "orphan"), Error(Nil))
 }
 
-pub fn parse_tags_direct_versus_transitive_kinds_test() {
+pub fn parse_preserves_direct_requirements_and_package_edges_test() {
   let assert Ok(parsed) = manifest.parse(path_fixture)
-  let kinds =
-    parsed.packages
-    |> list_to_kind_dict
-
-  should.equal(dict.get(kinds, "app_a"), Ok(manifest.Direct))
-  should.equal(dict.get(kinds, "lib_b"), Ok(manifest.Transitive))
-  should.equal(dict.get(kinds, "lib_c"), Ok(manifest.Transitive))
-}
-
-fn list_to_kind_dict(
-  packages: List(manifest.Package),
-) -> dict.Dict(String, manifest.Kind) {
-  packages
-  |> list_fold_kinds(dict.new())
-}
-
-fn list_fold_kinds(
-  packages: List(manifest.Package),
-  acc: dict.Dict(String, manifest.Kind),
-) -> dict.Dict(String, manifest.Kind) {
-  case packages {
-    [] -> acc
-    [p, ..rest] -> list_fold_kinds(rest, dict.insert(acc, p.name, p.kind))
-  }
+  should.equal(parsed.direct_names, ["app_a"])
+  let assert Ok(app) = list.find(parsed.packages, fn(p) { p.name == "app_a" })
+  let assert Ok(lib) = list.find(parsed.packages, fn(p) { p.name == "lib_b" })
+  should.equal(app.requirements, ["lib_b", "git_dep"])
+  should.equal(lib.requirements, ["lib_c"])
 }
 
 pub fn sbom_entries_returns_hex_provenance_test() {
@@ -125,7 +141,6 @@ pub fn sbom_entries_returns_hex_provenance_test() {
   let assert [first, _] = parsed.entries
   should.equal(first.name, "gleam_stdlib")
   should.equal(first.version, "1.0.0")
-  should.equal(first.kind, manifest.Direct)
   should.equal(first.requirements, [])
   should.equal(
     first.provenance,
@@ -164,7 +179,6 @@ pub fn sbom_entries_returns_git_provenance_test() {
   let assert [_, second] = parsed.entries
   should.equal(second.name, "gluegun")
   should.equal(second.version, "0.1.0")
-  should.equal(second.kind, manifest.Direct)
   should.equal(second.requirements, ["gleam_stdlib"])
   should.equal(
     second.provenance,
@@ -183,7 +197,8 @@ pub fn sbom_entries_exposes_root_requirements_test() {
   should.equal(parsed.root_requirements, ["gleam_stdlib", "gluegun"])
 }
 
-const scope_fixture = "packages = [
+const scope_fixture =
+  "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
   { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [\"shared\"] },
   { name = \"test_helper\", version = \"1.0.0\", source = \"hex\", requirements = [\"shared\"] },

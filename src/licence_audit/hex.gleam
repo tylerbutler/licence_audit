@@ -3,13 +3,16 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
-import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/uri
+import licence_audit/httpc_adaptive
+
+const request_timeout_ms = 5000
 
 pub type PackageMetadata {
   PackageMetadata(
@@ -27,7 +30,7 @@ pub type PackageMetadata {
   )
 }
 
-/// Construct metadata carrying only licences, with no description, links, or
+/// Construct metadata that contains only licences, with no description, links, or
 /// publisher. Used where only licence policy matters (the `check`/`update`
 /// paths) and by tests that don't exercise SBOM enrichment.
 pub fn licences_only(licences: List(String)) -> PackageMetadata {
@@ -41,6 +44,21 @@ pub type Error {
   RateLimited
   UnexpectedResponse(status: Int)
   NetworkFailure(reason: String)
+}
+
+@external(erlang, "hex_metadata_ffi", "decode")
+fn decode_archive_metadata(
+  input: BitArray,
+) -> Result(#(List(String), Option(String), List(#(String, String))), Nil)
+
+/// Decode the immutable `metadata.config` stored in a Hex package tarball.
+pub fn package_metadata_from_archive(
+  input: BitArray,
+) -> Result(PackageMetadata, Nil) {
+  use #(licences, description, links) <- result.try(decode_archive_metadata(
+    input,
+  ))
+  Ok(PackageMetadata(licences:, description:, links:, publisher: None))
 }
 
 /// Short, human-readable description of a fetch error, for surfacing in
@@ -89,35 +107,37 @@ pub fn fetch_package_metadata_from_hex(
 /// built-in `httpc` (TLS verified by default).
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req = request.set_header(req, "user-agent", "licence_audit")
-  case
-    httpc.configure()
-    |> httpc.timeout(5000)
-    |> httpc.dispatch(req)
-  {
+  case httpc_adaptive.dispatch(req, timeout_ms: request_timeout_ms) {
     Ok(response) -> Ok(response)
-    Error(error) -> Error(NetworkFailure(describe_http_error(error)))
+    Error(error) -> Error(from_http_error(req, error))
   }
+}
+
+pub fn from_http_error(
+  req: Request(String),
+  error: httpc_adaptive.Error,
+) -> Error {
+  NetworkFailure(
+    "GET "
+    <> uri.to_string(request.to_uri(req))
+    <> ": "
+    <> describe_http_error(error),
+  )
 }
 
 /// Render an `httpc` transport error into a concise reason string so callers
 /// can report *why* a Hex request failed (DNS/connection, TLS, or timeout)
 /// rather than a generic "request failed".
-fn describe_http_error(error: httpc.HttpError) -> String {
+fn describe_http_error(error: httpc_adaptive.Error) -> String {
   case error {
-    httpc.InvalidUtf8Response -> "response was not valid UTF-8"
-    httpc.ResponseTimeout -> "no response within 5s timeout"
-    httpc.FailedToConnect(ip4, ip6) ->
-      "could not connect: IPv4 "
-      <> describe_connect_error(ip4)
-      <> ", IPv6 "
-      <> describe_connect_error(ip6)
-  }
-}
-
-fn describe_connect_error(error: httpc.ConnectError) -> String {
-  case error {
-    httpc.Posix(code) -> code
-    httpc.TlsAlert(code, detail) -> "TLS " <> code <> " (" <> detail <> ")"
+    httpc_adaptive.InvalidUtf8Response -> "response body was not valid UTF-8"
+    httpc_adaptive.ResponseTimeout ->
+      "HTTP request timed out after "
+      <> int.to_string(request_timeout_ms)
+      <> " ms (HTTP client did not report which stage timed out)"
+    httpc_adaptive.FailedToConnect(reason) ->
+      "connection setup failed: " <> reason
+    httpc_adaptive.RequestFailed(reason) -> "HTTP request failed: " <> reason
   }
 }
 

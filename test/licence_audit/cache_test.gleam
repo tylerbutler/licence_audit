@@ -1,16 +1,28 @@
-import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import gleam/time/timestamp
 import gleeunit/should
 import licence_audit/cache
+import licence_audit/cache_dir
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/progress
 import simplifile
-import slate/set as dets_set
 
 const tmp_dir = "build/tmp/cache_test"
+
+type ConcurrentWriteError
+
+@external(erlang, "cache_process_test_ffi", "concurrent_writes")
+fn concurrent_writes(
+  cache_path: String,
+  first_key: String,
+  first_value: String,
+  second_key: String,
+  second_value: String,
+) -> Result(Nil, ConcurrentWriteError)
 
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
@@ -20,13 +32,7 @@ fn fresh_path(name: String) -> String {
 }
 
 fn pkg(name: String, version: String) -> manifest.Package {
-  manifest.Package(
-    name: name,
-    version: version,
-    source: manifest.Hex,
-    kind: manifest.Direct,
-    requirements: [],
-  )
+  manifest.Package(name: name, version: version, requirements: [])
 }
 
 fn reporter() -> progress.Reporter {
@@ -42,24 +48,15 @@ fn metadata_with_publisher(publisher: String) -> hex.PackageMetadata {
   )
 }
 
-fn write_legacy_cache_entry(
+fn write_cache_entry_without_timestamp(
   path: String,
   key: String,
   metadata: hex.PackageMetadata,
 ) {
-  let assert Ok(table) =
-    dets_set.open(
-      path,
-      key_decoder: decode.string,
-      value_decoder: decode.string,
-    )
+  let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
   let assert Ok(_) =
-    dets_set.insert(
-      into: table,
-      key: key,
-      value: hex.encode_cache_entry(metadata),
-    )
-  let assert Ok(_) = dets_set.close(table)
+    cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
+  let assert None = cache_dir.close_table(table, "test", None)
   Nil
 }
 
@@ -94,6 +91,31 @@ pub fn disabled_cache_bypasses_storage_test() {
   should.equal(warning, None)
 }
 
+pub fn open_failure_preserves_licence_warning_test() {
+  let _ = simplifile.create_directory_all(tmp_dir)
+  let blocker = tmp_dir <> "/open-blocker"
+  let _ = simplifile.write("data", to: blocker)
+  let path = blocker <> "/cache.dets"
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.starts_with(
+    warning,
+    "Unable to open licence cache at " <> path <> ": ",
+  ))
+}
+
+pub fn write_failure_preserves_licence_warning_test() {
+  let path = fresh_path("write_failure")
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let _ = simplifile.write("block writes", to: path)
+  let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
+  let #(result, _) =
+    cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
+  let assert Ok(_) = result
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.starts_with(warning, "Failed to access licence cache: "))
+}
+
 pub fn disabled_cache_logs_passthrough_test() {
   let handle = cache.open(cache.Disabled)
   let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
@@ -125,11 +147,49 @@ pub fn cache_round_trip_persists_metadata_test() {
   let exploding = fn(_name) {
     panic as "fetcher must not be called on cache hit"
   }
+
   let #(result, rep2) =
     cache.wrap(handle, exploding)(pkg("gleam_stdlib", "1.0.0"), reporter())
   let assert Ok(cached) = result
   should.equal(cached.licences, ["MIT"])
   let assert True = any_contains(detail_messages(rep2), "Cache hit")
+  let assert None = cache.close(handle)
+}
+
+pub fn separate_vms_keep_distinct_successful_writes_test() {
+  let path = fresh_path("separate_vms")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  let assert Ok(Nil) =
+    concurrent_writes(
+      path,
+      "first-key",
+      "first-value",
+      "second-key",
+      "second-value",
+    )
+  should.equal(cache_dir.lookup(store, "first-key"), Ok("first-value"))
+  should.equal(cache_dir.lookup(store, "second-key"), Ok("second-value"))
+  let assert None = cache_dir.close_table(store, "test", None)
+}
+
+pub fn immutable_cache_entries_do_not_expire_test() {
+  let path = fresh_path("immutable")
+  let key = "example@1.0.0@hex:ABC"
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let assert Ok(metadata) =
+    cache.fetch_immutable(handle, key, fn() {
+      Ok(metadata_with_publisher("archived"))
+    })
+  should.equal(metadata.publisher, Some("archived"))
+  let assert None = cache.close(handle)
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let assert Ok(cached) =
+    cache.fetch_immutable(handle, key, fn() {
+      panic as "immutable fetcher must not run on a cache hit"
+    })
+  should.equal(cached.publisher, Some("archived"))
   let assert None = cache.close(handle)
 }
 
@@ -150,9 +210,53 @@ pub fn cache_key_includes_version_test() {
   let assert None = cache.close(handle)
 }
 
+pub fn cache_reuses_metadata_for_seven_days_test() {
+  list.each([172_800, 604_740, 604_860], fn(age_seconds) {
+    let path = fresh_path("ttl_" <> int.to_string(age_seconds))
+    let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
+    let #(now, _) =
+      timestamp.system_time()
+      |> timestamp.to_unix_seconds_and_nanoseconds
+    list.each(["reported", "quiet"], fn(name) {
+      let key = name <> "@1.0.0"
+      let assert Ok(_) =
+        cache_dir.insert(
+          table,
+          key,
+          hex.encode_cache_entry(metadata_with_publisher("cached")),
+        )
+      let assert Ok(_) =
+        cache_dir.insert(
+          table,
+          "$cached_at:" <> key,
+          int.to_string(now - age_seconds),
+        )
+    })
+    let assert None = cache_dir.close_table(table, "test", None)
+
+    let handle = cache.open(cache.Enabled(path: Some(path)))
+    let fetcher = fn(_name) {
+      should.be_true(age_seconds > 604_800)
+      Ok(metadata_with_publisher("fresh"))
+    }
+    let expected = case age_seconds > 604_800 {
+      True -> Some("fresh")
+      False -> Some("cached")
+    }
+    let #(result, _) =
+      cache.wrap(handle, fetcher)(pkg("reported", "1.0.0"), reporter())
+    let assert Ok(metadata) = result
+    should.equal(metadata.publisher, expected)
+    let assert Ok(quiet_metadata) =
+      cache.fetch_cached_quiet(handle, "quiet", "1.0.0", fetcher)
+    should.equal(quiet_metadata.publisher, expected)
+    let assert None = cache.close(handle)
+  })
+}
+
 pub fn cache_refetches_legacy_enriched_entry_instead_of_stale_publisher_test() {
   let path = fresh_path("legacy_enriched_refetch")
-  write_legacy_cache_entry(
+  write_cache_entry_without_timestamp(
     path,
     "example@1.0.0",
     metadata_with_publisher("old-owner"),
@@ -165,6 +269,28 @@ pub fn cache_refetches_legacy_enriched_entry_instead_of_stale_publisher_test() {
 
   let assert Ok(metadata) = result
   should.equal(metadata.publisher, Some("new-owner"))
+  let assert True = any_contains(detail_messages(rep), "Cache miss")
+  let assert None = cache.close(handle)
+}
+
+pub fn corrupt_cache_entry_is_refetched_test() {
+  let path = fresh_path("corrupt")
+  let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
+  let assert Ok(_) = cache_dir.insert(table, "example@1.0.0", "not valid json")
+  let assert Ok(_) =
+    cache_dir.insert(
+      table,
+      "$cached_at:example@1.0.0",
+      int.to_string(now_seconds()),
+    )
+  let assert None = cache_dir.close_table(table, "test", None)
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let fetcher = fn(_name) { Ok(metadata_with_publisher("refetched")) }
+  let #(result, rep) =
+    cache.wrap(handle, fetcher)(pkg("example", "1.0.0"), reporter())
+  let assert Ok(metadata) = result
+  should.equal(metadata.publisher, Some("refetched"))
   let assert True = any_contains(detail_messages(rep), "Cache miss")
   let assert None = cache.close(handle)
 }
@@ -188,11 +314,50 @@ pub fn fetcher_errors_are_not_cached_test() {
   let assert None = cache.close(handle)
 }
 
+fn now_seconds() -> Int {
+  let #(seconds, _) =
+    timestamp.system_time()
+    |> timestamp.to_unix_seconds_and_nanoseconds
+  seconds
+}
+
+pub fn lookup_failure_keeps_other_successful_entries_test() {
+  let path = fresh_path("partial_failure")
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let fetcher = fn(name) {
+    case name {
+      "missing" -> Error(hex.NetworkFailure("connection refused"))
+      _ -> Ok(hex.licences_only(["MIT"]))
+    }
+  }
+  list.each(["before", "missing", "after"], fn(name) {
+    let #(result, _) =
+      cache.wrap(handle, fetcher)(pkg(name, "1.0.0"), reporter())
+    should.equal(result, fetcher(name))
+  })
+  let assert None = cache.close(handle)
+
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let retry = fn(name) {
+    should.equal(name, "missing")
+    Ok(hex.licences_only(["Apache-2.0"]))
+  }
+  list.each(["before", "missing", "after"], fn(name) {
+    let #(result, _) = cache.wrap(handle, retry)(pkg(name, "1.0.0"), reporter())
+    let expected = case name {
+      "missing" -> ["Apache-2.0"]
+      _ -> ["MIT"]
+    }
+    should.equal(result, Ok(hex.licences_only(expected)))
+  })
+  let assert None = cache.close(handle)
+}
+
 pub fn fetch_failure_falls_back_to_stale_entry_test() {
   let path = fresh_path("stale_fallback")
   // A legacy entry has no `cached_at` marker, so it is treated as expired
   // (a miss) and forces a refetch.
-  write_legacy_cache_entry(
+  write_cache_entry_without_timestamp(
     path,
     "example@1.0.0",
     metadata_with_publisher("cached-owner"),

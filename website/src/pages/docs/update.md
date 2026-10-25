@@ -13,13 +13,19 @@ configuration. It then writes your choices to `[tools.licence_audit]` in
 licence_audit update
 ```
 
-## What it does
+## Update process
 
 1. Resolves the dependency tree and gets licence metadata from Hex.
 2. Shows an interactive list of the licences. The list selects existing allow
    and deny entries.
 3. Writes the result to `gleam.toml` without changing existing comments or
    formatting.
+
+`update` preserves [scoped policy exceptions](/docs/check#scoped-policy-exceptions)
+and their comments. It does not create, renew, or remove review decisions.
+Malformed exception configuration returns exit code 2 before the interactive
+selection or write. Use the audit report to find stale entries and remove
+them from the configuration.
 
 ## Terminal requirement
 

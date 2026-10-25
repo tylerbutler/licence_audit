@@ -15,13 +15,13 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Https, Post}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
-import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import licence_audit/cvss
+import licence_audit/httpc_adaptive
 
 pub type Severity {
   Low
@@ -42,6 +42,7 @@ pub type Score {
 pub type Vulnerability {
   Vulnerability(
     id: String,
+    aliases: List(String),
     summary: String,
     severity: Severity,
     scores: List(Score),
@@ -81,6 +82,7 @@ const max_batch_pages = 32
 /// Query OSV for vulnerabilities affecting each of `purls`. Returns one
 /// `BatchEntry` per input purl, preserving input order. Empty `vuln_ids`
 /// means OSV reports no known vulnerabilities for that purl.
+/// GitHub purls use commit queries; Hex purls use package queries.
 pub fn query_batch(
   purls: List(String),
   client: fn(Request(String)) -> Result(Response(String), Error),
@@ -134,11 +136,7 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
     Post -> request.set_header(req, "content-type", "application/json")
     _ -> req
   }
-  case
-    httpc.configure()
-    |> httpc.timeout(osv_timeout_ms)
-    |> httpc.dispatch(req)
-  {
+  case httpc_adaptive.dispatch(req, timeout_ms: osv_timeout_ms) {
     Ok(response) -> Ok(response)
     Error(_) -> Error(NetworkFailure)
   }
@@ -184,9 +182,10 @@ fn encode_batch_body_with_tokens(
   let queries =
     list.map(purls, fn(entry) {
       let #(purl, page_token) = entry
-      let fields = [
-        #("package", json.object([#("purl", json.string(purl))])),
-      ]
+      let fields = case string.split(purl, "@") {
+        ["pkg:github/" <> _, commit] -> [#("commit", json.string(commit))]
+        _ -> [#("package", json.object([#("purl", json.string(purl))]))]
+      }
       let fields = case page_token {
         None -> fields
         Some(token) -> [#("page_token", json.string(token)), ..fields]
@@ -306,18 +305,7 @@ fn follow_paginated_entries(
   entries: List(BatchPageEntry),
   client: fn(Request(String)) -> Result(Response(String), Error),
 ) -> Result(List(BatchEntry), Error) {
-  case entries {
-    [] -> Ok([])
-    [entry, ..rest] ->
-      case follow_entry_pages(entry, client) {
-        Error(error) -> Error(error)
-        Ok(resolved) ->
-          case follow_paginated_entries(rest, client) {
-            Error(error) -> Error(error)
-            Ok(resolved_rest) -> Ok([resolved, ..resolved_rest])
-          }
-      }
-  }
+  list.try_map(entries, follow_entry_pages(_, client))
 }
 
 fn follow_entry_pages(
@@ -397,6 +385,11 @@ pub fn decode_vuln_body(
 
 fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
   use id <- decode.optional_field("id", fallback_id, decode.string)
+  use aliases <- decode.optional_field(
+    "aliases",
+    [],
+    decode.list(decode.string),
+  )
   use summary <- decode.optional_field("summary", "", decode.string)
   use details <- decode.optional_field("details", "", decode.string)
   use database_severity <- decode.optional_field(
@@ -423,6 +416,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
 
   decode.success(Vulnerability(
     id: id,
+    aliases: aliases,
     summary: resolved_summary,
     severity: severity,
     scores: scores,
@@ -459,30 +453,14 @@ fn severity_from_cvss_kind(kind: String, vector: String) -> Severity {
 
 fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {
   list.fold(severities, UnknownSeverity, fn(acc, current) {
-    case compare_severity(current, acc) {
-      Greater -> current
-      _ -> acc
+    case severity_rank(current) > severity_rank(acc) {
+      True -> current
+      False -> acc
     }
   })
 }
 
-type SeverityOrder {
-  Less
-  Equal
-  Greater
-}
-
-fn compare_severity(a: Severity, b: Severity) -> SeverityOrder {
-  let rank_a = severity_rank(a)
-  let rank_b = severity_rank(b)
-  case rank_a, rank_b {
-    x, y if x == y -> Equal
-    x, y if x > y -> Greater
-    _, _ -> Less
-  }
-}
-
-fn severity_rank(severity: Severity) -> Int {
+pub fn severity_rank(severity: Severity) -> Int {
   case severity {
     UnknownSeverity -> 0
     Low -> 1

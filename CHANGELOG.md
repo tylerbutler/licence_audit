@@ -1,4 +1,97 @@
-# Changelog
+# licence_audit changelog
+
+## v0.13.1 - 2026-10-20
+
+### Fixed
+
+- Evaluate SPDX licence expressions in policy checks, preserve scoped exceptions for required terms, and reject malformed expressions even with a deny-only policy.
+- Use OSV commit queries for GitHub dependencies in `vulns`, `check --vulns`, and `sbom --vulns` so affected commits do not appear clean.
+
+## v0.13.0 - 2026-10-16
+
+### Changed
+
+- Bundle the CLI argument parser instead of downloading it from Git, and exclude Markdown documentation tooling from production builds.
+- Change the on-disk cache format while preserving safe sharing between concurrent CLI runs. In CI, save the parent cache directory (for example, `.hex-cache/`) instead of a `*.entries/` subdirectory. Keep the bundled `slate_native/` directory beside the escript when you install or move it.
+
+### Fixed
+
+- Remove internal sentinel defaults from CLI documentation and preserve literal optional path values with native glint optional flags.
+
+## v0.12.2 - 2026-10-11
+
+### Fixed
+
+- Extract only selected licence and notice members from source archives, preserving root priority and nested fallback. Gzip archives are decompressed once before selection and extraction instead of twice.
+- HTTP disconnects and other transport failures return normal diagnostics instead of crashing licence audits, OSV checks, or notice generation. TLS verification and the bounded IPv6 fallback remain enabled.
+- `notices` reads only selected licence and notice files from local dependencies. Unreadable unrelated files and directories no longer block packages with root licence files, and symlink targets remain excluded.
+- Prevent concurrent CLI processes from losing shared cache entries by publishing per-entry files atomically under `<cache-path>.entries`. Legacy DETS files remain untouched; invalid UTF-8 cache entries produce warnings and are refetched.
+- Resolve Windows manifest, dependency, and cache paths with the Hex `filepath` package, including drive-qualified and network-share paths, without custom path FFI.
+- `update` preserves existing project configuration when a file read fails, including after policy selection and with `--ignore-config`. Read failures return exit code 2 instead of replacing the file with an empty policy.
+- `vulns` fetches each shared OSV advisory once per command, including failed lookups, while preserving per-package findings and exception decisions.
+
+## v0.12.1 - 2026-09-15
+
+### Fixed
+
+- Make `sbom --reproducible` read metadata from checksum-verified Hex archives and commit-pinned Git archives, omit mutable publisher data, and reject `--vulns`.
+
+## v0.12.0 - 2026-09-13
+
+### Added
+
+- Add scoped policy exceptions with review reasons, UTC expiry, and visible licence and advisory decisions in `check` and `vulns` (#95).
+
+## v0.11.1 - 2026-09-06
+
+### Fixed
+
+- Restore bounded IPv6 probing and remembered IPv4 fallback for Hex metadata and OSV requests, preventing repeated timeouts on networks with broken IPv6.
+
+## v0.11.0 - 2026-09-06
+
+### Changed
+
+- Reuse cached Hex metadata for 7 days instead of 24 hours to reduce requests across audits and other commands. Use `--no-cache` to fetch fresh metadata.
+
+### Fixed
+
+- Show the request URL and available DNS, connection, TLS, and timeout details when Hex metadata requests fail. Include the package and failure reason in audit and `update` progress errors.
+
+## v0.10.2 - 2026-09-06
+
+### Fixed
+
+- Fix self-contained binaries crashing on Hex and OSV HTTP requests because required OTP applications were not started.
+
+## v0.10.1 - 2026-09-05
+
+### Fixed
+
+- Include the Apache-2.0 licence text in source and platform release archives.
+
+## v0.10.0 - 2026-08-29
+
+### Added
+
+- Add a root `--version` flag that prints the installed build version.
+
+### Changed
+
+- Remove the internal `gen-docs` maintenance command from the public CLI.
+- The `spruce` dependency now tracks the `tylerbutler/spruce` Git main branch; styled output is unchanged.
+
+### Fixed
+
+- Calculate fallback severity from complete CVSS v2, v3, and v4 vectors, so critical OSV advisories are not missed when a database-specific severity is absent.
+- Embed the licence_audit build version at compile time and use it for CycloneDX `metadata.tools[].version` in `sbom` output. Previously the tool read `gleam.toml` from the current working directory, so auditing another project could leak that project's version into the tool metadata instead of licence_audit's own.
+- Fail `check --vulns` with exit code 2 when an OSV advisory detail lookup fails, instead of treating it as a non-blocking unknown-severity placeholder. The failing advisory ID and failure reason are reported.
+- Fail SBOM generation when project gleam.toml metadata is missing, unreadable, or invalid.
+- Fix audit, update, `sbom`, and `vulns` project metadata resolution for manifests outside the current directory.
+- Make `check --vulns` query supported GitHub dependencies and report unsupported sources.
+- Make `sbom` report serial-number generation failures instead of crashing.
+- Recognise dual-licence file names such as `LICENSE-MIT` and `LICENSE-APACHE` as licence text, so `notices` uses a package's root licence files instead of falling back to nested or vendored copies.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -41,7 +134,7 @@ and is generated by [Trellis](https://trellis.tylerbutler.com).
 * SBOM output now emits canonical (lowercased) `pkg:hex` and `pkg:github` purls, recognises the SPDX licence identifiers supported by CycloneDX 1.6 (emitting `license.id` only for schema-valid identifiers), adds `$schema`, adds a primary-component identifier when available, omits empty component versions, and de-duplicates declared licences.
 * The `spruce` dependency now resolves to the published Hex package instead of a Git revision.
 ### Fixed
-* Prevent `update` from silently corrupting `gleam.toml` when an existing `allow`/`deny` array line carries a trailing comment containing a quote, or when a key of the same name exists in another table. The array rewrite is now scoped to the `[tools.licence_audit]` table and fails loudly instead of writing a bogus value.
+* Prevent `update` from silently corrupting `gleam.toml` when an existing `allow`/`deny` array line has a trailing comment containing a quote, or when a key of the same name exists in another table. The array rewrite is now scoped to the `[tools.licence_audit]` table and returns an error instead of writing a bogus value.
 * `check --prod-only --vulns` now restricts the vulnerability gate to production dependencies, so dev-only advisories no longer fail the gate or appear in output. The prod-only skipped-package summary now matches the rendered tree.
 * OSV vulnerability queries now follow `next_page_token` pagination with a page-count guard so vulnerabilities are no longer under-reported for heavily-affected packages without risking unbounded pagination, and CVSS 4.0 plus bare CVSS 2.0 vectors are now mapped to a severity bucket instead of Unknown.
 * The on-disk Hex cache no longer serves a stale `publisher` value indefinitely; cached enrichment entries now expire after 24 hours.

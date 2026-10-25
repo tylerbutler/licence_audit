@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "The `spruce` dependency now tracks the `tylerbutler/spruce` Git main branch; styled output is unchanged."

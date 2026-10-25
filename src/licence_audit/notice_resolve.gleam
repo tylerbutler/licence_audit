@@ -163,12 +163,7 @@ fn read_source_notices_live(
   package: notice.NoticePackage,
   clients: notice.Clients,
 ) -> Result(List(notice.NoticeFile), notice.Error) {
-  use source_files <- result.try(notice.read_remote_source(
-    package,
-    clients.fetch_hex_tarball,
-    clients.fetch_git_archive,
-  ))
-  notice.notice_files_of(package.name, source_files)
+  notice.read_source_notices(package, clients)
 }
 
 fn fallback(
@@ -236,7 +231,7 @@ fn try_repos(
 }
 
 /// A non-fatal failure encountered while following one repository fallback
-/// candidate. Carries the data needed to describe the failure (rather than a
+/// candidate. Contains the data needed to describe the failure (rather than a
 /// pre-formatted `String`) so callers other than `try_repo` could match on the
 /// cause without re-parsing a message.
 type RepoFallbackError {

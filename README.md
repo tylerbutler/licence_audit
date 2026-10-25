@@ -41,22 +41,39 @@ If you use [mise](https://mise.jdx.dev/), install `licence_audit` with the
 `github:` provider:
 
 ```sh
-mise use -g "github:tylerbutler/licence_audit@latest[asset_pattern=licence_audit,bin=licence_audit]"
+mise use -g github:tylerbutler/licence_audit@latest
 ```
 
 Replace `latest` with a release tag, such as `v0.6.0`, to pin a version. For a
-project-local install, omit `-g`. The `asset_pattern=licence_audit` option selects
-the bare escript asset; this path uses the escript and still needs Erlang/OTP 28.x
-or newer on your `PATH`; if you manage Erlang with
-mise, install it too:
-
-```sh
-mise use -g erlang@28
-```
+project-local install, omit `-g`. mise selects the self-contained archive for
+your operating system and architecture, so Erlang/OTP is not required.
 
 To build from source, see [DEV.md](./DEV.md).
 
 ## Quick start
+
+### Set up with an AI agent
+
+Install the setup skill with [APM](https://github.com/microsoft/apm):
+
+```sh
+apm install tylerbutler/licence_audit/.apm/skills/setup-licence-audit
+```
+
+This installs the skill without the repository's development skills. It does
+not install the `licence_audit` executable. Ask your agent:
+
+> Set up licence_audit for local licence and vulnerability checks in this
+> project. Preserve the existing policy and tool versions. Do not change CI.
+
+To include CI, add:
+
+> Also enforce the same licence policy and vulnerability threshold in CI.
+
+The skill configures local reports and enforcement commands. It adds CI only
+when requested and leaves licence approval decisions to you.
+
+### Set up manually
 
 The typical workflow is **inspect → capture a policy → enforce it when needed**:
 
@@ -92,16 +109,17 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` | `__licence_audit_absent_string_flag__` | Override the licence metadata cache file location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` | `__licence_audit_absent_string_flag__` | Read configuration from PATH |
+| `--config` | `STRING` |  | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` | `__licence_audit_absent_string_flag__` | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk licence metadata cache |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--version` | `BOOL` | `false` | Print the installed version |
 <!-- rootstop -->
 
 <!-- commands -->
@@ -114,7 +132,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
 <!-- commandsstop -->
 
-The sections below cover the *concepts* behind each command; reach for `docs/`
+The sections below cover the *concepts* behind each command; use `docs/`
 or `licence_audit <command> --help` when you need the exact flags.
 
 ## Enforce a licence policy
@@ -128,7 +146,21 @@ deny  = ["GPL-3.0-only"]
 ```
 
 An `allow` list means *only* those licences are accepted; a `deny` list rejects
-matching licences. The easiest way to create this is `licence_audit update`,
+matching licences. SPDX expressions use `AND` for required terms and `OR` for
+alternatives: `MIT AND GPL-3.0-only` fails the policy above, while
+`MIT OR GPL-3.0-only` passes through MIT. `WITH` forms a distinct licence term;
+list the complete term, such as `GPL-2.0-only WITH Classpath-exception-2.0`.
+Operators must be uppercase. Parentheses set grouping, and `AND` binds more
+tightly than `OR`. A trailing `+` remains part of the licence term.
+
+Deny takes precedence for each term. SPDX identifiers match without regard to
+case; custom `LicenseRef-` identifiers remain case-sensitive. Separate strings
+in a package's licence list must all pass. An exact expression in `allow`
+accepts its terms but cannot override a denied term. Malformed expressions
+fail the gate, including with a deny-only policy; scoped exceptions cannot
+accept malformed expressions.
+
+The easiest way to create a policy is `licence_audit update`,
 which fetches metadata, preselects any existing entries, prompts you, and writes
 the result back (comment-preserving). `update` needs an interactive terminal: it
 exits `1` on non-interactive stdin and `130` if you cancel.
@@ -153,13 +185,54 @@ that should not fail on tooling-only packages.
 > `--allow`/`--deny` also work on the bare command — they switch the report into
 > a policy *preview* mode but still exit `0`. Use `check` when you want failures.
 
+### Accept one scoped finding
+
+Use `[[tools.licence_audit.exceptions]]` to record a review decision for one
+locked package and finding. This accepts the finding after global rules,
+including `deny`, without changing its licence metadata or severity.
+
+```toml
+[[tools.licence_audit.exceptions]]
+purl = "pkg:hex/example@1.2.3"
+finding = "denied-licence"
+licence = "GPL-3.0-only"
+reason = "Approved for this release while we replace the dependency."
+expires = "2026-12-31"
+
+[[tools.licence_audit.exceptions]]
+purl = "pkg:hex/example@1.2.3"
+finding = "advisory"
+advisory = "CVE-2026-12345"
+reason = "Reviewed the affected feature; this application does not use it."
+expires = "2026-12-31"
+```
+
+The package version must match exactly. Advisory exceptions also support a
+GitHub repository at a full commit. The advisory selector matches the OSV
+record's ID or a direct alias, such as its CVE or GHSA ID. It does not accept
+the same advisory on another package.
+
+`reason` is required. `expires` is optional: a dated exception remains active
+through that UTC date and expires at the next UTC midnight. Omit it for an
+indefinite decision. An expired finding uses the normal gate again.
+
+Reports keep excepted findings visible, including with `--quiet`. The exception
+summary identifies expired, unused, and not-evaluated entries. Remove unused
+entries after a dependency update or policy change. Expired or unused entries
+do not fail on their own. `--ignore-config` disables configured exceptions.
+Network and decode errors still follow the normal error path.
+
+See the [exception configuration guide](https://licence-audit.tylerbutler.com/docs/check#scoped-policy-exceptions)
+for all selectors and matching rules. SBOM and notice output keep the original
+evidence and attribution. `update` preserves exception entries and comments.
+
 ## Generate an SBOM
 
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # compact JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
-licence_audit sbom --reproducible      # deterministic output (see below)
+licence_audit sbom --reproducible      # reproducible output (see below)
 licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
 ```
 
@@ -195,14 +268,17 @@ source link, ratings (the raw CVSS vector and method when OSV reports one,
 otherwise the severity bucket), and an `affects` list referencing the affected
 components by `bom-ref`/purl. The result is a single VEX-style document that
 tools like [Dependency-Track](https://dependencytrack.org/) can ingest directly.
-Because it needs network access, `--vulns` cannot be combined with `--offline`.
+Because advisory data changes over time, `--vulns` cannot be combined with
+`--offline` or `--reproducible`.
 
 **Reproducible output.** By default the `serialNumber` is random and the
-`timestamp` is wall-clock, so two runs never byte-match. `--reproducible` makes
-the `serialNumber` a content hash and takes the timestamp from
+`timestamp` is wall-clock, so two runs never byte-match. `--reproducible` reads
+Hex metadata from each checksum-verified package archive and Git metadata from
+the archive at the locked commit. It omits mutable Hex publisher data, makes
+the `serialNumber` a content hash, and takes the timestamp from
 [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
-(falling back to the Unix epoch) — making it practical to commit the SBOM and
-diff it over time to catch dependency or licence drift.
+(falling back to the Unix epoch). The same project files, lockfile, tool version,
+options, and timestamp produce byte-identical output.
 
 **Validation.** The repository validates the generated SBOM against the official
 CycloneDX schema. Three `just` tasks (tools installed via `mise`) cover this:
@@ -274,6 +350,10 @@ skipped and listed at the end. Severity comes from OSV's
 `database_specific.severity`, falling back to the CVSS vector. Advisories are
 fetched over HTTPS and are **not** cached.
 
+Hex dependencies use package-version queries. GitHub dependencies use OSV
+commit queries at the locked commit; reports and exceptions keep the original
+GitHub purl. The same query rules apply to `check --vulns` and `sbom --vulns`.
+
 To fail when vulnerabilities meet a severity threshold, add `--vulns` to
 `check`:
 
@@ -324,6 +404,7 @@ and prefixed with a status glyph:
 | `✓` | licence allowed by policy (`check` only) |
 | `✗` | licence denied by policy (`check` only) |
 | `?` | no policy evaluated, or status unknown |
+| `~` | finding accepted by a scoped policy exception |
 | `·` | package skipped (non-Hex source) |
 
 The default report shows `Package`, `Version`, `Licences`. Once a policy is in
@@ -342,15 +423,30 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 
 ## Caching
 
-Hex licence metadata is cached on disk between runs:
+`licence_audit` caches Hex licence metadata on disk between runs at:
 
 ```
 ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.dets
 ```
 
-Override with `--cache-path=PATH` or bypass with `--no-cache`. The filename is
-version-suffixed so cache format bumps ignore stale data instead of reading it
-back. Entries carry a 24h TTL.
+Override this location with `--cache-path=PATH` or bypass the caches with
+`--no-cache`. `licence_audit` reuses Hex API entries for 7 days before fetching
+them again. Metadata changes on Hex can take up to 7 days to appear; use
+`--no-cache` when you need fresh data. For `sbom --reproducible`, the cache
+instead stores metadata from locked package archives. Those entries do not
+expire.
+
+Concurrent projects and commands can share the cache. Use a local filesystem
+for the cache location. In CI, restore and save the cache directory between
+jobs, for example with `actions/cache` and
+`--cache-path=.hex-cache/hex-v2.dets` (cache `.hex-cache/`). A fresh runner
+with no restored cache must fetch each package again. Use `--verbose` to see
+cache hits and misses.
+
+Each successful lookup is cached immediately. A later lookup failure does
+not discard earlier entries, and the audit continues with the remaining
+packages. Failed lookups are not cached. If a refresh fails and an older
+entry is available, the audit uses that entry and warns.
 
 The `notices` command additionally caches the licence materials it resolves, so
 repeated runs don't re-download package sources or re-resolve fallbacks:
@@ -366,13 +462,13 @@ tag→commit resolutions, repository-extracted licence files, and canonical SPDX
 records shared by identifier (so `Apache-2.0` is fetched at most once across
 every package that declares it). Entries never expire; path (local)
 dependencies are read live and not cached. `--no-cache` disables it along with
-the metadata cache. `--cache-path` overrides the metadata cache file
-only; the source cache keeps its own version-suffixed filename at the default
-location (relocate it with `XDG_CACHE_HOME`). A corrupt cached value is treated
+the metadata cache. `--cache-path` overrides only the metadata cache location;
+the licence materials cache stays at its default location. Use `XDG_CACHE_HOME`
+to relocate both caches. A corrupt cached value is treated
 as a miss, and transient network failures are never cached as successes.
 
-Cache failures are non-fatal — they surface as stderr warnings and never block a
-run. OSV advisories are not cached.
+If a cache operation fails, `licence_audit` writes a warning to stderr and
+continues the run. OSV advisories are not cached.
 
 ## Troubleshooting
 
@@ -380,6 +476,10 @@ run. OSV advisories are not cached.
   is a side effect of dependency resolution.
 - **Hex fetch fails or times out** — Hex may be rate-limiting; retry, or let
   cached entries be reused (don't pass `--no-cache`).
+  Network errors include the request URL and available DNS, connection, or
+  TLS details for IPv4 and IPv6. Request timeout errors include the 5000 ms
+  limit. When the HTTP client does not identify the failed stage, the
+  message says so.
 - **`sbom` fails with "unsupported source"** — a dep resolves to a path or
   non-GitHub git source. `sbom` needs a clean purl for every dep; `--offline`
   doesn't bypass this.
@@ -430,6 +530,13 @@ jobs:
           setup-beam: "false"
       - run: licence_audit check
 ```
+
+## Compatibility
+
+From 1.0.0, the CLI and configuration follow the
+[compatibility policy](https://licence-audit.tylerbutler.com/docs/compatibility). It defines the stable interfaces,
+output guarantees, and exceptions for correctness fixes. Gleam modules and
+human-readable report formatting are not supported integration interfaces.
 
 ## Contributing
 

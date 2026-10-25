@@ -1,0 +1,38 @@
+{
+  "skill_name": "setup-licence-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Set up licence_audit for local licence and vulnerability checking in my Gleam project. No CI. The root has gleam.toml and a committed manifest.toml, but no licence policy, tool manager, or task runner. I have not decided which licences to allow. Use the latest stable release, pinned after lookup. Produce proposed edits and commands only; do not install tools or make network audit requests.",
+      "expected_output": "Use a platform-matched self-contained release without adding a tool manager. Provide report commands and explain the policy decision still needed for licence enforcement. Do not invent an allow list or create CI. Explain the combined gate and report-only exit behavior.",
+      "files": [],
+      "assertions": [
+        "Selects a verified release tag and platform-specific self-contained archive rather than an unpinned download or an escript with no runtime prerequisite.",
+        "Provides both licence_audit and licence_audit vulns, distinguishes reports from check --vulns, and leaves CI unchanged.",
+        "Leaves licence allow/deny decisions unresolved rather than approving discovered licences or claiming an effective licence gate."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Add local licence and vulnerability checks in packages/service, without CI changes. Preserve the existing policy and comments. Its gleam.toml contains [tools.licence_audit], allow = [\"MIT\"], deny = [\"GPL-3.0-only\"], vuln_severity = \"medium\", and vuln_block_unknown = true. The repository uses mise and just; OTP is pinned to 27 for compatibility. A root justfile already has test and check recipes. One locked dependency uses a local path. Produce proposed edits and commands only; do not install tools or make network audit requests.",
+      "expected_output": "Preserve the policy and OTP pin, use a self-contained executable, and add distinct task names that run in packages/service. Keep the configured vulnerability settings by using check --vulns without overriding flags. Report incomplete source coverage. Do not add CI.",
+      "files": [],
+      "assertions": [
+        "Preserves the MIT/GPL policy, medium threshold, unknown-severity setting, existing tasks, and OTP 27 pin.",
+        "Uses the packages/service working directory for all audit commands and a self-contained binary instead of an OTP-incompatible escript.",
+        "Provides a combined gate without severity overrides, explains skipped local-path dependencies, and does not add CI."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Set up local checks and enforce them in GitHub Actions for my Gleam project. It has a committed manifest.toml, an MIT-only audit policy, and mise with OTP 28.3. CI already checks out the repo, installs its pinned tools, and downloads dependencies. Keep those steps. Fail for medium-or-higher vulnerabilities and unknown severity. Pin the latest stable licence_audit release and use the same version and policy locally and in CI. Do not add SBOM or notices. Produce proposed edits and commands only; do not install tools or make network audit requests.",
+      "expected_output": "Merge the two vulnerability settings into the existing policy, pin the same CLI release locally and in CI, reuse existing setup, and add an unsuppressed check --vulns step. Do not run interactive update in CI or replace enforcement with vulns.",
+      "files": [],
+      "assertions": [
+        "Preserves the MIT policy and sets vuln_severity to medium and vuln_block_unknown to true in one configuration section.",
+        "Pins the same verified CLI release locally and in CI, reuses existing dependency and OTP setup, and uses valid shared action inputs.",
+        "Enforces check --vulns without suppressing failure, interactive update, SBOM, or notices steps."
+      ]
+    }
+  ]
+}

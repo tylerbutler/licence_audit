@@ -43,7 +43,7 @@ Generated for `tylerbutler/licence_audit` on 2026-06-26.
   - Correction vs my first pass: `pkg:otp` **is** a registered purl type for BEAM/OTP apps,
     and the `0.0.0` version comes from the manifest (it is in *our* output too), so neither is
     a bug. The real difference: **ours encodes the resolved commit SHA**; ORT's `pkg:otp` purl
-    carries no commit pin and no `repository_url` qualifier, so the git origin is not
+    has no commit pin and no `repository_url` qualifier, so the git origin is not
     recoverable from the purl. For a git-sourced dep that is a meaningful provenance advantage,
     but it is precision, not ORT being "wrong."
 

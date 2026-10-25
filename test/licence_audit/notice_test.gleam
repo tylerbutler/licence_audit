@@ -1,10 +1,12 @@
 import gleam/bit_array
 import gleam/dict
+import gleam/http/request
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None}
 import gleam/string
 import gleeunit/should
 import licence_audit/hex
+import licence_audit/httpc_adaptive_test
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/repository
@@ -15,6 +17,112 @@ import simplifile
 const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
 
 const tmp_dir = "build/tmp/notices_test"
+
+@external(erlang, "notice_test_ffi", "with_unreadable_file")
+fn with_unreadable_file(path: String, check: fn() -> a) -> Option(a)
+
+@external(erlang, "notice_test_ffi", "with_unreadable_directory")
+fn with_unreadable_directory(path: String, check: fn() -> a) -> Option(a)
+
+pub fn root_path_notices_do_not_traverse_unreadable_directories_test() {
+  let root = fresh_dir("root_priority_unreadable_directory")
+  let assert Ok(_) = simplifile.write("licence", to: root <> "/LICENSE")
+  let unrelated = root <> "/unrelated"
+  let assert Ok(_) = simplifile.create_directory(unrelated)
+  let _ =
+    with_unreadable_directory(unrelated, fn() {
+      should.equal(
+        notice.read_source_notices(
+          package("local", notice.PathPackage(root)),
+          notice.default_clients(),
+        ),
+        Ok([notice.NoticeFile("LICENSE", "licence")]),
+      )
+    })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_path_notices_ignore_unreadable_unrelated_file_test() {
+  let root = fresh_dir("selected_path_unrelated")
+  let assert Ok(_) = simplifile.write("licence", to: root <> "/LICENSE")
+  let irrelevant = root <> "/unrelated.bin"
+  let assert Ok(_) = simplifile.write_bits(<<0, 255>>, to: irrelevant)
+  let _ =
+    with_unreadable_file(irrelevant, fn() {
+      should.equal(
+        notice.read_source_notices(
+          package("local", notice.PathPackage(root)),
+          notice.default_clients(),
+        ),
+        Ok([notice.NoticeFile("LICENSE", "licence")]),
+      )
+    })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_path_notices_report_unreadable_licence_test() {
+  let root = fresh_dir("selected_path_unreadable_licence")
+  let licence = root <> "/LICENSE"
+  let assert Ok(_) = simplifile.write("licence", to: licence)
+  let _ =
+    with_unreadable_file(licence, fn() {
+      let assert Error(notice.PathReadFailed("local", failed_path, _)) =
+        notice.read_source_notices(
+          package("local", notice.PathPackage(root)),
+          notice.default_clients(),
+        )
+      should.equal(failed_path, licence)
+    })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_path_notices_skip_symlinks_test() {
+  let root = fresh_dir("selected_path_symlinks")
+  let outside = fresh_dir("selected_path_symlinks_outside")
+  let assert Ok(_) = simplifile.write("licence", to: root <> "/LICENSE")
+  let assert Ok(_) = simplifile.write("outside", to: outside <> "/LICENSE")
+  let assert Ok(cwd) = simplifile.current_directory()
+  let assert Ok(_) =
+    simplifile.create_symlink(
+      to: cwd <> "/" <> outside <> "/LICENSE",
+      from: root <> "/LICENSE-MIT",
+    )
+  should.equal(
+    notice.read_source_notices(
+      package("local", notice.PathPackage(root)),
+      notice.default_clients(),
+    ),
+    Ok([notice.NoticeFile("LICENSE", "licence")]),
+  )
+  let assert Ok(_) = simplifile.delete(root)
+  let assert Ok(_) = simplifile.delete(outside)
+}
+
+pub fn notice_transports_return_network_failure_on_disconnect_test() {
+  httpc_adaptive_test.with_http_response(<<>>, fn(url) {
+    let assert Ok(req) = request.to(url)
+    should.equal(notice.fetch_json(req), Error(notice.FetchNetworkFailure))
+  })
+  httpc_adaptive_test.with_http_response(<<>>, fn(url) {
+    let assert Ok(req) = request.to(url)
+    should.equal(
+      notice.fetch_tarball(request.map(req, fn(_) { <<>> })),
+      Error(notice.FetchNetworkFailure),
+    )
+  })
+}
+
+pub fn notice_transport_keeps_redirects_disabled_test() {
+  httpc_adaptive_test.with_http_response(
+    <<
+      "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n":utf8,
+    >>,
+    fn(url) {
+      let assert Ok(req) = request.to(url)
+      should.equal(notice.fetch_json(req), Ok(#(302, "")))
+    },
+  )
+}
 
 fn file(path: String, contents: String) -> source_archive.ArchiveFile {
   source_archive.ArchiveFile(
@@ -55,35 +163,9 @@ fn manifest_entry(
   manifest.SbomEntry(
     name: name,
     version: version,
-    kind: manifest.Direct,
     requirements: requirements,
     provenance: provenance,
   )
-}
-
-fn transitive_manifest_entry(
-  name: String,
-  version: String,
-  provenance: manifest.Provenance,
-  requirements: List(String),
-) -> manifest.SbomEntry {
-  manifest.SbomEntry(
-    name: name,
-    version: version,
-    kind: manifest.Transitive,
-    requirements: requirements,
-    provenance: provenance,
-  )
-}
-
-fn fake_archive_files(
-  package_name: String,
-) -> Result(List(source_archive.ArchiveFile), notice.Error) {
-  case package_name {
-    "with_license" -> Ok([file("./LICENSE", "License text\n")])
-    "without_license" -> Ok([file("./README.md", "Readme\n")])
-    _ -> Ok([file("./LICENSE", "Default text\n")])
-  }
 }
 
 pub fn package_metadata_uses_only_repository_links_test() {
@@ -250,65 +332,6 @@ pub fn read_hex_source_verifies_checksum_and_extracts_contents_test() {
   assert list.contains(paths, "./NOTICE.txt")
 }
 
-pub fn entries_from_sources_fails_with_all_missing_license_text_test() {
-  let packages = [
-    package("without_license", notice.HexPackage(outer_checksum: "AAAA")),
-    package("also_missing", notice.PathPackage(path: "./missing")),
-  ]
-  let read_source = fn(pkg: notice.NoticePackage) {
-    case pkg.name {
-      "also_missing" ->
-        notice.notice_files_of(pkg.name, [file("./README.md", "Readme\n")])
-      _ ->
-        case fake_archive_files(pkg.name) {
-          Ok(files) -> notice.notice_files_of(pkg.name, files)
-          Error(error) -> Error(error)
-        }
-    }
-  }
-
-  let result = notice.entries_from_sources(packages, read_source)
-
-  should.equal(
-    result,
-    Error(notice.MissingLicenceText(["without_license", "also_missing"])),
-  )
-}
-
-pub fn entries_from_sources_collects_notice_entries_test() {
-  let packages = [
-    package("with_license", notice.HexPackage(outer_checksum: "AAAA")),
-  ]
-
-  let assert Ok(entries) =
-    notice.entries_from_sources(packages, fn(pkg) {
-      case fake_archive_files(pkg.name) {
-        Ok(files) -> notice.notice_files_of(pkg.name, files)
-        Error(error) -> Error(error)
-      }
-    })
-
-  should.equal(list.length(entries), 1)
-  let assert [entry] = entries
-  should.equal(entry.package.name, "with_license")
-  should.equal(list.map(entry.files, fn(file) { file.path }), ["./LICENSE"])
-}
-
-pub fn entries_from_sources_propagates_read_source_error_test() {
-  let packages = [
-    package("checksum_mismatch", notice.HexPackage(outer_checksum: "AAAA")),
-  ]
-  let error =
-    notice.ChecksumMismatch(
-      package: "checksum_mismatch",
-      expected: "AAAA",
-      actual: "BBBB",
-    )
-  let read_source = fn(_pkg: notice.NoticePackage) { Error(error) }
-
-  should.equal(notice.entries_from_sources(packages, read_source), Error(error))
-}
-
 pub fn licence_file_candidates_include_all_root_matches_test() {
   let files = [
     file("./README.md", "readme"),
@@ -433,7 +456,7 @@ pub fn selected_packages_default_to_prod_scope_test() {
           manifest.HexProvenance("BBBB", None),
           [],
         ),
-        transitive_manifest_entry(
+        manifest_entry(
           "shared",
           "1.0.0",
           manifest.HexProvenance("CCCC", None),

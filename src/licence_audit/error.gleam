@@ -1,5 +1,6 @@
 import gleam/int
 import licence_audit/config
+import licence_audit/exception
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
@@ -10,11 +11,13 @@ pub type Error {
   AuditFailed
   MissingPolicy
   Usage(String)
+  RuntimeStartup(String)
   Config(String)
   Input(String)
   Hex(String)
   Decode(String)
   UnsupportedSourceForSbom(package: String, source: String, detail: String)
+  SbomMetadataFailed(package: String, reason: String)
   SbomSerialNumberFailed
   SbomWriteFailed(path: String, reason: String)
   Osv(String)
@@ -37,6 +40,7 @@ pub fn message(error: Error) -> String {
     MissingPolicy ->
       "No licence policy supplied for the `check` subcommand. Add a [tools.licence_audit] section to gleam.toml or pass --allow/--deny."
     Usage(message) -> message
+    RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
     Config(message) -> message
     Input(message) -> message
     Hex(message) -> message
@@ -49,6 +53,11 @@ pub fn message(error: Error) -> String {
       <> ", "
       <> detail
       <> "). SBOM generation supports source = \"hex\" and source = \"git\" with a github.com repository."
+    SbomMetadataFailed(package, reason) ->
+      "Failed to read reproducible SBOM metadata for "
+      <> package
+      <> ": "
+      <> reason
     SbomSerialNumberFailed -> "Failed to generate the SBOM serial number"
     SbomWriteFailed(path, reason) ->
       "Failed to write SBOM to " <> path <> ": " <> reason
@@ -74,6 +83,10 @@ pub fn from_policy_error(error: policy.Error) -> Error {
   MissingPolicy
 }
 
+pub fn from_exception_error(error: exception.Error) -> Error {
+  Config(exception.describe_error(error))
+}
+
 pub fn from_config_error(error: config.Error) -> Error {
   case error {
     config.MissingPolicy -> MissingPolicy
@@ -82,6 +95,7 @@ pub fn from_config_error(error: config.Error) -> Error {
       Config("Invalid config field " <> field <> ": expected " <> expected)
     config.InvalidLicenceIdentifier ->
       Config("Licence identifiers must not be empty")
+    config.InvalidException(message) -> Config("Invalid config " <> message)
     config.FileReadError(path) -> Input("Could not read " <> path)
   }
 }

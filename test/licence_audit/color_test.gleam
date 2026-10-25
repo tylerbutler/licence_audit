@@ -1,6 +1,7 @@
 import gleam/string
 import gleeunit/should
 import licence_audit/color
+import licence_audit/osv
 import tty
 
 pub fn for_enabled_true_enables_palette_test() {
@@ -60,16 +61,10 @@ pub fn enabled_palette_emits_ansi_for_text_emphasis_test() {
 pub fn enabled_palette_emits_ansi_for_severity_test() {
   let palette = color.for_enabled(True)
 
-  assert string.contains(
-    color.severity(palette, color.CriticalSeverity),
-    "\u{1b}[31m",
-  )
-  assert string.contains(
-    color.severity(palette, color.MediumSeverity),
-    "\u{1b}[33m",
-  )
+  assert string.contains(color.severity(palette, osv.Critical), "\u{1b}[31m")
+  assert string.contains(color.severity(palette, osv.Medium), "\u{1b}[33m")
   assert !string.contains(
-    color.severity(palette, color.UnknownSeverityLabel),
+    color.severity(palette, osv.UnknownSeverity),
     "\u{1b}[",
   )
 }

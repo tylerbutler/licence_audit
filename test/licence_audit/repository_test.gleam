@@ -1,3 +1,4 @@
+import gleam/list
 import gleeunit/should
 import licence_audit/repository
 
@@ -47,6 +48,25 @@ pub fn strips_trailing_git_and_slash_test() {
 pub fn rejects_non_https_scheme_test() {
   should.equal(repository.parse("http://github.com/owner/repo"), Error(Nil))
   should.equal(repository.parse("git@github.com:owner/repo.git"), Error(Nil))
+}
+
+pub fn parses_all_supported_github_source_forms_test() {
+  [
+    "https://github.com/owner/repo",
+    "http://github.com/owner/repo",
+    "git@github.com:owner/repo.git",
+    "git@github.com/owner/repo",
+  ]
+  |> list.each(fn(url) {
+    should.equal(
+      repository.parse_github_source(url),
+      Ok(repository.Repository(
+        provider: repository.GitHub,
+        owner: "owner",
+        repo: "repo",
+      )),
+    )
+  })
 }
 
 pub fn rejects_unknown_host_test() {

@@ -1,6 +1,8 @@
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/picker
 import licence_audit/progress
@@ -113,7 +115,7 @@ pub fn not_interactive_exits_1_test() {
 pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
   let path = fresh_path("fetch_failure")
 
-  let #(result, _) =
+  let #(result, rep) =
     update.run_with_picker(
       manifest_path,
       ".",
@@ -129,6 +131,14 @@ pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
   should.equal(result.exit_code, 2)
   let assert True = string.contains(result.output, "failed to fetch metadata")
   let assert Error(_) = simplifile.read(from: path)
+  assert list.any(progress.events(rep), fn(event) {
+    case event {
+      progress.Event(progress.Failure, message) ->
+        string.contains(message, "lib_b@")
+        && string.contains(message, "connection refused")
+      _ -> False
+    }
+  })
 }
 
 pub fn manifest_load_failure_exits_2_without_picker_test() {
@@ -183,7 +193,7 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
   let _ = simplifile.delete(path)
 }
 
-pub fn write_failure_exits_1_test() {
+pub fn invalid_target_parent_fails_before_writing_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.delete(blocker)
@@ -203,7 +213,185 @@ pub fn write_failure_exits_1_test() {
       reporter(),
     )
 
-  should.equal(result.exit_code, 1)
-  let assert True = string.contains(result.output, "Failed to write")
+  should.equal(result.exit_code, 2)
+  let assert True = string.contains(result.output, "Failed to read")
   let _ = simplifile.delete(blocker)
+}
+
+pub fn update_preserves_unreadable_text_before_picker_test() {
+  let path = fresh_path("unreadable")
+  let original = <<255, 254>>
+  let assert Ok(_) = simplifile.write_bits(to: path, bits: original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  let #(ignored, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(ignored.exit_code, 2)
+  should.equal(simplifile.read_bits(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+@external(erlang, "notice_test_ffi", "with_unreadable_file")
+fn with_unreadable_file(path: String, check: fn() -> a) -> option.Option(a)
+
+pub fn update_preserves_writable_file_without_read_permission_test() {
+  let path = fresh_path("write_only")
+  let original = "name = \"keep_me\"\nversion = \"1.0.0\"\n"
+  let assert Ok(_) = simplifile.write(to: path, contents: original)
+  let _ =
+    with_unreadable_file(path, fn() {
+      let #(result, _) =
+        update.run_with_picker(
+          manifest_path,
+          ".",
+          Some(path),
+          False,
+          True,
+          None,
+          successful_fetcher,
+          should_not_pick,
+          reporter(),
+        )
+      should.equal(result.exit_code, 2)
+    })
+  should.equal(simplifile.read(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_preserves_file_when_read_fails_after_selection_test() {
+  let path = fresh_path("read_after_picker")
+  let original = <<255, 254>>
+  let assert Ok(_) =
+    simplifile.write(to: path, contents: "name = \"keep_me\"\n")
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      fn(_title, _labels, _allow, _deny) {
+        let assert Ok(_) = simplifile.write_bits(to: path, bits: original)
+        Ok(picker.Selection(["MIT"], []))
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Failed to read")
+  should.equal(simplifile.read_bits(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_creates_missing_explicit_config_test() {
+  let path = fresh_path("new_policy")
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  let assert Ok(policy) = config.parse(contents)
+  should.equal(policy.allow, ["MIT"])
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_preserves_reviewed_exceptions_and_comments_test() {
+  let path = fresh_path("exceptions")
+  let exceptions =
+    "
+# Review decisions must survive allow-list updates.
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/lib_b@2.0.0\"
+finding = \"unallowed-licence\"
+licence = \"Apache-2.0\"
+reason = \"Reviewed for this release\" # reviewer note
+expires = \"2099-12-31\"
+
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/lib_c@3.0.0\"
+finding = \"advisory\"
+advisory = \"CVE-2026-12345\"
+reason = \"Reviewed affected code\"
+"
+  let assert Ok(_) =
+    simplifile.write(
+      to: path,
+      contents: "[tools.licence_audit]\nallow = [\"MIT\"]\n" <> exceptions,
+    )
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  list.each(string.split(exceptions, "\n"), fn(line) {
+    assert string.contains(contents, line)
+  })
+  let assert Ok(parsed) = config.parse(contents)
+  let assert Ok(original) =
+    config.parse("[tools.licence_audit]\n" <> exceptions)
+  should.equal(parsed.exceptions, original.exceptions)
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
+  let path = fresh_path("invalid_exceptions")
+  let original =
+    "[tools.licence_audit]\nallow = [\"MIT\"]\nexceptions = \"ignore\"\n"
+  let assert Ok(_) = simplifile.write(to: path, contents: original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "exceptions must be an array of tables")
+  should.equal(simplifile.read(path), Ok(original))
+  let assert Ok(_) = simplifile.delete(path)
 }

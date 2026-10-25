@@ -11,6 +11,15 @@ pub fn success_report_maps_to_exit_zero_test() {
   should.equal(error.message(error.Success), "")
 }
 
+pub fn runtime_startup_failure_maps_to_exit_two_and_message_test() {
+  let failure = error.RuntimeStartup("inets: missing application")
+  should.equal(error.exit_code(failure), 2)
+  should.equal(
+    error.message(failure),
+    "Could not start runtime applications: inets: missing application",
+  )
+}
+
 pub fn audit_failure_maps_to_exit_one_and_message_test() {
   should.equal(error.exit_code(error.AuditFailed), 1)
   should.equal(
