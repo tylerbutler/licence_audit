@@ -16,6 +16,12 @@ Download the self-contained archive for your platform from the
 `PATH`. These Queso-built executables include the Erlang runtime. You do not
 have to install Erlang/OTP on the target machine.
 
+Linux archives support glibc on x86_64 and ARM64. musl Linux (including
+Alpine) archives are withheld until cache locking passes runtime tests.
+Older releases may still list musl archives, but their filesystem caches
+are unsupported. See [Caching](#caching) for the limits. Do not substitute
+a glibc archive on musl.
+
 With [mise][mise], install directly from the `github:` provider:
 
 ```sh
@@ -24,7 +30,11 @@ mise use -g github:tylerbutler/licence_audit@latest
 
 Replace `latest` with a tag such as `v0.7.0` to select a fixed version. mise
 selects the self-contained archive for your operating system and architecture.
-You do not need Erlang/OTP. For source build instructions, refer to [DEV.md][dev].
+This requires a matching release asset; no supported musl archive is
+available. You do not need Erlang/OTP for a self-contained archive.
+The compatibility escript requires Erlang/OTP 28.x or newer and a
+host-compatible Slate native lock library for caching; it does not provide
+musl cache support. For source build instructions, refer to [DEV.md][dev].
 
 ## Standard workflow
 
@@ -110,6 +120,18 @@ and an older entry exists, the audit uses that entry and warns.
 
 If a cache operation fails, `licence_audit` continues the audit and writes a
 warning to stderr. It does not cache OSV advisories.
+
+**Older musl artifacts:** filesystem caching is unsupported for both Hex
+metadata and notices materials. The Slate 2.1.0 lock NIF does not support
+musl. Lock failures produce deferred cache-access warnings on stderr,
+such as `Failed to access licence cache` or
+`Failed to access notices cache`, and the command continues uncached.
+Command success does not prove cache reuse. Later runs can repeat network
+requests, and offline cache use is unavailable. `--no-cache` does not fix
+or validate locking. New musl releases will remain withheld until runtime
+tests verify cache population, second-run reuse (including offline use
+where supported), and concurrent access with the intended lock guarantees.
+Locking must not be bypassed.
 
 Hex network errors include the request URL and available DNS, connection,
 or TLS details for IPv4 and IPv6. Request timeout errors include the

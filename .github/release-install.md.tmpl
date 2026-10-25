@@ -6,6 +6,15 @@ Download the self-contained archive for your platform, extract it, and place
 the Erlang runtime, so Erlang/OTP does not need to be installed on the target
 machine.
 
+Linux archives support glibc on x86_64 and ARM64. musl Linux (including
+Alpine) archives are withheld until cache locking passes runtime cache
+reuse and concurrent-access tests. Older releases may still list musl
+archives, but their Hex metadata and notices filesystem caches are
+unsupported: lock failures warn on stderr and the command continues
+uncached. Command success does not prove cache reuse or offline support.
+`--no-cache` does not fix or validate locking. Do not substitute a glibc
+archive on musl.
+
 Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
 explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
 archive for that target.
@@ -33,7 +42,9 @@ Expand-Archive licence_audit.zip -DestinationPath .
 ### Escript compatibility install
 
 The release also keeps the original escript archive and bare `licence_audit`
-escript. The escript runs on any platform with Erlang/OTP 28.x or newer.
+escript. The escript requires Erlang/OTP 28.x or newer and a host-compatible
+Slate native lock library for filesystem caching. It does not provide musl
+cache support.
 
 ```sh
 curl -fsSL -o licence_audit-escript.tar.gz \
@@ -53,8 +64,9 @@ mise use -g github:${REPO}@${REF_NAME}
 ```
 
 mise selects the self-contained archive for your operating system and
-architecture. Erlang/OTP is not required. For a project-local install, omit
-`-g`.
+architecture when a matching release asset exists. Erlang/OTP is not
+required. No supported musl archive is available. For a project-local
+install, omit `-g`.
 
 ### Verify the download
 

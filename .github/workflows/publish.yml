@@ -36,16 +36,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y binutils-mingw-w64-x86-64 musl-tools
+          sudo apt-get install -y binutils-mingw-w64-x86-64
           python3 -m pip install --user 'ziglang==0.14.1'
           cargo install --locked cargo-zigbuild --version 0.23.4
           rustup target add \
             aarch64-apple-darwin \
             aarch64-unknown-linux-gnu \
-            aarch64-unknown-linux-musl \
             x86_64-apple-darwin \
-            x86_64-pc-windows-gnu \
-            x86_64-unknown-linux-musl
+            x86_64-pc-windows-gnu
           mise exec -- queso --version
           python3 -m ziglang version
           cargo-zigbuild --version
@@ -96,11 +94,10 @@ jobs:
 
           targets=(
             aarch64-linux-glibc
-            aarch64-linux-musl
+            # musl withheld until cache locking is runtime-validated
             # linux-static excluded: no NIF symbol exports (crypto/SSL)
             aarch64-macos
             x86_64-linux-glibc
-            x86_64-linux-musl
             # linux-static excluded: no NIF symbol exports (crypto/SSL)
             x86_64-macos
             x86_64-windows
@@ -143,6 +140,8 @@ jobs:
           tar -tzf "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz" |
             grep -Fx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE" > /dev/null
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
+          test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-musl.tar.gz"
+          test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-musl.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 

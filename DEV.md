@@ -345,9 +345,20 @@ Replace `v0.12.2` with the tag to rebuild. Rerunning the original failed run
 uses the old workflow, without the fix.
 
 Releases include the existing escript artifacts plus self-contained Queso
-archives for Linux (glibc and musl), macOS, and Windows x86_64 targets. Linux
-static targets are excluded because Queso static binaries do not export the NIF
-symbols (crypto/SSL) that this CLI requires — use glibc or musl archives on
-Linux instead. The `aarch64-windows` target is deferred because Queso requires
+archives for Linux glibc (x86_64 and ARM64), macOS (x86_64 and ARM64), and
+Windows x86_64. musl targets are withheld because the Slate 2.1.0 lock NIF
+does not support musl. Do not restore those targets based on a successful
+cross-build. First run the packaged musl executable with caching enabled
+in a musl environment and verify cache population, second-run reuse,
+offline reuse where supported, and concurrent access with the intended
+lock guarantees. Do not bypass filesystem locking. Older musl release
+assets may remain available, but their filesystem caches are unsupported;
+cache-access warnings mean the command continues uncached, not that the
+target passed runtime validation.
+
+Linux static targets are excluded because Queso static binaries do not export
+the NIF symbols (crypto/SSL) that this CLI requires. Use glibc archives on
+glibc Linux; do not use them as a substitute on musl. The `aarch64-windows`
+target is deferred because Queso requires
 an explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
 archive for that target.

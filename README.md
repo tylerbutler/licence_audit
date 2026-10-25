@@ -26,10 +26,16 @@ it, and put `licence_audit` on your `PATH`. These Queso-built executables bundle
 the Erlang runtime, so Erlang/OTP does not need to be installed on the target
 machine.
 
+Linux archives support glibc on x86_64 and ARM64. musl Linux (including
+Alpine) archives are withheld until cache locking passes runtime tests on
+musl. Older releases may still list musl archives; those artifacts have no
+supported filesystem cache. See [Caching](#caching) for the limits.
+
 The release also keeps the original escript archive and bare `licence_audit`
-escript for compatibility. The escript runs on any platform with Erlang/OTP 28.x
-or newer. Older OTP releases cannot reattach stdin in raw mode, which breaks
-keyboard input for `licence_audit update`.
+escript for compatibility. The escript requires Erlang/OTP 28.x or newer
+and a host-compatible Slate native lock library for filesystem caching.
+It does not provide musl cache support. Older OTP releases cannot reattach
+stdin in raw mode, which breaks keyboard input for `licence_audit update`.
 
 Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
 explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
@@ -46,7 +52,9 @@ mise use -g github:tylerbutler/licence_audit@latest
 
 Replace `latest` with a release tag, such as `v0.6.0`, to pin a version. For a
 project-local install, omit `-g`. mise selects the self-contained archive for
-your operating system and architecture, so Erlang/OTP is not required.
+your operating system and architecture when a matching release asset exists,
+so Erlang/OTP is not required. No supported musl archive is available; do not
+substitute a glibc archive on musl.
 
 To build from source, see [DEV.md](./DEV.md).
 
@@ -469,6 +477,18 @@ as a miss, and transient network failures are never cached as successes.
 
 If a cache operation fails, `licence_audit` writes a warning to stderr and
 continues the run. OSV advisories are not cached.
+
+**Older musl artifacts:** filesystem caching is unsupported for both Hex
+metadata and notices materials. The Slate 2.1.0 lock NIF does not support
+musl. A lock failure produces a deferred cache-access warning on stderr
+(for example, `Failed to access licence cache` or
+`Failed to access notices cache`), and the command continues without that
+cache. A successful command does not prove cache reuse: later runs can
+repeat network requests, and offline cache use is unavailable. `--no-cache`
+suppresses cache access by choice; it does not fix or validate locking.
+New musl releases will remain withheld until runtime tests verify cache
+population, reuse (including offline use where supported), and concurrent
+access with the intended lock guarantees. Locking must not be bypassed.
 
 ## Troubleshooting
 

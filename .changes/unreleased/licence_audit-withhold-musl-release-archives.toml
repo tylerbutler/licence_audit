@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Withhold musl release archives until filesystem cache locking passes runtime reuse and concurrent-access tests. Older musl artifacts have unsupported Hex metadata and notices caches; cache-access warnings indicate uncached operation."

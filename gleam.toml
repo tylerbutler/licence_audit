@@ -48,13 +48,13 @@ exact_tag_format = "v{version}"
 entry = "licence_audit"
 targets = [
   "aarch64-linux-glibc",
-  "aarch64-linux-musl",
+  # musl targets are withheld until the Slate cache lock NIF passes runtime
+  # cache reuse and concurrent-access tests on musl.
   # linux-static targets are excluded: Queso static Linux binaries do not export
   # symbols required for NIF dependencies (crypto/SSL), which this CLI uses for
-  # core behaviour. Use glibc or musl targets instead.
+  # core behaviour. Use glibc targets on Linux.
   "aarch64-macos",
   "x86_64-linux-glibc",
-  "x86_64-linux-musl",
   "x86_64-macos",
   "x86_64-windows",
 ]
