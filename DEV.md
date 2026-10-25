@@ -373,3 +373,62 @@ glibc Linux; do not use them as a substitute on musl. The `aarch64-windows`
 target is deferred because Queso requires
 an explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
 archive for that target.
+
+### Release licence material
+
+Publish includes the generated `THIRD_PARTY_NOTICES.txt`, project `LICENSE`,
+vendored `NOTICE`, and Slate's `slate_native/licenses/` in each archive. It also
+embeds these documents under `META-INF/licenses/` in the bare escript ZIP
+payload. Keep the Slate libraries beside the escript; the bare download does
+not replace the complete escript archive.
+
+Run `just test-release-notices` to test staging and archive checks. Publish reads
+the notice bytes from each staged tar/ZIP and the bare escript, and compares
+them with the required source documents. Missing, empty, or changed documents
+stop publication. Older tags without required documents also fail this check.
+
+After building native executables, Publish runs
+`mise exec -- python3 -B scripts/runtime_notices.py`. It uses a fresh,
+worktree-local Queso cache under `build/release-cache/` so the collector reads
+the runtime installations and launcher lockfile used by that build. For a
+focused local check against an existing Queso cache, pass
+`--target x86_64-linux-glibc --cache <cache-directory>/queso`.
+
+The collector writes `build/release-notices/<target>/` with these inputs:
+
+- The pinned OTP release's checksummed `bom.spdx.json`, its extracted licence
+  terms and copyright statements, tagged source licence files, and SPDX texts.
+  This inventory includes a superset of the OTP applications in the executable.
+- The Queso launcher's actual `Cargo.lock`, checked against the pinned Queso
+  source, and target-filtered `cargo-about --locked --fail` licence material.
+  The collector also preserves separate licence, NOTICE, and copyright files
+  from the resolved crate sources, including bundled native code.
+  `queso/source-packages.json` records immutable crate source URLs and their
+  locked checksums, including source for dependencies under MPL-2.0.
+- Rust's bundled `COPYRIGHT-library.html` and licence texts, plus Zig's bundled
+  native-library notices, including compiler runtime and MinGW material. The
+  collector records the toolchain versions.
+  Rust's release manifest and the installed Zig wheel's PyPI metadata provide
+  the matching distribution URLs and published checksums.
+- The distribution's external OpenSSL licence and authors, using the version
+  string from its actual `crypto` library. OTP's source SBOM can name a different
+  OpenSSL version from the one linked into a platform distribution.
+- Linux `versions.txt` and the exact Debian source packages' copyright files
+  for statically linked OpenSSL, ncurses, and GCC runtimes. Alpine distributions
+  use the corresponding upstream musl, ncurses, and GCC licence material.
+
+`otp-distribution.json` records Queso's selected OTP asset URL and the checksum
+published in GitHub release metadata. Publish requires the download URL and
+hash in Queso's fresh build log to match that metadata; a local cache-only
+collection records that it has no such download verification.
+`manifest.json` records fetched source
+URLs/checksums and checksums of the collected documents. Publish stages the
+bundle as `runtime-notices/` and compares its archived bytes with that manifest.
+It also verifies and includes every document in Slate's upstream notice
+manifest, including the Rust runtime copyright and licence directory.
+
+Missing upstream material, unresolved licence expressions, checksum mismatches,
+or an unidentifiable external OpenSSL version stop publication. The collector
+preserves upstream attribution; it does not assert legal review or runtime
+validation. Keep the licence files and source-location records when you
+redistribute an archive.

@@ -21,6 +21,7 @@ import simplifile
 
 pub type UpdateResult {
   UpdateResult(exit_code: Int, output: String)
+  UpdateDiagnostic(exit_code: Int, output: String)
 }
 
 pub fn run(
@@ -67,7 +68,7 @@ pub fn run_with_picker(
       load_existing_policy(config_path, project_root, ignore_config)
       |> result.map_error(fn(config_error) {
         #(
-          UpdateResult(
+          UpdateDiagnostic(
             exit_code: error.exit_code(error.from_config_error(config_error)),
             output: "Error: "
               <> error.message(error.from_config_error(config_error))
@@ -82,7 +83,7 @@ pub fn run_with_picker(
       manifest.load(manifest_path)
       |> result.map_error(fn(err) {
         #(
-          UpdateResult(
+          UpdateDiagnostic(
             exit_code: error.exit_code(error.from_manifest_error(err)),
             output: "Error: "
               <> error.message(error.from_manifest_error(err))
@@ -112,7 +113,7 @@ pub fn run_with_picker(
           progress.fail(reporter, "Could not gather all package licences")
         let reporter = warn_cache(reporter, cache_warning)
         #(
-          UpdateResult(
+          UpdateDiagnostic(
             exit_code: 2,
             output: "Error: failed to fetch metadata for one or more packages\n",
           ),
@@ -160,7 +161,10 @@ fn handle_selection(
     Error(picker.Cancelled) -> {
       let reporter = progress.warn(reporter, "Update cancelled")
       let reporter = warn_cache(reporter, cache_warning)
-      #(UpdateResult(exit_code: 130, output: "Update cancelled.\n"), reporter)
+      #(
+        UpdateDiagnostic(exit_code: 130, output: "Update cancelled.\n"),
+        reporter,
+      )
     }
     Error(picker.NotInteractive) -> {
       let message =
@@ -168,7 +172,7 @@ fn handle_selection(
       let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
       #(
-        UpdateResult(exit_code: 1, output: "Error: " <> message <> "\n"),
+        UpdateDiagnostic(exit_code: 1, output: "Error: " <> message <> "\n"),
         reporter,
       )
     }
@@ -205,7 +209,10 @@ fn write_selection(
       let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
       #(
-        UpdateResult(exit_code: exit_code, output: "Error: " <> message <> "\n"),
+        UpdateDiagnostic(
+          exit_code: exit_code,
+          output: "Error: " <> message <> "\n",
+        ),
         reporter,
       )
     }
@@ -358,13 +365,16 @@ fn write_policy(
       case toml.set_string_array(after_allow, section, "deny", deny) {
         Error(e) -> Error(TomlEditFailed(e))
         Ok(after_both) ->
-          case simplifile.write(to: path, contents: after_both) {
+          case atomic_write(path, after_both) {
             Ok(_) -> Ok(Nil)
             Error(_) -> Error(FileWriteFailed(path))
           }
       }
   }
 }
+
+@external(erlang, "policy_file_ffi", "write")
+fn atomic_write(path: String, contents: String) -> Result(Nil, Nil)
 
 fn summary(path: String, allow: List(String), deny: List(String)) -> String {
   "Wrote "

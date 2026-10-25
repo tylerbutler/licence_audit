@@ -51,6 +51,12 @@ jobs:
       - name: Build escript
         run: just build-strict
 
+      - name: Embed required notices in bare escript
+        run: |
+          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
+          mise exec -- python3 -B scripts/release_notices.py check licence_audit
+          ./licence_audit --help
+
       - name: Generate CycloneDX SBOM
         env:
           REF_NAME: ${{ env.RELEASE_TAG }}
@@ -60,7 +66,16 @@ jobs:
           ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
 
       - name: Build Queso executables
-        run: just build-queso
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export XDG_CACHE_HOME="$PWD/build/release-cache"
+          mkdir -p build/release-tmp
+          export TMPDIR="$PWD/build/release-tmp"
+          rustup component add rust-docs
+          just build-queso 2>&1 | tee build/queso-build.log
+          mise exec -- python3 -B scripts/runtime_notices.py --build-log build/queso-build.log
 
       - name: Stage release artifacts
         env:
@@ -70,27 +85,22 @@ jobs:
           mkdir -p dist
 
           version="${REF_NAME#v}"
-          # Tags before vendoring do not have a NOTICE file.
-          notice_files=()
-          if [ -d vendor/glint ]; then
-            test -f NOTICE
-          fi
-          if [ -f NOTICE ]; then
-            notice_files=(NOTICE)
-            cp NOTICE dist/
-          fi
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt dist/
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
           cp -r slate_native "$escript_stage/"
-          cp LICENSE "${notice_files[@]}" "$escript_stage/"
+          mise exec -- python3 -B scripts/release_notices.py stage "$escript_stage"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
           (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
+          mise exec -- python3 -B scripts/release_notices.py check "dist/${escript_stage}.tar.gz"
+          mise exec -- python3 -B scripts/release_notices.py check "dist/${escript_stage}.zip"
 
           # Ship the bare escript alongside the archives so it can be attested
           # and downloaded directly.
           cp licence_audit dist/
+          mise exec -- python3 -B scripts/release_notices.py check dist/licence_audit
 
           targets=(
             aarch64-linux-glibc
@@ -118,13 +128,15 @@ jobs:
               chmod +x "$archive_stage/licence_audit"
             fi
 
-            cp LICENSE "${notice_files[@]}" "$archive_stage/"
+            mise exec -- python3 -B scripts/release_notices.py stage "$archive_stage" --target "$target"
             [ -f README.md ] && cp README.md "$archive_stage/" || true
 
             if [[ "$target" == *-windows ]]; then
               (cd "$archive_stage" && zip -qr "../dist/${archive_stage}.zip" .)
+              mise exec -- python3 -B scripts/release_notices.py check "dist/${archive_stage}.zip" --target "$target"
             else
               tar -czf "dist/${archive_stage}.tar.gz" "$archive_stage"
+              mise exec -- python3 -B scripts/release_notices.py check "dist/${archive_stage}.tar.gz" --target "$target"
             fi
           done
 
@@ -132,20 +144,13 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
-          # Consume full listings to avoid SIGPIPE with pipefail.
-          tar -tzf "dist/licence_audit-${REF_NAME}.tar.gz" |
-            grep -Fx "licence_audit-${REF_NAME}/LICENSE" > /dev/null
-          unzip -Z1 "dist/licence_audit-${REF_NAME}-x86_64-windows.zip" |
-            grep -Fx "LICENSE" > /dev/null
-          tar -tzf "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz" |
-            grep -Fx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE" > /dev/null
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-musl.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-musl.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
-          (cd dist && sha256sum licence_audit "${notice_files[@]}" *.tar.gz *.zip *.cdx.json > checksums.txt)
+          (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
       - name: Test packaged native HTTP without system Erlang
