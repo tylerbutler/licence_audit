@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Include application dependency notices and complete Slate attribution in release archives and the bare escript. Generate native runtime attribution from the built OTP, Queso, and toolchain inputs, and verify required notice contents in staged archives."
