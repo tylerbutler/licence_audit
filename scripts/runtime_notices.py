@@ -186,7 +186,9 @@ def launcher_material(cache, version, targets):
         raise ValueError(f"Expected one fresh Queso {version} launcher lockfile in {cache}")
     lock = candidates[0]
     revision = api(f"jtdowney/queso/commits/v{version}")["sha"]
-    if lock.read_bytes() != raw("jtdowney/queso", revision, "launcher/Cargo.lock"):
+    if lock.read_text(encoding="utf-8") != raw(
+        "jtdowney/queso", revision, "launcher/Cargo.lock"
+    ).decode("utf-8"):
         raise ValueError("Built Queso launcher lockfile differs from pinned upstream source")
     config = Path("build/runtime-notices-about.toml")
     config.write_text(

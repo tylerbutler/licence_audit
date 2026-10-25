@@ -194,6 +194,36 @@ class ReleaseNoticesTest(unittest.TestCase):
              "py3-none-musllinux_1_1_aarch64"},
         )
 
+    def test_launcher_lockfile_accepts_crlf_but_rejects_dependency_changes(self):
+        cache = Path("cache")
+        lock = cache / "launcher-build/0.3.0-fixture/launcher/Cargo.lock"
+        lock.parent.mkdir(parents=True)
+        Path("build").mkdir()
+        upstream = (
+            b'version = 4\n\n[[package]]\nname = "fixture"\nversion = "1.0.0"\n'
+            b'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+            b'checksum = "abc123"\n'
+        )
+        document = {"licenses": [{
+            "used_by": [{"crate": {"name": "fixture", "version": "1.0.0"}}],
+            "text": "Full fixture licence",
+        }], "crates": []}
+        with mock.patch.object(runtime, "api", return_value={"sha": "queso-revision"}), \
+                mock.patch.object(runtime, "raw", side_effect=lambda repo, revision, path:
+                                  upstream if path.endswith("Cargo.lock") else b"Queso licence"), \
+                mock.patch.object(runtime, "command", return_value=json.dumps(document)):
+            for newline in (b"\n", b"\r\n"):
+                with self.subTest(newline=newline):
+                    original = upstream.replace(b"\n", newline)
+                    lock.write_bytes(original)
+                    files = runtime.launcher_material(cache, "0.3.0", ["x86_64-windows"])
+                    self.assertEqual(files["queso/Cargo.lock"], original)
+            for old, new in ((b"1.0.0", b"1.0.1"), (b"abc123", b"def456")):
+                with self.subTest(change=old):
+                    lock.write_bytes(upstream.replace(old, new))
+                    with self.assertRaisesRegex(ValueError, "differs from pinned upstream"):
+                        runtime.launcher_material(cache, "0.3.0", ["x86_64-windows"])
+
     def test_otp_collection_preserves_extracted_licences_and_copyright(self):
         bom = json.dumps({
             "packages": [{"name": "otp", "versionInfo": "28.3", "licenseDeclared": "Apache-2.0"}],

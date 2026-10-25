@@ -559,6 +559,10 @@ The collector writes `build/release-notices/<target>/` with these inputs:
   This inventory includes a superset of the OTP applications in the executable.
 - The Queso launcher's actual `Cargo.lock`, checked against the pinned Queso
   source, and target-filtered `cargo-about --locked --fail` licence material.
+  The comparison accepts CRLF line endings from Queso's Windows source archive;
+  the bundle keeps the original bytes. Queso's
+  [source packer](https://github.com/jtdowney/queso/blob/v0.3.0/src/pack.rs#L22-L27)
+  preserves those bytes.
   The collector also preserves separate licence, NOTICE, and copyright files
   from the resolved crate sources, including bundled native code.
   `queso/source-packages.json` records immutable crate source URLs and their
@@ -582,8 +586,6 @@ collection records that it has no such download verification.
 `manifest.json` records fetched source
 URLs/checksums and checksums of the collected documents. Publish stages the
 bundle as `runtime-notices/` and compares its archived bytes with that manifest.
-It also verifies and includes every document in Slate's upstream notice
-manifest, including the Rust runtime copyright and licence directory.
 
 Missing upstream material, unresolved licence expressions, checksum mismatches,
 or an unidentifiable external OpenSSL version stop publication. The collector

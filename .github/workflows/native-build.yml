@@ -71,7 +71,6 @@ jobs:
           echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
           echo 'CC=clang-cl.exe' >> "$GITHUB_ENV"
           echo 'CXX=clang-cl.exe' >> "$GITHUB_ENV"
-          echo 'DEBUG=1' >> "$GITHUB_ENV"
           echo 'LINKER=lld-link.exe' >> "$GITHUB_ENV"
           echo 'REBAR_TARGET_ARCH=win32' >> "$GITHUB_ENV"
           echo 'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=lld-link.exe' >> "$GITHUB_ENV"
