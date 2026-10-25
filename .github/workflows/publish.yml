@@ -17,13 +17,17 @@ on:
         description: Optional source ref for validation-only runs
         type: string
         default: ''
+      artifacts_run_id:
+        description: Reuse staged archives from this run (validation-only)
+        type: string
+        default: ''
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   test:
-    if: ${{ !inputs.source_ref || inputs.validation_only }}
+    if: ${{ !inputs.artifacts_run_id && (!inputs.source_ref || inputs.validation_only) }}
     uses: ./.github/workflows/ci.yml
     with:
       checkout_ref: ${{ inputs.source_ref || inputs.tag || github.ref_name }}
@@ -166,9 +170,15 @@ jobs:
 
   native-runtime:
     needs: build-release-artifacts
+    if: ${{ always() && ((inputs.validation_only && inputs.artifacts_run_id) || needs.build-release-artifacts.result == 'success') }}
     name: Runtime ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SMOKE_FIREWALL_GROUP: licence-audit-smoke-${{ github.run_id }}-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -198,6 +208,8 @@ jobs:
         with:
           name: licence_audit-release
           path: dist
+          run-id: ${{ inputs.artifacts_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Checkout validation tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
@@ -223,6 +235,13 @@ jobs:
           python .validation/test/native_release_smoke.py \
             --archive "dist/licence_audit-${RELEASE_TAG}-${TARGET}.${EXTENSION}" \
             --target "$TARGET" --version "$RELEASE_TAG"
+
+      - name: Remove smoke program firewall rules
+        if: ${{ always() && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          Get-NetFirewallRule -Group "$env:SMOKE_FIREWALL_GROUP" -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction Stop
 
   release:
     needs: [build-release-artifacts, native-runtime]

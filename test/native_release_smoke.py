@@ -14,10 +14,47 @@ import subprocess
 import threading
 import time
 import uuid
+import urllib.request
+
+
+RUNTIME_FAILURES = (
+    r"noproc|Failed to eval|Runtime terminating|Crash dump|"
+    r"Vulnerability check incomplete:|\(details unavailable\)|"
+    r"Picker failed to read terminal input"
+)
 
 
 @contextmanager
-def isolated_network(environment):
+def windows_program_isolation(programs, group):
+    powershell = shutil.which("powershell")
+
+    def quote(value):
+        return "'" + str(value).replace("'", "''") + "'"
+
+    def firewall(command):
+        subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command",
+             "$ErrorActionPreference = 'Stop'; " + command],
+            check=True, capture_output=True,
+        )
+
+    try:
+        for index, program in enumerate(programs):
+            firewall(
+                f"New-NetFirewallRule -DisplayName {quote(f'{group}-{index}')} "
+                f"-Group {quote(group)} -Program {quote(program)} "
+                "-Direction Outbound -Action Block -Enabled True -Profile Any | Out-Null"
+            )
+        yield []
+    finally:
+        firewall(
+            f"Get-NetFirewallRule -Group {quote(group)} -ErrorAction SilentlyContinue "
+            "| Remove-NetFirewallRule -ErrorAction Stop"
+        )
+
+
+@contextmanager
+def isolated_network(environment, binary, work):
     if platform.system() == "Linux":
         command = [shutil.which("unshare"), "--net"]
         if os.geteuid() != 0:
@@ -31,33 +68,24 @@ def isolated_network(environment):
     elif platform.system() == "Darwin":
         yield ["/usr/bin/sandbox-exec", "-p", "(version 1)(allow default)(deny network*)"]
     elif platform.system() == "Windows":
-        powershell = shutil.which("powershell")
-        rule = f"licence-audit-smoke-{uuid.uuid4().hex}"
-
-        def firewall(command):
-            subprocess.run(
-                [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
-                check=True, capture_output=True,
-            )
-
-        firewall(
-            f"New-NetFirewallRule -DisplayName '{rule}' -Direction Outbound "
-            "-Action Block -Enabled True -Profile Any | Out-Null"
-        )
-        try:
-            yield []
-        finally:
-            firewall(f"Remove-NetFirewallRule -DisplayName '{rule}'")
+        roots = [work, Path(environment["LOCALAPPDATA"]) / "licence_audit"]
+        runtime = [
+            path for root in roots for path in root.rglob("*.exe")
+            if path.name.lower() in ("erl.exe", "beam.smp.exe", "erlexec.exe", "inet_gethost.exe")
+        ]
+        assert any(path.name.lower() == "erl.exe" for path in runtime), "No extracted Erlang runtime"
+        group = os.environ.get("SMOKE_FIREWALL_GROUP", f"licence-audit-smoke-{uuid.uuid4().hex}")
+        with windows_program_isolation([binary, *runtime], group) as prefix:
+            # Python is not one of the blocked programs.
+            with urllib.request.urlopen("https://hex.pm/api/packages/gleam_stdlib", timeout=30) as response:
+                assert response.status == 200, response.status
+            print("Unrelated HTTPS client remains usable with runtime firewall rules active.")
+            yield prefix
     else:
         raise RuntimeError("No network isolation driver for this platform")
 
 
 def validate_output(name, output, status, expected=0):
-    failures = (
-        r"noproc|Failed to eval|Runtime terminating|Crash dump|"
-        r"Vulnerability check incomplete:|\(details unavailable\)|"
-        r"Picker failed to read terminal input"
-    )
     warnings = [
         line for line in output.splitlines()
         if re.search(r"WARN\s+\|", line)
@@ -68,12 +96,22 @@ def validate_output(name, output, status, expected=0):
         )
         and not (name == "update-cancel" and line.endswith("Update cancelled"))
     ]
-    if re.search(failures, output) or warnings:
+    if re.search(RUNTIME_FAILURES, output) or warnings:
         raise AssertionError(f"{name}: runtime failure or incomplete report\n{output}")
     if name == "check" and status == 1:
         assert "Vulnerability check failed: one or more advisories" in output, output
     else:
         assert status == expected, f"{name}: unexpected exit {status}\n{output}"
+
+
+def validate_isolated_miss(output, status):
+    # Baseline reports use 0 for incomplete metadata; #145 changes this to 2.
+    assert status in (0, 2), f"Missing-cache control: unexpected exit {status}\n{output}"
+    assert not re.search(RUNTIME_FAILURES, output), output
+    assert "Cache miss for gleam_stdlib@1.0.5" in output, output
+    assert "Failed to fetch package metadata for gleam_stdlib@1.0.5:" in output, output
+    assert "Hex.pm request failed:" in output, output
+    assert not re.search(r"gleam_stdlib\s+1\.0\.5\s+Apache-2\.0", output), output
 
 
 def interactive(binary, work, environment, keys):
@@ -173,7 +211,11 @@ def smoke(binary, work, expected_version):
         (work / name).mkdir()
     environment = {
         key: value for key, value in os.environ.items()
-        if key.upper() in ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT")
+        if key.upper() in (
+            "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
+            "ALLUSERSPROFILE", "PROGRAMDATA", "USERNAME", "USERDOMAIN", "COMPUTERNAME",
+            "USERPROFILE", "LOCALAPPDATA", "APPDATA", "HOMEDRIVE", "HOMEPATH",
+        )
     }
     environment.update(
         PATH=str(work / "empty-path"), TERM="xterm-256color",
@@ -182,11 +224,11 @@ def smoke(binary, work, expected_version):
     )
     if os.name == "nt":
         # A native Windows shell does not supply HOME or XDG_CACHE_HOME.
-        environment.update(
-            USERPROFILE=str(work / "home-é中"),
-            APPDATA=str(work / "home-é中" / "AppData" / "Roaming"),
-            LOCALAPPDATA=str(work / "home-é中" / "AppData" / "Local"),
-        )
+        # Keep real known-folder settings: ProjectDirs uses Windows profile APIs.
+        for name in ("USERPROFILE", "LOCALAPPDATA", "APPDATA"):
+            native = Path(environment[name])
+            assert native.is_dir(), f"Missing native Windows folder: {name}={native}"
+            print(f"Native Windows {name}={native} (directory exists)")
     else:
         environment["HOME"] = str(work / "home-é中")
 
@@ -215,7 +257,7 @@ def smoke(binary, work, expected_version):
         assert "Skipped non-Hex packages: 0" in output, output
         assert f"{cache_event} gleam_stdlib@1.0.5" in output, output
 
-    with isolated_network(environment) as prefix:
+    with isolated_network(environment, binary, work) as prefix:
         arguments = ["--verbose", "--color=never"]
         cached = subprocess.run(
             [*prefix, str(binary), *arguments], cwd=work, env=environment,
@@ -234,14 +276,13 @@ def smoke(binary, work, expected_version):
         )
         output = missing.stdout + missing.stderr
         (work / "report-isolated-missing.log").write_text(output, encoding="utf-8")
-        assert "Cache miss for gleam_stdlib@1.0.5" in output, output
-        assert not re.search(r"gleam_stdlib\s+1\.0\.5\s+Apache-2\.0", output), output
+        validate_isolated_miss(output, missing.returncode)
 
     if os.name == "nt":
-        local = environment.pop("LOCALAPPDATA")
-        output = run("report-profile-fallback", "--verbose", "--color=never")
-        assert "Cache hit for gleam_stdlib@1.0.5" in output, output
-        environment["LOCALAPPDATA"] = local
+        unicode_cache = work / "cache-é中" / "metadata"
+        for name, event in (("unicode-cold", "Cache miss"), ("unicode-warm", "Cache hit")):
+            output = run(name, "--verbose", "--color=never", f"--cache-path={unicode_cache}")
+            assert f"{event} for gleam_stdlib@1.0.5" in output, output
 
     output = run("vulns", "vulns", "--color=never")
     assert re.search(

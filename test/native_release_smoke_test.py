@@ -3,12 +3,43 @@ from pathlib import Path
 import shutil
 import sys
 import unittest
+from unittest.mock import patch
 import uuid
 
-from native_release_smoke import interactive, validate_output
+from native_release_smoke import (
+    interactive, validate_output, validate_isolated_miss, windows_program_isolation,
+)
 
 
 class NativeReleaseSmokeTest(unittest.TestCase):
+    def test_missing_cache_requires_a_network_failure_not_a_crash(self):
+        output = (
+            "Cache miss for gleam_stdlib@1.0.5\n"
+            "Failed to fetch package metadata for gleam_stdlib@1.0.5: "
+            "Hex.pm request failed: connection setup failed: enetunreach"
+        )
+        for status in (0, 2):
+            validate_isolated_miss(output, status)
+        for status, invalid in (
+            (-11, "Cache miss for gleam_stdlib@1.0.5\nRuntime terminating"),
+            (2, output + "\nRuntime terminating"),
+            (1, output),
+            (2, "Cache miss for gleam_stdlib@1.0.5\nInvalid response JSON"),
+        ):
+            with self.subTest(status=status, output=invalid), self.assertRaises(AssertionError):
+                validate_isolated_miss(invalid, status)
+
+    @patch("native_release_smoke.subprocess.run")
+    def test_windows_rules_are_program_scoped_and_removed_after_failure(self, run):
+        with self.assertRaisesRegex(RuntimeError, "injected"):
+            with windows_program_isolation(["C:/smoke/erl.exe", "C:/smoke/audit.exe"], "test-group"):
+                raise RuntimeError("injected")
+        commands = [call.args[0][-1] for call in run.call_args_list]
+        self.assertEqual(len(commands), 3)
+        self.assertIn("-Program 'C:/smoke/erl.exe'", commands[0])
+        self.assertIn("-Program 'C:/smoke/audit.exe'", commands[1])
+        self.assertIn("Remove-NetFirewallRule", commands[-1])
+
     def test_runtime_errors_and_incomplete_reports_fail_even_with_exit_zero(self):
         for output in (
             "noproc", "Runtime terminating", "Vulnerability check incomplete:",

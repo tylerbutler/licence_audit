@@ -196,12 +196,17 @@ interactive `update` save/cancel through a real terminal. A redirected
 failure logs are printed before temporary files are removed.
 The cache test repeats a warm report with networking denied, then uses an
 empty cache as a negative control under the same restriction. Linux uses a
-network namespace, macOS uses `sandbox-exec`, and Windows uses a temporary
-outbound firewall rule removed in a `finally` block. These checks require
+network namespace, macOS uses `sandbox-exec`, and Windows uses temporary
+outbound rules restricted to the installed executable and its extracted
+Erlang runtime programs. An unrelated HTTPS client must still work while the
+rules are active. Rules are removed in a `finally` block and an independent
+`always()` workflow cleanup step. These checks require
 administrator privileges on the target host. The Docker recipe grants
 `SYS_ADMIN` only to the test container so it can create a network namespace.
-Windows checks use a Unicode `USERPROFILE` and `LOCALAPPDATA`, without
-synthetic `HOME` or `XDG_CACHE_HOME`, and check the profile-only fallback too.
+Windows checks preserve the runner's real native profile and known-folder
+settings, without synthetic `HOME` or `XDG_CACHE_HOME`. They also check a
+Unicode cache-path override. A fresh Windows runner is required for the
+default cold-cache test; no existing user cache is deleted.
 
 PR CI runs this test on the built Linux x86_64 glibc executable. Publishing
 downloads the staged archives and runs the shared Python harness on each
@@ -400,6 +405,11 @@ publishing run.
 gh workflow run publish.yml --ref <workflow-branch> \
   -f tag=v0.13.1 -f validation_only=true -f source_ref=<source-branch>
 ```
+
+To rerun only the runtime checks against previously staged archives, use
+`validation_only=true` and `artifacts_run_id=<run-id>` instead of `source_ref`.
+This mode cannot publish assets. It uses validation scripts from the selected
+workflow revision, not the earlier artifact run.
 
 Releases include the existing escript artifacts plus self-contained Queso
 archives for Linux (glibc and musl), macOS, and Windows x86_64 targets. Linux
