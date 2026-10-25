@@ -480,6 +480,22 @@ pub fn reproducible_serial_is_byte_stable_test() {
   render(input) |> should.equal(render(input))
 }
 
+pub fn reproducible_serial_includes_embedded_root_license_text_test() {
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      serial_number: sbom.ContentDerivedSerial,
+      package_metadata: dict.new(),
+    )
+  let enriched =
+    sbom.SbomInput(
+      ..input,
+      license_texts: dict.from_list([#("Apache-2.0", "canonical")]),
+    )
+  should.equal(render(enriched), render(enriched))
+  assert serial_of(render(input)) != serial_of(render(enriched))
+}
+
 pub fn reproducible_serial_is_a_content_derived_urn_uuid_test() {
   let input =
     sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
@@ -644,6 +660,7 @@ fn minimal_input() -> sbom.SbomInput {
     package_metadata: package_metadata,
     scopes: dict.new(),
     vulnerabilities: [],
+    license_texts: dict.new(),
   )
 }
 
@@ -651,6 +668,80 @@ pub fn render_omits_vulnerabilities_when_absent_test() {
   // A plain SBOM (no embedded vulns) must keep its existing shape.
   let assert False =
     string.contains(render(minimal_input()), "\"vulnerabilities\":")
+}
+
+pub fn render_license_text_enriches_root_and_dependency_without_changing_default_test() {
+  let input = minimal_input()
+  let text = "Copyright \"holder\"\nCanonical licence text\n"
+  let enriched =
+    render(
+      sbom.SbomInput(
+        ..input,
+        license_texts: dict.from_list([#("Apache-2.0", text)]),
+      ),
+    )
+  let text_decoder =
+    decode.at(
+      ["licenses"],
+      decode.list(decode.at(["license", "text", "content"], decode.string)),
+    )
+  should.equal(
+    json.parse(enriched, decode.at(["metadata", "component"], text_decoder)),
+    Ok([text]),
+  )
+  should.equal(
+    json.parse(enriched, decode.at(["components"], decode.list(text_decoder))),
+    Ok([[text]]),
+  )
+  assert string.contains(enriched, "\"contentType\":\"text/plain\"")
+  assert string.contains(enriched, "\"acknowledgement\":\"declared\"")
+  assert !string.contains(render(input), "\"text\":")
+}
+
+pub fn render_license_text_preserves_expressions_and_unknown_names_test() {
+  let input = minimal_input()
+  let declarations = [
+    "apache-2.0", "MIT OR Apache-2.0",
+    "GPL-2.0-only WITH Classpath-exception-2.0", "LicenseRef-Local", "Unknown",
+  ]
+  let rendered =
+    render(
+      sbom.SbomInput(
+        ..input,
+        root: sbom.RootComponent(..input.root, licences: declarations),
+        package_metadata: dict.new(),
+        license_texts: dict.from_list(
+            list.map(declarations, fn(id) { #(id, "must not embed for names") }),
+          )
+          |> dict.insert("Apache-2.0", "canonical"),
+      ),
+    )
+  let assert Ok(licenses) =
+    json.parse(
+      rendered,
+      decode.at(
+        ["metadata", "component", "licenses"],
+        decode.list(
+          decode.at(["license"], {
+            use id <- decode.optional_field("id", "", decode.string)
+            use text <- decode.optional_field(
+              "text",
+              "",
+              decode.at(["content"], decode.string),
+            )
+            decode.success(#(id, text))
+          }),
+        ),
+      ),
+    )
+  should.equal(licenses, [
+    #("Apache-2.0", "canonical"),
+    #("", ""),
+    #("", ""),
+    #("", ""),
+    #("", ""),
+  ])
+  assert string.contains(rendered, "\"name\":\"MIT OR Apache-2.0\"")
 }
 
 pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
