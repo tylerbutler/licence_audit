@@ -1876,6 +1876,55 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
   assert !string.contains(first.output, "\"publisher\"")
 }
 
+pub fn sbom_reproducible_offline_skips_all_dependency_enrichment_test() {
+  let root = "build/sbom-reproducible-offline"
+  let local_git_path = root <> "/build/packages/gluegun"
+  let assert Ok(_) = simplifile.create_directory_all(local_git_path)
+  let assert Ok(manifest) =
+    simplifile.read("test/fixtures/manifest_github_git.toml")
+  let assert Ok(_) =
+    simplifile.write(to: root <> "/manifest.toml", contents: manifest)
+  let assert Ok(_) =
+    simplifile.write(
+      to: root <> "/gleam.toml",
+      contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      to: local_git_path <> "/gleam.toml",
+      contents: "licences = [\"MIT\"]\ndescription = \"Local Git enrichment\"\n",
+    )
+  let result =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--reproducible",
+        "--offline",
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(_) { panic as "must not fetch Hex metadata" }),
+        notice_clients: notice.Clients(
+          ..reproducible_sbom_clients(),
+          fetch_hex_tarball: fn(_, _) { panic as "must not fetch Hex archive" },
+          fetch_git_archive: fn(_, _) { panic as "must not fetch Git archive" },
+        ),
+      ),
+      progress.disabled(),
+    ).0
+
+  should.equal(result.exit_code, 0)
+  let assert Ok(purls) =
+    json.parse(
+      result.output,
+      decode.at(["components"], decode.list(decode.at(["purl"], decode.string))),
+    )
+  should.equal(list.length(purls), 2)
+  assert !string.contains(result.output, "\"licenses\"")
+  assert !string.contains(result.output, "Local Git enrichment")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
 pub fn sbom_subcommand_vulns_conflicts_with_reproducible_test() {
   let result =
     licence_audit.run_configured(

@@ -275,13 +275,19 @@ Because advisory data changes over time, `--vulns` cannot be combined with
 `--offline` or `--reproducible`.
 
 **Reproducible output.** By default the `serialNumber` is random and the
-`timestamp` is wall-clock, so two runs never byte-match. `--reproducible` reads
-Hex metadata from each checksum-verified package archive and Git metadata from
-the archive at the locked commit. It omits mutable Hex publisher data, makes
-the `serialNumber` a content hash, and takes the timestamp from
+`timestamp` is wall-clock, so two runs never byte-match. Without `--offline`,
+`--reproducible` reads Hex metadata from each checksum-verified package archive
+and Git metadata from the archive at the locked commit. It omits mutable Hex
+publisher data, makes the `serialNumber` a content hash, and takes the timestamp
+from
 [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
 (falling back to the Unix epoch). The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
+
+`sbom --reproducible --offline` skips all dependency enrichment, including
+local Git metadata. It omits dependency licence fields and can exit `0`
+without fetching locked-source metadata. Root metadata and valid purls are
+still required.
 
 **Validation.** The repository validates the generated SBOM against the official
 CycloneDX schema. Three `just` tasks (tools installed via `mise`) cover this:
@@ -439,9 +445,11 @@ These optional enrichment failures are distinct from an incomplete licence scan:
   because it cannot evaluate the gate.
 - Default `sbom` generation warns and omits optional dependency metadata when
   Hex or local Git enrichment fails, and still exits `0`. `--offline`
-  intentionally skips Hex enrichment. `--reproducible` requires locked-source
-  metadata; failures exit `2`. Invalid root metadata, unsupported sources, and
-  artifact-generation or write errors also exit `2`.
+  intentionally skips Hex enrichment. Without `--offline`, `--reproducible`
+  requires locked-source metadata; failures exit `2`. The combined flags skip
+  all dependency enrichment, including Git, and can exit `0` without licence
+  fields. Invalid root metadata, unsupported sources, and artifact-generation
+  or write errors also exit `2`.
 
 ## Caching
 

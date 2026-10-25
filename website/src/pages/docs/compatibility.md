@@ -69,9 +69,11 @@ Optional enrichment has separate completion rules:
   advisory details are unavailable because it cannot evaluate severity.
 - Default `sbom` generation tolerates missing Hex or local Git dependency
   enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
-  deliberately skips Hex enrichment. `--reproducible` requires metadata from
-  locked source archives and exits `2` if it cannot obtain it. Root metadata,
-  supported sources, and artifact generation/writes remain required.
+  deliberately skips Hex enrichment. Without `--offline`, `--reproducible`
+  requires metadata from locked source archives and exits `2` if it cannot
+  obtain it. `--reproducible --offline` skips all dependency enrichment,
+  including Git, and can exit `0` without dependency licence fields. Root
+  metadata, supported sources, and artifact generation/writes remain required.
 
 These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.
@@ -129,10 +131,11 @@ defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
-`SOURCE_DATE_EPOCH`. Hex metadata comes from checksum-verified locked package
-archives. Git metadata comes from the archive at the locked commit. Mutable Hex
-publisher and OSV advisory data are not included. Reproducibility does not
-extend across tool versions.
+`SOURCE_DATE_EPOCH`. Without `--offline`, Hex metadata comes from
+checksum-verified locked package archives and Git metadata comes from the
+archive at the locked commit. The combined flags omit all dependency
+enrichment, including Git. Mutable Hex publisher and OSV advisory data are not
+included. Reproducibility does not extend across tool versions.
 
 ## Internal details
 
