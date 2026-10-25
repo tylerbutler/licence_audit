@@ -58,10 +58,19 @@ windows_worker() ->
             {ok, Original} = file:read_file(Path),
             Replacement = unicode:characters_to_binary(os:getenv("POLICY_TEST_CONTENTS")),
             lists:foreach(fun(_) ->
-                ok = policy_file_ffi:write(Path, Replacement, fun file:write/2),
+                windows_write(Path, Replacement),
                 io:format("REPLACED~n"),
-                ok = policy_file_ffi:write(Path, Original, fun file:write/2)
+                windows_write(Path, Original)
             end, lists:seq(1, 12))
     end,
     io:format("PASS~n"),
     halt().
+
+windows_write(Path, Contents) ->
+    case policy_file_ffi:write(Path, Contents, fun file:write/2) of
+        ok -> ok;
+        {error, {windows_replace, Status, Output}} ->
+            io:format("Native replacement failed (~p): ~ts~n", [Status, Output]),
+            halt(1);
+        Error -> erlang:error(Error)
+    end.

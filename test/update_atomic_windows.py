@@ -24,7 +24,7 @@ kernel.CloseHandle.argtypes = [wintypes.HANDLE]
 
 
 def open_shared(path, sharing):
-    handle = kernel.CreateFileW(str(path.resolve()), 0x80000000, sharing, None, 3, 0, None)
+    handle = kernel.CreateFileW(str(path.absolute()), 0x80000000, sharing, None, 3, 0, None)
     if handle == wintypes.HANDLE(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
     return handle
