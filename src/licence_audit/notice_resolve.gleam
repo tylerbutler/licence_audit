@@ -61,7 +61,7 @@ pub fn resolve(
 ) -> Result(Resolution, notice.Error) {
   case final_key(package) {
     Ok(key) ->
-      case notice_cache.get_files(cache, key) {
+      case cached_final_files(cache, key) {
         Ok(files) -> Ok(Resolution(outcome: Resolved(files), warnings: []))
         Error(_) -> {
           use resolution <- result.try(resolve_fresh(cache, package, clients))
@@ -80,6 +80,17 @@ pub fn resolve(
         }
       }
     Error(_) -> resolve_fresh(cache, package, clients)
+  }
+}
+
+fn cached_final_files(
+  cache: notice_cache.Cache,
+  key: String,
+) -> Result(List(notice.NoticeFile), Nil) {
+  use files <- result.try(notice_cache.get_files(cache, key))
+  case notice.has_licence_file(files) {
+    True -> Ok(files)
+    False -> Error(Nil)
   }
 }
 
@@ -527,10 +538,14 @@ fn resolve_spdx(
     Ok(text) -> Ok(Some(notice.spdx_file(requirement, text)))
     Error(_) ->
       case clients.fetch_spdx(requirement) {
-        Ok(Some(text)) -> {
-          notice_cache.put_text(cache, key, text)
-          Ok(Some(notice.spdx_file(requirement, text)))
-        }
+        Ok(Some(text)) ->
+          case notice.has_text(text) {
+            False -> Ok(None)
+            True -> {
+              notice_cache.put_text(cache, key, text)
+              Ok(Some(notice.spdx_file(requirement, text)))
+            }
+          }
         Ok(None) -> Ok(None)
         Error(fetch_error) ->
           Error(notice.SpdxFetchFailed(

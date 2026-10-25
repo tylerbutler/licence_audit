@@ -316,8 +316,9 @@ similar to npm's `generate-license-file`.
 text (for example a Hex tarball that includes only a `NOTICE` file, or nothing),
 `notices` recovers one without discarding what the source *did* ship:
 
-1. **Source archive** (highest priority). Any `LICENSE`/`LICENCE`/`COPYING`
-   found there is used as-is, and any `NOTICE` is always preserved.
+1. **Source archive** (highest priority). Nonblank `LICENSE`/`LICENCE`/`COPYING`
+   files are used as-is, and nonblank `NOTICE` files are preserved. Empty or
+   whitespace-only files do not count as licence text or stop the fallback.
 2. **Repository** (Hex packages only). The declared repository links are
    followed for `github.com`, `codeberg.org`, and `gitlab.com`. A deterministic
    tag (`v<version>` then `<version>`) is resolved to an immutable commit SHA and
@@ -328,7 +329,7 @@ text (for example a Hex tarball that includes only a `NOTICE` file, or nothing),
    paths. Expressions with `AND`/`OR`/`WITH`/`(…)`/trailing `+` are supported;
    for `OR`, every alternative is included.
 
-`notices` fails if selected dependencies still lack a recognizable licence after
+`notices` fails if selected dependencies still lack usable licence text after
 the fallback (including `LicenseRef-` custom licences that have no canonical
 text), if a dependency source is unsupported, or if a network, archive,
 checksum, SPDX, or output write error occurs. A repository fallback that fails
