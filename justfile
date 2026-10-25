@@ -171,6 +171,10 @@ test-update-atomic:
     mise exec -- gleam build
     mise exec -- python3 -B test/update_atomic_write.py
 
+# Capture report and diagnostic streams from the built CLI independently.
+test-cli-streams: build
+    mise exec -- python3 -B test/cli_stream_test.py
+
 # Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
 test-env-cache-paths: build
     mise exec -- gleam build

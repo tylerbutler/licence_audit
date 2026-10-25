@@ -90,6 +90,9 @@ jobs:
       - name: Test interrupted policy writes
         run: just test-update-atomic
 
+      - name: Test CLI output streams
+        run: just test-cli-streams
+
       - name: Test Unicode cache paths
         run: just test-env-cache-paths
 
