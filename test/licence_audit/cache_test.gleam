@@ -84,6 +84,22 @@ fn warning_messages(rep: progress.Reporter) -> List(String) {
   })
 }
 
+pub fn immutable_cache_ignores_incomplete_legacy_metadata_test() {
+  let path = fresh_path("immutable_legacy")
+  let key = "example@1.0.0@hex:ABC"
+  write_cache_entry_without_timestamp(
+    path,
+    "$immutable:" <> key,
+    hex.licences_only([]),
+  )
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let metadata = hex.licences_only(["MIT"])
+  let assert Ok(fetched) =
+    cache.fetch_immutable(handle, key, fn() { Ok(metadata) })
+  should.equal(fetched, metadata)
+  let assert None = cache.close(handle)
+}
+
 pub fn disabled_cache_bypasses_storage_test() {
   let handle = cache.open(cache.Disabled)
   let warning = cache.close(handle)

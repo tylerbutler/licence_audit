@@ -4,6 +4,7 @@ import gleam/http/request
 import gleam/http/response.{Response}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleam/time/duration
 import gleam/time/timestamp
 import gleam/uri
@@ -65,7 +66,7 @@ pub fn decode_archive_metadata_uses_immutable_fields_test() {
   should.equal(metadata.licences, ["Apache-2.0"])
   should.equal(
     metadata.description,
-    Some("Metadata from the locked Hex archive"),
+    Some("Metadata from the locked Hex archive 中文"),
   )
   should.equal(metadata.links, [
     #("Documentation", "https://hexdocs.pm/hex_dep"),
@@ -89,6 +90,114 @@ pub fn decode_archive_metadata_converts_latin1_strings_test() {
   let assert Some(description) = metadata.description
 
   should.equal(bit_array.from_string(description), <<67, 97, 102, 195, 169>>)
+}
+
+pub fn decode_archive_metadata_preserves_binary_literals_test() {
+  list.each(
+    [
+      #("<<\"\\x{4E2D}\\x{6587}\"/utf8>>", "中文"),
+      #("<<\"中文\"/utf8>>", "中文"),
+      #("<<228,184,173,230,150,135>>", "中文"),
+      #("<<\"M\",73,\"T\">>", "MIT"),
+      #("<<67,97,102,233>>", "Café"),
+      #("<<\"Caf\\351\"/utf8>>", "Café"),
+      #("<<>>", ""),
+      #("<<\"a]}.b,\\\"c\">>", "a]}.b,\"c"),
+    ],
+    fn(test_case) {
+      let #(literal, expected) = test_case
+      let input =
+        "{<<\"licenses\">>, ["
+        <> literal
+        <> "]}.\n"
+        <> "{<<\"description\">>, "
+        <> literal
+        <> "}.\n"
+        <> "{<<\"links\">>, [{"
+        <> literal
+        <> ", "
+        <> literal
+        <> "}]}.\n"
+      let assert Ok(metadata) =
+        hex.package_metadata_from_archive(bit_array.from_string(input))
+      should.equal(metadata.licences, [expected])
+      should.equal(metadata.description, Some(expected))
+      should.equal(metadata.links, [#(expected, expected)])
+    },
+  )
+}
+
+pub fn decode_archive_metadata_rejects_unsupported_binary_forms_test() {
+  list.each(
+    [
+      "<<256>>",
+      "<<1:16>>",
+      "<<65/integer>>",
+      "<<65/utf8>>",
+      "<<\"MIT\"/utf16>>",
+      "<<\"\\x{4E2D}\">>",
+      "<<\"\\x{D800}\"/utf8>>",
+      "<<\"MIT\",>>",
+      "<<16#4D,16#49,16#54>>",
+      "<<unknown_atom>>",
+      "not_a_binary",
+    ],
+    fn(literal) {
+      list.each(["licenses", "description", "links"], fn(field) {
+        let value = case field {
+          "licenses" -> "[" <> literal <> "]"
+          "links" -> "[{<<\"Repository\">>, " <> literal <> "}]"
+          _ -> literal
+        }
+        let input = case field {
+          "licenses" -> ""
+          _ -> "{<<\"licenses\">>, [<<\"MIT\">>]}.\n"
+        }
+        should.equal(
+          hex.package_metadata_from_archive(bit_array.from_string(
+            input <> "{<<\"" <> field <> "\">>, " <> value <> "}.\n",
+          )),
+          Error(Nil),
+        )
+      })
+    },
+  )
+}
+
+pub fn decode_archive_metadata_enforces_resource_limits_test() {
+  list.each(
+    [
+      string.repeat(" ", 1_048_577),
+      "{<<\"licenses\">>, []}.\n{<<\"nested\">>, "
+        <> string.repeat("[", 65)
+        <> string.repeat("]", 65)
+        <> "}.\n",
+    ],
+    fn(input) {
+      should.equal(
+        hex.package_metadata_from_archive(bit_array.from_string(input)),
+        Error(Nil),
+      )
+    },
+  )
+}
+
+pub fn decode_archive_metadata_does_not_extract_partial_fields_test() {
+  list.each(
+    [
+      "{<<\"licenses\">>, [<<\"MIT\">>, unsupported]}.\n",
+      "{<<\"licenses\">>, [<<\"MIT\">>,]}.\n",
+      "{<<\"licenses\">>, []}.\n{<<\"description\">>, <<\"ok\">>, extra}.\n",
+      "{<<\"licenses\">>, []}.\n{<<\"links\">>, [{<<\"ok\">>, <<\"url\">>}, unsupported]}.\n",
+      "{<<\"licenses\">>, []}.\n{<<\"licenses\">>, [<<\"MIT\">>]}.\n",
+    ],
+    fn(input) {
+      should.equal(
+        hex.package_metadata_from_archive(bit_array.from_string(input)),
+        Error(Nil),
+      )
+    },
+  )
 }
 
 pub fn cache_entry_round_trips_full_metadata_test() {

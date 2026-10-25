@@ -1783,6 +1783,7 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
   should.equal(first.exit_code, 0)
   should.equal(second, first)
   assert string.contains(first.output, "Metadata from the locked Hex archive")
+  assert string.contains(first.output, "中文")
   assert string.contains(first.output, "Metadata from the locked Git archive")
   assert string.contains(first.output, "\"id\": \"Apache-2.0\"")
   assert string.contains(first.output, "\"id\": \"MIT\"")
