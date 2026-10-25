@@ -38,6 +38,11 @@ pub fn parse(input: String) -> Result(Document, Nil) {
   tomlet.parse(input) |> result.replace_error(Nil)
 }
 
+/// Read a value at a document path, including tables.
+pub fn get(doc: Document, path: List(String)) -> Result(Value, Nil) {
+  tomlet.get(doc, path) |> result.replace_error(Nil)
+}
+
 /// Read a top-level (or path-addressed) string scalar.
 pub fn get_string(doc: Document, path: List(String)) -> Result(String, Nil) {
   tomlet.get_string(doc, path) |> result.replace_error(Nil)

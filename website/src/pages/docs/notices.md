@@ -18,6 +18,36 @@ licence_audit notices --include-dev
 By default, `notices` includes only **production** dependencies. Use
 `--include-dev` to add development dependencies.
 
+## Dependency filters
+
+Set filters in the `gleam.toml` next to the manifest you select with
+`--manifest` (or next to the default `manifest.toml`):
+
+```toml
+[tools.licence_audit.notices]
+include = ["package_a", "package_b"]
+exclude = ["package_b"]
+```
+
+An absent or empty `include` selects all eligible locked dependencies. A
+nonempty `include` selects only the named packages. `exclude` takes precedence,
+so this example selects only `package_a`.
+
+Use exact locked package names, including transitive dependencies. Unknown
+names in either list cause an error, even if a scope rule or another filter
+would remove them. Known development-only dependencies remain valid names,
+but `include` does not make them eligible without `--include-dev`.
+
+Filters apply to Hex, git, and path dependencies after production/development
+scope selection. The command does no metadata, source, or package cache work
+for filtered dependencies. If no packages remain, it writes a header-only
+file without opening either cache. Filters do not change other commands.
+
+**Compliance risk:** Excluding a dependency does not remove its licence or
+attribution obligations. If you distribute it, an exclusion or incomplete
+allowlist can cause a licence violation. Review the licences and the contents
+of your release before you use these filters.
+
 ## File contents
 
 The output starts with a header that identifies the source `manifest.toml`

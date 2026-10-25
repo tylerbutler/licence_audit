@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Configure `notices` dependency include and exclude filters before metadata, source, and cache access; reject unknown locked package names."

@@ -18,6 +18,49 @@ pub type Policy {
   )
 }
 
+pub type Notices {
+  Notices(include: List(String), exclude: List(String))
+}
+
+pub fn load_notices(project_root: String) -> Result(Notices, Error) {
+  use contents <- result.try(read_optional(project_root <> "/gleam.toml"))
+  case contents {
+    None -> Ok(Notices(include: [], exclude: []))
+    Some(input) -> parse_notices(input)
+  }
+}
+
+pub fn parse_notices(input: String) -> Result(Notices, Error) {
+  use document <- result.try(
+    toml.parse(input) |> result.replace_error(InvalidToml("Invalid TOML")),
+  )
+  use _ <- result.try(
+    case toml.get_table(document, ["tools", "licence_audit"]) {
+      Error(toml.TableLookupNotTable) ->
+        Error(InvalidField("tools.licence_audit", "Table"))
+      Error(toml.TableLookupMissing) | Ok(_) -> Ok(Nil)
+    },
+  )
+  use include <- result.try(notices_string_list(document, "include"))
+  use exclude <- result.try(notices_string_list(document, "exclude"))
+  case toml.get_table(document, ["tools", "licence_audit", "notices"]) {
+    Error(toml.TableLookupMissing) | Ok(_) -> Ok(Notices(include:, exclude:))
+    Error(toml.TableLookupNotTable) -> Error(InvalidField("notices", "Table"))
+  }
+}
+
+fn notices_string_list(
+  document: toml.Document,
+  field: String,
+) -> Result(List(String), Error) {
+  case toml.get(document, ["tools", "licence_audit", "notices", field]) {
+    Error(_) -> Ok([])
+    Ok(value) ->
+      optional_string_list([#([field], value)], field)
+      |> result.replace_error(InvalidField("notices." <> field, "List(String)"))
+  }
+}
+
 pub type LoadOptions {
   LoadOptions(
     config_path: Option(String),
