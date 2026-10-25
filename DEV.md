@@ -228,7 +228,7 @@ and `HOME`. It writes cache entries at the expected paths, then runs the
 cache-enabled CLI and checks for cache hits. It also checks conversion
 failures and the deferred warning when neither environment variable is set.
 
-## SQLite cache spike
+## SQLite cache
 
 `spikes/sqlite_cache/` contains an isolated experiment with `sqlight` 1.2.0,
 `esqlite` 0.9.0, and its bundled SQLite 3.50.4. The production integration uses
@@ -255,6 +255,8 @@ This follow-up does not stop implementation or platform qualification.
 `just test-cache-runtime` checks missing and unloadable native libraries in
 fresh VMs, verifies that disabled caches do not load the NIF, and checks the
 504-byte Linux database path boundary.
+
+### Historical spike
 
 Keep standalone Gleam experiments outside `src/`, `test/`, and `dev/`.
 Gleam scans nested projects in those source directories, including their
@@ -294,7 +296,7 @@ You can run the same check against another executable:
 just spike-sqlite-binary /absolute/path/to/sqlite_cache_spike
 ```
 
-### Findings
+#### Findings
 
 The BEAM and sidecar-backed escript checks pass on Linux x86_64. The native
 glibc checks pass on Debian 12 and Ubuntu 24.04 with the downloaded release
@@ -314,33 +316,33 @@ ERTS. The spike adds a small Erlang adapter for two driver failures:
 Use the spike's open/query adapter rather than `sqlight.open` or
 `sqlight.query` when building on this experiment.
 
-### Packaging failures found by the spike
+#### Packaging failures found by the spike
 
 These findings apply to the isolated spike, not the production adapter.
-Production discovers its adjacent `sqlite_native/esqlite` application before
-loading the NIF and returns load failures as deferred cache warnings. Native
-release builds must compile the NIF for each target platform; cross-building
-the Queso launcher alone is not sufficient.
+Production selects an adjacent `sqlite_native/<target>/esqlite` application,
+with `sqlite_native/esqlite` as the source-build fallback, before loading the
+NIF. It returns load failures as deferred cache warnings. Native release builds
+compile the NIF for each target platform; cross-building the Queso launcher
+alone is not sufficient.
 
-- **The release build does not build target-specific SQLite NIFs.** Queso
-  copies the host-built NIF into its shipment. The x86_64 musl executable
+- **A cross-built launcher can contain the wrong NIF.** Queso copies the
+  host-built NIF into its shipment. The spike's x86_64 musl executable
   builds, but fails in Alpine at `esqlite3_nif.open/1` with `undef`. Its
   shipment contains the same x86_64, glibc-linked `esqlite3_nif.so` as the
-  host build. The production publish job builds all seven declared targets
-  on one Ubuntu runner. Target-native or cross-compiled NIFs still need
-  packaging checks; ARM, macOS, and Windows execution remain unverified.
-- **The escript does not find its sidecar without `ERL_LIBS`.** The escript
-  recipe copies `esqlite`'s `ebin/` and `priv/` directories beside the escript
+  host build. The production workflow now builds each NIF on its target
+  architecture and libc, then runs native and escript cache/HTTPS checks.
+- **The spike escript needs `ERL_LIBS` to find its sidecar.** Its recipe
+  copies `esqlite`'s `ebin/` and `priv/` directories beside the escript
   and sets `ERL_LIBS` to that bundle's `lib/` directory. With that variable
   unset, both a bare escript and an escript with an adjacent sidecar fail
   from an unrelated working directory. Production installation must not
   depend on the caller setting this variable.
-- **A missing or unloadable NIF crashes instead of disabling the cache.**
-  The adapter's open call raises `undef` before it can return a
+- **A missing or unloadable NIF crashes the spike.**
+  The spike adapter's open call raises `undef` before it can return a
   `sqlight.Error`. This violates the production cache's nonfatal-failure
-  contract. The current escript and musl failures both exercise this path.
+  contract. The spike's escript and cross-built musl binary exercise this path.
 
-### Compatibility and cache snapshots
+#### Compatibility and cache snapshots
 
 The tested Linux build accepts an absolute database path of **504 UTF-8
 bytes**, including directories, and supports WAL writes at that length.

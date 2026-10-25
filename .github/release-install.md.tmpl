@@ -34,10 +34,11 @@ Expand-Archive licence_audit.zip -DestinationPath .
 
 The release also keeps the original escript archive and bare `licence_audit`
 escript. The escript runs on any platform with Erlang/OTP 28.x or newer.
-Keep `slate_native/` beside the escript. Use the archive to get these native
-libraries. The bare download embeds `LICENSE`, `NOTICE`, application dependency
-notices, and Slate native notices under `META-INF/licenses/` in its ZIP payload;
-it does not bundle Erlang/OTP or the Slate native libraries.
+Keep `sqlite_native/` beside the escript. Use the archive to get SQLite native
+libraries for the seven supported release targets. The bare download embeds
+`LICENSE`, `NOTICE`, and dependency notices under `META-INF/licenses/` in its
+ZIP payload; it does not bundle Erlang/OTP or SQLite native libraries and runs
+without caching.
 
 Keep the licence and notice files when you redistribute an extracted archive.
 Native archives also include `runtime-notices/` for the bundled OTP runtime,
