@@ -78,9 +78,12 @@ windows_worker() ->
             );
         "owner" ->
             owner_session(fun(Ready) ->
-                Ready(),
+                Delayed = delayed_replace(60000),
                 policy_file_ffi:write(
-                    Path, <<"replacement">>, fun file:write/2, delayed_replace(60000)
+                    Path, <<"replacement">>, fun file:write/2, fun(From, To) ->
+                        Ready(),
+                        Delayed(From, To)
+                    end
                 )
             end);
         "port" ->
@@ -108,12 +111,26 @@ windows_write(Path, Contents) ->
 owner_session(Work) ->
     Parent = self(),
     {Owner, Monitor} = spawn_monitor(fun() ->
-        Work(fun() -> Parent ! owner_ready end)
+        Result = Work(fun() -> Parent ! owner_ready end),
+        Parent ! {owner_result, Result}
     end),
-    receive owner_ready -> ok end,
+    receive
+        owner_ready -> ok;
+        {owner_result, Error} -> erlang:error({owner_failed_before_ready, Error});
+        {'DOWN', Monitor, process, Owner, EarlyReason} ->
+            erlang:error({owner_failed_before_ready, EarlyReason})
+    end,
     "kill-owner" = string:trim(io:get_line("")),
     exit(Owner, kill),
-    receive {'DOWN', Monitor, process, Owner, killed} -> ok end,
+    receive
+        {'DOWN', Monitor, process, Owner, killed} -> ok;
+        {'DOWN', Monitor, process, Owner, Reason} ->
+            receive
+                {owner_result, Result} -> erlang:error({owner_exited_early, Reason, Result})
+            after 1000 ->
+                erlang:error({owner_exited_early, Reason})
+            end
+    end,
     io:format("OWNER_DEAD~n"),
     "finish" = string:trim(io:get_line("")).
 
@@ -132,11 +149,21 @@ delayed_replace(Timeout) ->
 closed_port_session(Path) ->
     Parent = self(),
     {Owner, OwnerMonitor} = spawn_monitor(fun() ->
+        Delayed = delayed_replace(60000),
         Result = policy_file_ffi:write(
-            Path, <<"replacement">>, fun file:write/2, delayed_replace(60000)
+            Path, <<"replacement">>, fun file:write/2, fun(From, To) ->
+                Parent ! owner_ready,
+                Delayed(From, To)
+            end
         ),
         Parent ! {owner_result, Result}
     end),
+    receive
+        owner_ready -> ok;
+        {owner_result, Error} -> erlang:error({owner_failed_before_ready, Error});
+        {'DOWN', OwnerMonitor, process, Owner, Reason} ->
+            erlang:error({owner_failed_before_ready, Reason})
+    end,
     "close-port" = string:trim(io:get_line("")),
     {monitors, [{process, Guardian}]} = process_info(Owner, monitors),
     GuardianMonitor = monitor(process, Guardian),
