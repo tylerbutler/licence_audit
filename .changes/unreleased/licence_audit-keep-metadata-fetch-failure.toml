@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Keep metadata-fetch failure trees visible beside policy failures in `check`, including with `--quiet`."

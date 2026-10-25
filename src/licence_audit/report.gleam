@@ -64,15 +64,20 @@ pub fn format(
 }
 
 /// Keep only rows that belong to a dependency tree containing at least one
-/// policy failure. Used by `check` to focus output on offending trees.
+/// policy or metadata-fetch failure, or a matched exception. Used by `check`
+/// to focus output on trees that need attention.
 pub fn filter_failing_trees(rows: List(Row)) -> List(Row) {
   let by_name =
     list.fold(rows, dict.new(), fn(acc, r) { dict.insert(acc, r.package, r) })
   let failing_roots =
     list.fold(rows, dict.new(), fn(acc, row) {
-      case
-        is_failure(row.status) || exception.matched(decisions(row.status)) != []
-      {
+      let keep_tree = case row.status {
+        Failed(_) -> True
+        NotChecked | Checked(_) | Reviewed(_) | Skipped(_) ->
+          is_failure(row.status)
+          || exception.matched(decisions(row.status)) != []
+      }
+      case keep_tree {
         True -> dict.insert(acc, root_for(row, by_name), Nil)
         False -> acc
       }
