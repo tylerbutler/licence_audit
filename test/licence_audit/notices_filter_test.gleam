@@ -293,6 +293,71 @@ pub fn notices_allowlist_does_not_enable_dev_dependencies_test() {
   let assert Ok(_) = simplifile.delete(root)
 }
 
+pub fn notices_dev_only_project_without_production_table_test() {
+  let root = project("dev-only-no-prod-table", "")
+  let assert Ok(_) =
+    simplifile.write(
+      "[dev-dependencies]\nhex_dep = \">= 1.0.0\"\ndev_dep = { path = \"dev\" }\n[tools.licence_audit.notices]\ninclude = [\"hex_dep\", \"dev_dep\"]",
+      to: root <> "/gleam.toml",
+    )
+  let result = run(root, [])
+  should.equal(result.exit_code, 0)
+  should.equal(
+    result.output,
+    notice.render([], manifest_path: root <> "/manifest.toml"),
+  )
+  let assert Ok(settings) = simplifile.read(root <> "/gleam.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      settings <> "\nexclude = [\"stale\"]",
+      to: root <> "/gleam.toml",
+    )
+  let unknown = run(root, [])
+  should.equal(unknown.exit_code, 2)
+  assert string.contains(unknown.output, "stale")
+  let assert Ok(_) = simplifile.write(settings, to: root <> "/gleam.toml")
+
+  let assert Ok(archive) =
+    simplifile.read_bits("test/fixtures/notices/archive_fixture/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      string.replace(contents, "unused", checksum),
+      to: root <> "/manifest.toml",
+    )
+  let assert Ok(_) = simplifile.create_directory_all(root <> "/dev")
+  let assert Ok(_) =
+    simplifile.write("Dev licence text", to: root <> "/dev/LICENSE")
+  let clients = no_network_clients()
+  let clients =
+    licence_audit.Clients(
+      ..clients,
+      fetcher: fn(name) {
+        should.equal(name, "hex_dep")
+        Ok(hex.licences_only(["MIT"]))
+      },
+      notice_clients: notice.Clients(
+        ..clients.notice_clients,
+        fetch_hex_tarball: fn(name, _) {
+          should.equal(name, "hex_dep")
+          Ok(archive)
+        },
+      ),
+    )
+  let result =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> root <> "/manifest.toml", "--include-dev"],
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "hex_dep 1.0.0")
+  assert string.contains(result.output, "dev_dep 1.0.0")
+  assert string.contains(result.output, "Dev licence text")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
 pub fn notices_rejects_invalid_configuration_before_fetching_test() {
   let root = project("invalid", "[tools.licence_audit.notices]\ninclude = true")
   let result = run(root, [])

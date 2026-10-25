@@ -16,7 +16,8 @@ licence_audit notices --include-dev
 ```
 
 By default, `notices` includes only **production** dependencies. Use
-`--include-dev` to add development dependencies.
+`--include-dev` to add development dependencies. A valid project without a
+`[dependencies]` table has no production dependencies.
 
 ## Dependency filters
 

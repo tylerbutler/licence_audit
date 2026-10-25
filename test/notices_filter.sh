@@ -44,4 +44,35 @@ test "$(cat "$root/NOTICES")" = 'preserve existing output'
 test ! -e "$root/metadata.dets"
 test ! -e "$root/cache"
 
+cat > "$root/manifest.toml" <<'TOML'
+packages = [
+  { name = "hex_dep", version = "1.0.0", source = "hex", outer_checksum = "unused" },
+  { name = "path_dep", version = "1.0.0", source = "path", path = "missing" },
+]
+[requirements]
+hex_dep = { version = ">= 1.0.0" }
+path_dep = { path = "missing" }
+TOML
+cat > "$root/gleam.toml" <<'TOML'
+[dev-dependencies]
+hex_dep = ">= 1.0.0"
+path_dep = { path = "missing" }
+[tools.licence_audit.notices]
+include = ["hex_dep", "path_dep"]
+TOML
+output=$(run_cli --quiet)
+[[ "$output" == *"Third-party licences"* ]]
+[[ "$output" != *"Products using this licence"* ]]
+test ! -e "$root/metadata.dets"
+test ! -e "$root/cache"
+
+mkdir -p "$root/missing"
+printf 'Dev-only licence text\n' > "$root/missing/LICENSE"
+printf '\nexclude = ["hex_dep"]\n' >> "$root/gleam.toml"
+output=$(run_cli --include-dev --no-cache --quiet)
+[[ "$output" == *"path_dep 1.0.0"* ]]
+[[ "$output" == *"Dev-only licence text"* ]]
+test ! -e "$root/metadata.dets"
+test ! -e "$root/cache"
+
 echo "Notices filtering CLI cache tests passed."

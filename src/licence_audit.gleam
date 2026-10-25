@@ -287,7 +287,7 @@ fn run_notices_options(
     let scopes =
       manifest.sbom_scopes(
         sbom_manifest,
-        resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+        resolve_notices_prod_seed(project_root, sbom_manifest.root_requirements),
       )
     use selected <- result.try(
       notice.selected_entries(
@@ -1827,6 +1827,28 @@ fn resolve_prod_seed(
         Error(_) -> all_direct
       }
     Error(_) -> all_direct
+  }
+}
+
+fn resolve_notices_prod_seed(
+  project_root: String,
+  all_direct: List(String),
+) -> List(String) {
+  let document =
+    simplifile.read(from: project_root <> "/gleam.toml")
+    |> result.replace_error(Nil)
+    |> result.try(toml.parse)
+  case document {
+    Error(_) -> all_direct
+    Ok(document) ->
+      case toml.get_table(document, ["dependencies"]) {
+        // A valid project without production dependencies is not missing config.
+        Error(toml.TableLookupMissing) -> []
+        Error(toml.TableLookupNotTable) -> all_direct
+        Ok(_) ->
+          toml.table_keys(document, ["dependencies"])
+          |> result.unwrap(all_direct)
+      }
   }
 }
 

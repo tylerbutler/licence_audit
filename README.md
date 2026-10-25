@@ -308,6 +308,9 @@ and clearly labels canonical SPDX text used as a fallback. It defaults to
 production dependencies; pass `--include-dev` to include development-only
 dependencies.
 
+Projects without a `[dependencies]` table have no production dependencies;
+their development dependencies still require `--include-dev`.
+
 Set notices filters in the `gleam.toml` next to the selected manifest:
 
 ```toml
