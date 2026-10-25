@@ -469,6 +469,7 @@ non-blocking.
 
 Reports stay on stdout even when an enforced gate fails or a report is
 incomplete. Fatal diagnostics go to stderr, including with `--quiet`.
+Erlang runtime reports, including native-library load errors, also go to stderr.
 If SBOM generation fails before a document is available, stdout stays empty.
 
 Progress messages are written to stderr as the audit runs; use `--quiet` to

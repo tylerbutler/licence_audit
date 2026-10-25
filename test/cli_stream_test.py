@@ -146,6 +146,25 @@ class CliStreamTest(unittest.TestCase):
                 else:
                     self.assertEqual(result.stderr, "")
 
+    def test_unloadable_sqlite_keeps_sbom_stdout_valid(self):
+        binary = self.project / "licence_audit"
+        shutil.copy2(ROOT / "licence_audit", binary)
+        sidecar = self.project / "sqlite_native/esqlite"
+        shutil.copytree(ROOT / "sqlite_native/esqlite", sidecar)
+        for library in (sidecar / "priv").rglob("*"):
+            if library.is_file() and library.suffix in (".so", ".dll", ".dylib"):
+                library.write_bytes(b"Unloadable native library fixture")
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        env = {**os.environ, "XDG_CACHE_HOME": str(self.project / "cache")}
+        env.pop("ERL_LIBS", None)
+        result = subprocess.run(
+            [str(binary), "sbom", "--offline", "--quiet"],
+            cwd=self.project, env=env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
+        self.assertIn("Failed to load NIF library", result.stderr)
+
     def test_help_version_and_usage_streams(self):
         for argument in ("--help", "--version"):
             result = self.run_cli(argument)
