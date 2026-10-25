@@ -355,6 +355,30 @@ and clearly labels canonical SPDX text used as a fallback. It defaults to
 production dependencies; pass `--include-dev` to include development-only
 dependencies.
 
+Projects without a `[dependencies]` table have no production dependencies;
+their development dependencies still require `--include-dev`.
+
+Set notices filters in the `gleam.toml` next to the selected manifest:
+
+```toml
+[tools.licence_audit.notices]
+include = ["package_a", "package_b"]
+exclude = ["package_b"]
+```
+
+An absent or empty `include` selects all eligible locked dependencies. A
+nonempty `include` selects only the named packages. `exclude` takes precedence.
+Names must match locked package names, including transitive dependencies.
+Unknown names in either list cause an error, even if the package would fall
+outside the selected scope. A known development-only package in `include`
+still needs `--include-dev`. Filters apply to Hex, git, and path dependencies
+after scope selection and before metadata, source, or cache work.
+
+**Compliance risk:** Excluding a dependency from this file does not remove
+its licence or attribution obligations. If you distribute that dependency,
+an exclusion or incomplete allowlist can cause a licence violation. Review
+the licences and the contents of your release before you apply these filters.
+
 Use `notices` when you need a human-readable third-party licence bundle for a
 release. Use `sbom` when you need machine-readable CycloneDX JSON. `notices` is
 similar to npm's `generate-license-file`.

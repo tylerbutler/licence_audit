@@ -165,6 +165,11 @@ smoke-native-http binary:
 test:
     mise exec -- gleam test
 
+# Check notices filtering with real CLI cache settings in fresh Erlang VMs.
+test-notices-filter:
+    mise exec -- gleam build
+    mise exec -- bash test/notices_filter.sh
+
 # Test CLI application startup and failure diagnostics in fresh Erlang VMs.
 test-runtime-startup:
     mise exec -- gleam build
@@ -336,6 +341,6 @@ docs-check: _docs-ffi
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci

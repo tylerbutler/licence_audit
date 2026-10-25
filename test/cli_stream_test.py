@@ -55,6 +55,41 @@ class CliStreamTest(unittest.TestCase):
             self.run_cli("sbom", "--offline", "--quiet", "--no-cache")
         )
 
+    def test_notices_filters_keep_reports_and_diagnostics_separate(self):
+        project_config = (
+            '[dev-dependencies]\nlocal = { path = "local" }\n'
+            '[tools.licence_audit.notices]\ninclude = ["local"]\n'
+        )
+        (self.project / "gleam.toml").write_text(project_config)
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "local", version = "1.0.0", '
+            'source = "path", path = "local" }]\n'
+            '[requirements]\nlocal = { path = "local" }\n'
+        )
+        cache_path = self.project / "metadata.dets"
+        result = self.run_cli("notices", "--quiet", f"--cache-path={cache_path}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Third-party licences", result.stdout)
+        self.assertNotIn("Products using this licence", result.stdout)
+        self.assertEqual(result.stderr, "")
+        self.assertFalse(cache_path.exists())
+
+        (self.project / "local").mkdir()
+        (self.project / "local/LICENSE").write_text("Local dev licence\n")
+        result = self.run_cli("notices", "--include-dev", "--quiet", "--no-cache")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("local 1.0.0", result.stdout)
+        self.assertIn("Local dev licence", result.stdout)
+        self.assertEqual(result.stderr, "")
+
+        (self.project / "gleam.toml").write_text(
+            project_config + 'exclude = ["stale"]\n'
+        )
+        result = self.run_cli("notices", "--quiet", f"--cache-path={cache_path}")
+        self.assert_diagnostic(result)
+        self.assertIn("Unknown locked package names", result.stderr)
+        self.assertFalse(cache_path.exists())
+
     def test_sbom_document_and_write_failure(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
         result = self.run_cli("sbom", "--offline", "--quiet", "--no-cache")

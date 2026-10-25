@@ -292,7 +292,68 @@ fn run_notices_options(
   let reporter = progress.phase(reporter, "Generating licence notices")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
-  let #(metadata_cache_mode, source_cache_mode) = case options.no_cache {
+  let selection = {
+    use configuration <- result.try(
+      config.load_notices(project_root)
+      |> result.map_error(error.from_config_error),
+    )
+    use sbom_manifest <- result.try(
+      manifest.load_sbom(manifest_path)
+      |> result.map_error(error.from_manifest_error),
+    )
+    let scopes =
+      manifest.sbom_scopes(
+        sbom_manifest,
+        resolve_notices_prod_seed(project_root, sbom_manifest.root_requirements),
+      )
+    use selected <- result.try(
+      notice.selected_entries(
+        sbom_manifest,
+        scopes,
+        include_dev: options.include_dev,
+      )
+      |> notice.filter_entries(sbom_manifest.entries, configuration)
+      |> result.map_error(fn(notice_error) {
+        error.Config(notice.describe_error(notice_error))
+      }),
+    )
+    Ok(#(selected, scopes, list.length(sbom_manifest.entries)))
+  }
+  case selection {
+    Error(selection_error) -> #(diagnostic(selection_error), reporter)
+    Ok(#(selected, scopes, count)) -> {
+      let reporter =
+        progress.detail(
+          reporter,
+          "Loaded manifest with " <> int.to_string(count) <> " total entries",
+        )
+      run_selected_notices(
+        options,
+        selected,
+        scopes,
+        project_root,
+        manifest_path,
+        fetcher,
+        clients,
+        reporter,
+      )
+    }
+  }
+}
+
+fn run_selected_notices(
+  options: cli.NoticesOptions,
+  selected: List(manifest.SbomEntry),
+  scopes: dict.Dict(String, manifest.Scope),
+  project_root: String,
+  manifest_path: String,
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  clients: notice.Clients,
+  reporter: progress.Reporter,
+) -> #(ActionResult, progress.Reporter) {
+  let #(metadata_cache_mode, source_cache_mode) = case
+    options.no_cache || selected == []
+  {
     True -> #(cache.Disabled, notice_cache.Disabled)
     False -> #(
       cache.Enabled(path: options.cache_path),
@@ -309,79 +370,52 @@ fn run_notices_options(
     cache.fetch_cached_quiet(metadata_cache, name, version, fetcher)
   }
 
-  case manifest.load_sbom(manifest_path) {
-    Error(manifest_error) -> {
+  let reporter =
+    progress.detail(
+      reporter,
+      "Selected "
+        <> int.to_string(list.length(selected))
+        <> " package(s) for notices (include_dev="
+        <> bool.to_string(options.include_dev)
+        <> ")",
+    )
+  let reporter = progress.package_count(reporter, list.length(selected))
+
+  let metadata_for = fn(entry: manifest.SbomEntry) {
+    notice_metadata_for_entry(entry, project_root, cached_fetcher)
+  }
+  case notice.packages_from_entries(selected, scopes, metadata_for) {
+    Error(notice_error) -> {
       let _ = cache.close(metadata_cache)
       let _ = notice_cache.close(source_cache)
-      #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
+      #(
+        diagnostic(error.Notices(notice.describe_error(notice_error))),
+        reporter,
+      )
     }
-    Ok(sbom_manifest) -> {
+    Ok(packages) -> {
       let reporter =
         progress.detail(
           reporter,
-          "Loaded manifest with "
-            <> int.to_string(list.length(sbom_manifest.entries))
-            <> " total entries",
+          "Resolved metadata for "
+            <> int.to_string(list.length(packages))
+            <> " package(s)",
         )
-      let scopes =
-        manifest.sbom_scopes(
-          sbom_manifest,
-          resolve_prod_seed(project_root, sbom_manifest.root_requirements),
-        )
-      let selected =
-        notice.selected_entries(
-          sbom_manifest,
-          scopes,
-          include_dev: options.include_dev,
-        )
-      let reporter =
-        progress.detail(
+      let #(run_result, reporter) =
+        build_notice_entries(
+          packages,
+          project_root,
+          manifest_path,
+          options.output,
+          source_cache,
+          clients,
           reporter,
-          "Selected "
-            <> int.to_string(list.length(selected))
-            <> " package(s) for notices (include_dev="
-            <> bool.to_string(options.include_dev)
-            <> ")",
         )
-      let reporter = progress.package_count(reporter, list.length(selected))
-
-      let metadata_for = fn(entry: manifest.SbomEntry) {
-        notice_metadata_for_entry(entry, project_root, cached_fetcher)
-      }
-      case notice.packages_from_entries(selected, scopes, metadata_for) {
-        Error(notice_error) -> {
-          let _ = cache.close(metadata_cache)
-          let _ = notice_cache.close(source_cache)
-          #(
-            diagnostic(error.Notices(notice.describe_error(notice_error))),
-            reporter,
-          )
-        }
-        Ok(packages) -> {
-          let reporter =
-            progress.detail(
-              reporter,
-              "Resolved metadata for "
-                <> int.to_string(list.length(packages))
-                <> " package(s)",
-            )
-          let #(run_result, reporter) =
-            build_notice_entries(
-              packages,
-              project_root,
-              manifest_path,
-              options.output,
-              source_cache,
-              clients,
-              reporter,
-            )
-          let metadata_warning = cache.close(metadata_cache)
-          let source_warning = notice_cache.close(source_cache)
-          let reporter = apply_cache_warning(reporter, metadata_warning)
-          let reporter = apply_cache_warning(reporter, source_warning)
-          #(run_result, reporter)
-        }
-      }
+      let metadata_warning = cache.close(metadata_cache)
+      let source_warning = notice_cache.close(source_cache)
+      let reporter = apply_cache_warning(reporter, metadata_warning)
+      let reporter = apply_cache_warning(reporter, source_warning)
+      #(run_result, reporter)
     }
   }
 }
@@ -1846,6 +1880,28 @@ fn resolve_prod_seed(
         Error(_) -> all_direct
       }
     Error(_) -> all_direct
+  }
+}
+
+fn resolve_notices_prod_seed(
+  project_root: String,
+  all_direct: List(String),
+) -> List(String) {
+  let document =
+    simplifile.read(from: project_root <> "/gleam.toml")
+    |> result.replace_error(Nil)
+    |> result.try(toml.parse)
+  case document {
+    Error(_) -> all_direct
+    Ok(document) ->
+      case toml.get_table(document, ["dependencies"]) {
+        // A valid project without production dependencies is not missing config.
+        Error(toml.TableLookupMissing) -> []
+        Error(toml.TableLookupNotTable) -> all_direct
+        Ok(_) ->
+          toml.table_keys(document, ["dependencies"])
+          |> result.unwrap(all_direct)
+      }
   }
 }
 

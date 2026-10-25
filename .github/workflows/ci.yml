@@ -93,6 +93,9 @@ jobs:
       - name: Run tests
         run: just test
 
+      - name: Test notices filtering with CLI caches
+        run: just test-notices-filter
+
       - name: Test runtime startup
         run: just test-runtime-startup
 
