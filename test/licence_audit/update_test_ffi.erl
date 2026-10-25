@@ -64,10 +64,11 @@ windows_worker() ->
             ),
             ok = file:del_dir(Directory);
         "partial" ->
-            owner_session(fun() ->
+            owner_session(fun(Ready) ->
                 policy_file_ffi:write(Path, <<"replacement">>, fun(File, _) ->
                     ok = file:write(File, binary:copy(<<"private!">>, 128)),
                     io:format("PARTIAL~n"),
+                    Ready(),
                     receive continue -> ok end
                 end)
             end);
@@ -76,11 +77,14 @@ windows_worker() ->
                 Path, <<"replacement">>, fun file:write/2, delayed_replace(3000)
             );
         "owner" ->
-            owner_session(fun() ->
+            owner_session(fun(Ready) ->
+                Ready(),
                 policy_file_ffi:write(
                     Path, <<"replacement">>, fun file:write/2, delayed_replace(60000)
                 )
             end);
+        "port" ->
+            closed_port_session(Path);
         "loop" ->
             {ok, Original} = file:read_file(Path),
             Replacement = unicode:characters_to_binary(os:getenv("POLICY_TEST_CONTENTS")),
@@ -102,7 +106,11 @@ windows_write(Path, Contents) ->
     end.
 
 owner_session(Work) ->
-    {Owner, Monitor} = spawn_monitor(Work),
+    Parent = self(),
+    {Owner, Monitor} = spawn_monitor(fun() ->
+        Work(fun() -> Parent ! owner_ready end)
+    end),
+    receive owner_ready -> ok end,
     "kill-owner" = string:trim(io:get_line("")),
     exit(Owner, kill),
     receive {'DOWN', Monitor, process, Owner, killed} -> ok end,
@@ -119,4 +127,35 @@ delayed_replace(Timeout) ->
             "if($native.GetMethod('MoveFileExW').Invoke($null,@($from,$to,[uint32]9)))",
             "{exit 0}else{exit 1}"
         ], Timeout)
+    end.
+
+closed_port_session(Path) ->
+    Parent = self(),
+    {Owner, OwnerMonitor} = spawn_monitor(fun() ->
+        Result = policy_file_ffi:write(
+            Path, <<"replacement">>, fun file:write/2, delayed_replace(60000)
+        ),
+        Parent ! {owner_result, Result}
+    end),
+    "close-port" = string:trim(io:get_line("")),
+    {monitors, [{process, Guardian}]} = process_info(Owner, monitors),
+    GuardianMonitor = monitor(process, Guardian),
+    {links, Links} = process_info(Guardian, links),
+    [Port] = [Link || Link <- Links, is_port(Link)],
+    exit(Port, kill),
+    receive
+        {owner_result, {error, {helper_port_closed, _}}} -> ok;
+        {owner_result, Other} -> erlang:error({unexpected_port_result, Other})
+    after 20000 ->
+        erlang:error(owner_still_waiting)
+    end,
+    receive
+        {'DOWN', GuardianMonitor, process, Guardian, _} -> ok
+    after 5000 ->
+        erlang:error(guardian_still_alive)
+    end,
+    receive
+        {'DOWN', OwnerMonitor, process, Owner, normal} -> ok
+    after 5000 ->
+        erlang:error(owner_still_alive)
     end.

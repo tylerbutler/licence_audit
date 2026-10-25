@@ -50,7 +50,7 @@ jobs:
         run: gleam build --target erlang --warnings-as-errors
 
       - name: Test real Windows replacement and interruption
-        run: python -B test/update_atomic_windows.py
+        run: python -u -B test/update_atomic_windows.py
 
   test:
     runs-on: ubuntu-latest

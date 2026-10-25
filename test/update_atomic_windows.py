@@ -244,7 +244,7 @@ try:
     partials[0].unlink()
     print("PASS: partial and owner-interrupted temporary deny the same restricted reader")
 
-    for mode in ("timeout", "owner"):
+    for mode in ("timeout", "owner", "port"):
         path.write_bytes(original)
         started = time.monotonic()
         process = start(mode)
@@ -252,6 +252,12 @@ try:
         try:
             if mode == "owner":
                 kill_owner(process)  # Kill only the Erlang owner, not the VM or its children.
+            elif mode == "port":
+                closed = time.monotonic()
+                process.stdin.write("close-port\n")
+                process.stdin.flush()
+                finish(process)
+                assert time.monotonic() - closed < 20
             else:
                 finish(process)
                 assert time.monotonic() - started < 8

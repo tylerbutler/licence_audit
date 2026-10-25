@@ -57,15 +57,21 @@ prepare(Path, Contents, Metadata, Write, Replace) ->
             after
                 file:close(File)
             end,
-            case {Outcome, cleanup_temporary(Temporary)} of
-                {{raised, Class, Reason, Stack}, ok} ->
-                    erlang:raise(Class, Reason, Stack);
-                {Result, ok} -> Result;
-                {_, {error, Reason}} ->
-                    {error, {temporary_cleanup_failed, Temporary, Reason}}
-            end;
+            finish_write(Outcome, Temporary);
         {error, eexist} -> prepare(Path, Contents, Metadata, Write, Replace);
         Error -> Error
+    end.
+
+finish_write({error, {helper_not_stopped, _}} = Outcome, _Temporary) ->
+    %% Do not race a helper whose termination could not be confirmed.
+    Outcome;
+finish_write(Outcome, Temporary) ->
+    case {Outcome, cleanup_temporary(Temporary)} of
+        {{raised, Class, Reason, Stack}, ok} ->
+            erlang:raise(Class, Reason, Stack);
+        {Result, ok} -> Result;
+        {_, {error, Reason}} ->
+            {error, {temporary_cleanup_failed, Temporary, Reason}}
     end.
 
 create_temporary(Temporary, Target) ->
@@ -194,7 +200,11 @@ windows_command(From, To, Command, Timeout) ->
     end.
 
 run_windows_command(From, To, Command, Timeout, OwnerMonitor) ->
+    Nonce = binary:encode_hex(crypto:strong_rand_bytes(24)),
+    Prefix = unicode:characters_to_binary(["$operation='", Nonce, "';"], utf8, {utf16, little}),
+    Token = binary:part(base64:encode(Prefix), 0, byte_size(Prefix) div 3 * 4),
     Script = [
+        "$operation='", Nonce, "';",
         "$ErrorActionPreference='Stop';",
         "$assembly=New-Object Reflection.AssemblyName('LicenceAuditAtomic');",
         "$module=[AppDomain]::CurrentDomain.DefineDynamicAssembly(",
@@ -227,81 +237,140 @@ run_windows_command(From, To, Command, Timeout, OwnerMonitor) ->
                     binary_to_list(Encoded)]}
             ]) of
                 Port ->
+                    ProcessId = case erlang:port_info(Port, os_pid) of
+                        {os_pid, Id} -> Id;
+                        undefined -> undefined
+                    end,
+                    Native = #{port => Port, pid => ProcessId, token => Token,
+                        system_root => SystemRoot},
                     Deadline = erlang:monotonic_time(millisecond) + Timeout,
                     try replacement_result(
-                        Port, <<>>, Deadline, OwnerMonitor, From, SystemRoot
+                        Native, <<>>, Deadline, OwnerMonitor, From
                     )
                     catch
                         Class:Reason ->
-                            terminate_and_await(Port, SystemRoot),
-                            {error, {helper_guard_failed, Class, Reason}}
+                            abort_helper(Native, From, {helper_guard_failed, Class, Reason})
                     end
             catch
                 error:Reason -> {error, Reason}
             end
     end.
 
-replacement_result(Port, Output, Deadline, OwnerMonitor, Temporary, SystemRoot) ->
+replacement_result(Native, Output, Deadline, OwnerMonitor, Temporary) ->
     Remaining = Deadline - erlang:monotonic_time(millisecond),
     case Remaining =< 0 of
-        true -> timeout_helper(Port, Temporary, SystemRoot);
+        true -> abort_helper(Native, Temporary, timeout);
         false -> receive_result(
-            Port, Output, Deadline, OwnerMonitor, Temporary, SystemRoot, Remaining
+            Native, Output, Deadline, OwnerMonitor, Temporary, Remaining
         )
     end.
 
-receive_result(Port, Output, Deadline, OwnerMonitor, Temporary, SystemRoot, Remaining) ->
+receive_result(Native, Output, Deadline, OwnerMonitor, Temporary, Remaining) ->
+    #{port := Port} = Native,
     receive
         {Port, {data, Data}} ->
             Combined = <<Output/binary, Data/binary>>,
             Start = max(0, byte_size(Combined) - 8192),
             replacement_result(
-                Port, binary:part(Combined, Start, byte_size(Combined) - Start),
-                Deadline, OwnerMonitor, Temporary, SystemRoot
+                Native, binary:part(Combined, Start, byte_size(Combined) - Start),
+                Deadline, OwnerMonitor, Temporary
             );
         {Port, {exit_status, 0}} -> ok;
         {Port, {exit_status, Status}} -> {error, {windows_command, Status, Output}};
+        {'EXIT', Port, Reason} ->
+            abort_helper(Native, Temporary, {helper_port_closed, Reason});
         {'DOWN', OwnerMonitor, process, _Owner, _Reason} ->
-            terminate_and_await(Port, SystemRoot),
-            case cleanup_temporary(Temporary) of
-                ok -> ok;
+            Result = abort_helper(Native, Temporary, owner_died),
+            case Result of
+                {error, owner_died} -> ok;
                 {error, Reason} ->
-                    logger:error("Failed to clean policy temporary file ~ts: ~tp",
+                    logger:error("Could not stop and clean policy helper ~ts: ~tp",
                         [Temporary, Reason])
             end,
-            {error, owner_died}
+            Result
     after Remaining ->
-        timeout_helper(Port, Temporary, SystemRoot)
+        abort_helper(Native, Temporary, timeout)
     end.
 
-timeout_helper(Port, Temporary, SystemRoot) ->
-    terminate_and_await(Port, SystemRoot),
-    case cleanup_temporary(Temporary) of
-        ok -> {error, timeout};
-        {error, Reason} -> {error, {temporary_cleanup_failed, Temporary, Reason}}
-    end.
-
-terminate_and_await(Port, SystemRoot) ->
-    case erlang:port_info(Port, os_pid) of
-        {os_pid, ProcessId} ->
-            Executable = filename:join([SystemRoot, "System32", "taskkill.exe"]),
-            try open_port({spawn_executable, Executable}, [
-                binary, exit_status, use_stdio, stderr_to_stdout, hide,
-                {args, ["/PID", integer_to_list(ProcessId), "/F"]}
-            ]) of
-                Killer -> await_exit(Killer)
-            catch
-                error:Reason ->
-                    logger:error("Could not terminate policy helper ~p: ~tp",
-                        [ProcessId, Reason])
+abort_helper(Native, Temporary, Failure) ->
+    case terminate_and_await(Native) of
+        ok ->
+            case cleanup_temporary(Temporary) of
+                ok -> {error, Failure};
+                {error, Reason} -> {error, {temporary_cleanup_failed, Temporary, Reason}}
             end;
-        undefined -> ok
-    end,
-    await_exit(Port).
+        {error, Reason} -> {error, {helper_not_stopped, Reason}}
+    end.
 
-await_exit(Port) ->
-    receive
-        {Port, {data, _}} -> await_exit(Port);
-        {Port, {exit_status, _}} -> ok;
-        {'EXIT', Port, _} -> await_exit(Port)
+terminate_and_await(#{port := NativePort, pid := ProcessId, token := Token,
+        system_root := SystemRoot}) ->
+    Filter = case ProcessId of
+        undefined -> ["CommandLine LIKE '%", Token, "%'"];
+        _ -> ["ProcessId=", integer_to_list(ProcessId)]
+    end,
+    %% Hold a native process handle, then verify the unique launch token again.
+    %% PID reuse must never let cancellation kill an unrelated process.
+    Script = [
+        "$ErrorActionPreference='Stop';$process=$null;try{",
+        "$token='", Token, "';",
+        "$candidates=@(Get-CimInstance Win32_Process -Filter \"", Filter,
+        "\" -OperationTimeoutSec 3);",
+        "if($candidates.Count -eq 0){exit 0};",
+        "if($candidates.Count -ne 1){exit 1};",
+        "$id=[int]$candidates[0].ProcessId;",
+        "try{$process=[Diagnostics.Process]::GetProcessById($id)}",
+        "catch [ArgumentException]{exit 0};",
+        "$null=$process.Handle;",
+        "$actual=Get-CimInstance Win32_Process -Filter \"ProcessId=$id\"",
+        " -OperationTimeoutSec 3;",
+        "if(!$actual){exit 0};",
+        "if(!$actual.CommandLine.Contains($token)){exit 0};",
+        "$process.Kill();",
+        "if(!$process.WaitForExit(5000)){exit 1};exit 0",
+        "}catch{exit 1}finally{if($process){$process.Dispose()}}"
+    ],
+    Encoded = base64:encode(unicode:characters_to_binary(Script, utf8, {utf16, little})),
+    Executable = filename:join([
+        SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"
+    ]),
+    Result = try open_port({spawn_executable, Executable}, [
+                binary, exit_status, use_stdio, stderr_to_stdout, hide,
+                {args, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    binary_to_list(Encoded)]}
+            ]) of
+                Killer ->
+                    await_controller(Killer, erlang:monotonic_time(millisecond) + 15000)
+            catch
+                error:Reason -> {error, Reason}
+            end,
+    case Result of
+        ok ->
+            close_port(NativePort),
+            ok;
+        Error -> Error
+    end.
+
+await_controller(Port, Deadline) ->
+    Remaining = Deadline - erlang:monotonic_time(millisecond),
+    case Remaining =< 0 of
+        true ->
+            close_port(Port),
+            {error, controller_timeout};
+        false ->
+            receive
+                {Port, {data, _}} -> await_controller(Port, Deadline);
+                {Port, {exit_status, 0}} -> ok;
+                {Port, {exit_status, Status}} -> {error, {controller_failed, Status}};
+                {'EXIT', Port, Reason} -> {error, {controller_port_closed, Reason}}
+            after Remaining ->
+                close_port(Port),
+                {error, controller_timeout}
+            end
+    end.
+
+close_port(Port) ->
+    try port_close(Port) of
+        true -> ok
+    catch
+        error:badarg -> ok
     end.
