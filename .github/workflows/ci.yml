@@ -54,6 +54,9 @@ jobs:
       - name: Test runtime startup
         run: just test-runtime-startup
 
+      - name: Test native smoke harness
+        run: just test-native-smoke
+
       - name: Smoke test built CLI
         run: ./licence_audit --help
 

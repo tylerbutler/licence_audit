@@ -190,12 +190,43 @@ in a Debian container with CA certificates but no Erlang installation.
 A temporary one-package project, HOME, and cache keep the test separate
 from local configuration. The test makes real Hex and OSV requests for a
 licence report, a vulnerability report, and `check --vulns`. It also checks
-help, version, and offline SBOM output. Network failures fail the test;
+help, version, offline SBOM output, cold/warm cache reads, and
+interactive `update` save/cancel through a real terminal. A redirected
+`update` must report that it needs a terminal. Network failures fail the test;
 failure logs are printed before temporary files are removed.
 
-PR CI runs this test on the built executable. Publishing runs the same test
-on the extracted release archive before upload. Live requests are not part
-of `just test` or `just ci`.
+PR CI runs this test on the built Linux x86_64 glibc executable. Publishing
+downloads the staged archives and runs the shared Python harness on each
+required target host:
+
+| Archive target | Runtime host |
+| --- | --- |
+| `x86_64-linux-glibc` | Ubuntu 24.04 x86_64 |
+| `aarch64-linux-glibc` | Ubuntu 24.04 ARM64 |
+| `x86_64-macos` | macOS 15 Intel |
+| `aarch64-macos` | macOS 15 ARM64 |
+| `x86_64-windows` | Windows Server 2025 x86_64 |
+
+These are release gates, not evidence that an unexecuted platform passed.
+Every row must pass before artifacts are uploaded to the GitHub Release;
+a failed or unavailable runner blocks publication. Cross-build success alone
+does not validate runtime support. Musl is withheld under #138, not covered by
+this matrix. The escript compatibility package is not a native target.
+
+To repeat the checks on the matching host with a staged or downloaded archive:
+
+```sh
+python test/native_release_smoke.py \
+  --archive dist/licence_audit-v<VERSION>-x86_64-linux-glibc.tar.gz \
+  --target x86_64-linux-glibc --version v<VERSION>
+```
+
+Use the target name and archive extension from the matrix (`zip` on Windows,
+`tar.gz` elsewhere). Python 3.10+ is required. On Windows, first install the
+console test driver with `python -m pip install pywinpty==3.0.2`; it uses
+ConPTY rather than Unix PTYs. The harness removes host Erlang from the child
+process PATH, checks the archive version, and uses its own cache directory.
+Live requests are not part of `just test` or `just ci`.
 
 To test application startup and its error handling without network access:
 

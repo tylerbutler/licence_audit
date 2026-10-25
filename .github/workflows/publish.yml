@@ -149,26 +149,68 @@ jobs:
           (cd dist && sha256sum licence_audit "${notice_files[@]}" *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
-      - name: Test packaged native HTTP without system Erlang
-        timeout-minutes: 5
-        env:
-          REF_NAME: ${{ env.RELEASE_TAG }}
-        run: |
-          set -euo pipefail
-          archive="licence_audit-${REF_NAME}-x86_64-linux-glibc"
-          extracted=$(mktemp -d)
-          trap 'rm -rf -- "$extracted"' EXIT
-          tar -xzf "dist/${archive}.tar.gz" -C "$extracted"
-          just smoke-native-http "$extracted/$archive/licence_audit"
-
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
         with:
           name: licence_audit-release
           path: dist/
 
-  release:
+  native-runtime:
     needs: build-release-artifacts
+    name: Runtime ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux-glibc
+            runner: ubuntu-24.04
+            extension: tar.gz
+          - target: aarch64-linux-glibc
+            runner: ubuntu-24.04-arm
+            extension: tar.gz
+          - target: x86_64-macos
+            runner: macos-15-intel
+            extension: tar.gz
+          - target: aarch64-macos
+            runner: macos-15
+            extension: tar.gz
+          - target: x86_64-windows
+            runner: windows-2025
+            extension: zip
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Download staged archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: licence_audit-release
+          path: dist
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # ratchet:actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install Windows console test driver
+        if: runner.os == 'Windows'
+        run: python -m pip install pywinpty==3.0.2
+
+      - name: Test installed archive on its target host
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          python test/native_release_smoke.py \
+            --archive "dist/licence_audit-${RELEASE_TAG}-${TARGET}.${EXTENSION}" \
+            --target "$TARGET" --version "$RELEASE_TAG"
+
+  release:
+    needs: [build-release-artifacts, native-runtime]
     runs-on: ubuntu-latest
     permissions:
       contents: write
