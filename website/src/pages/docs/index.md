@@ -42,8 +42,10 @@ licence_audit update
 licence_audit check
 ```
 
-The `licence_audit` command reports results and returns exit code 0. The
-`check` command returns a nonzero exit code when it finds a policy violation.
+The `licence_audit` command reports policy findings without enforcing them and
+returns exit code `0` when the scan completes. An incomplete licence report
+caused by unavailable or invalid package metadata returns `2`. The `check`
+command also returns `1` when it finds a policy violation.
 
 ## Commands
 
@@ -76,10 +78,15 @@ The command uses these exit codes:
 
 | Code | Meaning |
 |---|---|
-| `0` | Success. The default report uses `0` when statuses show denials. |
+| `0` | Successful completion. Report-only policy violations and vulnerabilities do not fail the command. |
 | `1` | Enforced check failure, invalid usage, or non-interactive use of `update`. |
-| `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
+| `2` | Input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata and `update` edit/write failures. |
 | `130` | `update` cancelled by the user. |
+
+Individual advisory details and default SBOM dependency enrichment are optional:
+their failures warn but can still exit `0`. Required metadata and OSV batch
+failures exit `2`. See the [partial-result rules](/docs/compatibility#exit-codes-and-output-streams)
+for the command-specific exceptions and release impact.
 
 ## Compatibility
 
