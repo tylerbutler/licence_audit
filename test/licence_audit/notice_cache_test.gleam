@@ -27,8 +27,8 @@ pub fn disabled_cache_bypasses_storage_test() {
   let handle = notice_cache.open(notice_cache.Disabled)
   notice_cache.put_files(handle, "source:foo", [notice("LICENSE", "MIT text")])
   notice_cache.put_text(handle, "spdx:MIT", "MIT text")
-  should.equal(notice_cache.get_files(handle, "source:foo"), Error(Nil))
-  should.equal(notice_cache.get_text(handle, "spdx:MIT"), Error(Nil))
+  should.equal(notice_cache.get_files(handle, "source:foo"), #(Error(Nil), None))
+  should.equal(notice_cache.get_text(handle, "spdx:MIT"), #(Error(Nil), None))
   let warning = notice_cache.close(handle)
 
   should.equal(warning, None)
@@ -66,10 +66,10 @@ pub fn parent_directory_failure_preserves_warning_test() {
 pub fn write_failure_preserves_notices_warning_test() {
   let path = fresh_path("write_failure")
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  cache_support.with_writer(path, fn() {
+  cache_support.drop_table(path)
+  let assert Some(warning) =
     notice_cache.put_text(handle, "spdx:MIT", "MIT text")
-  })
-  let assert Some(warning) = notice_cache.close(handle)
+  let assert None = notice_cache.close(handle)
   should.be_true(string.starts_with(warning, "Failed to access notices cache: "))
 }
 
@@ -78,17 +78,17 @@ pub fn cache_round_trip_persists_notice_files_test() {
   let files = [notice("LICENSE", "MIT text"), notice("NOTICE", "Notice text")]
 
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  should.equal(notice_cache.get_files(handle, "source:foo"), Error(Nil))
+  should.equal(notice_cache.get_files(handle, "source:foo"), #(Error(Nil), None))
   notice_cache.put_files(handle, "source:foo", files)
   notice_cache.put_text(handle, "spdx:MIT", "Canonical MIT text")
   let assert None = notice_cache.close(handle)
 
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  should.equal(notice_cache.get_files(handle, "source:foo"), Ok(files))
-  should.equal(
-    notice_cache.get_text(handle, "spdx:MIT"),
+  should.equal(notice_cache.get_files(handle, "source:foo"), #(Ok(files), None))
+  should.equal(notice_cache.get_text(handle, "spdx:MIT"), #(
     Ok("Canonical MIT text"),
-  )
+    None,
+  ))
   let assert None = notice_cache.close(handle)
 }
 
@@ -98,16 +98,18 @@ pub fn cache_namespaces_do_not_overlap_test() {
   let files = [notice("LICENSE", "source")]
   notice_cache.put_files(handle, "source:foo", files)
   notice_cache.put_text(handle, "spdx:foo", "canonical")
-  should.equal(notice_cache.get_files(handle, "source:foo"), Ok(files))
-  should.equal(notice_cache.get_text(handle, "spdx:foo"), Ok("canonical"))
-  should.equal(notice_cache.get_files(handle, "pkg:foo"), Error(Nil))
+  should.equal(notice_cache.get_files(handle, "source:foo"), #(Ok(files), None))
+  should.equal(notice_cache.get_text(handle, "spdx:foo"), #(
+    Ok("canonical"),
+    None,
+  ))
+  should.equal(notice_cache.get_files(handle, "pkg:foo"), #(Error(Nil), None))
   let assert None = notice_cache.close(handle)
 }
 
 fn write_raw_entry(path: String, key: String, value: String) -> Nil {
   let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
   let assert Ok(_) = cache_dir.insert(table, key, value)
-  let assert None = cache_dir.close_table(table, "test", None)
   Nil
 }
 
@@ -118,12 +120,12 @@ pub fn corrupt_entry_is_treated_as_miss_test() {
 
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let fresh = [notice("LICENSE", "refetched")]
-  should.equal(notice_cache.get_files(handle, "source:foo"), Error(Nil))
+  should.equal(notice_cache.get_files(handle, "source:foo"), #(Error(Nil), None))
   notice_cache.put_files(handle, "source:foo", fresh)
   let assert None = notice_cache.close(handle)
 
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  should.equal(notice_cache.get_files(handle, "source:foo"), Ok(fresh))
+  should.equal(notice_cache.get_files(handle, "source:foo"), #(Ok(fresh), None))
   let assert None = notice_cache.close(handle)
 }
 
@@ -131,9 +133,9 @@ pub fn empty_text_is_treated_as_miss_test() {
   let handle =
     notice_cache.open(notice_cache.Enabled(path: Some(fresh_path("empty"))))
   notice_cache.put_text(handle, "spdx:MIT", "")
-  should.equal(notice_cache.get_text(handle, "spdx:MIT"), Error(Nil))
+  should.equal(notice_cache.get_text(handle, "spdx:MIT"), #(Error(Nil), None))
   notice_cache.put_text(handle, "spdx:MIT", " \t\r\n")
-  should.equal(notice_cache.get_text(handle, "spdx:MIT"), Error(Nil))
+  should.equal(notice_cache.get_text(handle, "spdx:MIT"), #(Error(Nil), None))
   let assert None = notice_cache.close(handle)
 }
 
@@ -143,14 +145,21 @@ pub fn invalid_value_text_is_warned_miss_and_can_be_refetched_test() {
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let assert Ok(Nil) = cache_support.corrupt_entry(path, key)
 
-  should.equal(notice_cache.get_text(handle, key), Error(Nil))
-  notice_cache.put_text(handle, key, "refetched MIT text")
-  should.equal(notice_cache.get_text(handle, key), Ok("refetched MIT text"))
-  let assert Some(warning) = notice_cache.close(handle)
+  let assert #(result, Some(warning)) = notice_cache.get_text(handle, key)
+  should.equal(result, Error(Nil))
+  should.equal(notice_cache.put_text(handle, key, "refetched MIT text"), None)
+  should.equal(notice_cache.get_text(handle, key), #(
+    Ok("refetched MIT text"),
+    None,
+  ))
+  let assert None = notice_cache.close(handle)
   should.be_true(string.contains(warning, "read spdx:MIT"))
 
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  should.equal(notice_cache.get_text(handle, key), Ok("refetched MIT text"))
+  should.equal(notice_cache.get_text(handle, key), #(
+    Ok("refetched MIT text"),
+    None,
+  ))
   let assert None = notice_cache.close(handle)
 }
 

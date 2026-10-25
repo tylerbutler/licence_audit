@@ -35,6 +35,10 @@ Products using this licence:
     Source: hex
     Declared licences: Apache-2.0
     Licence files: SPDX-License-List/Apache-2.0.txt
+  sqlight 1.2.0
+    Source: hex
+    Declared licences: Apache-2.0
+    Licence files: SPDX-License-List/Apache-2.0.txt
 --------------------------------------------------------------------------------
 Apache License
 Version 2.0, January 2004

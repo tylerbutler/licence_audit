@@ -3,7 +3,11 @@
 
 start() ->
     case configure_logger() of
-        ok -> start_application();
+        ok ->
+            case configure_sqlite_sidecar() of
+                ok -> start_application();
+                {error, Reason} -> startup_error(esqlite, Reason)
+            end;
         {error, Reason} -> startup_error(logger, Reason)
     end.
 
@@ -15,6 +19,41 @@ configure_logger() ->
                 Config#{config := Options#{type := standard_error}});
         {ok, _} -> ok;
         {error, {not_found, default}} -> ok
+    end.
+
+configure_sqlite_sidecar() ->
+    case init:get_argument(escript) of
+        {ok, _} ->
+            Directory = filename:dirname(filename:absname(escript:script_name())),
+            Default = filename:join([Directory, "sqlite_native", "esqlite", "ebin"]),
+            Target = filename:join([Directory, "sqlite_native", escript_target(),
+                "esqlite", "ebin"]),
+            Ebin = case filelib:is_dir(Target) of true -> Target; false -> Default end,
+            case filelib:is_dir(Ebin) of
+                false -> ok;
+                true ->
+                    case code:add_patha(Ebin) of
+                        true -> ok;
+                        {error, _} = Error -> Error
+                    end
+            end;
+        error -> ok
+    end.
+
+escript_target() ->
+    Architecture = erlang:system_info(system_architecture),
+    [Machine | _] = string:split(Architecture, "-", all),
+    Cpu = case Machine of "arm64" -> "aarch64"; _ -> Machine end,
+    case os:type() of
+        {win32, _} -> "x86_64-windows";
+        {unix, darwin} -> Cpu ++ "-macos";
+        {unix, linux} ->
+            Libc = case string:find(Architecture, "musl") of
+                nomatch -> "glibc";
+                _ -> "musl"
+            end,
+            Cpu ++ "-linux-" ++ Libc;
+        _ -> "unsupported"
     end.
 
 start_application() ->

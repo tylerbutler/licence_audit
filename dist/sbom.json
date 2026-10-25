@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:5bb37fb7-f289-8c90-acff-54542b9d490c",
+  "serialNumber": "urn:uuid:85d3e43c-ff91-8bc2-91cf-133c5b5a256b",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -1364,6 +1364,57 @@
       ]
     },
     {
+      "bom-ref": "pkg:hex/sqlight@1.2.0",
+      "type": "library",
+      "name": "sqlight",
+      "purl": "pkg:hex/sqlight@1.2.0",
+      "version": "1.2.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/sqlight"
+        ]
+      },
+      "description": "Use SQLite from Gleam!",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "841768d0a81107ee2db46b949354f284a68b2e8098315c28a1fe3c07d206c17a"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/sqlight-1.2.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
+        },
+        {
+          "url": "https://github.com/sponsors/lpil",
+          "type": "other",
+          "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/lpil/sqlight",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
       "bom-ref": "pkg:hex/tom@2.1.0",
       "type": "library",
       "name": "tom",
@@ -1607,6 +1658,7 @@
         "pkg:hex/simplifile@2.7.0",
         "pkg:hex/snag@1.2.0",
         "pkg:hex/spruce@2.0.1",
+        "pkg:hex/sqlight@1.2.0",
         "pkg:hex/tomlet@1.4.1",
         "pkg:hex/tty@1.1.1",
         "pkg:hex/william@1.0.1"
@@ -1791,6 +1843,13 @@
         "pkg:hex/mork@1.12.3",
         "pkg:hex/smalto@3.0.0",
         "pkg:hex/tty@1.1.1"
+      ]
+    },
+    {
+      "ref": "pkg:hex/sqlight@1.2.0",
+      "dependsOn": [
+        "pkg:hex/esqlite@0.10.0",
+        "pkg:hex/gleam_stdlib@1.0.5"
       ]
     },
     {

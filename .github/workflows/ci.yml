@@ -127,7 +127,7 @@ jobs:
       - name: Test runtime startup
         run: just test-runtime-startup
 
-      - name: Test SQLite runtime failures and uncached fallback
+      - name: Test sqlight runtime limits and disabled caches
         run: just test-cache-runtime
 
       - name: Test interrupted policy writes
@@ -136,7 +136,7 @@ jobs:
       - name: Test CLI output streams
         run: just test-cli-streams
 
-      - name: Test Unicode cache paths
+      - name: Test Unicode environment conversion and ASCII cache paths
         run: just test-env-cache-paths
 
       - name: Smoke test built CLI

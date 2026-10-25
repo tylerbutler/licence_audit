@@ -534,18 +534,22 @@ them again. Metadata changes on Hex can take up to 7 days to appear; use
 instead stores metadata from locked package archives. Those entries do not
 expire.
 
-Concurrent projects and commands can share the cache. Use a local filesystem
-for the cache location. In CI, restore and save the cache directory between
-jobs, for example with `actions/cache` and
+Use a local filesystem for the cache location. Give concurrent commands
+separate cache paths, or use `--no-cache`. In CI, restore and save the cache
+directory between jobs, for example with `actions/cache` and
 `--cache-path=.hex-cache/hex-v2.sqlite3` (cache `.hex-cache/`). A fresh runner
 with no restored cache must fetch each package again. Use `--verbose` to see
 cache hits and misses.
 
-The caches use SQLite with WAL and no busy wait. Reads can continue while
-another command writes. If an operation needs a busy lock, it is skipped and
-a nonfatal warning is reported. Connections close after each operation;
-no transaction stays open during a network request. Metadata and its fetch
-timestamp are written atomically.
+The caches use `sqlight` directly, with SQLite WAL and no busy wait.
+Connections close after each operation that returns normally; no transaction
+stays open during a network request. Metadata and its fetch timestamp are
+written atomically.
+
+The current driver has limits: use ASCII-only cache paths, and do not rely on
+concurrent writes to the same cache. A busy query or a missing or unloadable
+native library can raise an exception and stop the command. These exceptions
+are not converted to cache warnings. Use `--no-cache` to bypass the driver.
 
 The new `.sqlite3` caches refill on first use. Old `.dets` caches are not
 imported or changed. If `--cache-path` points to a DETS file, the command warns
@@ -555,9 +559,11 @@ Save CI caches only after all commands that use them have finished. A copy
 of a live database file can omit committed WAL data. Copying an active cache
 directory is not a coordinated SQLite snapshot.
 
-On Linux, the bundled SQLite build limits absolute database paths to 504
-UTF-8 bytes, including directories. A longer path disables caching with a
-warning; the audit still runs. Use a shorter `XDG_CACHE_HOME` or `--cache-path`.
+On Linux, keep absolute database paths within 504 bytes, including
+directories. Longer paths are unsupported. Some failed opens can abort the
+VM because of an upstream driver bug tracked in
+[#168](https://github.com/tylerbutler/licence_audit/issues/168).
+Use a shorter `XDG_CACHE_HOME` or `--cache-path`, or use `--no-cache`.
 
 Each successful lookup is cached immediately. A later lookup failure does
 not discard earlier entries, and the audit continues with the remaining
@@ -583,15 +589,16 @@ the licence materials cache stays at its default location. Use `XDG_CACHE_HOME`
 to relocate both caches. A corrupt cached value is treated
 as a miss, and transient network failures are never cached as successes.
 
-If a cache operation fails, `licence_audit` writes a warning to stderr and
-continues the run. OSV advisories are not cached.
+If a cache operation returns an error, `licence_audit` writes a warning to
+stderr and continues the run. Upstream driver exceptions are not intercepted.
+OSV advisories are not cached.
 
 Escript installations need the `sqlite_native/` directory beside the escript
 for caching. Release archives and `just build` include it; no `ERL_LIBS`
 setting is needed. Release escript archives include a native library for each
 of the seven supported release targets; the escript selects its platform.
-A bare escript or an unavailable native library produces
-a warning and runs without caching. `--no-cache` does not load SQLite.
+Use `--no-cache` with a bare escript or an unavailable native library.
+`--no-cache` does not load SQLite.
 
 ## Troubleshooting
 

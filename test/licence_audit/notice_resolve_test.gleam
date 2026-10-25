@@ -28,7 +28,7 @@ pub fn corrupt_spdx_text_is_refetched_and_renders_without_crashing_test() {
   let source = read_bytes("notice_only_hex.tar")
   let package =
     hex_package("corrupt_spdx_text", checksum_of(source), ["MIT"], [])
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), Some(warning)) =
     notice_resolve.resolve(
       cache,
       package,
@@ -50,12 +50,13 @@ pub fn corrupt_spdx_text_is_refetched_and_renders_without_crashing_test() {
       manifest_path: "manifest.toml",
     )
   assert string.contains(rendered, "Refetched canonical MIT text")
-  let assert Some(_) = notice_cache.close(cache)
+  assert string.contains(warning, "read " <> key)
+  let assert None = notice_cache.close(cache)
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  should.equal(
-    notice_cache.get_text(cache, key),
+  should.equal(notice_cache.get_text(cache, key), #(
     Ok("Refetched canonical MIT text"),
-  )
+    None,
+  ))
   let assert None = notice_cache.close(cache)
 }
 
@@ -174,7 +175,7 @@ pub fn source_with_licence_needs_no_fallback_test() {
       panic_spdx,
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -191,7 +192,7 @@ pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
   let checksum = checksum_of(source)
   let package = hex_package("same", string.lowercase(checksum), ["MIT"], [])
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  let assert Ok(first) =
+  let assert #(Ok(first), None) =
     notice_resolve.resolve(
       cache,
       package,
@@ -206,7 +207,7 @@ pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
   let assert None = notice_cache.close(cache)
 
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  let assert Ok(cached) =
+  let assert #(Ok(cached), None) =
     notice_resolve.resolve(
       cache,
       hex_package("same", checksum, ["MIT"], []),
@@ -215,7 +216,7 @@ pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
   should.equal(cached, first)
 
   let changed_source = read_bytes("notice_only_hex.tar")
-  let assert Ok(changed) =
+  let assert #(Ok(changed), None) =
     notice_resolve.resolve(
       cache,
       hex_package("same", checksum_of(changed_source), ["MIT"], []),
@@ -251,7 +252,8 @@ pub fn path_packages_always_read_mutable_source_test() {
   list.each(["first", "second"], fn(contents) {
     let assert Ok(_) = simplifile.write(contents, to: root <> "/LICENSE")
     let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-    let assert Ok(resolution) = notice_resolve.resolve(cache, package, client)
+    let assert #(Ok(resolution), None) =
+      notice_resolve.resolve(cache, package, client)
     should.equal(
       resolution.outcome,
       notice_resolve.Resolved([notice.NoticeFile("LICENSE", contents)]),
@@ -275,14 +277,14 @@ pub fn blank_path_licence_uses_spdx_or_reports_missing_test() {
         source: notice.PathPackage(root),
         scope: manifest.Prod,
       )
-    let assert Ok(missing) =
+    let assert #(Ok(missing), None) =
       notice_resolve.resolve(
         cache,
         package,
         clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx),
       )
     should.equal(missing.outcome, notice_resolve.Missing)
-    let assert Ok(resolved) =
+    let assert #(Ok(resolved), None) =
       notice_resolve.resolve(
         cache,
         notice.NoticePackage(..package, declared_licences: ["MIT"]),
@@ -316,7 +318,7 @@ pub fn blank_repository_uses_next_repository_or_spdx_test() {
           ]
         }
         let package = hex_package("dep", checksum_of(source), ["MIT"], links)
-        let assert Ok(resolved) =
+        let assert #(Ok(resolved), None) =
           notice_resolve.resolve(
             notice_cache.open(notice_cache.Disabled),
             package,
@@ -354,7 +356,8 @@ fn assert_attribution_requires_fallback(
 ) -> Nil {
   list.each(["LicenseRef-Custom", "mit"], fn(declared) {
     let package = notice.NoticePackage(..package, declared_licences: [declared])
-    let assert Ok(resolution) = notice_resolve.resolve(cache, package, client)
+    let assert #(Ok(resolution), None) =
+      notice_resolve.resolve(cache, package, client)
     case declared {
       "LicenseRef-Custom" ->
         should.equal(resolution.outcome, notice_resolve.Missing)
@@ -502,14 +505,15 @@ pub fn stale_blank_source_repository_and_final_caches_are_repaired_test() {
     ],
     fn(stale) {
       notice_cache.put_files(cache, final_key, stale)
-      let assert Ok(resolved) = notice_resolve.resolve(cache, package, live)
+      let assert #(Ok(resolved), None) =
+        notice_resolve.resolve(cache, package, live)
       let assert notice_resolve.Resolved(files) = resolved.outcome
       should.equal(paths(files), ["./NOTICE.txt", "LICENSE"])
     },
   )
   let assert None = notice_cache.close(cache)
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  let assert Ok(resolved) =
+  let assert #(Ok(resolved), None) =
     notice_resolve.resolve(
       cache,
       package,
@@ -575,7 +579,7 @@ pub fn old_empty_material_caches_do_not_hide_nested_licences_test() {
             ),
           ],
         )
-        let assert Ok(resolution) =
+        let assert #(Ok(resolution), None) =
           notice_resolve.resolve(
             cache,
             package,
@@ -614,7 +618,7 @@ pub fn blank_cached_spdx_is_refetched_and_blank_live_spdx_is_missing_test() {
       fn(_) { Ok(Some(text)) },
     )
   }
-  let assert Ok(resolved) =
+  let assert #(Ok(resolved), None) =
     notice_resolve.resolve(
       cache,
       hex_package("cached", checksum_of(source), ["MIT"], []),
@@ -622,9 +626,12 @@ pub fn blank_cached_spdx_is_refetched_and_blank_live_spdx_is_missing_test() {
     )
   let assert notice_resolve.Resolved(files) = resolved.outcome
   should.equal(paths(files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
-  should.equal(notice_cache.get_text(cache, key), Ok("Canonical MIT text"))
+  should.equal(notice_cache.get_text(cache, key), #(
+    Ok("Canonical MIT text"),
+    None,
+  ))
   let assert None = notice_cache.close(cache)
-  let assert Ok(missing) =
+  let assert #(Ok(missing), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       hex_package("live", checksum_of(source), ["MIT"], []),
@@ -655,7 +662,7 @@ pub fn notice_only_source_falls_back_to_repository_test() {
       panic_spdx,
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -686,7 +693,7 @@ pub fn notice_only_source_repo_missing_falls_back_to_spdx_test() {
       },
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -716,7 +723,7 @@ pub fn repository_network_failure_warns_and_uses_spdx_test() {
       fn(_requirement) { Ok(Some("Canonical MIT text")) },
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -728,7 +735,10 @@ pub fn repository_network_failure_warns_and_uses_spdx_test() {
   assert string.contains(warning, "Repository fallback for notice_only")
 }
 
-pub fn spdx_network_failure_is_hard_error_test() {
+pub fn spdx_network_failure_preserves_cache_warning_test() {
+  let path = fresh_cache_path("failed_spdx_warning")
+  let cache = notice_cache.open(notice_cache.Enabled(Some(path)))
+  cache_support.drop_table(path)
   let source = read_bytes("notice_only_hex.tar")
   let package = hex_package("notice_only", checksum_of(source), ["MIT"], [])
   let client =
@@ -740,12 +750,12 @@ pub fn spdx_network_failure_is_hard_error_test() {
       fn(_requirement) { Error(notice.FetchNetworkFailure) },
     )
 
-  let assert Error(notice.SpdxFetchFailed("notice_only", "MIT", _)) =
-    notice_resolve.resolve(
-      notice_cache.open(notice_cache.Disabled),
-      package,
-      client,
-    )
+  let assert #(
+    Error(notice.SpdxFetchFailed("notice_only", "MIT", _)),
+    Some(warning),
+  ) = notice_resolve.resolve(cache, package, client)
+  assert string.contains(warning, "Failed to access notices cache: read spdx:")
+  let assert None = notice_cache.close(cache)
 }
 
 pub fn partial_spdx_expression_is_missing_test() {
@@ -761,7 +771,7 @@ pub fn partial_spdx_expression_is_missing_test() {
       panic_spdx,
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -785,7 +795,7 @@ pub fn spdx_identifier_case_is_canonicalized_test() {
       },
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -808,7 +818,7 @@ pub fn license_ref_declared_is_missing_test() {
       panic_spdx,
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -847,7 +857,7 @@ pub fn git_source_skips_repository_fallback_test() {
       fn(_requirement) { Ok(Some("Canonical MIT text")) },
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -865,7 +875,7 @@ pub fn spdx_records_are_shared_across_packages_test() {
   // First package resolves Apache-2.0 via the SPDX fallback and caches it.
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let first = hex_package("a", checksum, ["Apache-2.0"], [])
-  let assert Ok(_) =
+  let assert #(Ok(_), None) =
     notice_resolve.resolve(
       cache,
       first,
@@ -881,7 +891,7 @@ pub fn spdx_records_are_shared_across_packages_test() {
   // A different package (distinct final key) reusing Apache-2.0 hits the shared
   // SPDX record without another fetch.
   let second = hex_package("b", checksum, ["Apache-2.0"], [])
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       cache,
       second,
@@ -907,7 +917,7 @@ pub fn final_cache_key_includes_declared_metadata_test() {
   let checksum = checksum_of(source)
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
 
-  let assert Ok(first) =
+  let assert #(Ok(first), None) =
     notice_resolve.resolve(
       cache,
       hex_package("same", checksum, ["MIT"], []),
@@ -927,7 +937,7 @@ pub fn final_cache_key_includes_declared_metadata_test() {
 
   // The immutable source is cached, but changed declared metadata must produce a
   // different final key and resolve the new SPDX identifier.
-  let assert Ok(second) =
+  let assert #(Ok(second), None) =
     notice_resolve.resolve(
       cache,
       hex_package("same", checksum, ["Apache-2.0"], []),
@@ -993,7 +1003,7 @@ fn assert_git_archive_fetch(
       panic_spdx,
     )
 
-  let assert Ok(resolution) =
+  let assert #(Ok(resolution), None) =
     notice_resolve.resolve(
       notice_cache.open(notice_cache.Disabled),
       package,
@@ -1043,7 +1053,7 @@ pub fn transient_repo_failure_is_not_cached_and_retries_test() {
 
   // First run: the repository fails transiently, so resolution degrades to the
   // SPDX fallback. That degraded final result must NOT be cached.
-  let assert Ok(first) =
+  let assert #(Ok(first), None) =
     notice_resolve.resolve(
       cache,
       package,
@@ -1065,7 +1075,7 @@ pub fn transient_repo_failure_is_not_cached_and_retries_test() {
   // Second run: the repository now succeeds. Because the degraded result was
   // not frozen, resolution retries the repository and uses its LICENSE. SPDX
   // must not be consulted (panic_spdx proves no silent final-cache hit either).
-  let assert Ok(second) =
+  let assert #(Ok(second), None) =
     notice_resolve.resolve(
       cache,
       package,
@@ -1115,14 +1125,14 @@ pub fn disabled_cache_refetches_across_runs_test() {
     )
   }
 
-  let assert Ok(first) = resolve_once()
+  let assert #(Ok(first), None) = resolve_once()
   let assert notice_resolve.Resolved(first_files) = first.outcome
   should.equal(paths(first_files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
 
   // A second run with panic_spdx would explode if a disabled cache had somehow
   // retained the record; instead it must re-fetch, so we assert it succeeds
   // again with the live fetcher above.
-  let assert Ok(second) = resolve_once()
+  let assert #(Ok(second), None) = resolve_once()
   let assert notice_resolve.Resolved(second_files) = second.outcome
   should.equal(paths(second_files), [
     "./NOTICE.txt",

@@ -1,5 +1,5 @@
 -module(cache_support_ffi).
--export([corrupt_entry/2, with_writer/2, create_legacy/1, assert_concurrent_cleanup/1]).
+-export([corrupt_entry/2, with_writer/2, assert_busy/1, create_legacy/1, assert_concurrent_cleanup/1]).
 
 corrupt_entry(Path, Key) ->
     {ok, Connection} = esqlite3:open(binary_to_list(filename:absname(Path))),
@@ -22,6 +22,13 @@ with_writer(Path, Action) ->
     after
         ok = esqlite3:exec(Connection, <<"ROLLBACK">>),
         ok = esqlite3:close(Connection)
+    end.
+
+assert_busy(Action) ->
+    try Action() of
+        _ -> erlang:error(expected_sqlight_busy_exception)
+    catch
+        error:{case_clause, '$busy'} -> nil
     end.
 
 create_legacy(Path) ->
@@ -49,8 +56,7 @@ assert_concurrent_cleanup(Prefix) ->
                     licence_audit@cache_dir:lookup_entry(Store, <<"key">>),
                 false = filelib:is_regular(<<Path/binary, "-wal">>),
                 false = filelib:is_regular(<<Path/binary, "-shm">>)
-            end, lists:seq(1, 30)),
-            none = licence_audit@cache_dir:close_table(Store, <<"test">>, none)
+            end, lists:seq(1, 30))
         after
             file:delete(Path)
         end

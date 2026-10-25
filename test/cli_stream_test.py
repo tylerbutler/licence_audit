@@ -118,7 +118,7 @@ class CliStreamTest(unittest.TestCase):
                 """
                 Path = unicode:characters_to_binary(os:getenv("STREAM_CACHE_PATH")),
                 Cache = 'licence_audit@cache':open({enabled, {some, Path}}),
-                {ok, _} = 'licence_audit@cache':fetch_cached_quiet(
+                {{ok, _}, none} = 'licence_audit@cache':fetch_cached_quiet(
                     Cache, <<"example">>, <<"1.0.0">>,
                     fun(_) -> {ok, 'licence_audit@hex':licences_only([<<"MIT">>])} end),
                 none = 'licence_audit@cache':close(Cache),
@@ -146,7 +146,7 @@ class CliStreamTest(unittest.TestCase):
                 else:
                     self.assertEqual(result.stderr, "")
 
-    def test_unloadable_sqlite_keeps_sbom_stdout_valid(self):
+    def test_no_cache_keeps_sbom_stdout_valid_without_sqlite(self):
         binary = self.project / "licence_audit"
         shutil.copy2(ROOT / "licence_audit", binary)
         sidecar = self.project / "sqlite_native/esqlite"
@@ -158,12 +158,12 @@ class CliStreamTest(unittest.TestCase):
         env = {**os.environ, "XDG_CACHE_HOME": str(self.project / "cache")}
         env.pop("ERL_LIBS", None)
         result = subprocess.run(
-            [str(binary), "sbom", "--offline", "--quiet"],
+            [str(binary), "sbom", "--offline", "--quiet", "--no-cache"],
             cwd=self.project, env=env, capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
-        self.assertIn("Failed to load NIF library", result.stderr)
+        self.assertEqual(result.stderr, "")
 
     def test_help_version_and_usage_streams(self):
         for argument in ("--help", "--version"):

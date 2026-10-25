@@ -1,8 +1,5 @@
 -module(cache_process_test_ffi).
--export([concurrent_writes/5, worker/0, monotonic_milliseconds/0]).
-
-monotonic_milliseconds() ->
-    erlang:monotonic_time(millisecond).
+-export([concurrent_writes/5, worker/0]).
 
 concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
     case os:find_executable("erl") of
@@ -56,7 +53,7 @@ wait_workers([Port | Rest]) ->
     end.
 
 start_worker(Erl, Root, Key, Value, Port) ->
-    Ebin = filename:dirname(code:which(cache_dir_ffi)),
+    Ebin = filename:dirname(code:which(licence_audit@cache_dir)),
     LibDirs = filelib:wildcard(filename:join(filename:dirname(filename:dirname(filename:dirname(code:which(gleam@result)))), "*/ebin")),
     TestEbin = filename:dirname(code:which(?MODULE)),
     open_port(
@@ -148,15 +145,19 @@ worker() ->
             {error, Error} ->
                 {error, licence_audit@cache_dir:describe_error(Error)}
         end,
-    _ = licence_audit@cache_dir:close_table(Store, <<"test">>, none),
     ok = gen_tcp:send(Socket, term_to_binary(Result)),
     gen_tcp:close(Socket),
     halt().
 
-%% Immediate cache writes can skip a busy lock; retry here to verify both
-%% successful writes survive the cross-VM race.
+%% Retry sqlight's busy exception only in this test to verify successful writes.
 when_available(Action, Retries) ->
-    case Action() of
+    Outcome = try Action()
+    catch
+        error:{case_clause, '$busy'} when Retries > 0 ->
+            timer:sleep(10),
+            when_available(Action, Retries - 1)
+    end,
+    case Outcome of
         {error, Error} when Retries > 0 ->
             Message = licence_audit@cache_dir:describe_error(Error),
             case binary:match(Message, <<"SQLite error 5:">>) of

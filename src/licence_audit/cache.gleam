@@ -2,9 +2,9 @@
 ////
 //// Mutable Hex API entries are keyed by `name@version` and expire after seven
 //// days. Reproducible SBOM entries are keyed by an archive checksum or commit
-//// and never expire. The cache is purely an optimisation: any failure to open,
-//// read, or write falls back to the source fetcher and records a deferred
-//// warning so the caller can surface it after the audit finishes.
+//// and never expire. Returned storage errors fall back to the source fetcher
+//// and record a deferred warning. Upstream sqlight exceptions can stop the
+//// command; use `--no-cache` to bypass the driver.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -46,9 +46,9 @@ fn cache_filename() -> String {
 
 /// Open a cache according to `mode`.
 ///
-/// Never returns an error. If the cache path cannot be prepared, the returned
+/// Returns no error value. If the cache path cannot be prepared, the returned
 /// `Cache` bypasses storage and includes a deferred warning accessible via
-/// `close`.
+/// `close`. Upstream sqlight exceptions are not intercepted.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
@@ -61,16 +61,10 @@ pub fn open(mode: Mode) -> Cache {
   }
 }
 
-/// Close the cache (if open) and return any deferred warning.
-///
-/// The warning, if `Some`, describes the most recent non-fatal cache
-/// failure (open, write, or close). Callers should surface it as the
-/// last log entry of the run.
+/// Return the warning from opening the cache. Operations return their own
+/// warnings explicitly; no connection remains open between operations.
 pub fn close(cache: Cache) -> Option(String) {
-  case cache.table {
-    None -> cache.warning
-    Some(table) -> cache_dir.close_table(table, "licence", cache.warning)
-  }
+  cache.warning
 }
 
 /// Build a fetcher that consults the cache before falling through to
@@ -93,8 +87,10 @@ pub fn wrap(
           )
         #(fetcher(package.name), reporter)
       }
-      Some(table) ->
-        case lookup_entry(table, key) {
+      Some(table) -> {
+        let #(cached, warning) = lookup_entry(table, key)
+        let reporter = defer_warning(reporter, warning)
+        case cached {
           Ok(metadata) -> {
             let reporter = progress.detail(reporter, "Cache hit for " <> key)
             #(Ok(metadata), reporter)
@@ -108,6 +104,7 @@ pub fn wrap(
             fetch_and_store(table, key, fetcher(package.name), reporter)
           }
         }
+      }
     }
   }
 }
@@ -117,20 +114,21 @@ pub fn wrap(
 /// A variant of `wrap` for callers that have no progress reporter to thread
 /// (e.g. the `notices` metadata lookup). Consults the cache, falls through to
 /// `fetcher` on a miss, best-effort writes successful results back, and falls
-/// back to a stale entry when the upstream fetch fails. All cache failures are
-/// silent: the cache is purely an optimisation.
+/// back to a stale entry when the upstream fetch fails. Storage failures return
+/// an optional warning without replacing the fetch result.
 pub fn fetch_cached_quiet(
   cache: Cache,
   name: String,
   version: String,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-) -> Result(hex.PackageMetadata, hex.Error) {
+) -> #(Result(hex.PackageMetadata, hex.Error), Option(String)) {
   case cache.table {
-    None -> fetcher(name)
+    None -> #(fetcher(name), None)
     Some(table) -> {
       let key = name <> "@" <> version
-      case lookup_entry(table, key) {
-        Ok(metadata) -> Ok(metadata)
+      use cached <- cache_dir.with_warning(lookup_entry(table, key))
+      case cached {
+        Ok(metadata) -> #(Ok(metadata), None)
         Error(_) -> fetch_and_store_quiet(table, key, fetcher(name))
       }
     }
@@ -146,23 +144,25 @@ pub fn fetch_immutable(
   cache: Cache,
   key: String,
   fetcher: fn() -> Result(hex.PackageMetadata, error),
-) -> Result(hex.PackageMetadata, error) {
+) -> #(Result(hex.PackageMetadata, error), Option(String)) {
   let key = "$immutable:v2:" <> key
   case cache.table {
-    None -> fetcher()
-    Some(table) ->
-      case lookup_stale(table, key) {
-        Ok(metadata) -> Ok(metadata)
+    None -> #(fetcher(), None)
+    Some(table) -> {
+      use cached <- cache_dir.with_warning(lookup_stale(table, key))
+      case cached {
+        Ok(metadata) -> #(Ok(metadata), None)
         Error(_) ->
           case fetcher() {
-            Error(error) -> Error(error)
+            Error(error) -> #(Error(error), None)
             Ok(metadata) -> {
-              let _ =
+              let stored =
                 cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
-              Ok(metadata)
+              #(Ok(metadata), write_warning(stored))
             }
           }
       }
+    }
   }
 }
 
@@ -173,17 +173,18 @@ fn fetch_and_store_quiet(
   table: cache_dir.Store,
   key: String,
   fetched: Result(hex.PackageMetadata, hex.Error),
-) -> Result(hex.PackageMetadata, hex.Error) {
+) -> #(Result(hex.PackageMetadata, hex.Error), Option(String)) {
   case fetched {
     Ok(metadata) -> {
-      let _ = store_quiet(table, key, metadata)
-      Ok(metadata)
+      #(Ok(metadata), write_warning(store_quiet(table, key, metadata)))
     }
-    Error(error) ->
-      case lookup_stale(table, key) {
-        Ok(metadata) -> Ok(metadata)
-        Error(_) -> Error(error)
+    Error(error) -> {
+      use cached <- cache_dir.with_warning(lookup_stale(table, key))
+      case cached {
+        Ok(metadata) -> #(Ok(metadata), None)
+        Error(_) -> #(Error(error), None)
       }
+    }
   }
 }
 
@@ -200,18 +201,15 @@ fn store_quiet(
   )
 }
 
-/// Handle a cache miss: record the fetch result and, on success, best-effort
-/// write it back to `table`. Write failures are surfaced as a verbose detail
-/// event but never fail the fetch.
 fn lookup_entry(
   table: cache_dir.Store,
   key: String,
-) -> Result(hex.PackageMetadata, Nil) {
+) -> #(Result(hex.PackageMetadata, Nil), Option(String)) {
   // A stored value that no longer parses (e.g. partial format drift) is
   // reported as a miss so the caller refetches rather than failing.
   case cache_dir.lookup_entry(table, key) {
-    Ok(entry) ->
-      case hex.decode_cache_entry(entry.value) {
+    Ok(entry) -> {
+      let metadata = case hex.decode_cache_entry(entry.value) {
         Error(_) -> Error(Nil)
         Ok(metadata) ->
           case cache_entry_expired(entry.cached_at) {
@@ -219,10 +217,13 @@ fn lookup_entry(
             False -> Ok(metadata)
           }
       }
-    Error(_) -> Error(Nil)
+      #(metadata, None)
+    }
+    Error(error) -> #(Error(Nil), cache_dir.access_warning(error, "licence"))
   }
 }
 
+/// Record successful fetches without failing them on cache storage errors.
 fn fetch_and_store(
   table: cache_dir.Store,
   key: String,
@@ -236,12 +237,15 @@ fn fetch_and_store(
         Ok(_) ->
           progress.detail(reporter, "Cached licence metadata for " <> key)
         Error(error) ->
-          progress.detail(
-            reporter,
-            "Failed to write cache entry for "
-              <> key
-              <> ": "
-              <> cache_dir.describe_error(error),
+          defer_warning(
+            progress.detail(
+              reporter,
+              "Failed to write cache entry for "
+                <> key
+                <> ": "
+                <> cache_dir.describe_error(error),
+            ),
+            cache_dir.access_warning(error, "licence"),
           )
       }
       #(Ok(metadata), reporter)
@@ -261,7 +265,9 @@ fn fall_back_to_stale(
   error: hex.Error,
   reporter: progress.Reporter,
 ) -> #(Result(hex.PackageMetadata, hex.Error), progress.Reporter) {
-  case lookup_stale(table, key) {
+  let #(cached, warning) = lookup_stale(table, key)
+  let reporter = defer_warning(reporter, warning)
+  case cached {
     Ok(metadata) -> {
       let reporter =
         progress.defer_warn(
@@ -283,10 +289,27 @@ fn fall_back_to_stale(
 fn lookup_stale(
   table: cache_dir.Store,
   key: String,
-) -> Result(hex.PackageMetadata, Nil) {
+) -> #(Result(hex.PackageMetadata, Nil), Option(String)) {
   case cache_dir.lookup(table, key) {
-    Ok(encoded) -> hex.decode_cache_entry(encoded)
-    Error(_) -> Error(Nil)
+    Ok(encoded) -> #(hex.decode_cache_entry(encoded), None)
+    Error(error) -> #(Error(Nil), cache_dir.access_warning(error, "licence"))
+  }
+}
+
+fn write_warning(result: Result(Nil, cache_dir.Error)) -> Option(String) {
+  case result {
+    Ok(Nil) -> None
+    Error(error) -> cache_dir.access_warning(error, "licence")
+  }
+}
+
+fn defer_warning(
+  reporter: progress.Reporter,
+  warning: Option(String),
+) -> progress.Reporter {
+  case warning {
+    None -> reporter
+    Some(message) -> progress.defer_warn(reporter, message)
   }
 }
 

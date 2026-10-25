@@ -23,46 +23,64 @@ for character in é 中; do
   for variable in XDG_CACHE_HOME HOME; do
     root="$work/$variable-$character"
     if [ "$variable" = XDG_CACHE_HOME ]; then
-      expected="$root/licence_audit"
       environment=(env "HOME=$work/unused-home" "XDG_CACHE_HOME=$root")
     else
-      expected="$root/.cache/licence_audit"
       environment=(env -u XDG_CACHE_HOME "HOME=$root")
     fi
 
-    # Each environment must be present before the VM starts.
-    "${environment[@]}" CACHE_TEST_VARIABLE="$variable" \
-      CACHE_TEST_ROOT="$root" CACHE_TEST_EXPECTED="$expected" \
+    "${environment[@]}" CACHE_TEST_VARIABLE="$variable" CACHE_TEST_ROOT="$root" \
       timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
         Variable = list_to_binary(os:getenv("CACHE_TEST_VARIABLE")),
         Root = unicode:characters_to_binary(os:getenv("CACHE_TEST_ROOT")),
         {ok, Root} = env_ffi:get(Variable),
-        {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2.sqlite3">>, <<"licence">>),
-        Key = <<"gleam_stdlib@1.0.5">>,
-        {ok, nil} = licence_audit@cache_dir:insert_at(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>, {some, erlang:system_time(second)}),
-        none = licence_audit@cache_dir:close_table(Store, <<"licence">>, none),
-        Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2.sqlite3"),
-        true = filelib:is_regular(Expected),
+        Disabled = licence_audit@cache:open(disabled),
+        none = licence_audit@cache:close(Disabled),
+        false = code:is_loaded(esqlite3_nif),
         halt().
       '
-    test -s "$expected/hex-v2.sqlite3"
-
-    # A fresh, cache-enabled CLI must read this entry without a network request.
-    (
-      cd "$work"
-      if ! "${environment[@]}" timeout --kill-after=5s 30s "$binary" \
-        --verbose --color=never >cli.log 2>&1; then
-        cat cli.log >&2
-        exit 1
-      fi
-      grep -Fq 'Cache hit for gleam_stdlib@1.0.5' cli.log
-      grep -Eq 'gleam_stdlib[[:space:]]+1\.0\.5[[:space:]]+Apache-2\.0' cli.log
-      if grep -Eiq 'warn|cache miss|runtime terminating|crash dump' cli.log; then
-        cat cli.log >&2
-        exit 1
-      fi
-    )
   done
+done
+
+for variable in XDG_CACHE_HOME HOME; do
+  root="$work/$variable"
+  if [ "$variable" = XDG_CACHE_HOME ]; then
+    expected="$root/licence_audit"
+    environment=(env "HOME=$work/unused-home" "XDG_CACHE_HOME=$root")
+  else
+    expected="$root/.cache/licence_audit"
+    environment=(env -u XDG_CACHE_HOME "HOME=$root")
+  fi
+
+  "${environment[@]}" CACHE_TEST_VARIABLE="$variable" \
+    CACHE_TEST_ROOT="$root" CACHE_TEST_EXPECTED="$expected" \
+    timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
+      Variable = list_to_binary(os:getenv("CACHE_TEST_VARIABLE")),
+      Root = unicode:characters_to_binary(os:getenv("CACHE_TEST_ROOT")),
+      {ok, Root} = env_ffi:get(Variable),
+      {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2.sqlite3">>, <<"licence">>),
+      Key = <<"gleam_stdlib@1.0.5">>,
+      {ok, nil} = licence_audit@cache_dir:insert_at(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>, {some, erlang:system_time(second)}),
+      Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2.sqlite3"),
+      true = filelib:is_regular(Expected),
+      halt().
+    '
+  test -s "$expected/hex-v2.sqlite3"
+
+  # A fresh, cache-enabled CLI must read this entry without a network request.
+  (
+    cd "$work"
+    if ! "${environment[@]}" timeout --kill-after=5s 30s "$binary" \
+      --verbose --color=never >cli.log 2>&1; then
+      cat cli.log >&2
+      exit 1
+    fi
+    grep -Fq 'Cache hit for gleam_stdlib@1.0.5' cli.log
+    grep -Eq 'gleam_stdlib[[:space:]]+1\.0\.5[[:space:]]+Apache-2\.0' cli.log
+    if grep -Eiq 'warn|cache miss|runtime terminating|crash dump' cli.log; then
+      cat cli.log >&2
+      exit 1
+    fi
+  )
 done
 
 # Missing environment values still produce a deferred, non-fatal cache warning.

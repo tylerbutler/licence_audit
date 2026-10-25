@@ -27,6 +27,7 @@ gleam_time = ">= 1.8.0 and < 2.0.0"
 cvss = ">= 0.1.1 and < 1.0.0"
 filepath = ">= 1.1.2 and < 2.0.0"
 esqlite = ">= 0.10.0 and < 0.11.0"
+sqlight = ">= 1.2.0 and < 2.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
@@ -36,7 +37,7 @@ glugify = ">= 3.0.0 and < 4.0.0"
 [tools]
 
 [tools.trellis]
-exclude = { "@members" = ["test/fixtures", "test/fixtures/native_http", "spikes/**", "vendor/**"] }
+exclude = { "@members" = ["test/fixtures", "test/fixtures/native_http", "vendor/**"] }
 
 [tools.trellis.changelog]
 # The root package owns the whole repository, including internal-only changes.

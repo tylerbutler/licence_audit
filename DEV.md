@@ -217,33 +217,45 @@ This uses fresh Erlang VMs, because the Gleam test runner starts application
 dependencies before it runs tests. The CLI must also start these dependencies
 when Queso calls `main()` directly.
 
-To test Unicode cache paths without network access:
+To test environment conversion and ASCII cache paths without network access:
 
 ```sh
 just test-env-cache-paths
 ```
 
-The test starts fresh Erlang VMs with `é` and `中` in `XDG_CACHE_HOME`
-and `HOME`. It writes cache entries at the expected paths, then runs the
-cache-enabled CLI and checks for cache hits. It also checks conversion
-failures and the deferred warning when neither environment variable is set.
+The test checks `é` and `中` in `XDG_CACHE_HOME` and `HOME` with caching
+disabled. It then writes cache entries at ASCII paths, runs the cache-enabled
+CLI, and checks for cache hits. It also checks conversion failures and the
+deferred warning when neither environment variable is set.
 
 ## SQLite cache
 
-`spikes/sqlite_cache/` contains an isolated experiment with `sqlight` 1.2.0,
-`esqlite` 0.9.0, and its bundled SQLite 3.50.4. The production integration uses
-`esqlite` 0.10.0 directly through `cache_dir_ffi`, which preserves the UTF-8 and busy
-handling without the `sqlight` wrapper. Each operation opens and closes its
-own connection, so no transaction or connection remains open during a fetch.
+The cache uses `sqlight` 1.2.0 directly for connections, SQL queries, parameter
+binding, and row decoding, with `esqlite` constrained to 0.10.x for synchronous
+statement cleanup.
+There is no custom SQLite adapter or cache warning-state FFI. Cache operations
+return warnings explicitly to their callers. `runtime_ffi` adds an escript's
+native sidecar to the code path; it does not load the NIF or wrap database calls.
+Each operation opens and closes its own connection when sqlight returns normally.
 Metadata and its optional timestamp share one atomic upsert. Immutable
 metadata and notice values use a null timestamp.
 
-`esqlite` 0.10.0 synchronously finalizes the private statement owned by `q/3`,
-including on failure. The adapter maps the driver's remaining `'$busy'`
-exception to a cache error. Do not use garbage collection or worker exit as a
+`sqlight.query` uses `esqlite`'s `q/3`, which synchronously finalizes its
+private statement in 0.10.0, including on failure.
+Do not use garbage collection or worker exit as a
 statement-finalization barrier: resource cleanup can finish after those return.
 The connection-lifetime test checks that WAL and SHM files are gone before an
-operation returns.
+operation returns normally.
+
+The integration accepts sqlight's current limits instead of working around
+them: cache paths must be ASCII, busy queries can raise `'$busy'` exceptions,
+and missing or unloadable native libraries can raise `undef`. Returned errors
+still produce deferred cache warnings, but exceptions can stop the command.
+Use separate paths for concurrent commands, or use `--no-cache`.
+
+The tested Linux build supports absolute database paths up to 504 bytes,
+including directories. Production does not validate path length before calling
+sqlight. Keep cache paths ASCII and within that limit, or use `--no-cache`.
 
 **Upstream follow-up: [#168](https://github.com/tylerbutler/licence_audit/issues/168).**
 The published driver can close a freed SQLite handle twice when opening fails.
@@ -252,142 +264,28 @@ The fix belongs upstream; adopt its published dependency when available so
 normal Gleam source installs and packaged releases use the same native code.
 This follow-up does not stop implementation or platform qualification.
 
-`just test-cache-runtime` checks missing and unloadable native libraries in
-fresh VMs, verifies that disabled caches do not load the NIF, and checks the
-504-byte Linux database path boundary.
+`just test-cache-runtime` checks sqlight's exceptions for missing and
+unloadable native libraries in fresh VMs and verifies that disabled caches
+do not load the NIF.
 
-### Historical spike
+### Native packaging
 
-Keep standalone Gleam experiments outside `src/`, `test/`, and `dev/`.
-Gleam scans nested projects in those source directories, including their
-downloaded dependencies. Trellis excludes `spikes/**` from release work.
+Startup selects an adjacent `sqlite_native/<target>/esqlite`
+application, with `sqlite_native/esqlite` as the source-build fallback.
+Sqlight loads the NIF on first use; load failures are not intercepted.
+Native release builds must compile the NIF for each target architecture and
+libc. Cross-building the Queso launcher alone can include a host-built NIF that
+cannot load on the target. The release workflow builds each NIF on its target
+platform and checks both native and escript releases.
 
-```sh
-just spike-sqlite           # Fresh Erlang VMs
-just spike-sqlite-escript   # Exported escript with an esqlite sidecar
-just spike-sqlite-native    # Linux x86_64 glibc, Debian 12 and Ubuntu 24.04
-```
+### Cache snapshots
 
-The native recipe needs Docker, Rust, and cargo-zigbuild. It selects Zig
-0.14.1 with mise and downloads the release Erlang runtime into a
-spike-local cache. This avoids reusing a host ERTS cached by an earlier
-`--erts` build. Neither test container has system Erlang.
-
-The shared shell check covers persistence across VMs, an atomic
-value/timestamp upsert, parameter binding, Unicode values, and Unicode
-paths with spaces. A second VM holds a write transaction while other VMs
-read the committed value and skip busy writes. The check requires three
-busy writes to finish in less than 1000 ms of database-call time in total.
-It terminates writers with SIGTERM and SIGKILL, checks recovery of a committed
-WAL entry and rollback of uncommitted data, and verifies that a corrupt
-database produces an error without replacing the file.
-Each check uses a temporary HOME and cache.
-
-`just spike-sqlite` also runs Erlang EUnit checks for the filename byte limit,
-prepare/bind/step errors, and busy reads, writes, and WAL setup. It checks
-read-only connections, database-full errors forced with a page limit, and
-preservation of a real DETS file. These checks reuse connections after
-errors and lock release to check statement cleanup. A snapshot check
-compares copies made before and after the last connection closes.
-
-You can run the same check against another executable:
-
-```sh
-just spike-sqlite-binary /absolute/path/to/sqlite_cache_spike
-```
-
-#### Findings
-
-The BEAM and sidecar-backed escript checks pass on Linux x86_64. The native
-glibc checks pass on Debian 12 and Ubuntu 24.04 with the downloaded release
-ERTS. The spike adds a small Erlang adapter for two driver failures:
-
-- **Unicode paths need UTF-8 bytes.** The native open function copies
-  filenames with `ERL_NIF_LATIN1`. The adapter passes the UTF-8 bytes as list
-  elements instead of Unicode code points. The shell check uses Greek,
-  accented Latin, and emoji characters and checks the actual database path.
-- **Busy queries need explicit result handling.** `esqlite3:fetchall1` does
-  not handle `'$busy'`. The adapter uses `prepare`, `bind`, `step`, and `reset`
-  to return a `sqlight.Busy` error and release statement locks. It preserves
-  errors from preparation, binding, and execution, and checks reset errors.
-  The upsert now uses a single atomic statement without the `BEGIN IMMEDIATE`
-  workaround. The spike sets `busy_timeout=0` before WAL setup.
-
-Use the spike's open/query adapter rather than `sqlight.open` or
-`sqlight.query` when building on this experiment.
-
-#### Packaging failures found by the spike
-
-These findings apply to the isolated spike, not the production adapter.
-Production selects an adjacent `sqlite_native/<target>/esqlite` application,
-with `sqlite_native/esqlite` as the source-build fallback, before loading the
-NIF. It returns load failures as deferred cache warnings. Native release builds
-compile the NIF for each target platform; cross-building the Queso launcher
-alone is not sufficient.
-
-- **A cross-built launcher can contain the wrong NIF.** Queso copies the
-  host-built NIF into its shipment. The spike's x86_64 musl executable
-  builds, but fails in Alpine at `esqlite3_nif.open/1` with `undef`. Its
-  shipment contains the same x86_64, glibc-linked `esqlite3_nif.so` as the
-  host build. The production workflow now builds each NIF on its target
-  architecture and libc, then runs native and escript cache/HTTPS checks.
-- **The spike escript needs `ERL_LIBS` to find its sidecar.** Its recipe
-  copies `esqlite`'s `ebin/` and `priv/` directories beside the escript
-  and sets `ERL_LIBS` to that bundle's `lib/` directory. With that variable
-  unset, both a bare escript and an escript with an adjacent sidecar fail
-  from an unrelated working directory. Production installation must not
-  depend on the caller setting this variable.
-- **A missing or unloadable NIF crashes the spike.**
-  The spike adapter's open call raises `undef` before it can return a
-  `sqlight.Error`. This violates the production cache's nonfatal-failure
-  contract. The spike's escript and cross-built musl binary exercise this path.
-
-#### Compatibility and cache snapshots
-
-The tested Linux build accepts an absolute database path of **504 UTF-8
-bytes**, including directories, and supports WAL writes at that length.
-Paths of 505 through 511 bytes return `Cantopen`. SQLite's Unix VFS limit
-is 512 bytes and its pager reserves eight bytes for a journal suffix.
-At 512 input bytes, the NIF rejects the filename before SQLite opens it.
-These failures return structured errors; the adapter also rejects NUL
-bytes. Production retains this documented SQLite limit and warns without
-failing the audit. Use a shorter cache path instead of changing the native
-dependency.
-
-A copy of the live database file alone omits committed WAL data. The
-snapshot check cannot read the new table from that copy. After the last
-connection closes, the same copy includes the committed row. CI should
-save caches after commands finish and close their connections. A snapshot
-of an active cache needs SQLite's backup mechanism or coordinated access;
-copying the directory during writes does not guarantee a consistent snapshot.
-
-The earlier Debian 12 failure came from bundling the local ERTS, which
-requires `GLIBC_2.38`. The downloaded release ERTS passes there. The locally
-compiled SQLite NIF requires glibc 2.34; this does not establish support for
-older glibc systems or for NIFs compiled on another release runner.
-
-The spike implements no TTL policy, stale-data fallback, DETS migration,
-or production CLI integration.
-
-Reference mechanisms: `src/licence_audit/cache_dir.gleam:115` for best-effort
-cache access, `src/licence_audit/args_ffi.erl:4` for CLI argument conversion,
-and `test/licence_audit/cache_process_test_ffi.erl:4` for monotonic timing.
-Driver details are in
-[`lpil/sqlight/src/sqlight_ffi.erl:7`](https://github.com/lpil/sqlight/blob/v1.2.0/src/sqlight_ffi.erl#L7-L12),
-[`mmzeeman/esqlite/src/esqlite3.erl:220`](https://github.com/mmzeeman/esqlite/blob/master/src/esqlite3.erl#L220-L228),
-and
-[`mmzeeman/esqlite/c_src/esqlite3_nif.c:190`](https://github.com/mmzeeman/esqlite/blob/master/c_src/esqlite3_nif.c#L190-L192).
-The spike adapters are in `spikes/sqlite_cache/src/sqlite_cache_spike_ffi.erl:4`
-and `spikes/sqlite_cache/src/sqlite_cache_spike.gleam:165`. Both driver
-packages use Apache-2.0. For statement cleanup semantics, see
-[`sqlite3_reset`](https://www.sqlite.org/c3ref/reset.html): a reset error can
-report the preceding step's failure, even though SQLite has reset the statement.
-The path checks are in
-`spikes/sqlite_cache/test/sqlite_cache_spike_ffi_tests.erl:39`; storage failure
-and snapshot checks follow in the same module. Release packaging starts at
-`.github/workflows/publish.yml:23`, and `gleam.toml:50` lists its targets.
-For snapshot requirements, see [SQLite's WAL documentation](https://www.sqlite.org/wal.html)
-and [online backup API](https://www.sqlite.org/backup.html).
+Save caches after commands finish and close their connections. A copy of a
+live database file alone can omit committed WAL data. An active cache needs
+SQLite's backup mechanism or coordinated access; copying the directory during
+writes does not guarantee a consistent snapshot. See
+[SQLite's WAL documentation](https://www.sqlite.org/wal.html) and
+[online backup API](https://www.sqlite.org/backup.html).
 
 ## Common tasks
 
@@ -427,7 +325,7 @@ bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Both runners add `--no-cache`, so they do not touch the on-disk
-caches. Concurrent CLI runs can share cached entries. `--no-cache` bypasses
+caches. Concurrent CLI runs need separate cache paths. `--no-cache` bypasses
 the caches, and `--cache-path=PATH` overrides the licence metadata cache
 location. Source-built escripts require the `sqlite_native/` directory beside
 the executable for cache access; `just build` copies it there.
@@ -540,7 +438,7 @@ Publish includes the generated `THIRD_PARTY_NOTICES.txt`, project `LICENSE`,
 and vendored `NOTICE` in each archive. It also embeds these documents under
 `META-INF/licenses/` in the bare escript ZIP payload. The generated notices
 cover esqlite and its bundled SQLite. Keep `sqlite_native/` beside the escript
-for cache access; the bare download runs without caching.
+for cache access; use `--no-cache` with the bare download.
 
 Run `just test-release-notices` to test staging and archive checks. Publish reads
 the notice bytes from each staged tar/ZIP and the bare escript, and compares
