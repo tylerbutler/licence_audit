@@ -5,7 +5,7 @@ dependencies. Point it at a project, and it will:
 
 - 📋 **report** the licences declared by your locked Hex packages
 - 🚦 **preview or enforce** a licence allow/deny policy
-- 📦 **generate** a CycloneDX SBOM for your dependency tree
+- 📦 **generate** a CycloneDX or SPDX SBOM for your dependency tree
 - 📄 **bundle** release-ready third-party licence notices
 - 🛡️ **check** locked dependencies for known vulnerabilities (OSV.dev)
 
@@ -129,7 +129,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 
 * [`licence_audit check`](docs/check.md) - Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
 * [`licence_audit notices`](docs/notices.md) - Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies. The output inventories each product, includes its applicable licence text, and preserves package-specific NOTICE attribution. Products with identical licence text are grouped so the shared text is emitted once. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback.
-* [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
+* [`licence_audit sbom`](docs/sbom.md) - Generate a CycloneDX 1.6 or SPDX 2.3 JSON SBOM from manifest.toml. Does not evaluate licence policy.
 * [`licence_audit update`](docs/update.md) - Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
 * [`licence_audit vulns`](docs/vulns.md) - Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
 <!-- commandsstop -->
@@ -248,13 +248,15 @@ evidence and attribution. `update` preserves exception entries and comments.
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # compact JSON to a file
-licence_audit sbom --offline           # skip Hex fetch, omit licence fields
+licence_audit sbom --offline           # skip Hex fetch, omit Hex licence fields
 licence_audit sbom --reproducible      # reproducible output (see below)
 licence_audit sbom --vulns             # embed OSV vulnerabilities (see below)
+licence_audit sbom --format=spdx-json  # SPDX 2.3 JSON instead of CycloneDX
 licence_audit sbom --license-text      # embed canonical SPDX licence text
 ```
 
-`sbom` emits a [CycloneDX 1.6](https://cyclonedx.org/) document. Every locked
+`sbom` defaults to a [CycloneDX 1.6](https://cyclonedx.org/) document
+(`--format=cyclonedx-json`). Every locked
 dependency becomes a component with a package URL (`pkg:hex/...` for Hex,
 `pkg:github/owner/repo@<commit>` for GitHub git deps), a SHA-256 hash for Hex
 packages, the package description, declared licences, and external references
@@ -273,6 +275,28 @@ source scanner alongside or downstream of `licence_audit`.
 
 Packages declaring **multiple** licences emit one entry each. Hex doesn't say
 whether the relationship is AND or OR, so no SPDX expression is synthesised.
+
+**SPDX JSON.** `--format=spdx-json` emits SPDX 2.3 from the same locked graph
+and metadata. A document `DESCRIBES` the root package; `DEPENDS_ON` relationships
+connect direct and transitive dependencies. Packages carry purl external references
+and Hex archive SHA-256 checksums (not the inner archive checksum).
+Malformed Hex SHA-256 checksums fail generation.
+
+SPDX packages have `filesAnalyzed: false`, `licenseConcluded: "NOASSERTION"`,
+and `copyrightText: "NOASSERTION"`. A single recognised licence identifier becomes
+`licenseDeclared`. Missing declarations use `NOASSERTION`. Multiple licences,
+expressions, unknown identifiers, and custom licence names also use `NOASSERTION`,
+with the original declarations preserved in `licenseComments`: the tool does not
+infer AND/OR, fabricate custom licence text, or emit unresolved `LicenseRef`s.
+`--offline` leaves Hex dependency licence declarations unknown. Git dependencies
+can still supply declarations from their local `build/packages/<name>/gleam.toml`.
+Combining `--offline --reproducible` leaves all dependency declarations unknown;
+the root project's declarations remain available.
+
+The SPDX document namespace is a fresh UUID by default, or content-derived with
+`--reproducible`. Its creation time follows the same timestamp rules as CycloneDX.
+`--vulns` and `--license-text` are supported only for CycloneDX; SPDX rejects
+either flag before network access or output.
 
 **Embedded licence text.** `--license-text` adds canonical SPDX License List
 text to recognised licence IDs on dependencies and the root component:
@@ -299,7 +323,7 @@ is available, that dependency has no licence text.
 
 `sbom` ignores licence policy. It **fails** on any dependency whose source can't
 become a clean purl (path deps, non-GitHub git deps); only `hex` and GitHub
-`git` are supported. `--offline` skips licence fetches but still validates purls.
+`git` are supported. `--offline` skips network licence fetches but still validates purls.
 (Contrast with `vulns`, which silently skips unsupported sources.)
 
 **Embedded vulnerabilities.** `--vulns` queries OSV.dev (the same pipeline as the
@@ -334,12 +358,20 @@ CycloneDX schema. Three `just` tasks (tools installed via `mise`) cover this:
 just sbom-validate   # schema validation
 just sbom-score      # quality score (local only, informational)
 just sbom-check      # both
+just sbom-spdx-validate  # SPDX schema, semantic and CLI regression checks
 ```
 
 Validation runs `cyclonedx-cli`, `sbom-utility`, and cdxgen's `cdx-validate`.
 Scoring (`sbom-tools`, `sbomqs`) is local-only; note `sbomqs` under-counts
 licences on CycloneDX 1.6, which is why schema validation — not any single
 quality score — is the strict validation check.
+
+The SPDX check uses the official SPDX 2.3 JSON schema at a pinned commit and
+`spdx-tools` semantic validation, including mixed-source and unknown/custom
+licence fixtures. It also checks identifiers, relationship targets, default
+format, stdout/file output, usage errors and reproducibility. It uses `uv`
+(installed through `mise`) for pinned Python validation dependencies and needs
+network access to fetch the schema.
 
 ## Generate release licence notices
 

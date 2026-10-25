@@ -37,6 +37,11 @@ pub type UpdateOptions {
   )
 }
 
+pub type SbomFormat {
+  CyclonedxJson
+  SpdxJson
+}
+
 pub type SbomOptions {
   SbomOptions(
     manifest_path: Option(String),
@@ -47,6 +52,7 @@ pub type SbomOptions {
     offline: Bool,
     reproducible: Bool,
     with_vulns: Bool,
+    format: SbomFormat,
     license_text: Bool,
   )
 }
@@ -413,7 +419,7 @@ fn offline_flag() -> glint.Flag(Bool) {
   glint.bool_flag("offline")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git",
+    "Skip Hex metadata fetch; leave Hex dependency licences unknown; with --reproducible, skip all dependency enrichment including Git",
   )
 }
 
@@ -434,7 +440,7 @@ fn sbom_vulns_flag() -> glint.Flag(Bool) {
 }
 
 const sbom_help =
-  "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy."
+  "Generate a CycloneDX 1.6 or SPDX 2.3 JSON SBOM from manifest.toml. Does not evaluate licence policy."
 
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
@@ -450,11 +456,16 @@ fn sbom_command() -> glint.Command(CliAction) {
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
+  use format <- glint.flag(
+    glint.string_flag("format")
+    |> glint.flag_default("cyclonedx-json")
+    |> glint.flag_help("Output format: cyclonedx-json or spdx-json"),
+  )
   use license_text <- glint.flag(
     glint.bool_flag("license-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline)",
+      "Embed canonical SPDX text for recognised licence IDs in CycloneDX (requires network on cache miss; conflicts with --offline and --format=spdx-json)",
     ),
   )
   use _, _, flags <- glint.command()
@@ -468,38 +479,56 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(offline_value) = offline(flags)
   let assert Ok(reproducible_value) = reproducible(flags)
   let assert Ok(with_vulns_value) = with_vulns(flags)
+  let assert Ok(format_value) = format(flags)
   let assert Ok(license_text_value) = license_text(flags)
 
   case
     verbosity(quiet, verbose),
     offline_value && with_vulns_value,
     reproducible_value && with_vulns_value,
+    format_value,
     offline_value && license_text_value
   {
-    Error(verbosity_error), _, _, _ ->
+    Error(verbosity_error), _, _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, True, _, _ ->
+    _, True, _, _, _ ->
       InvalidUsage(
         "--vulns requires network access and cannot be combined with --offline",
       )
-    _, _, True, _ ->
+    _, _, True, _, _ ->
       InvalidUsage(
         "--vulns uses mutable advisory data and cannot be combined with --reproducible",
       )
-    _, _, _, True ->
+    _, _, _, _, True ->
       InvalidUsage("--license-text cannot be combined with --offline")
-    Ok(verbosity), False, False, False ->
-      RunSbom(SbomOptions(
-        manifest_path: manifest_path,
-        verbosity: verbosity,
-        no_cache: no_cache,
-        cache_path: cache_path_value,
-        output: output_value,
-        offline: offline_value,
-        reproducible: reproducible_value,
-        with_vulns: with_vulns_value,
-        license_text: license_text_value,
-      ))
+    _, _, _, "spdx-json", _ if with_vulns_value ->
+      InvalidUsage("--vulns is supported only with --format cyclonedx-json")
+    _, _, _, "spdx-json", _ if license_text_value ->
+      InvalidUsage(
+        "--license-text is supported only with --format cyclonedx-json",
+      )
+    Ok(verbosity), False, False, "cyclonedx-json", False
+    | Ok(verbosity), False, False, "spdx-json", False
+    ->
+      RunSbom(
+        SbomOptions(
+          manifest_path: manifest_path,
+          verbosity: verbosity,
+          no_cache: no_cache,
+          cache_path: cache_path_value,
+          output: output_value,
+          offline: offline_value,
+          reproducible: reproducible_value,
+          with_vulns: with_vulns_value,
+          license_text: license_text_value,
+          format: case format_value {
+            "spdx-json" -> SpdxJson
+            _ -> CyclonedxJson
+          },
+        ),
+      )
+    _, _, _, _, _ ->
+      InvalidUsage("--format must be cyclonedx-json or spdx-json")
   }
 }
 

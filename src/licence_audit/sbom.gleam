@@ -239,8 +239,14 @@ fn match_spdx(raw: String) -> Result(String, Nil) {
     })
   {
     Ok(_) -> Error(Nil)
-    Error(_) -> list.find(spdx_ids, fn(id) { string.lowercase(id) == lower })
+    Error(_) -> spdx_license_id(raw)
   }
+}
+
+/// Canonical SPDX identifier, without CycloneDX 1.6's schema restrictions.
+pub fn spdx_license_id(raw: String) -> Result(String, Nil) {
+  let lower = string.lowercase(raw)
+  list.find(spdx_ids, fn(id) { string.lowercase(id) == lower })
 }
 
 import gleam/dict.{type Dict}
