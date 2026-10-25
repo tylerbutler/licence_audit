@@ -80,14 +80,22 @@ pub type SbomManifest {
 }
 
 pub fn sbom_entries(input: String) -> Result(SbomManifest, Error) {
+  parse_entries(input, decode_sbom_entry)
+}
+
+fn parse_entries(
+  input: String,
+  decode_entry: fn(Value) -> Result(SbomEntry, Error),
+) -> Result(SbomManifest, Error) {
   case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
-    Ok(document) -> sbom_entries_from_document(document)
+    Ok(document) -> sbom_entries_from_document(document, decode_entry)
   }
 }
 
 fn sbom_entries_from_document(
   document: Document,
+  decode_entry: fn(Value) -> Result(SbomEntry, Error),
 ) -> Result(SbomManifest, Error) {
   case toml.get_array(document, ["packages"]) {
     Error(toml.ArrayMissing) -> Error(MissingPackages)
@@ -95,7 +103,7 @@ fn sbom_entries_from_document(
       Error(InvalidPackageField("<manifest>", "packages", "Array"))
     Ok(packages) -> {
       let direct_names = decode_direct_names(document)
-      use entries <- result.try(list.try_map(packages, decode_sbom_entry))
+      use entries <- result.try(list.try_map(packages, decode_entry))
       Ok(SbomManifest(entries: entries, root_requirements: direct_names))
     }
   }
@@ -106,6 +114,33 @@ pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
     Ok(contents) -> sbom_entries(contents)
     Error(_) -> Error(FileReadError(path))
   }
+}
+
+/// Load vulnerability identities without requiring archive checksums. Missing
+/// source fields affect only that entry, not valid provenance elsewhere.
+pub fn load_vulns(path: String) -> Result(SbomManifest, Error) {
+  case simplifile.read(from: path) {
+    Ok(contents) -> parse_entries(contents, decode_vuln_entry)
+    Error(_) -> Error(FileReadError(path))
+  }
+}
+
+fn decode_vuln_entry(package: Value) -> Result(SbomEntry, Error) {
+  use #(raw, table) <- result.try(decode_package(package))
+  let provenance = case decode_provenance(raw.source, table, raw.name) {
+    Ok(provenance) -> provenance
+    Error(_) ->
+      case raw.source {
+        "hex" -> HexProvenance(outer_checksum: "", inner_checksum: None)
+        other -> UnknownProvenance(source: other)
+      }
+  }
+  Ok(SbomEntry(
+    name: raw.name,
+    version: raw.version,
+    requirements: raw.requirements,
+    provenance: provenance,
+  ))
 }
 
 fn decode_sbom_entry(package: Value) -> Result(SbomEntry, Error) {
