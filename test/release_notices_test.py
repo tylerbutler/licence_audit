@@ -195,6 +195,40 @@ class ReleaseNoticesTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
                 runtime.fetch("https://example.invalid/otp-bom", "sha256:" + "0" * 64)
 
+    def test_zig_wheel_identity_accepts_compressed_or_expanded_metadata(self):
+        platforms = "manylinux_2_12_x86_64.manylinux2010_x86_64.musllinux_1_1_x86_64"
+        asset = {
+            "filename": f"ziglang-0.14.1-py3-none-{platforms}.whl",
+            "url": "https://example.invalid/ziglang.whl",
+            "digests": {"sha256": "published-wheel-checksum"},
+        }
+        expected = {"url": asset["url"], "sha256": asset["digests"]["sha256"]}
+        for metadata in (
+            f"Tag: py3-none-{platforms}\n",
+            "\n".join(f"Tag: py3-none-{platform}" for platform in platforms.split(".")),
+            f"Wheel-Version: 1.0\r\nTag: py3-none-{platforms}\r\n",
+        ):
+            with self.subTest(metadata=metadata):
+                self.assertEqual(runtime.zig_wheel_distribution(metadata, [asset]), expected)
+
+    def test_zig_wheel_identity_rejects_nonunique_or_invalid_metadata(self):
+        asset = {
+            "filename": "ziglang-0.14.1-py3-none-manylinux_2_12_x86_64.whl",
+            "url": "https://example.invalid/ziglang.whl",
+            "digests": {"sha256": "published-wheel-checksum"},
+        }
+        for metadata, assets in (
+            ("Tag: py3-none-manylinux_2_12_aarch64", [asset]),
+            ("Tag: py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64", [asset]),
+            ("Tag: py3-none-manylinux_2_12_x86_64", [asset, asset]),
+            ("Wheel-Version: 1.0", [asset]),
+            ("Tag: malformed", [asset]),
+            ("Tag: py3-none-", [asset]),
+        ):
+            with self.subTest(metadata=metadata, candidates=len(assets)):
+                with self.assertRaises(ValueError):
+                    runtime.zig_wheel_distribution(metadata, assets)
+
     def test_otp_collection_preserves_extracted_licences_and_copyright(self):
         bom = json.dumps({
             "packages": [{"name": "otp", "versionInfo": "28.3", "licenseDeclared": "Apache-2.0"}],
