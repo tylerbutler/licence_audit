@@ -153,14 +153,17 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
       contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\" }]\n",
     )
 
-  let audit =
-    licence_audit.run_configured(
-      ["--manifest=" <> path, "--ignore-config"],
-      test_clients(fake_fetcher),
-      progress.disabled(),
-    ).0
-  should.equal(audit.exit_code, 0)
-  assert string.contains(audit.output, "gleam_stdlib")
+  [[], ["check", "--allow=MIT"]]
+  |> list.each(fn(args) {
+    let audit =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+        test_clients(fake_fetcher),
+        progress.disabled(),
+      ).0
+    should.equal(audit.exit_code, 0)
+    assert string.contains(audit.output, "gleam_stdlib")
+  })
 
   let sbom =
     licence_audit.run_configured(
@@ -1014,26 +1017,103 @@ fn github_only_vuln_batch(
 }
 
 pub fn check_vulns_gates_affected_github_dependency_test() {
-  let result =
-    licence_audit.run_configured(
-      [
-        "--manifest=test/fixtures/manifest_github_git.toml",
-        "--ignore-config",
-        "check",
-        "--allow=MIT",
-        "--vulns",
-      ],
-      licence_audit.Clients(
-        ..test_clients(fake_fetcher),
-        osv_batch_fetcher: github_only_vuln_batch,
-        osv_detail_fetcher: vulnerability_with_severity(osv.High),
-      ),
-      progress.disabled(),
-    ).0
+  ["", ", outer_checksum = \"AAAA\"", ", outer_checksum = 42"]
+  |> list.each(fn(checksum) {
+    let manifest_path = mixed_vuln_manifest(checksum)
+    let result =
+      licence_audit.run_configured(
+        [
+          "--manifest=" <> manifest_path,
+          "--ignore-config",
+          "check",
+          "--allow=MIT",
+          "--vulns",
+        ],
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: fn(purls) {
+            should.equal(purls, [
+              "pkg:hex/gleam_stdlib@1.0.0",
+              "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+            ])
+            github_only_vuln_batch(purls)
+          },
+          osv_detail_fetcher: vulnerability_with_severity(osv.High),
+        ),
+        progress.disabled(),
+      ).0
 
-  should.equal(result.exit_code, 1)
-  assert string.contains(result.output, "CVE-GITHUB-0001")
-  assert string.contains(result.output, "gluegun@0.1.0")
+    should.equal(result.exit_code, 1)
+    assert string.contains(result.output, "CVE-GITHUB-0001")
+    assert string.contains(result.output, "gluegun@0.1.0")
+    assert string.contains(
+      result.output,
+      "Skipped 1 unsupported source(s): local_dep",
+    )
+  })
+}
+
+fn mixed_vuln_manifest(checksum: String) -> String {
+  let root = "build/tmp/mixed-vuln-provenance"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(_) =
+    simplifile.write(to: root <> "/manifest.toml", contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\"" <> checksum <> " },
+  { name = \"gluegun\", version = \"0.1.0\", source = \"git\", repo = \"https://github.com/tylerbutler/gluegun\", commit = \"fa4c8ee919138fc8ffddd2642165a89654e61999\", requirements = [\"gleam_stdlib\"] },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"../local_dep\" },
+]
+[requirements]
+gleam_stdlib = \"1.0.0\"
+gluegun = { git = \"https://github.com/tylerbutler/gluegun\" }
+local_dep = { path = \"../local_dep\" }
+")
+  root <> "/manifest.toml"
+}
+
+pub fn check_vulns_missing_checksum_preserves_prod_only_git_scope_test() {
+  [#("gleam_stdlib", 0), #("gluegun", 1)]
+  |> list.each(fn(test_case) {
+    let #(production, expected_exit) = test_case
+    let manifest_path = mixed_vuln_manifest("")
+    let assert Ok(_) =
+      simplifile.write(
+        to: "build/tmp/mixed-vuln-provenance/gleam.toml",
+        contents: "[dependencies]\n" <> production <> " = \"1.0.0\"\n",
+      )
+    let result =
+      licence_audit.run_configured(
+        [
+          "--manifest=" <> manifest_path,
+          "--ignore-config",
+          "check",
+          "--allow=MIT",
+          "--vulns",
+          "--prod-only",
+        ],
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: fn(purls) {
+            let expected = case production {
+              "gleam_stdlib" -> ["pkg:hex/gleam_stdlib@1.0.0"]
+              _ -> [
+                "pkg:hex/gleam_stdlib@1.0.0",
+                "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+              ]
+            }
+            should.equal(purls, expected)
+            github_only_vuln_batch(purls)
+          },
+          osv_detail_fetcher: vulnerability_with_severity(osv.High),
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, expected_exit)
+    should.equal(
+      string.contains(result.output, "CVE-GITHUB-0001"),
+      expected_exit == 1,
+    )
+    assert !string.contains(result.output, "local_dep")
+  })
 }
 
 pub fn github_commit_queries_reach_vulns_and_sbom_test() {
