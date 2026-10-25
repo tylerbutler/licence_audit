@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -10,10 +11,16 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/progress
 import simplifile
+import slate
+import slate/exclusive
+import slate/set
 
 const tmp_dir = "build/tmp/cache_test"
 
 type ConcurrentWriteError
+
+@external(erlang, "cache_process_test_ffi", "monotonic_milliseconds")
+fn monotonic_milliseconds() -> Int
 
 @external(erlang, "cache_process_test_ffi", "concurrent_writes")
 fn concurrent_writes(
@@ -169,6 +176,55 @@ pub fn separate_vms_keep_distinct_successful_writes_test() {
     )
   should.equal(cache_dir.lookup(store, "first-key"), Ok("first-value"))
   should.equal(cache_dir.lookup(store, "second-key"), Ok("second-value"))
+  let assert None = cache_dir.close_table(store, "test", None)
+}
+
+pub fn held_lock_bounds_total_fetch_latency_test() {
+  let path = fresh_path("held_lock")
+  let handle = cache.open(cache.Enabled(path: Some(path)))
+  let started = monotonic_milliseconds()
+  // Slate releases ownership even when an assertion in the callback fails.
+  let held =
+    set.with_exclusive_table(
+      path: path,
+      repair: slate.AutoRepair,
+      access: slate.ReadWrite,
+      wait: exclusive.Immediate,
+      key_decoder: decode.string,
+      value_decoder: decode.string,
+      callback: fn(table) {
+        list.each(["first", "second", "third"], fn(name) {
+          should.equal(
+            cache.fetch_cached_quiet(handle, name, "1.0.0", fn(_) {
+              Ok(hex.licences_only(["MIT"]))
+            }),
+            Ok(hex.licences_only(["MIT"])),
+          )
+          should.equal(
+            set.lookup(table, name <> "@1.0.0"),
+            Error(slate.NotFound),
+          )
+          should.equal(
+            set.lookup(table, "$cached_at:" <> name <> "@1.0.0"),
+            Error(slate.NotFound),
+          )
+        })
+        let assert Some(warning) = cache.close(handle)
+        should.be_true(string.contains(
+          warning,
+          "Another session owns the table",
+        ))
+        should.be_false(string.contains(warning, "$cached_at:"))
+        Ok(Nil)
+      },
+    )
+  let elapsed = monotonic_milliseconds() - started
+  let assert Ok(Nil) = held
+  should.be_true(elapsed < 1000)
+
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  should.equal(cache_dir.insert(store, "after-release", "safe"), Ok(Nil))
+  should.equal(cache_dir.lookup(store, "after-release"), Ok("safe"))
   let assert None = cache_dir.close_table(store, "test", None)
 }
 

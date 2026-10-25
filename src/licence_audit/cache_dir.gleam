@@ -2,7 +2,7 @@
 ////
 //// Reads and writes use short exclusive sessions so concurrent CLI runs
 //// can share cached entries without corrupting or overwriting each other's
-//// data.
+//// data. Busy caches are bypassed without waiting for another owner.
 
 import gleam/dynamic/decode
 import gleam/erlang/reference.{type Reference}
@@ -17,8 +17,6 @@ import licence_audit/env
 import licence_audit/path
 
 const cache_subdir = "licence_audit"
-
-const lock_wait = exclusive.WaitUpTo(5000)
 
 /// An on-disk string cache.
 pub opaque type Store {
@@ -120,7 +118,7 @@ pub fn lookup(store: Store, key: String) -> Result(String, Nil) {
       path: store.path,
       repair: slate.AutoRepair,
       access: slate.ReadWrite,
-      wait: lock_wait,
+      wait: exclusive.Immediate,
       key_decoder: decode.string,
       value_decoder: decode.string,
       callback: fn(table) { set.lookup(table, key: key) },
@@ -142,7 +140,7 @@ pub fn insert(store: Store, key: String, value: String) -> Result(Nil, Error) {
     path: store.path,
     repair: slate.AutoRepair,
     access: slate.ReadWrite,
-    wait: lock_wait,
+    wait: exclusive.Immediate,
     key_decoder: decode.string,
     value_decoder: decode.string,
     callback: fn(table) { set.insert(table, key, value) },

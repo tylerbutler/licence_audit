@@ -443,6 +443,10 @@ jobs, for example with `actions/cache` and
 with no restored cache must fetch each package again. Use `--verbose` to see
 cache hits and misses.
 
+Cache operations try to acquire exclusive access without waiting. If another
+command holds the cache lock, the operation is skipped and a nonfatal warning
+is reported. The command fetches source data instead of waiting for the cache.
+
 Each successful lookup is cached immediately. A later lookup failure does
 not discard earlier entries, and the audit continues with the remaining
 packages. Failed lookups are not cached. If a refresh fails and an older
