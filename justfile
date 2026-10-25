@@ -171,6 +171,33 @@ test-env-cache-paths: build
     mise exec -- gleam build
     mise exec -- bash test/env_cache_paths.sh
 
+# Run the isolated SQLite cache experiment without changing production deps.
+spike-sqlite:
+    cd spikes/sqlite_cache && mise exec -- gleam format --check src && mise exec -- gleam build --warnings-as-errors
+    mise exec -- bash test/sqlite_cache_spike.sh erl -noshell -pa "$PWD/spikes/sqlite_cache/build/dev/erlang/"*/ebin -s sqlite_cache_spike main -s init stop -extra
+
+# Escript NIFs need a real application directory, not the escript archive.
+spike-sqlite-escript:
+    cd spikes/sqlite_cache && mise exec -- gleam export escript
+    mkdir -p spikes/sqlite_cache/build/spike-escript/lib/esqlite
+    cp spikes/sqlite_cache/sqlite_cache_spike spikes/sqlite_cache/build/spike-escript/
+    cp -r spikes/sqlite_cache/build/prod/erlang/esqlite/ebin spikes/sqlite_cache/build/prod/erlang/esqlite/priv spikes/sqlite_cache/build/spike-escript/lib/esqlite/
+    mise exec -- bash test/sqlite_cache_spike.sh env ERL_LIBS="$PWD/spikes/sqlite_cache/build/spike-escript/lib" "$PWD/spikes/sqlite_cache/build/spike-escript/sqlite_cache_spike"
+
+# Build for this Linux x86_64 host and run without system Erlang.
+spike-sqlite-native:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd spikes/sqlite_cache && mise exec zig@0.14.1 -- queso build --target x86_64-linux-glibc --erts "$(mise where erlang)")
+    docker run --rm --user "$(id -u):$(id -g)" \
+      --mount "type=bind,src=$PWD/spikes/sqlite_cache/build/queso/sqlite_cache_spike-0.1.0-x86_64-linux-glibc,dst=/sqlite_cache_spike,readonly" \
+      --mount "type=bind,src=$PWD/test/sqlite_cache_spike.sh,dst=/sqlite_cache_spike.sh,readonly" \
+      ubuntu:24.04 bash -c 'if command -v erl >/dev/null; then echo "Container must not have Erlang" >&2; exit 1; fi; bash /sqlite_cache_spike.sh /sqlite_cache_spike'
+
+# Run the same experiment against an exported escript or native executable.
+spike-sqlite-binary binary:
+    mise exec -- bash test/sqlite_cache_spike.sh {{quote(absolute_path(binary))}}
+
 # Type check without producing artifacts
 check:
     mise exec -- gleam check

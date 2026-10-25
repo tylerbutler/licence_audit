@@ -218,6 +218,77 @@ and `HOME`. It writes cache entries at the expected paths, then runs the
 cache-enabled CLI and checks for cache hits. It also checks conversion
 failures and the deferred warning when neither environment variable is set.
 
+## SQLite cache spike
+
+`spikes/sqlite_cache/` contains an isolated experiment with `sqlight` 1.2.0,
+`esqlite` 0.9.0, and its bundled SQLite 3.50.4. The production CLI keeps
+Slate/DETS and its existing dependencies.
+
+Keep standalone Gleam experiments outside `src/`, `test/`, and `dev/`.
+Gleam scans nested projects in those source directories, including their
+downloaded dependencies. Trellis excludes `spikes/**` from release work.
+
+```sh
+just spike-sqlite           # Fresh Erlang VMs
+just spike-sqlite-escript   # Exported escript with an esqlite sidecar
+just spike-sqlite-native    # Linux x86_64 glibc, Ubuntu 24.04 without Erlang
+```
+
+The native recipe needs Docker, Rust, and cargo-zigbuild. It selects Zig
+0.14.1 with mise and bundles the installed Erlang runtime. Queso cannot
+cross-compile the SQLite NIF; build it on the target platform.
+
+The shared shell check covers persistence across VMs, a transactional
+value/timestamp upsert, parameter binding, Unicode values, and paths with
+spaces. A second VM holds a write transaction while other VMs read the
+committed value and skip busy writes. The check requires three busy writes
+to finish in less than 1000 ms of database-call time in total. It then
+terminates the writer, checks rollback and lock release, and verifies that
+a corrupt database produces an error without replacing the file.
+Each check uses a temporary HOME and cache.
+
+You can run the same check against another executable:
+
+```sh
+just spike-sqlite-binary /absolute/path/to/sqlite_cache_spike
+```
+
+### Findings
+
+The BEAM, sidecar-backed escript, and native Ubuntu 24.04 checks pass on
+Linux x86_64. Resolve these limits before a production migration:
+
+- **Unicode database paths fail.** The driver rejects a path containing
+  `λ` with `SQLite 1`. Its native open function converts filenames with
+  `ERL_NIF_LATIN1`. Unicode values pass the round-trip check. To reproduce
+  the path failure, run `mise exec -- gleam run -- put
+  "build/unicode-λ.sqlite3" example value 1` inside `spikes/sqlite_cache/`.
+- **Busy parameterized writes can crash the VM.** A direct `sqlight.query`
+  upsert reaches an unhandled `'$busy'` result in `esqlite3:fetchall1`.
+  The spike acquires the writer lock through `sqlight.exec("BEGIN IMMEDIATE")`
+  before the upsert, so contention returns a handled `Busy` error. It sets
+  `busy_timeout=0` before WAL setup. Other busy query paths still need review.
+- **A bare escript cannot load the NIF.** The escript recipe copies the
+  `esqlite` application's `ebin/` and `priv/` directories beside the escript
+  and sets `ERL_LIBS` to that bundle's `lib/` directory. The check runs from
+  an unrelated working directory.
+- **The native runtime has a libc baseline.** The local ERTS requires
+  `GLIBC_2.38`; Debian 12 rejects it. The Ubuntu 24.04 container runs the
+  native check without system Erlang. This experiment does not verify
+  musl, macOS, or Windows packages.
+
+The spike implements no TTL policy, stale-data fallback, DETS migration,
+or production CLI integration.
+
+Reference mechanisms: `src/licence_audit/cache_dir.gleam:115` for best-effort
+cache access, `src/licence_audit/args_ffi.erl:4` for CLI argument conversion,
+and `test/licence_audit/cache_process_test_ffi.erl:4` for monotonic timing.
+Driver details are in
+[`lpil/sqlight/src/sqlight_ffi.erl:7`](https://github.com/lpil/sqlight/blob/v1.2.0/src/sqlight_ffi.erl#L7-L12),
+[`mmzeeman/esqlite/src/esqlite3.erl:220`](https://github.com/mmzeeman/esqlite/blob/master/src/esqlite3.erl#L220-L228),
+and
+[`mmzeeman/esqlite/c_src/esqlite3_nif.c:190`](https://github.com/mmzeeman/esqlite/blob/master/c_src/esqlite3_nif.c#L190-L192).
+
 ## Common tasks
 
 ```sh
