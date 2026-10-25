@@ -155,6 +155,7 @@ tightly than `OR`. A trailing `+` remains part of the licence term.
 
 Policy settings must have their documented types. Nested tables or dotted
 subfields such as `allow.licences` are configuration errors, not absent settings.
+This includes empty descendant tables and nested exception fields.
 
 Deny takes precedence for each term. SPDX identifiers match without regard to
 case; custom `LicenseRef-` identifiers remain case-sensitive. Separate strings

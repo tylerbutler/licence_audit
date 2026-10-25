@@ -1,5 +1,4 @@
 [tools.licence_audit]
 deny = ["GPL-3.0-only"]
 
-[tools.licence_audit.allow]
-licences = ["MIT"]
+[tools.licence_audit.allow.licences]

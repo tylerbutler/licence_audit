@@ -8,6 +8,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import tomlet.{type Value}
+import william
 
 pub type Error {
   TomlError(message: String)
@@ -41,6 +42,54 @@ pub fn parse(input: String) -> Result(Document, Nil) {
 /// Read a value at a document path, including tables.
 pub fn get(doc: Document, path: List(String)) -> Result(Value, Nil) {
   tomlet.get(doc, path) |> result.replace_error(Nil)
+}
+
+/// Enumerate explicit table paths, including empty descendants hidden by get.
+pub fn table_headers(doc: Document) -> Result(List(List(String)), Nil) {
+  // Use Tomlet's lexer so comments, strings, and arrays cannot become headers.
+  william.tokenise(william.new(), tomlet.to_string(doc))
+  |> collect_table_headers
+}
+
+fn collect_table_headers(
+  tokens: List(william.Token),
+) -> Result(List(List(String)), Nil) {
+  case tokens {
+    [] -> Ok([])
+    [william.OpenTable, ..rest] | [william.OpenArrayTable, ..rest] -> {
+      use #(path, rest) <- result.try(table_header_path(rest, []))
+      use headers <- result.try(collect_table_headers(rest))
+      Ok([path, ..headers])
+    }
+    [_, ..rest] -> collect_table_headers(rest)
+  }
+}
+
+fn table_header_path(
+  tokens: List(william.Token),
+  reversed: List(String),
+) -> Result(#(List(String), List(william.Token)), Nil) {
+  case tokens {
+    [william.CloseTable, ..rest] | [william.CloseArrayTable, ..rest] ->
+      Ok(#(list.reverse(reversed), rest))
+    [william.BareKey(key), ..rest] -> table_header_path(rest, [key, ..reversed])
+    [william.String(_, _) as token, ..rest] -> {
+      use quoted <- result.try(
+        tomlet.parse("[header]\n" <> william.to_source([token]) <> " = true\n")
+        |> result.replace_error(Nil),
+      )
+      use keys <- result.try(
+        tomlet.table_keys(quoted, ["header"]) |> result.replace_error(Nil),
+      )
+      case keys {
+        [key] -> table_header_path(rest, [key, ..reversed])
+        _ -> Error(Nil)
+      }
+    }
+    [william.Dot, ..rest] | [william.Whitespace(_), ..rest] ->
+      table_header_path(rest, reversed)
+    _ -> Error(Nil)
+  }
 }
 
 /// Read a top-level (or path-addressed) string scalar.

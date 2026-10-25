@@ -81,6 +81,26 @@ pub fn parse(input: String) -> Result(Policy, Error) {
   }
 }
 
+fn validate_policy_headers(headers: List(List(String))) -> Result(Nil, Error) {
+  list.try_each(headers, fn(path) {
+    case path {
+      ["tools", "licence_audit", "allow" as field, ..]
+      | ["tools", "licence_audit", "deny" as field, ..] ->
+        Error(InvalidField(field: field, expected: "List(String)"))
+      ["tools", "licence_audit", "vuln_severity", ..] ->
+        Error(InvalidField(field: "vuln_severity", expected: "String"))
+      ["tools", "licence_audit", "vuln_block_unknown", ..] ->
+        Error(InvalidField(field: "vuln_block_unknown", expected: "Bool"))
+      ["tools", "licence_audit", "exceptions", _, ..] ->
+        Error(InvalidException(
+          string.join(list.drop(path, 2), ".")
+          <> ": nested exception fields are not supported",
+        ))
+      _ -> Ok(Nil)
+    }
+  })
+}
+
 pub fn merge(file_policy: Policy, cli_policy: Policy) -> Result(Policy, Error) {
   // CLI vuln_severity overrides config when present.
   let resolved_severity = case cli_policy.vuln_severity {
@@ -166,6 +186,11 @@ fn parse_policy_section(
       }
     }),
   )
+  use headers <- result.try(
+    toml.table_headers(document)
+    |> result.replace_error(InvalidToml("Invalid TOML table header")),
+  )
+  use _ <- result.try(validate_policy_headers(headers))
   // Resolve reserved values by document path, not flattened parent entry keys.
   let section =
     list.filter_map(
