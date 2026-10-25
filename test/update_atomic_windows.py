@@ -1,5 +1,6 @@
 """Exercise the real Windows replacement path, including forced process death."""
 
+import base64
 import ctypes
 from ctypes import wintypes
 import os
@@ -72,14 +73,35 @@ def stop_tree(process):
     process.communicate(timeout=30)
 
 
+def security_descriptor():
+    escaped_path = str(path.resolve()).replace("'", "''")
+    script = (
+        f"$path='{escaped_path}';"
+        "[IO.File]::GetAccessControl($path).GetSecurityDescriptorSddlForm("
+        "[Security.AccessControl.AccessControlSections]'Access,Owner,Group')"
+    )
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    return subprocess.check_output(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        text=True,
+    ).strip()
+
+
 try:
     path.write_bytes(original)
+    account = os.environ["USERDOMAIN"] + "\\" + os.environ["USERNAME"]
+    subprocess.run(
+        ["icacls", str(path), "/inheritance:r", "/grant:r", account + ":(F)"],
+        stdout=subprocess.DEVNULL, check=True,
+    )
+    original_security = security_descriptor()
     finish(start("update"))
     complete = read_shared(path)
     assert complete.startswith(original)
     assert b'allow = ["MIT-long-policy-entry"' in complete
+    assert security_descriptor() == original_security
     assert not list(root.glob("*.tmp"))
-    print("PASS: existing-file update preserves comments and unrelated TOML")
+    print("PASS: existing-file update preserves comments, unrelated TOML, owner/group/DACL")
 
     path.write_bytes(original)
     handle = open_shared(path, 3)  # No FILE_SHARE_DELETE: force replacement failure.

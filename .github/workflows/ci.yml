@@ -38,6 +38,13 @@ jobs:
           rebar3-version: "3.26.0"
           version-type: strict
 
+      # Gleam's Windows directory copy cannot copy cvss's licence symlink.
+      # Keep its exact licence text, but use a regular file in the build cache.
+      - name: Prepare dependencies
+        run: |
+          gleam deps download
+          python -c "from pathlib import Path; p = Path('build/packages/cvss/LICENSE.txt'); text = p.read_bytes(); p.unlink(); p.write_bytes(text)"
+
       - name: Build Erlang modules
         run: gleam build --target erlang --warnings-as-errors
 
