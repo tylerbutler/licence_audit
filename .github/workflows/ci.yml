@@ -54,6 +54,9 @@ jobs:
       - name: Test runtime startup
         run: just test-runtime-startup
 
+      - name: Test interrupted policy writes
+        run: just test-update-atomic
+
       - name: Smoke test built CLI
         run: ./licence_audit --help
 

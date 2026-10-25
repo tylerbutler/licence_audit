@@ -328,6 +328,7 @@ pub fn update_creates_missing_explicit_config_test() {
 
 pub fn update_preserves_reviewed_exceptions_and_comments_test() {
   let path = fresh_path("exceptions")
+  let unrelated = "# Project settings\nname = \"keep_me\" # project name\n"
   let exceptions =
     "
 # Review decisions must survive allow-list updates.
@@ -347,8 +348,12 @@ reason = \"Reviewed affected code\"
   let assert Ok(_) =
     simplifile.write(
       to: path,
-      contents: "[tools.licence_audit]\nallow = [\"MIT\"]\n" <> exceptions,
+      contents: unrelated
+        <> "[tools.licence_audit]\nallow = [\"MIT\"]\n"
+        <> exceptions,
     )
+  set_private_mode(path)
+  let original_metadata = metadata(path)
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
@@ -363,6 +368,9 @@ reason = \"Reviewed affected code\"
     )
   should.equal(result.exit_code, 0)
   let assert Ok(contents) = simplifile.read(path)
+  assert string.contains(contents, unrelated)
+  should.equal(metadata(path), original_metadata)
+  should.equal(temporary_files(path), [])
   list.each(string.split(exceptions, "\n"), fn(line) {
     assert string.contains(contents, line)
   })
@@ -370,6 +378,64 @@ reason = \"Reviewed affected code\"
   let assert Ok(original) =
     config.parse("[tools.licence_audit]\n" <> exceptions)
   should.equal(parsed.exceptions, original.exceptions)
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+@external(erlang, "update_test_ffi", "partial_write")
+fn partial_write(path: String, interrupt: Bool) -> Result(Nil, Nil)
+
+@external(erlang, "update_test_ffi", "set_private_mode")
+fn set_private_mode(path: String) -> Nil
+
+@external(erlang, "update_test_ffi", "metadata")
+fn metadata(path: String) -> #(Int, Int, Int)
+
+@external(erlang, "update_test_ffi", "temporary_files")
+fn temporary_files(path: String) -> List(String)
+
+@external(erlang, "update_test_ffi", "make_link")
+fn make_link(target: String, link: String) -> Result(Nil, Nil)
+
+pub fn update_preserves_symlink_and_replaces_its_target_test() {
+  let target = fresh_path("link_target")
+  let link = fresh_path("linked_policy")
+  let assert Ok(_) =
+    simplifile.write(to: target, contents: "# Keep this comment\n")
+  let assert Ok(_) = make_link("link_target.toml", link)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(link),
+      False,
+      True,
+      None,
+      successful_fetcher,
+      selected_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(target)
+  assert string.contains(contents, "# Keep this comment")
+  assert string.contains(contents, "allow = [\"MIT\"]")
+  should.equal(simplifile.read(link), Ok(contents))
+  let assert Ok(_) = simplifile.delete(target)
+  should.equal(simplifile.read(link), Error(simplifile.Enoent))
+  let assert Ok(_) = simplifile.delete(link)
+}
+
+pub fn update_preserves_original_after_partial_write_failure_or_interruption_test() {
+  let path = fresh_path("partial_write")
+  let original = "# Keep this file\nname = \"keep_me\"\n"
+  let assert Ok(_) = simplifile.write(to: path, contents: original)
+  set_private_mode(path)
+  let original_metadata = metadata(path)
+  list.each([False, True], fn(interrupt) {
+    should.equal(partial_write(path, interrupt), Ok(Nil))
+    should.equal(simplifile.read(path), Ok(original))
+    should.equal(metadata(path), original_metadata)
+    should.equal(temporary_files(path), [])
+  })
   let assert Ok(_) = simplifile.delete(path)
 }
 

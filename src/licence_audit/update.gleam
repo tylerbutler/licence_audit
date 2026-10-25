@@ -357,13 +357,16 @@ fn write_policy(
       case toml.set_string_array(after_allow, section, "deny", deny) {
         Error(e) -> Error(TomlEditFailed(e))
         Ok(after_both) ->
-          case simplifile.write(to: path, contents: after_both) {
+          case atomic_write(path, after_both) {
             Ok(_) -> Ok(Nil)
             Error(_) -> Error(FileWriteFailed(path))
           }
       }
   }
 }
+
+@external(erlang, "policy_file_ffi", "write")
+fn atomic_write(path: String, contents: String) -> Result(Nil, Nil)
 
 fn summary(path: String, allow: List(String), deny: List(String)) -> String {
   "Wrote "

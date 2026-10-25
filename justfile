@@ -166,6 +166,11 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
+# Reproduce an interrupted update write in a fresh VM (Linux only).
+test-update-atomic:
+    mise exec -- gleam build
+    mise exec -- python3 -B test/update_atomic_write.py
+
 # Type check without producing artifacts
 check:
     mise exec -- gleam check

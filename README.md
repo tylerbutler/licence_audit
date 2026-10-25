@@ -162,7 +162,11 @@ accept malformed expressions.
 
 The easiest way to create a policy is `licence_audit update`,
 which fetches metadata, preselects any existing entries, prompts you, and writes
-the result back (comment-preserving). `update` needs an interactive terminal: it
+the result back (comment-preserving). It writes a complete temporary file in the
+same directory before an atomic replacement, preserving file permissions and
+ownership. Failed writes leave the original intact. A forced process termination
+can leave a `*.licence-audit-*.tmp` file beside the configuration.
+`update` needs an interactive terminal: it
 exits `1` on non-interactive stdin and `130` if you cancel.
 
 Then enforce it:
