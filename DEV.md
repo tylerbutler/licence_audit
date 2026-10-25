@@ -351,3 +351,46 @@ symbols (crypto/SSL) that this CLI requires — use glibc or musl archives on
 Linux instead. The `aarch64-windows` target is deferred because Queso requires
 an explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
 archive for that target.
+
+### Release licence material
+
+Publish includes the generated `THIRD_PARTY_NOTICES.txt`, project `LICENSE`,
+vendored `NOTICE`, and Slate's `slate_native/licenses/` in each archive. It also
+embeds these documents under `META-INF/licenses/` in the bare escript ZIP
+payload. Keep the Slate libraries beside the escript; the bare download does
+not replace the complete escript archive.
+
+Run `just test-release-notices` to test staging and archive checks. Publish reads
+the notice bytes from each staged tar/ZIP and the bare escript, and compares
+them with the required source documents. Missing, empty, or changed documents
+stop publication. Older tags without required documents also fail this check.
+
+For each native target, supply reviewed material under
+`native/notices/<queso-target>/`:
+
+- `OTP_NOTICES.txt`: OTP/ERTS and the bundled OTP applications, including their
+  copyright notices, licence texts, and bundled third-party attributions.
+- `NATIVE_NOTICES.txt`: the native libraries and compiler runtimes linked or
+  bundled with that target's OTP and launcher, including applicable source
+  availability or relinking obligations.
+- `QUESO_NOTICES.txt`: the Queso launcher and its resolved Rust dependencies,
+  including native transitive dependencies.
+- `SOURCES.md`: exact OTP distribution URLs and checksums, OTP and Queso
+  versions, launcher lockfile revision, native component versions and linkage,
+  and the source URLs/revisions used for each notice.
+
+Publish copies these four files to `runtime-notices/` and checks their archived
+bytes. A release maintainer must review coverage; nonempty text alone does not
+prove that the bundle meets the licences.
+
+**Native release blocker:** this repository does not yet contain these reviewed
+target-specific bundles. Do not insert placeholders or use the application's
+Hex notices as a runtime substitute. Queso 0.3.0 downloads Linux OTP from
+`gleam-community/erlang-linux-builds`, macOS OTP from `erlef/otp_builds`, and
+Windows OTP from `erlang/otp`
+([download selection](https://github.com/jtdowney/queso/blob/v0.3.0/src/erts.rs#L155-L195)).
+Its [launcher dependencies](https://github.com/jtdowney/queso/blob/v0.3.0/launcher/Cargo.toml)
+add software outside `manifest.toml`. Obtain and review the notice material for
+the exact binary inputs and launcher dependency graph before publishing native
+archives. Staging fails at the first missing
+`native/notices/<target>/OTP_NOTICES.txt`; it does not waive this requirement.

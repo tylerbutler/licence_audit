@@ -42,6 +42,10 @@ vendor-check:
 vendor-test:
     mise exec -- python3 -B -m unittest discover -s test -p vendor_sync_test.py
 
+# Verify notice staging, archive contents, and missing-material failures.
+test-release-notices:
+    mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
+
 # Check the production application and the shipped escript.
 test-vendor-production: build
     mise exec -- bash test/vendor_production.sh

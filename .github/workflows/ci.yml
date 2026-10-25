@@ -33,6 +33,9 @@ jobs:
       - name: Check vendored sources
         run: just vendor-check vendor-test
 
+      - name: Test release notice staging
+        run: just test-release-notices
+
       - name: Check formatting
         run: just format-check
 
@@ -44,6 +47,12 @@ jobs:
 
       - name: Build (warnings as errors)
         run: just build-strict
+
+      - name: Check bare escript with embedded notices
+        run: |
+          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
+          mise exec -- python3 -B scripts/release_notices.py check licence_audit
+          ./licence_audit --help
 
       - name: Check vendored production boundary
         run: just test-vendor-production

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Include application dependency notices in release archives and the bare escript; stop native release staging when reviewed runtime attribution is missing."
