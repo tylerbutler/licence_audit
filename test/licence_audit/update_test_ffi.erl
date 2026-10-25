@@ -125,6 +125,11 @@ owner_session(Control, Work) ->
             erlang:error({owner_failed_before_ready, EarlyReason})
     end,
     {ok, <<"kill-owner">>} = gen_tcp:recv(Control, 0, 15000),
+    {monitors, OwnerMonitors} = process_info(Owner, monitors),
+    Guardians = [
+        {Guardian, monitor(process, Guardian)}
+     || {process, Guardian} <- OwnerMonitors, is_pid(Guardian)
+    ],
     exit(Owner, kill),
     receive
         {'DOWN', Monitor, process, Owner, killed} -> ok;
@@ -135,6 +140,13 @@ owner_session(Control, Work) ->
                 erlang:error({owner_exited_early, Reason})
             end
     end,
+    lists:foreach(fun({Guardian, GuardianMonitor}) ->
+        receive
+            {'DOWN', GuardianMonitor, process, Guardian, _} -> ok
+        after 20000 ->
+            erlang:error(guardian_still_alive_after_owner_death)
+        end
+    end, Guardians),
     io:format("OWNER_DEAD~n"),
     {ok, <<"finish">>} = gen_tcp:recv(Control, 0, 15000).
 
