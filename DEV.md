@@ -254,6 +254,17 @@ This uses fresh Erlang VMs, because the Gleam test runner starts application
 dependencies before it runs tests. The CLI must also start these dependencies
 when Queso calls `main()` directly.
 
+To test Unicode cache paths without network access:
+
+```sh
+just test-env-cache-paths
+```
+
+The test starts fresh Erlang VMs with `é` and `中` in `XDG_CACHE_HOME`
+and `HOME`. It writes cache entries at the expected paths, then runs the
+cache-enabled CLI and checks for cache hits. It also checks conversion
+failures and the deferred warning when neither environment variable is set.
+
 ## Common tasks
 
 ```sh

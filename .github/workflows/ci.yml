@@ -65,6 +65,9 @@ jobs:
           python3 -B -m unittest discover -s .validation/test -p native_release_smoke_test.py
           python3 -B -m unittest discover -s .validation/test -p publish_release_test.py
 
+      - name: Test Unicode cache paths
+        run: mise exec -- bash .validation/test/env_cache_paths.sh
+
       - name: Smoke test built CLI
         run: ./licence_audit --help
 

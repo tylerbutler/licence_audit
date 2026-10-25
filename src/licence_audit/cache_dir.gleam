@@ -2,7 +2,7 @@
 ////
 //// Reads and writes use short exclusive sessions so concurrent CLI runs
 //// can share cached entries without corrupting or overwriting each other's
-//// data.
+//// data. Busy caches are bypassed without waiting for another owner.
 
 import gleam/dynamic/decode
 import gleam/erlang/reference.{type Reference}
@@ -17,8 +17,6 @@ import licence_audit/env
 import licence_audit/path
 
 const cache_subdir = "licence_audit"
-
-const lock_wait = exclusive.WaitUpTo(5000)
 
 /// An on-disk string cache.
 pub opaque type Store {
@@ -55,7 +53,7 @@ pub fn describe_error(error: Error) -> String {
 fn describe_path_error(error: PathError) -> String {
   case error {
     CacheDirUnknown ->
-      "Unable to determine licence cache directory: set XDG_CACHE_HOME, HOME, or Windows LOCALAPPDATA/USERPROFILE"
+      "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set (on Windows, set LOCALAPPDATA or USERPROFILE)"
     CacheDirCreateFailed(dir, reason) ->
       "Unable to create licence cache directory "
       <> dir
@@ -146,7 +144,7 @@ pub fn lookup(store: Store, key: String) -> Result(String, Nil) {
       path: store.path,
       repair: slate.AutoRepair,
       access: slate.ReadWrite,
-      wait: lock_wait,
+      wait: exclusive.Immediate,
       key_decoder: decode.string,
       value_decoder: decode.string,
       callback: fn(table) { set.lookup(table, key: key) },
@@ -168,7 +166,7 @@ pub fn insert(store: Store, key: String, value: String) -> Result(Nil, Error) {
     path: store.path,
     repair: slate.AutoRepair,
     access: slate.ReadWrite,
-    wait: lock_wait,
+    wait: exclusive.Immediate,
     key_decoder: decode.string,
     value_decoder: decode.string,
     callback: fn(table) { set.insert(table, key, value) },
