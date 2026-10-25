@@ -52,6 +52,10 @@ fn decode_archive_metadata(
 ) -> Result(#(List(String), Option(String), List(#(String, String))), Nil)
 
 /// Decode the immutable `metadata.config` stored in a Hex package tarball.
+/// Accept byte strings, quoted `/utf8` strings, decimal byte segments, and
+/// mixtures of these binary segments. Reject unsupported literals or malformed
+/// fields instead of omitting metadata. Input is limited to 1 MiB and 64 nested
+/// containers; atoms are never interned.
 pub fn package_metadata_from_archive(
   input: BitArray,
 ) -> Result(PackageMetadata, Nil) {

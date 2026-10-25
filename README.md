@@ -90,8 +90,10 @@ licence_audit update
 licence_audit check
 ```
 
-The bare `licence_audit` command only reports — it never fails. Only `check`
-exits non-zero on a policy violation.
+The bare `licence_audit` command reports policy findings without enforcing them.
+Only `check` exits non-zero on a policy violation. Both commands exit `2` if
+package metadata cannot be fetched or decoded, even when a partial report is
+available.
 
 ## Commands
 
@@ -153,6 +155,10 @@ list the complete term, such as `GPL-2.0-only WITH Classpath-exception-2.0`.
 Operators must be uppercase. Parentheses set grouping, and `AND` binds more
 tightly than `OR`. A trailing `+` remains part of the licence term.
 
+Policy settings must have their documented types. Nested tables or dotted
+subfields such as `allow.licences` are configuration errors, not absent settings.
+This includes empty descendant tables and nested exception fields.
+
 Deny takes precedence for each term. SPDX identifiers match without regard to
 case; custom `LicenseRef-` identifiers remain case-sensitive. Separate strings
 in a package's licence list must all pass. An exact expression in `allow`
@@ -193,7 +199,8 @@ that should not fail on tooling-only packages.
 
 > [!TIP]
 > `--allow`/`--deny` also work on the bare command — they switch the report into
-> a policy *preview* mode but still exit `0`. Use `check` when you want failures.
+> a policy *preview* mode. Findings still exit `0` when the scan completes.
+> Use `check` to enforce the policy.
 
 ### Accept one scoped finding
 
@@ -282,13 +289,19 @@ Because advisory data changes over time, `--vulns` cannot be combined with
 `--offline` or `--reproducible`.
 
 **Reproducible output.** By default the `serialNumber` is random and the
-`timestamp` is wall-clock, so two runs never byte-match. `--reproducible` reads
-Hex metadata from each checksum-verified package archive and Git metadata from
-the archive at the locked commit. It omits mutable Hex publisher data, makes
-the `serialNumber` a content hash, and takes the timestamp from
+`timestamp` is wall-clock, so two runs never byte-match. Without `--offline`,
+`--reproducible` reads Hex metadata from each checksum-verified package archive
+and Git metadata from the archive at the locked commit. It omits mutable Hex
+publisher data, makes the `serialNumber` a content hash, and takes the timestamp
+from
 [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
 (falling back to the Unix epoch). The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
+
+`sbom --reproducible --offline` skips all dependency enrichment, including
+local Git metadata. It omits dependency licence fields and can exit `0`
+without fetching locked-source metadata. Root metadata and valid purls are
+still required.
 
 **Validation.** The repository validates the generated SBOM against the official
 CycloneDX schema. Three `just` tasks (tools installed via `mise`) cover this:
@@ -326,8 +339,9 @@ similar to npm's `generate-license-file`.
 text (for example a Hex tarball that includes only a `NOTICE` file, or nothing),
 `notices` recovers one without discarding what the source *did* ship:
 
-1. **Source archive** (highest priority). Any `LICENSE`/`LICENCE`/`COPYING`
-   found there is used as-is, and any `NOTICE` is always preserved.
+1. **Source archive** (highest priority). Nonblank `LICENSE`/`LICENCE`/`COPYING`
+   files are used as-is, and nonblank `NOTICE` files are preserved. Empty or
+   whitespace-only files do not count as licence text or stop the fallback.
 2. **Repository** (Hex packages only). The declared repository links are
    followed for `github.com`, `codeberg.org`, and `gitlab.com`. A deterministic
    tag (`v<version>` then `<version>`) is resolved to an immutable commit SHA and
@@ -338,7 +352,7 @@ text (for example a Hex tarball that includes only a `NOTICE` file, or nothing),
    paths. Expressions with `AND`/`OR`/`WITH`/`(…)`/trailing `+` are supported;
    for `OR`, every alternative is included.
 
-`notices` fails if selected dependencies still lack a recognizable licence after
+`notices` fails if selected dependencies still lack usable licence text after
 the fallback (including `LicenseRef-` custom licences that have no canonical
 text), if a dependency source is unsupported, or if a network, archive,
 checksum, SPDX, or output write error occurs. A repository fallback that fails
@@ -354,8 +368,10 @@ licence_audit vulns
 Queries [OSV.dev](https://osv.dev/) and lists each affected package with its
 OSV/GHSA/CVE identifiers, a severity bucket (`critical`/`high`/`medium`/`low`/
 `unknown`), and a one-line summary, ending with a checked/affected/clean tally.
-`vulns` never fails on the *presence* of a vulnerability — only on I/O,
-manifest, or network errors. Hex and GitHub deps are queried; other sources are
+`vulns` never fails on the *presence* of a vulnerability. Input, config,
+manifest, and OSV batch request errors exit `2`; individual advisory-detail
+failures warn, retain the ID with unknown severity, and still exit `0`.
+Hex and GitHub deps are queried; other sources are
 skipped and listed at the end. Severity comes from OSV's
 `database_specific.severity`, falling back to the CVSS vector. Advisories are
 fetched over HTTPS and are **not** cached.
@@ -426,10 +442,29 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 
 | Code | Meaning |
 | ---- | ------- |
-| `0` | Success (the default report uses `0` even when statuses show denials). |
+| `0` | Successful completion. Report-only policy violations and vulnerabilities do not fail the command. |
 | `1` | Enforced check failed (`check` violation, or a blocking `check --vulns` advisory), invalid usage, or `update` couldn't run non-interactively. |
-| `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
+| `2` | Input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata and `update` TOML edit/write failures. |
 | `130` | `update` cancelled by the user. |
+
+**Partial results.** A licence report with unavailable package metadata exits
+`2`, not `0`, even if other packages were reported. This changes earlier
+report-mode behavior; scripts must not treat partial output as a completed scan.
+`update` TOML edit and file-write failures now exit `2` instead of `1`.
+
+These optional enrichment failures are distinct from an incomplete licence scan:
+
+- `vulns` and `sbom --vulns` keep an advisory ID with unknown severity and a
+  warning when its detail lookup fails; they still exit `0`. An OSV batch
+  request failure exits `2`. `check --vulns` also exits `2` on detail failures
+  because it cannot evaluate the gate.
+- Default `sbom` generation warns and omits optional dependency metadata when
+  Hex or local Git enrichment fails, and still exits `0`. `--offline`
+  intentionally skips Hex enrichment. Without `--offline`, `--reproducible`
+  requires locked-source metadata; failures exit `2`. The combined flags skip
+  all dependency enrichment, including Git, and can exit `0` without licence
+  fields. Invalid root metadata, unsupported sources, and artifact-generation
+  or write errors also exit `2`.
 
 ## Caching
 
@@ -452,6 +487,10 @@ jobs, for example with `actions/cache` and
 `--cache-path=.hex-cache/hex-v2.dets` (cache `.hex-cache/`). A fresh runner
 with no restored cache must fetch each package again. Use `--verbose` to see
 cache hits and misses.
+
+Cache operations try to acquire exclusive access without waiting. If another
+command holds the cache lock, the operation is skipped and a nonfatal warning
+is reported. The command fetches source data instead of waiting for the cache.
 
 Each successful lookup is cached immediately. A later lookup failure does
 not discard earlier entries, and the audit continues with the remaining
