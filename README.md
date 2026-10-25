@@ -155,6 +155,10 @@ list the complete term, such as `GPL-2.0-only WITH Classpath-exception-2.0`.
 Operators must be uppercase. Parentheses set grouping, and `AND` binds more
 tightly than `OR`. A trailing `+` remains part of the licence term.
 
+Policy settings must have their documented types. Nested tables or dotted
+subfields such as `allow.licences` are configuration errors, not absent settings.
+This includes empty descendant tables and nested exception fields.
+
 Deny takes precedence for each term. SPDX identifiers match without regard to
 case; custom `LicenseRef-` identifiers remain case-sensitive. Separate strings
 in a package's licence list must all pass. An exact expression in `allow`
