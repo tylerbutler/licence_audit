@@ -1,6 +1,10 @@
+import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleeunit/should
+import licence_audit
 import licence_audit/config
+import licence_audit/progress
 
 const tools_section =
   "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\ndeny = [\"GPL-3.0-only\"]\n"
@@ -110,6 +114,102 @@ pub fn parse_errors_on_invalid_field_type_test() {
     config.InvalidField(field: "allow", expected: "List(String)") -> Nil
     _ -> panic as "expected InvalidField for allow"
   }
+}
+
+pub fn parse_rejects_nested_reserved_policy_fields_test() {
+  [
+    #("allow", "List(String)"),
+    #("deny", "List(String)"),
+    #("vuln_severity", "String"),
+    #("vuln_block_unknown", "Bool"),
+  ]
+  |> list.each(fn(setting) {
+    let #(field, expected) = setting
+    [
+      "[tools.licence_audit." <> field <> "]\nlicences = [\"MIT\"]\n",
+      "[tools.licence_audit." <> field <> "]\n",
+      "[tools.licence_audit." <> field <> ".nested]\nvalue = true\n",
+      "[tools.licence_audit]\n" <> field <> ".value = true\n",
+      "tools.licence_audit." <> field <> ".value = true\n",
+      "[tools.licence_audit]\n" <> field <> " = { value = true }\n",
+      "[[tools.licence_audit." <> field <> "]]\nvalue = true\n",
+    ]
+    |> list.each(fn(input) {
+      should.equal(
+        config.parse(input),
+        Error(config.InvalidField(field: field, expected: expected)),
+      )
+    })
+  })
+}
+
+pub fn parse_keeps_unrelated_nested_configuration_test() {
+  let assert Ok(expected) =
+    config.parse(
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = []\nvuln_severity = \"high\"\nvuln_block_unknown = true\n",
+    )
+  let assert Ok(actual) =
+    config.parse(
+      "[tools.licence_audit]
+allow = [\"MIT\"]
+deny = []
+vuln_severity = \"high\"
+vuln_block_unknown = true
+\"allow.licences\" = [\"Apache-2.0\"]
+custom.allow = [\"Apache-2.0\"]
+[tools.licence_audit.notices]
+exclude = [\"example\"]
+[tools.licence_audit.custom.deny]
+value = true
+[tools.other.allow]
+licences = [\"Apache-2.0\"]
+",
+    )
+  should.equal(actual, expected)
+}
+
+pub fn parse_rejects_nested_exceptions_setting_test() {
+  [
+    "[tools.licence_audit.exceptions]\n",
+    "[tools.licence_audit.exceptions]\nvalue = true\n",
+    "[tools.licence_audit]\nexceptions.value = true\n",
+    "tools.licence_audit.exceptions.value = true\n",
+  ]
+  |> list.each(fn(input) {
+    let assert Error(config.InvalidException(_)) = config.parse(input)
+  })
+}
+
+pub fn parse_accepts_correctly_typed_dotted_policy_values_test() {
+  let assert Ok(expected) = config.parse(tools_section)
+  should.equal(
+    config.parse(
+      "tools.licence_audit.allow = [\"MIT\", \"Apache-2.0\"]\ntools.licence_audit.deny = [\"GPL-3.0-only\"]\n",
+    ),
+    Ok(expected),
+  )
+}
+
+pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
+  let clients =
+    licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
+      panic as "invalid config must stop before fetching"
+    })
+  let #(result, _) =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=test/fixtures/nested_policy_config.toml",
+      ],
+      clients,
+      progress.disabled(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Invalid config field allow: expected List(String)",
+  )
 }
 
 pub fn parse_errors_on_invalid_vuln_severity_test() {
