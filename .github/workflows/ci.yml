@@ -19,6 +19,31 @@ on:
         default: false
 
 jobs:
+  windows-policy:
+    runs-on: windows-latest
+    name: Windows atomic policy writes
+    timeout-minutes: 15
+    env:
+      ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup pinned toolchain
+        uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # ratchet:erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          gleam-version: "1.19.0-rc3"
+          rebar3-version: "3.26.0"
+          version-type: strict
+
+      - name: Build Erlang modules
+        run: gleam build --target erlang --warnings-as-errors
+
+      - name: Test real Windows replacement and interruption
+        run: python -B test/update_atomic_windows.py
+
   test:
     runs-on: ubuntu-latest
     name: Test

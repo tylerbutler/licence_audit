@@ -166,6 +166,9 @@ the result back (comment-preserving). It writes a complete temporary file in the
 same directory before an atomic replacement, preserving file permissions and
 ownership. Failed writes leave the original intact. A forced process termination
 can leave a `*.licence-audit-*.tmp` file beside the configuration.
+On Windows, replacement uses `MoveFileExW` through the built-in Windows
+PowerShell runtime and preserves the original file's owner, group, and access
+rules. It does not use OTP's non-atomic Windows rename.
 `update` needs an interactive terminal: it
 exits `1` on non-interactive stdin and `130` if you cancel.
 

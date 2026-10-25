@@ -1,5 +1,6 @@
 -module(update_test_ffi).
--export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2]).
+-export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2,
+    windows_worker/0]).
 -include_lib("kernel/include/file.hrl").
 
 partial_write(Path, Interrupt) ->
@@ -35,3 +36,32 @@ make_link(Target, Link) ->
         ok -> {ok, nil};
         {error, _Reason} -> {error, nil}
     end.
+
+windows_worker() ->
+    Path = unicode:characters_to_binary(os:getenv("POLICY_TEST_PATH")),
+    case os:getenv("POLICY_TEST_MODE") of
+        "update" ->
+            Fetcher = fun(_) ->
+                {ok, licence_audit@hex:licences_only([<<"MIT">>])}
+            end,
+            Picker = fun(_, _, _, _) ->
+                {ok, {selection, lists:duplicate(1000, <<"MIT-long-policy-entry">>), []}}
+            end,
+            {{update_result, 0, _}, _} = licence_audit@update:run_with_picker(
+                <<"test/fixtures/transitive_manifest.toml">>, <<".">>,
+                {some, Path}, true, true, none, Fetcher, Picker,
+                licence_audit@progress:capturing(verbose, <<"update">>)
+            );
+        "failure" ->
+            {error, nil} = policy_file_ffi:write(Path, <<"replacement">>);
+        "loop" ->
+            {ok, Original} = file:read_file(Path),
+            Replacement = unicode:characters_to_binary(os:getenv("POLICY_TEST_CONTENTS")),
+            lists:foreach(fun(_) ->
+                {ok, nil} = policy_file_ffi:write(Path, Replacement),
+                io:format("REPLACED~n"),
+                {ok, nil} = policy_file_ffi:write(Path, Original)
+            end, lists:seq(1, 12))
+    end,
+    io:format("PASS~n"),
+    halt().
