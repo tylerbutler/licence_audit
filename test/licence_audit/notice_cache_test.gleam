@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
@@ -126,6 +127,8 @@ pub fn empty_text_is_treated_as_miss_test() {
     notice_cache.open(notice_cache.Enabled(path: Some(fresh_path("empty"))))
   notice_cache.put_text(handle, "spdx:MIT", "")
   should.equal(notice_cache.get_text(handle, "spdx:MIT"), Error(Nil))
+  notice_cache.put_text(handle, "spdx:MIT", " \t\r\n")
+  should.equal(notice_cache.get_text(handle, "spdx:MIT"), Error(Nil))
   let assert None = notice_cache.close(handle)
 }
 
@@ -152,4 +155,18 @@ pub fn notice_files_codec_round_trips_test() {
     notice.decode_notice_files(notice.encode_notice_files(files))
   should.equal(decoded, files)
   should.equal(notice.decode_notice_files("not json"), Error(Nil))
+}
+
+pub fn blank_cached_files_are_a_miss_even_with_other_usable_text_test() {
+  list.each(["", " \t\r\n", "\u{00A0}\u{2003}"], fn(blank) {
+    should.equal(
+      notice.decode_notice_files(
+        notice.encode_notice_files([
+          notice("LICENSE", blank),
+          notice("COPYING", "usable text"),
+        ]),
+      ),
+      Error(Nil),
+    )
+  })
 }

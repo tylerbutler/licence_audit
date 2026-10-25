@@ -11,6 +11,7 @@ import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/repository
 import licence_audit/source_archive
+import licence_audit/source_archive_test
 import licence_audit/spdx
 import simplifile
 
@@ -346,6 +347,141 @@ pub fn licence_file_candidates_include_all_root_matches_test() {
     "./LICENSE",
     "./NOTICE.txt",
   ])
+}
+
+pub fn blank_licence_files_do_not_hide_usable_text_test() {
+  list.each(["", " \t\r\n", "\u{00A0}\u{2003}"], fn(blank) {
+    let files = [
+      notice.NoticeFile("LICENSE", blank),
+      notice.NoticeFile("NOTICE", "attribution"),
+    ]
+    assert !notice.has_licence_file(files)
+    should.equal(notice.licence_files_only(files), [])
+    should.equal(
+      notice.licence_files([
+        file("LICENSE", blank),
+        file("COPYING", "usable licence"),
+      ]),
+      Ok([notice.NoticeFile("COPYING", "usable licence")]),
+    )
+  })
+}
+
+pub fn blank_root_licence_does_not_hide_nested_text_test() {
+  let files = [
+    file("repo/LICENSE", " \t\r\n"),
+    file("repo/NOTICE", "attribution"),
+    file("repo/legal/COPYING", "usable licence"),
+  ]
+  let expected = [
+    notice.NoticeFile("NOTICE", "attribution"),
+    notice.NoticeFile("legal/COPYING", "usable licence"),
+  ]
+  should.equal(notice.licence_files(files), Ok(expected))
+  source_archive_test.with_tar_gz(
+    list.map(files, fn(file) { #(file.path, file.contents) }),
+    fn(bytes) {
+      should.equal(
+        notice.repo_licence_files("dep", bytes),
+        Ok([notice.NoticeFile("legal/COPYING", "usable licence")]),
+      )
+      let clients =
+        notice.Clients(
+          ..notice.default_clients(),
+          fetch_git_archive: fn(_repo, _commit) { Ok(bytes) },
+        )
+      should.equal(
+        notice.read_source_notices(
+          package(
+            "dep",
+            notice.GitPackage(
+              repository.Repository(repository.GitHub, "owner", "dep"),
+              "https://github.com/owner/dep",
+              "commit",
+            ),
+          ),
+          clients,
+        ),
+        Ok(expected),
+      )
+    },
+  )
+
+  let root = fresh_dir("blank_root_nested")
+  let assert Ok(_) = simplifile.create_directory(root <> "/legal")
+  let assert Ok(_) = simplifile.write(" \t\r\n", to: root <> "/LICENSE")
+  let assert Ok(_) = simplifile.write("attribution", to: root <> "/NOTICE")
+  let assert Ok(_) =
+    simplifile.write("usable licence", to: root <> "/legal/COPYING")
+  should.equal(
+    notice.read_source_notices(
+      package("dep", notice.PathPackage(root)),
+      notice.default_clients(),
+    ),
+    Ok(expected),
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn blank_root_notice_does_not_hide_nested_licence_test() {
+  list.each(["", " \t\r\n", "\u{00A0}\u{2003}"], fn(blank) {
+    let files = [
+      file("repo/NOTICE", blank),
+      file("repo/README.md", "readme"),
+      file("repo/legal/LICENSE", "usable licence"),
+    ]
+    let expected = [notice.NoticeFile("legal/LICENSE", "usable licence")]
+    should.equal(notice.licence_files(files), Ok(expected))
+    should.equal(
+      notice.licence_files([file("repo/COPYING", "root licence"), ..files]),
+      Ok([notice.NoticeFile("COPYING", "root licence")]),
+    )
+    source_archive_test.with_tar_gz(
+      list.map(files, fn(file) { #(file.path, file.contents) }),
+      fn(bytes) {
+        should.equal(notice.repo_licence_files("dep", bytes), Ok(expected))
+        should.equal(
+          notice.read_source_notices(
+            package(
+              "dep",
+              notice.GitPackage(
+                repository.Repository(repository.GitHub, "owner", "dep"),
+                "https://github.com/owner/dep",
+                "commit",
+              ),
+            ),
+            notice.Clients(
+              ..notice.default_clients(),
+              fetch_git_archive: fn(_, _) { Ok(bytes) },
+            ),
+          ),
+          Ok(expected),
+        )
+      },
+    )
+    let root = fresh_dir("blank_notice_nested")
+    let assert Ok(_) = simplifile.create_directory(root <> "/legal")
+    let assert Ok(_) = simplifile.write(blank, to: root <> "/NOTICE")
+    let assert Ok(_) = simplifile.write("readme", to: root <> "/README.md")
+    let assert Ok(_) =
+      simplifile.write("usable licence", to: root <> "/legal/LICENSE")
+    should.equal(
+      notice.read_source_notices(
+        package("dep", notice.PathPackage(root)),
+        notice.default_clients(),
+      ),
+      Ok(expected),
+    )
+    let assert Ok(_) = simplifile.write("root licence", to: root <> "/COPYING")
+    should.equal(
+      notice.read_source_notices(
+        package("dep", notice.PathPackage(root)),
+        notice.default_clients(),
+      ),
+      Ok([notice.NoticeFile("COPYING", "root licence")]),
+    )
+    let assert Ok(_) = simplifile.delete(root)
+  })
 }
 
 pub fn dual_licence_root_files_beat_nested_vendored_licence_test() {
@@ -832,6 +968,9 @@ pub fn has_licence_file_detects_licence_type_files_test() {
   // A NOTICE-only set does not count as having a licence.
   assert !notice.has_licence_file([notice.NoticeFile("./NOTICE.txt", "x")])
   assert !notice.has_licence_file([notice.NoticeFile("README.md", "x")])
+  assert !notice.has_licence_file([
+    notice.NoticeFile("SPDX-License-List/NOTICE", "attribution"),
+  ])
 }
 
 pub fn licence_files_only_drops_ancillary_notice_test() {
@@ -839,6 +978,7 @@ pub fn licence_files_only_drops_ancillary_notice_test() {
     notice.NoticeFile("LICENSE", "lic"),
     notice.NoticeFile("NOTICE.txt", "notice"),
     notice.NoticeFile("COPYING", "copying"),
+    notice.NoticeFile("SPDX-License-List/NOTICE", "attribution"),
   ]
   should.equal(notice.licence_files_only(files), [
     notice.NoticeFile("LICENSE", "lic"),
