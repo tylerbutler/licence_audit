@@ -115,6 +115,11 @@ def otp_material(version):
     return files
 
 
+def wheel_tags(python, abi, platform):
+    return {f"{p}-{a}-{s}" for p in python.split(".")
+            for a in abi.split(".") for s in platform.split(".")}
+
+
 def toolchain_material(targets):
     rust = Path(command("rustc", "--print", "sysroot")) / "share/doc/rust"
     files = {"rust/COPYRIGHT-library.html": (rust / "COPYRIGHT-library.html").read_bytes()}
@@ -155,14 +160,13 @@ def toolchain_material(targets):
     wheel = importlib.metadata.distribution("ziglang").read_text("WHEEL")
     if not wheel:
         raise ValueError("Installed Zig wheel metadata is missing")
-    tags = set(re.findall(r"^Tag: (.+)$", wheel, re.M))
+    tags = {expanded for tag in re.findall(r"^Tag: (.+)$", wheel, re.M)
+            for expanded in wheel_tags(*tag.split("-"))}
     wheels = json.loads(fetch(f"https://pypi.org/pypi/ziglang/{zig_version}/json"))["urls"]
     matches = []
     for asset in wheels:
         if asset["filename"].endswith(".whl"):
-            python, abi, platform = asset["filename"].removesuffix(".whl").rsplit("-", 3)[1:]
-            asset_tags = {f"{p}-{a}-{s}" for p in python.split(".")
-                          for a in abi.split(".") for s in platform.split(".")}
+            asset_tags = wheel_tags(*asset["filename"].removesuffix(".whl").rsplit("-", 3)[1:])
             if asset_tags == tags:
                 matches.append({"url": asset["url"], "sha256": asset["digests"]["sha256"]})
     if len(matches) != 1:

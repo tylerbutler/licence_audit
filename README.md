@@ -587,7 +587,9 @@ continues the run. OSV advisories are not cached.
 
 Escript installations need the `sqlite_native/` directory beside the escript
 for caching. Release archives and `just build` include it; no `ERL_LIBS`
-setting is needed. A bare escript or an unavailable native library produces
+setting is needed. Release escript archives include a native library for each
+of the seven supported release targets; the escript selects its platform.
+A bare escript or an unavailable native library produces
 a warning and runs without caching. `--no-cache` does not load SQLite.
 
 ## Troubleshooting

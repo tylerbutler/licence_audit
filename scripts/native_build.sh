@@ -75,7 +75,8 @@ esac
 
 python3 -m pip install 'ziglang==0.14.1'
 cargo install --locked cargo-zigbuild --version 0.23.4
-cargo install --locked cargo-about --version 0.9.2
+cargo install --locked cargo-about --version 0.9.2 --features cli
+cargo about --version
 rustup component add rust-docs
 case "$target" in
   *-linux-glibc) rust_target="${target%%-linux-*}-unknown-linux-gnu" ;;
@@ -107,15 +108,18 @@ fi
 gleam build --target erlang --warnings-as-errors
 mkdir -p build/native-logs
 queso build --target "$target" 2>&1 | tee "build/native-logs/$target.log"
+python3 -B scripts/sqlite_native.py \
+  --destination "build/escript-sidecars/$target/esqlite"
 python3 -B scripts/runtime_notices.py --target "$target" --cache "$queso_cache" \
   --build-log "build/native-logs/$target.log"
 
+gleam export escript
+mkdir -p build/escript
+cp licence_audit build/escript/
+python3 -B scripts/sqlite_native.py \
+  --destination "build/escript/sqlite_native/$target/esqlite"
+test ! -e build/escript/sqlite_native/esqlite
+python3 -B test/native_cache_smoke.py build/escript/licence_audit --escript
 if [ "$target" = x86_64-linux-glibc ]; then
-  gleam export escript
-  python3 -B scripts/sqlite_native.py
-  mkdir -p build/escript
-  cp licence_audit build/escript/
-  cp -R sqlite_native build/escript/
-  python3 -B test/native_cache_smoke.py build/escript/licence_audit --escript
   python3 -B test/native_cache_smoke.py build/escript/licence_audit --bare-escript
 fi

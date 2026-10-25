@@ -36,9 +36,6 @@ class ReleaseNoticesTest(unittest.TestCase):
         os.chdir(self.work)
         for name in notices.APPLICATION:
             Path(name).write_text(f"Application fixture: {name}\n")
-        native = Path("sqlite_native/esqlite/priv")
-        native.mkdir(parents=True)
-        (native / "esqlite3_nif.so").write_bytes(b"NIF fixture")
 
     def tearDown(self):
         os.chdir(self.previous)
@@ -134,6 +131,11 @@ class ReleaseNoticesTest(unittest.TestCase):
         names = ("otp/bom.spdx.json", "queso/dependency-notices.json",
                  "rust/COPYRIGHT-library.html", "openssl/LICENSE.txt", "otp-distribution.json")
         for target in targets:
+            sidecar = Path("sqlite_native") / target / "esqlite"
+            (sidecar / "ebin").mkdir(parents=True)
+            (sidecar / "ebin/esqlite3_nif.beam").write_bytes(b"BEAM fixture")
+            (sidecar / "priv").mkdir()
+            (sidecar / "priv/esqlite3_nif.so").write_bytes(b"NIF fixture")
             destination = Path("build/release-notices") / target
             for name in names:
                 path = destination / name
@@ -172,6 +174,17 @@ class ReleaseNoticesTest(unittest.TestCase):
         with mock.patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(data)):
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
                 runtime.fetch("https://example.invalid/otp-bom", "sha256:" + "0" * 64)
+
+    def test_zig_wheel_tags_expand_compressed_metadata(self):
+        self.assertEqual(
+            runtime.wheel_tags("py3", "none", "manylinux_2_17_x86_64.manylinux2014_x86_64"),
+            {"py3-none-manylinux_2_17_x86_64", "py3-none-manylinux2014_x86_64"},
+        )
+        self.assertEqual(
+            runtime.wheel_tags("py2.py3", "abi3.none", "win_amd64"),
+            {"py2-abi3-win_amd64", "py2-none-win_amd64",
+             "py3-abi3-win_amd64", "py3-none-win_amd64"},
+        )
 
     def test_otp_collection_preserves_extracted_licences_and_copyright(self):
         bom = json.dumps({

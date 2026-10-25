@@ -71,6 +71,9 @@ jobs:
           echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
           echo 'CC=clang-cl.exe' >> "$GITHUB_ENV"
           echo 'CXX=clang-cl.exe' >> "$GITHUB_ENV"
+          echo 'DEBUG=1' >> "$GITHUB_ENV"
+          echo 'LINKER=lld-link.exe' >> "$GITHUB_ENV"
+          echo 'DRV_LDFLAGS=/DLL' >> "$GITHUB_ENV"
           "/c/Program Files/LLVM/bin/clang-cl.exe" --version
 
       - name: Setup Windows GNU launcher C compiler
@@ -142,6 +145,7 @@ jobs:
           path: |
             build/queso/licence_audit-*
             build/release-notices/${{ matrix.target }}/
+            build/escript-sidecars/${{ matrix.target }}/
             build/native-logs/${{ matrix.target }}.log
 
       - name: Upload bookworm-built escript and SQLite sidecar

@@ -99,13 +99,32 @@ prepare_driver() ->
     case init:get_argument(escript) of
         {ok, _} ->
             Directory = filename:dirname(filename:absname(escript:script_name())),
-            Ebin = filename:join([Directory, "sqlite_native", "esqlite", "ebin"]),
+            Default = filename:join([Directory, "sqlite_native", "esqlite", "ebin"]),
+            Target = filename:join([Directory, "sqlite_native", escript_target(),
+                "esqlite", "ebin"]),
+            Ebin = case filelib:is_dir(Target) of true -> Target; false -> Default end,
             case code:add_patha(Ebin) of
                 true -> load_driver();
                 {error, Reason} ->
                     {error, describe(<<"SQLite sidecar is unavailable; keep sqlite_native beside the escript">>, Reason)}
             end;
         error -> load_driver()
+    end.
+
+escript_target() ->
+    Architecture = erlang:system_info(system_architecture),
+    [Machine | _] = string:split(Architecture, "-", all),
+    Cpu = case Machine of "arm64" -> "aarch64"; _ -> Machine end,
+    case os:type() of
+        {win32, _} -> "x86_64-windows";
+        {unix, darwin} -> Cpu ++ "-macos";
+        {unix, linux} ->
+            Libc = case string:find(Architecture, "musl") of
+                nomatch -> "glibc";
+                _ -> "musl"
+            end,
+            Cpu ++ "-linux-" ++ Libc;
+        _ -> "unsupported"
     end.
 
 load_driver() ->

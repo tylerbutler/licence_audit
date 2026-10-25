@@ -113,6 +113,10 @@ produce the escript at `./licence_audit`. The pinned compiler provides this
 exporter, so the build does not need `gleescript`.
 The build also copies the SQLite native application to `./sqlite_native/`.
 Keep that directory beside the escript when you move or distribute it.
+Source builds stage the local application at `sqlite_native/esqlite/`.
+Release escript archives instead include `sqlite_native/<target>/esqlite/`
+for all seven release targets. The escript selects the native library from
+the Erlang runtime's architecture and operating system, including musl.
 
 ### Vendored packages
 
@@ -243,7 +247,8 @@ normal Gleam source installs and packaged releases use the same native code.
 This follow-up does not stop implementation or platform qualification.
 
 `just test-cache-runtime` checks missing and unloadable native libraries in
-fresh VMs and verifies that disabled caches do not load the NIF.
+fresh VMs, verifies that disabled caches do not load the NIF, and checks the
+504-byte Linux database path boundary.
 
 Keep standalone Gleam experiments outside `src/`, `test/`, and `dev/`.
 Gleam scans nested projects in those source directories, including their
