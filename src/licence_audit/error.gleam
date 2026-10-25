@@ -1,5 +1,6 @@
 import gleam/int
 import licence_audit/config
+import licence_audit/exception
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
@@ -80,6 +81,10 @@ pub fn from_osv_error(error: osv.Error) -> Error {
 pub fn from_policy_error(error: policy.Error) -> Error {
   let policy.MissingPolicy = error
   MissingPolicy
+}
+
+pub fn from_exception_error(error: exception.Error) -> Error {
+  Config(exception.describe_error(error))
 }
 
 pub fn from_config_error(error: config.Error) -> Error {

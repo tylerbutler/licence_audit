@@ -39,7 +39,43 @@ pub type Coverage {
   Evaluated(matched: List(Int), unavailable: List(#(String, String)))
 }
 
-pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, String) {
+pub type Error {
+  UnknownField(String)
+  NestedFields
+  RequiredString(String)
+  UnexpectedField(String)
+  InvalidFinding
+  LicenceRequiresHex
+  InvalidExpiryType
+  InvalidPurl
+  InvalidDate
+  OverlappingEntries(first: Exception, second: Exception)
+  AmbiguousIdentity(Exception)
+}
+
+pub fn describe_error(error: Error) -> String {
+  case error {
+    UnknownField(field) -> "unknown field " <> field
+    NestedFields -> "nested exception fields are not supported"
+    RequiredString(field) -> field <> " must be a non-empty string"
+    UnexpectedField(field) -> field <> " is not valid for this finding"
+    InvalidFinding ->
+      "finding must be denied-licence, unallowed-licence, no-licences-declared, or advisory"
+    LicenceRequiresHex -> "licence exceptions require a pkg:hex identity"
+    InvalidExpiryType -> "expires must be a quoted YYYY-MM-DD string"
+    InvalidPurl ->
+      "purl must be pkg:hex/<name>@<exact-version> or pkg:github/<owner>/<repo>@<full-commit> (lowercase, without qualifiers or subpaths)"
+    InvalidDate -> "expires must be a valid YYYY-MM-DD date"
+    OverlappingEntries(first, second) -> overlap_message(first, second)
+    AmbiguousIdentity(entry) ->
+      "exceptions["
+      <> int.to_string(entry.number)
+      <> "]: purl matches multiple locked packages: "
+      <> entry.purl
+  }
+}
+
+pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, Error) {
   use _ <- result.try(
     list.try_each(table, fn(field) {
       case field.0 {
@@ -51,9 +87,9 @@ pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, String) {
             )
           {
             True -> Ok(Nil)
-            False -> Error("unknown field " <> key)
+            False -> Error(UnknownField(key))
           }
-        _ -> Error("nested exception fields are not supported")
+        _ -> Error(NestedFields)
       }
     }),
   )
@@ -78,14 +114,11 @@ pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, String) {
       use _ <- result.try(absent(table, "licence"))
       result.map(required_string(table, "advisory"), Advisory)
     }
-    _ ->
-      Error(
-        "finding must be denied-licence, unallowed-licence, no-licences-declared, or advisory",
-      )
+    _ -> Error(InvalidFinding)
   })
   use <- bool.guard(
     when: !is_advisory(finding) && !string.starts_with(purl, "pkg:hex/"),
-    return: Error("licence exceptions require a pkg:hex identity"),
+    return: Error(LicenceRequiresHex),
   )
   use reason <- result.try(required_string(table, "reason"))
   use expires <- result.try(case toml.field(table, "expires") {
@@ -93,9 +126,7 @@ pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, String) {
     Ok(value) -> {
       use date <- result.try(
         toml.as_string(value)
-        |> result.map_error(fn(_) {
-          "expires must be a quoted YYYY-MM-DD string"
-        }),
+        |> result.replace_error(InvalidExpiryType),
       )
       use _ <- result.try(validate_date(date))
       Ok(Some(date))
@@ -104,7 +135,7 @@ pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, String) {
   Ok(Exception(number:, purl:, finding:, reason:, expires:))
 }
 
-fn required_string(table: toml.Entry, field: String) -> Result(String, String) {
+fn required_string(table: toml.Entry, field: String) -> Result(String, Error) {
   let value =
     toml.field(table, field)
     |> result.try(toml.as_string)
@@ -112,16 +143,16 @@ fn required_string(table: toml.Entry, field: String) -> Result(String, String) {
     Ok(value) ->
       case string.trim(value) == "" {
         False -> Ok(value)
-        True -> Error(field <> " must be a non-empty string")
+        True -> Error(RequiredString(field))
       }
-    Error(_) -> Error(field <> " must be a non-empty string")
+    Error(_) -> Error(RequiredString(field))
   }
 }
 
-fn absent(table: toml.Entry, field: String) -> Result(Nil, String) {
+fn absent(table: toml.Entry, field: String) -> Result(Nil, Error) {
   case toml.field(table, field) {
     Error(_) -> Ok(Nil)
-    Ok(_) -> Error(field <> " is not valid for this finding")
+    Ok(_) -> Error(UnexpectedField(field))
   }
 }
 
@@ -130,7 +161,7 @@ fn characters(value: String, allowed: String) -> Bool {
   && list.all(string.to_graphemes(value), fn(c) { string.contains(allowed, c) })
 }
 
-fn validate_purl(purl: String) -> Result(Nil, String) {
+fn validate_purl(purl: String) -> Result(Nil, Error) {
   let valid = case string.split(purl, "@") {
     [identity, version] ->
       case string.split(identity, "/") {
@@ -148,22 +179,19 @@ fn validate_purl(purl: String) -> Result(Nil, String) {
   }
   case valid {
     True -> Ok(Nil)
-    False ->
-      Error(
-        "purl must be pkg:hex/<name>@<exact-version> or pkg:github/<owner>/<repo>@<full-commit> (lowercase, without qualifiers or subpaths)",
-      )
+    False -> Error(InvalidPurl)
   }
 }
 
-pub fn validate_date(date: String) -> Result(Nil, String) {
+pub fn validate_date(date: String) -> Result(Nil, Error) {
   let parsed = timestamp.parse_rfc3339(date <> "T00:00:00Z")
   case parsed {
     Ok(value) ->
       case string.length(date) == 10 && utc_date(value) == date {
         True -> Ok(Nil)
-        False -> Error("expires must be a valid YYYY-MM-DD date")
+        False -> Error(InvalidDate)
       }
-    _ -> Error("expires must be a valid YYYY-MM-DD date")
+    Error(_) -> Error(InvalidDate)
   }
 }
 
@@ -190,7 +218,7 @@ fn is_advisory(finding: Finding) -> Bool {
   }
 }
 
-pub fn validate_unique(entries: List(Exception)) -> Result(Nil, String) {
+pub fn validate_unique(entries: List(Exception)) -> Result(Nil, Error) {
   case entries {
     [] -> Ok(Nil)
     [entry, ..rest] ->
@@ -199,7 +227,7 @@ pub fn validate_unique(entries: List(Exception)) -> Result(Nil, String) {
           entry.purl == other.purl && entry.finding == other.finding
         })
       {
-        Ok(other) -> Error(overlap_message(entry, other))
+        Ok(other) -> Error(OverlappingEntries(entry, other))
         Error(_) -> validate_unique(rest)
       }
   }
@@ -208,16 +236,10 @@ pub fn validate_unique(entries: List(Exception)) -> Result(Nil, String) {
 pub fn validate_identities(
   entries: List(Exception),
   purls: List(String),
-) -> Result(Nil, String) {
+) -> Result(Nil, Error) {
   list.try_each(entries, fn(entry) {
     case list.length(list.filter(purls, fn(purl) { purl == entry.purl })) > 1 {
-      True ->
-        Error(
-          "exceptions["
-          <> int.to_string(entry.number)
-          <> "]: purl matches multiple locked packages: "
-          <> entry.purl,
-        )
+      True -> Error(AmbiguousIdentity(entry))
       False -> Ok(Nil)
     }
   })
@@ -229,7 +251,7 @@ pub fn decide(
   finding: Finding,
   aliases: List(String),
   today: String,
-) -> Result(Decision, String) {
+) -> Result(Decision, Error) {
   let matches =
     list.filter(entries, fn(entry) {
       entry.purl == purl
@@ -246,7 +268,7 @@ pub fn decide(
         True -> Expired(entry)
         False -> Excepted(entry)
       })
-    [first, second, ..] -> Error(overlap_message(first, second))
+    [first, second, ..] -> Error(OverlappingEntries(first, second))
   }
 }
 
@@ -313,44 +335,41 @@ pub fn summary(
   licences: Coverage,
   advisories: Coverage,
 ) -> String {
-  case entries {
-    [] -> ""
-    _ ->
-      "\nPolicy exceptions:\n"
-      <> string.join(
-        list.map(entries, fn(entry) {
-          let coverage = case is_advisory(entry.finding) {
-            True -> advisories
-            False -> licences
-          }
-          let state = case coverage {
-            NotEvaluated(reason) -> "not evaluated: " <> reason
-            Evaluated(matched, unavailable) ->
-              case list.contains(matched, entry.number) {
-                True -> "matched"
-                False ->
-                  case list.key_find(unavailable, entry.purl) {
-                    Ok(reason) -> "not evaluated: " <> reason
-                    Error(_) -> "unused"
-                  }
+  use <- bool.guard(when: entries == [], return: "")
+  "\nPolicy exceptions:\n"
+  <> string.join(
+    list.map(entries, fn(entry) {
+      let coverage = case is_advisory(entry.finding) {
+        True -> advisories
+        False -> licences
+      }
+      let state = case coverage {
+        NotEvaluated(reason) -> "not evaluated: " <> reason
+        Evaluated(matched, unavailable) ->
+          case list.contains(matched, entry.number) {
+            True -> "matched"
+            False ->
+              case list.key_find(unavailable, entry.purl) {
+                Ok(reason) -> "not evaluated: " <> reason
+                Error(_) -> "unused"
               }
           }
-          let state = case is_expired(entry, today), state {
-            True, _ -> "expired; " <> state
-            False, "matched" -> "excepted"
-            False, _ -> state
-          }
-          "  "
-          <> state
-          <> " "
-          <> review_text(entry)
-          <> " - "
-          <> entry.purl
-          <> " - "
-          <> finding_text(entry.finding)
-        }),
-        "\n",
-      )
-      <> "\n"
-  }
+      }
+      let state = case is_expired(entry, today), state {
+        True, _ -> "expired; " <> state
+        False, "matched" -> "excepted"
+        False, _ -> state
+      }
+      "  "
+      <> state
+      <> " "
+      <> review_text(entry)
+      <> " - "
+      <> entry.purl
+      <> " - "
+      <> finding_text(entry.finding)
+    }),
+    "\n",
+  )
+  <> "\n"
 }

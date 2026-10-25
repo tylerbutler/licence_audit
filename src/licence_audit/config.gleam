@@ -188,16 +188,17 @@ fn parse_exceptions(
         let #(value, number) = pair
         use table <- result.try(
           toml.as_table(value)
-          |> result.map_error(fn(_) {
-            InvalidException(
-              "exceptions[" <> int.to_string(number) <> "] must be a table",
-            )
-          }),
+          |> result.replace_error(InvalidException(
+            "exceptions[" <> int.to_string(number) <> "] must be a table",
+          )),
         )
         exception.parse(table, number)
-        |> result.map_error(fn(message) {
+        |> result.map_error(fn(exception_error) {
           InvalidException(
-            "exceptions[" <> int.to_string(number) <> "]: " <> message,
+            "exceptions["
+            <> int.to_string(number)
+            <> "]: "
+            <> exception.describe_error(exception_error),
           )
         })
       })
@@ -255,6 +256,7 @@ fn optional_string_list(
 fn validate(policy: Policy) -> Result(Policy, Error) {
   use _ <- result.try(
     exception.validate_unique(policy.exceptions)
+    |> result.map_error(exception.describe_error)
     |> result.map_error(InvalidException),
   )
   use <- bool.guard(

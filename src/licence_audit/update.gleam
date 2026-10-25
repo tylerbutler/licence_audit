@@ -3,6 +3,7 @@
 //// policy, then write the result back to `gleam.toml` under
 //// `[tools.licence_audit]`.
 
+import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -61,20 +62,26 @@ pub fn run_with_picker(
 ) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.phase(reporter, "Starting licence policy update")
 
-  case load_existing_policy(config_path, project_root, ignore_config) {
-    Error(config_error) -> #(
-      UpdateResult(
-        exit_code: error.exit_code(error.from_config_error(config_error)),
-        output: "Error: "
-          <> error.message(error.from_config_error(config_error))
-          <> "\n",
-      ),
-      reporter,
+  let outcome = {
+    use existing <- result.try(
+      load_existing_policy(config_path, project_root, ignore_config)
+      |> result.map_error(fn(config_error) {
+        #(
+          UpdateResult(
+            exit_code: error.exit_code(error.from_config_error(config_error)),
+            output: "Error: "
+              <> error.message(error.from_config_error(config_error))
+              <> "\n",
+          ),
+          reporter,
+        )
+      }),
     )
-    Ok(existing) -> {
-      let reporter = progress.detail(reporter, "Loading package manifest")
-      case manifest.load(manifest_path) {
-        Error(err) -> #(
+    let reporter = progress.detail(reporter, "Loading package manifest")
+    use locked <- result.try(
+      manifest.load(manifest_path)
+      |> result.map_error(fn(err) {
+        #(
           UpdateResult(
             exit_code: error.exit_code(error.from_manifest_error(err)),
             output: "Error: "
@@ -83,54 +90,49 @@ pub fn run_with_picker(
           ),
           reporter,
         )
-        Ok(locked) -> {
-          let reporter =
-            progress.package_count(reporter, list.length(locked.packages))
+      }),
+    )
+    let reporter =
+      progress.package_count(reporter, list.length(locked.packages))
 
-          let cache_mode = case no_cache {
-            True -> cache.Disabled
-            False -> cache.Enabled(path: cache_path)
-          }
-          let cache_handle = cache.open(cache_mode)
-          let cached_fetcher = cache.wrap(cache_handle, fetcher)
-
-          let #(discovered, fetch_failed, reporter) =
-            discover_licences(
-              locked.packages,
-              cached_fetcher,
-              reporter,
-              [],
-              False,
-            )
-          let cache_warning = cache.close(cache_handle)
-
-          case fetch_failed {
-            True -> {
-              let reporter =
-                progress.fail(reporter, "Could not gather all package licences")
-              let reporter = warn_cache(reporter, cache_warning)
-              #(
-                UpdateResult(
-                  exit_code: 2,
-                  output: "Error: failed to fetch metadata for one or more packages\n",
-                ),
-                reporter,
-              )
-            }
-            False ->
-              handle_selection(
-                existing,
-                discovered,
-                config_path,
-                project_root,
-                cache_warning,
-                pick,
-                reporter,
-              )
-          }
-        }
-      }
+    let cache_mode = case no_cache {
+      True -> cache.Disabled
+      False -> cache.Enabled(path: cache_path)
     }
+    let cache_handle = cache.open(cache_mode)
+    let cached_fetcher = cache.wrap(cache_handle, fetcher)
+
+    let #(discovered, fetch_failed, reporter) =
+      discover_licences(locked.packages, cached_fetcher, reporter, [], False)
+    let cache_warning = cache.close(cache_handle)
+
+    Ok(case fetch_failed {
+      True -> {
+        let reporter =
+          progress.fail(reporter, "Could not gather all package licences")
+        let reporter = warn_cache(reporter, cache_warning)
+        #(
+          UpdateResult(
+            exit_code: 2,
+            output: "Error: failed to fetch metadata for one or more packages\n",
+          ),
+          reporter,
+        )
+      }
+      False ->
+        handle_selection(
+          existing,
+          discovered,
+          config_path,
+          project_root,
+          cache_warning,
+          pick,
+          reporter,
+        )
+    })
+  }
+  case outcome {
+    Ok(outcome) | Error(outcome) -> outcome
   }
 }
 
@@ -262,30 +264,26 @@ fn load_existing_policy(
   project_root: String,
   ignore_config: Bool,
 ) -> Result(config.Policy, config.Error) {
-  case ignore_config {
-    True -> Ok(empty_policy())
-    False -> {
-      let load_result =
-        config.load(config.LoadOptions(
-          config_path: config_path,
-          project_root: project_root,
-          allow_licences: [],
-          deny_licences: [],
-          vuln_severity: None,
-          vuln_block_unknown: False,
-          ignore_config: False,
-          check: False,
-        ))
-      case load_result {
-        Ok(policy) -> Ok(policy)
-        Error(config.FileReadError(path) as error) ->
-          case simplifile.read(path) {
-            Error(simplifile.Enoent) -> Ok(empty_policy())
-            Ok(_) | Error(_) -> Error(error)
-          }
-        Error(error) -> Error(error)
+  use <- bool.guard(when: ignore_config, return: Ok(empty_policy()))
+  let load_result =
+    config.load(config.LoadOptions(
+      config_path: config_path,
+      project_root: project_root,
+      allow_licences: [],
+      deny_licences: [],
+      vuln_severity: None,
+      vuln_block_unknown: False,
+      ignore_config: False,
+      check: False,
+    ))
+  case load_result {
+    Ok(policy) -> Ok(policy)
+    Error(config.FileReadError(path) as error) ->
+      case simplifile.read(path) {
+        Error(simplifile.Enoent) -> Ok(empty_policy())
+        Ok(_) | Error(_) -> Error(error)
       }
-    }
+    Error(error) -> Error(error)
   }
 }
 

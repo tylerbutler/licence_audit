@@ -2,7 +2,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit/cache_dir
-import licence_audit/cache_support.{corrupt_entry}
+import licence_audit/cache_support
 import licence_audit/notice
 import licence_audit/notice_cache
 import simplifile
@@ -133,7 +133,7 @@ pub fn invalid_value_text_is_warned_miss_and_can_be_refetched_test() {
   let path = fresh_path("invalid_value")
   let key = "spdx:MIT"
   let handle = notice_cache.open(notice_cache.Enabled(path: Some(path)))
-  let assert Ok(Nil) = corrupt_entry(path, key)
+  let assert Ok(Nil) = cache_support.corrupt_entry(path, key)
 
   should.equal(notice_cache.get_text(handle, key), Error(Nil))
   notice_cache.put_text(handle, key, "refetched MIT text")

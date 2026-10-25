@@ -53,7 +53,8 @@ pub fn open(mode: Mode) -> Cache {
     Enabled(path) ->
       case cache_dir.open_table(path, cache_filename(), "notices") {
         Ok(table) -> Cache(table: Some(table), warning: None)
-        Error(warning) -> Cache(table: None, warning: Some(warning))
+        Error(error) ->
+          Cache(table: None, warning: Some(cache_dir.describe_error(error)))
       }
   }
 }
