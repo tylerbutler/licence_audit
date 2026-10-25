@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Add `sbom --license-text` to embed canonical SPDX licence text for recognised IDs without changing default output."

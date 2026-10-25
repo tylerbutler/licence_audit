@@ -15,6 +15,7 @@ licence_audit sbom [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git |

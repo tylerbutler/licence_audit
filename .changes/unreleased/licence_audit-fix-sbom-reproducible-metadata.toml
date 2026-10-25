@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Fix `sbom --reproducible` metadata decoding for quoted UTF-8 and numeric Hex binary literals; reject unsupported literals and ignore incomplete legacy immutable cache entries."
