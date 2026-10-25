@@ -499,6 +499,26 @@ pub fn sbom_subcommand_parses_defaults_test() {
   should.equal(options.offline, False)
   should.equal(options.no_cache, False)
   should.equal(options.reproducible, False)
+  should.equal(options.format, cli.CyclonedxJson)
+}
+
+pub fn sbom_subcommand_parses_spdx_format_test() {
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(cli.app(), ["sbom", "--format=spdx-json", "--offline"])
+  should.equal(options.format, cli.SpdxJson)
+  should.equal(options.offline, True)
+}
+
+pub fn sbom_subcommand_rejects_unknown_format_test() {
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), ["sbom", "--format=spdx"])
+  assert string.contains(message, "cyclonedx-json or spdx-json")
+}
+
+pub fn sbom_subcommand_rejects_spdx_vulnerabilities_test() {
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), ["sbom", "--format=spdx-json", "--vulns"])
+  assert string.contains(message, "--vulns is supported only")
 }
 
 pub fn sbom_subcommand_parses_reproducible_flag_test() {

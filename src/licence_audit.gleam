@@ -30,6 +30,7 @@ import licence_audit/report
 import licence_audit/repository
 import licence_audit/sbom
 import licence_audit/sbom_json
+import licence_audit/sbom_spdx
 import licence_audit/sbom_uuid
 import licence_audit/source_archive
 import licence_audit/toml
@@ -924,7 +925,11 @@ fn render_sbom(
           vulnerabilities: vulnerabilities,
         )
 
-      case sbom.try_render(input) {
+      let rendered = case options.format {
+        cli.CyclonedxJson -> sbom.try_render(input)
+        cli.SpdxJson -> sbom_spdx.try_render(input)
+      }
+      case rendered {
         Error(err) -> #(diagnostic(err), reporter)
         Ok(json_str) -> write_sbom_output(options.output, json_str, reporter)
       }

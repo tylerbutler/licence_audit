@@ -3,6 +3,7 @@ erlang = "28.3"
 gleam = "1.19.0-rc3"
 just = "latest"
 rebar = "3.26.0"
+uv = "0.13.5"
 "github:jtdowney/queso" = "0.3.0"
 "github:tylerbutler/trellis" = "1.0.0"
 
