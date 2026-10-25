@@ -39,6 +39,11 @@ jobs:
       - name: Check vendored sources
         run: just vendor-check vendor-test
 
+      - name: Test release notice staging
+        run: |
+          mise trust .validation/.mise.toml
+          python3 -B -m unittest discover -s .validation/test -p release_notices_test.py
+
       - name: Check formatting
         run: just format-check
 
@@ -50,6 +55,12 @@ jobs:
 
       - name: Build (warnings as errors)
         run: just build-strict
+
+      - name: Check bare escript with embedded notices
+        run: |
+          mise exec -- python3 -B .validation/scripts/release_notices.py embed licence_audit
+          mise exec -- python3 -B .validation/scripts/release_notices.py check licence_audit
+          ./licence_audit --help
 
       - name: Check vendored production boundary
         run: just test-vendor-production
@@ -64,6 +75,9 @@ jobs:
         run: |
           python3 -B -m unittest discover -s .validation/test -p native_release_smoke_test.py
           python3 -B -m unittest discover -s .validation/test -p publish_release_test.py
+
+      - name: Test CLI output streams
+        run: LICENCE_AUDIT_TEST_ROOT="$PWD" mise exec -- python3 -B .validation/test/cli_stream_test.py
 
       - name: Test Unicode cache paths
         run: mise exec -- bash .validation/test/env_cache_paths.sh
