@@ -34,6 +34,14 @@ Expand-Archive licence_audit.zip -DestinationPath .
 
 The release also keeps the original escript archive and bare `licence_audit`
 escript. The escript runs on any platform with Erlang/OTP 28.x or newer.
+Keep `slate_native/` beside the escript. Use the archive to get these native
+libraries. The bare download embeds `LICENSE`, `NOTICE`, application dependency
+notices, and Slate native notices under `META-INF/licenses/` in its ZIP payload;
+it does not bundle Erlang/OTP or the Slate native libraries.
+
+Keep the licence and notice files when you redistribute an extracted archive.
+Native archives also include `runtime-notices/` for the bundled OTP runtime,
+Queso launcher, and native components.
 
 ```sh
 curl -fsSL -o licence_audit-escript.tar.gz \

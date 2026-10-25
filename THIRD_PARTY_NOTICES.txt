@@ -1383,8 +1383,8 @@ Products using this licence:
     Source: hex
     Declared licences: MIT
     Licence files: LICENSE
-  spruce 1.0.1
-    Source: git https://github.com/tylerbutler/spruce.git @ bc7daff38e2506923f4496ef14937786e1223c42
+  spruce 2.0.1
+    Source: hex
     Declared licences: MIT, Apache-2.0
     Licence files: LICENSE-APACHE
   tty 1.1.1
@@ -2054,8 +2054,8 @@ Products using this licence:
 
 ================================================================================
 Products using this licence:
-  spruce 1.0.1
-    Source: git https://github.com/tylerbutler/spruce.git @ bc7daff38e2506923f4496ef14937786e1223c42
+  spruce 2.0.1
+    Source: hex
     Declared licences: MIT, Apache-2.0
     Licence files: LICENSE-MIT
   tty 1.1.1

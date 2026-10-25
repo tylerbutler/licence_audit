@@ -42,6 +42,10 @@ vendor-check:
 vendor-test:
     mise exec -- python3 -B -m unittest discover -s test -p vendor_sync_test.py
 
+# Verify notice staging, archive contents, and missing-material failures.
+test-release-notices:
+    mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
+
 # Check the production application and the shipped escript.
 test-vendor-production: build
     mise exec -- bash test/vendor_production.sh
@@ -158,6 +162,11 @@ smoke-native-http binary:
 test:
     mise exec -- gleam test
 
+# Check notices filtering with real CLI cache settings in fresh Erlang VMs.
+test-notices-filter:
+    mise exec -- gleam build
+    mise exec -- bash test/notices_filter.sh
+
 # Test CLI application startup and failure diagnostics in fresh Erlang VMs.
 test-runtime-startup:
     mise exec -- gleam build
@@ -167,6 +176,15 @@ test-runtime-startup:
 test-cache-runtime:
     mise exec -- gleam build
     mise exec -- bash test/sqlite_cache_runtime.sh
+
+# Reproduce an interrupted update write in a fresh VM (Linux only).
+test-update-atomic:
+    mise exec -- gleam build
+    mise exec -- python3 -B test/update_atomic_write.py
+
+# Capture report and diagnostic streams from the built CLI independently.
+test-cli-streams: build
+    mise exec -- python3 -B test/cli_stream_test.py
 
 # Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
 test-env-cache-paths: build
@@ -355,6 +373,6 @@ docs-check: _docs-ffi
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci

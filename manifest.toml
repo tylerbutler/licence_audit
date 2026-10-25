@@ -34,7 +34,7 @@ packages = [
   { name = "smalto", version = "3.0.0", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_stdlib", "houdini"], otp_app = "smalto", source = "hex", outer_checksum = "13EA8935A9E60A770E326FB850F5A5B3612A62E0A6C62C3F850AD04C842E3769" },
   { name = "snag", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "snag", source = "hex", outer_checksum = "274F41D6C3ECF99F7686FDCE54183333E41D2C1CA5A3A673F9A8B2C7A4401077" },
   { name = "splitter", version = "1.3.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "splitter", source = "hex", outer_checksum = "8F1485306E0D59168A39E12ED8844F9F616EC59C3C63AFCFDAE04DBD68690CBC" },
-  { name = "spruce", version = "1.0.1", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_stdlib", "mork", "smalto", "tty"], source = "git", repo = "https://github.com/tylerbutler/spruce.git", commit = "bc7daff38e2506923f4496ef14937786e1223c42" },
+  { name = "spruce", version = "2.0.1", build_tools = ["gleam"], requirements = ["gleam_community_ansi", "gleam_stdlib", "mork", "smalto", "tty"], otp_app = "spruce", source = "hex", outer_checksum = "0B3030154171F803C223A9CDF7E62785F7B59A8DEC456D998C1C66F12FF4E796" },
   { name = "tom", version = "2.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "tom", source = "hex", outer_checksum = "DCF04CB7AB35D58CFC598C66EA2E1816D160759802C89B2BA6238780D59BC256" },
   { name = "tomlet", version = "1.4.1", build_tools = ["gleam"], requirements = ["gleam_stdlib", "william"], otp_app = "tomlet", source = "hex", outer_checksum = "EBDC22E122D0727C519A2461730F3C4BD83E2F9325199A5C74FBA819E6E59C2B" },
   { name = "tty", version = "1.1.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "tty", source = "hex", outer_checksum = "07E644384E648C511232E0D87DEFCDE200E0D48D2787EB02E4FBE2D43D3E137B" },
@@ -59,7 +59,7 @@ glinter = { version = ">= 2.19.0 and < 3.0.0" }
 glugify = { version = ">= 3.0.0 and < 4.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 snag = { version = ">= 1.0.0 and < 2.0.0" }
-spruce = { git = "https://github.com/tylerbutler/spruce.git", ref = "main" }
+spruce = { version = ">= 2.0.1 and < 3.0.0" }
 tomlet = { version = ">= 1.1.2 and < 2.0.0" }
 tty = { version = ">= 1.0.0 and < 2.0.0" }
 william = { version = ">= 1.0.0 and < 2.0.0" }

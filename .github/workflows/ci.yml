@@ -50,6 +50,7 @@ jobs:
           & "C:\Program Files\LLVM\bin\clang-cl.exe" --version
 
       # Gleam's Windows directory copy cannot copy cvss's licence symlink.
+      # Keep its exact licence text, but use a regular file in the build cache.
       - name: Prepare dependencies
         run: |
           gleam deps download

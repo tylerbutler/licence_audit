@@ -1549,6 +1549,85 @@ pub fn sbom_subcommand_prints_cyclonedx_to_stdout_test() {
   let assert True = string.contains(result.output, "\"id\": \"Apache-2.0\"")
 }
 
+pub fn sbom_license_text_is_opt_in_and_fetches_shared_id_once_test() {
+  reset_detail_fetch("sbom-license-text")
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(sbom_fetcher),
+      fetcher: fn(name) {
+        sbom_fetcher(name)
+        |> result.map(fn(metadata) {
+          hex.PackageMetadata(..metadata, licences: [
+            "apache-2.0",
+            "MIT OR Apache-2.0",
+            "LicenseRef-Local",
+          ])
+        })
+      },
+      notice_clients: notice.Clients(
+        ..notice_clients(fixture_hex_tarball),
+        fetch_spdx: fn(requirement) {
+          should.equal(requirement, spdx.LicenseRequirement("Apache-2.0"))
+          let _ = record_detail_fetch("sbom-license-text")
+          Ok(Some("Canonical SPDX text\n"))
+        },
+      ),
+    )
+  let args = ["sbom", "--manifest=test/fixtures/manifest_github_git.toml"]
+  let plain = licence_audit.run_configured(args, clients, progress.disabled()).0
+  should.equal(plain.exit_code, 0)
+  assert !string.contains(plain.output, "\"text\":")
+  should.equal(record_detail_fetch("sbom-license-text"), 1)
+  reset_detail_fetch("sbom-license-text")
+  let enriched =
+    licence_audit.run_configured(
+      list.append(args, ["--license-text"]),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(enriched.exit_code, 0)
+  should.equal(record_detail_fetch("sbom-license-text"), 2)
+  assert string.contains(enriched.output, "\"contentType\": \"text/plain\"")
+  assert string.contains(enriched.output, "Canonical SPDX text\\n")
+}
+
+pub fn sbom_license_text_fetch_failures_leave_output_untouched_test() {
+  let output = "build/tmp/sbom-license-text-existing.json"
+  let assert Ok(Nil) = simplifile.create_directory_all("build/tmp")
+  list.each(
+    [
+      Error(notice.FetchNetworkFailure),
+      Ok(None),
+      Ok(Some(" \r\n\t")),
+    ],
+    fn(response) {
+      let assert Ok(Nil) = simplifile.write(output, "previous output")
+      let result =
+        licence_audit.run_configured(
+          [
+            "sbom",
+            "--manifest=test/fixtures/manifest_github_git.toml",
+            "--license-text",
+            "--output=" <> output,
+          ],
+          licence_audit.Clients(
+            ..test_clients(sbom_fetcher),
+            notice_clients: notice.Clients(
+              ..notice_clients(fixture_hex_tarball),
+              fetch_spdx: fn(_requirement) { response },
+            ),
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "SPDX")
+      assert string.contains(result.output, "Apache-2.0")
+      should.equal(simplifile.read(output), Ok("previous output"))
+    },
+  )
+  let assert Ok(Nil) = simplifile.delete(output)
+}
+
 pub fn sbom_optional_enrichment_failures_still_exit_zero_test() {
   let #(result, events) =
     licence_audit.run_configured(

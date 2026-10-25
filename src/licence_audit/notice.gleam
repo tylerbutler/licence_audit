@@ -11,6 +11,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/manifest
@@ -118,6 +119,7 @@ pub fn default_clients() -> Clients {
 }
 
 pub type Error {
+  UnknownPackages(packages: List(String))
   MissingLicenceText(packages: List(String))
   MetadataFailed(package: String, reason: String)
   UnsupportedSource(package: String, source: String, detail: String)
@@ -142,6 +144,31 @@ pub fn selected_entries(
   list.filter(manifest_value.entries, fn(entry) {
     include_dev || scope_for(scopes, entry.name) == manifest.Prod
   })
+}
+
+pub fn filter_entries(
+  selected: List(manifest.SbomEntry),
+  locked: List(manifest.SbomEntry),
+  configuration: config.Notices,
+) -> Result(List(manifest.SbomEntry), Error) {
+  let names = list.map(locked, fn(entry) { entry.name })
+  let unknown =
+    list.append(configuration.include, configuration.exclude)
+    |> list.unique
+    |> list.filter(fn(name) { !list.contains(names, name) })
+  case unknown {
+    [] ->
+      Ok(
+        list.filter(selected, fn(entry) {
+          {
+            configuration.include == []
+            || list.contains(configuration.include, entry.name)
+          }
+          && !list.contains(configuration.exclude, entry.name)
+        }),
+      )
+    _ -> Error(UnknownPackages(unknown))
+  }
 }
 
 pub fn packages_from_entries(
@@ -531,6 +558,9 @@ pub fn render(
 
 pub fn describe_error(error: Error) -> String {
   case error {
+    UnknownPackages(packages) ->
+      "Unknown locked package names in notices configuration: "
+      <> string.join(list.sort(packages, by: string.compare), ", ")
     MissingLicenceText(packages) ->
       "Missing licence text for packages: "
       <> string.join(list.sort(packages, by: string.compare), ", ")
