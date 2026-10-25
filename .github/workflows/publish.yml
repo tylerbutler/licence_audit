@@ -225,6 +225,10 @@ jobs:
         if: runner.os == 'Windows'
         run: python -m pip install pywinpty==3.0.2
 
+      - name: Test Windows program firewall isolation and failure cleanup
+        if: runner.os == 'Windows'
+        run: python .validation/test/windows_firewall_smoke.py
+
       - name: Test installed archive on its target host
         shell: bash
         env:

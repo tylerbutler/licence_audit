@@ -11,6 +11,7 @@ import queue
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -209,14 +210,9 @@ def smoke(binary, work, expected_version):
         shutil.copyfile(fixtures / name, work / name)
     for name in ("home-é中", "empty-path"):
         (work / name).mkdir()
-    environment = {
-        key: value for key, value in os.environ.items()
-        if key.upper() in (
-            "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
-            "ALLUSERSPROFILE", "PROGRAMDATA", "USERNAME", "USERDOMAIN", "COMPUTERNAME",
-            "USERPROFILE", "LOCALAPPDATA", "APPDATA", "HOMEDRIVE", "HOMEPATH",
-        )
-    }
+    environment = dict(os.environ) if os.name == "nt" else {}
+    environment.pop("HOME", None)
+    environment.pop("XDG_CACHE_HOME", None)
     environment.update(
         PATH=str(work / "empty-path"), TERM="xterm-256color",
         TMPDIR=str(work), TMP=str(work), TEMP=str(work),
@@ -229,6 +225,7 @@ def smoke(binary, work, expected_version):
             native = Path(environment[name])
             assert native.is_dir(), f"Missing native Windows folder: {name}={native}"
             print(f"Native Windows {name}={native} (directory exists)")
+        print("Native Windows PROCESSOR_ARCHITECTURE=" + environment.get("PROCESSOR_ARCHITECTURE", "<unset>"))
     else:
         environment["HOME"] = str(work / "home-é中")
 
@@ -315,6 +312,8 @@ def smoke(binary, work, expected_version):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--archive", type=Path)
