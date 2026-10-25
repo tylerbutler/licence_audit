@@ -54,6 +54,9 @@ jobs:
       - name: Test runtime startup
         run: just test-runtime-startup
 
+      - name: Test CLI output streams
+        run: just test-cli-streams
+
       - name: Test Unicode cache paths
         run: just test-env-cache-paths
 

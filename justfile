@@ -166,6 +166,10 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
+# Capture report and diagnostic streams from the built CLI independently.
+test-cli-streams: build
+    mise exec -- python3 -B test/cli_stream_test.py
+
 # Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
 test-env-cache-paths: build
     mise exec -- gleam build
