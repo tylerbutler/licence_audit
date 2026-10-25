@@ -27,6 +27,10 @@ Malformed exception configuration returns exit code 2 before the interactive
 selection or write. Use the audit report to find stale entries and remove
 them from the configuration.
 
+Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
+file read/write failures exit `2`. Edit/write failures previously exited `1`;
+scripts must now treat them as operational errors, not usage failures.
+
 ## Terminal requirement
 
 `update` is interactive and requires a TTY:

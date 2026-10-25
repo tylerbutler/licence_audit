@@ -791,18 +791,64 @@ pub fn prod_only_skipped_summary_matches_displayed_non_hex_rows_test() {
   assert !string.contains(output, "Skipped non-Hex packages: 2")
 }
 
-pub fn hex_fetch_failure_in_report_mode_exits_zero_test() {
-  let licence_audit.RunResult(exit_code, output) =
+pub fn hex_fetch_failure_in_report_mode_exits_two_test() {
+  list.each([[], ["--deny=MIT"], ["--quiet"]], fn(flags) {
+    let #(result, events) =
+      licence_audit.run_configured(
+        manifest_args(flags),
+        test_clients(failing_fetcher),
+        progress.capturing(progress.Normal, "report"),
+      )
+
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "gleam_stdlib")
+    assert string.contains(result.output, "MIT")
+    assert string.contains(result.output, "argv")
+    assert string.contains(result.output, "Hex package not found")
+    assert list.contains(
+      events,
+      progress.Event(
+        progress.Error,
+        "Licence audit failed: package metadata could not be fetched",
+      ),
+    )
+    assert !list.contains(
+      events,
+      progress.Event(progress.Success, "Licence audit completed"),
+    )
+  })
+}
+
+pub fn report_metadata_errors_exit_two_test() {
+  list.each(
+    [
+      #(hex.NetworkFailure("connection refused"), "connection refused"),
+      #(hex.InvalidJson("invalid JSON"), "invalid JSON"),
+      #(hex.InvalidMetadata("missing licences"), "missing licences"),
+    ],
+    fn(test_case) {
+      let #(fetch_error, message) = test_case
+      let result =
+        licence_audit.run_configured(
+          manifest_args([]),
+          test_clients(fn(_) { Error(fetch_error) }),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, message)
+    },
+  )
+}
+
+pub fn report_policy_findings_still_exit_zero_test() {
+  let result =
     licence_audit.run_configured(
-      manifest_args([]),
-      test_clients(failing_fetcher),
+      manifest_args(["--deny=MIT"]),
+      test_clients(fake_fetcher),
       progress.disabled(),
     ).0
-
-  should.equal(exit_code, 0)
-  assert string.contains(output, "gleam_stdlib")
-  assert string.contains(output, "argv")
-  assert string.contains(output, "Hex package not found")
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "denied: MIT")
 }
 
 pub fn hex_fetch_failure_in_check_mode_exits_two_test() {
@@ -1370,6 +1416,42 @@ pub fn sbom_subcommand_prints_cyclonedx_to_stdout_test() {
       "\"purl\": \"pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999\"",
     )
   let assert True = string.contains(result.output, "\"id\": \"Apache-2.0\"")
+}
+
+pub fn sbom_optional_enrichment_failures_still_exit_zero_test() {
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(_) { Error(hex.NetworkFailure("offline")) }),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(_) { Error(osv.NetworkFailure) },
+      ),
+      progress.capturing(progress.Normal, "sbom"),
+    )
+
+  should.equal(result.exit_code, 0)
+  let assert Ok(format) =
+    json.parse(result.output, decode.at(["bomFormat"], decode.string))
+  should.equal(format, "CycloneDX")
+  assert string.contains(
+    result.output,
+    "\"purl\": \"pkg:hex/gleam_stdlib@1.0.0\"",
+  )
+  assert string.contains(result.output, "\"id\": \"CVE-2024-0001\"")
+  assert string.contains(result.output, "(details unavailable)")
+  assert list.any(events, fn(event) {
+    event.kind == progress.Warning
+    && string.contains(event.message, "No Hex metadata for gleam_stdlib")
+  })
+  assert list.any(events, fn(event) {
+    event.kind == progress.Warning
+    && string.contains(event.message, "Failed to fetch OSV details")
+  })
 }
 
 pub fn sbom_subcommand_output_file_is_formatted_json_test() {

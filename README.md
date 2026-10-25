@@ -90,8 +90,10 @@ licence_audit update
 licence_audit check
 ```
 
-The bare `licence_audit` command only reports — it never fails. Only `check`
-exits non-zero on a policy violation.
+The bare `licence_audit` command reports policy findings without enforcing them.
+Only `check` exits non-zero on a policy violation. Both commands exit `2` if
+package metadata cannot be fetched or decoded, even when a partial report is
+available.
 
 ## Commands
 
@@ -183,7 +185,8 @@ that should not fail on tooling-only packages.
 
 > [!TIP]
 > `--allow`/`--deny` also work on the bare command — they switch the report into
-> a policy *preview* mode but still exit `0`. Use `check` when you want failures.
+> a policy *preview* mode. Findings still exit `0` when the scan completes.
+> Use `check` to enforce the policy.
 
 ### Accept one scoped finding
 
@@ -344,8 +347,10 @@ licence_audit vulns
 Queries [OSV.dev](https://osv.dev/) and lists each affected package with its
 OSV/GHSA/CVE identifiers, a severity bucket (`critical`/`high`/`medium`/`low`/
 `unknown`), and a one-line summary, ending with a checked/affected/clean tally.
-`vulns` never fails on the *presence* of a vulnerability — only on I/O,
-manifest, or network errors. Hex and GitHub deps are queried; other sources are
+`vulns` never fails on the *presence* of a vulnerability. Input, config,
+manifest, and OSV batch request errors exit `2`; individual advisory-detail
+failures warn, retain the ID with unknown severity, and still exit `0`.
+Hex and GitHub deps are queried; other sources are
 skipped and listed at the end. Severity comes from OSV's
 `database_specific.severity`, falling back to the CVSS vector. Advisories are
 fetched over HTTPS and are **not** cached.
@@ -416,10 +421,27 @@ honours `NO_COLOR`, `FORCE_COLOR`, `TERM`, `CI`, and `COLORTERM`.
 
 | Code | Meaning |
 | ---- | ------- |
-| `0` | Success (the default report uses `0` even when statuses show denials). |
+| `0` | Successful completion. Report-only policy violations and vulnerabilities do not fail the command. |
 | `1` | Enforced check failed (`check` violation, or a blocking `check --vulns` advisory), invalid usage, or `update` couldn't run non-interactively. |
-| `2` | Input, config, manifest, decode, Hex, OSV, or SBOM error. |
+| `2` | Input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata and `update` TOML edit/write failures. |
 | `130` | `update` cancelled by the user. |
+
+**Partial results.** A licence report with unavailable package metadata exits
+`2`, not `0`, even if other packages were reported. This changes earlier
+report-mode behavior; scripts must not treat partial output as a completed scan.
+`update` TOML edit and file-write failures now exit `2` instead of `1`.
+
+These optional enrichment failures are distinct from an incomplete licence scan:
+
+- `vulns` and `sbom --vulns` keep an advisory ID with unknown severity and a
+  warning when its detail lookup fails; they still exit `0`. An OSV batch
+  request failure exits `2`. `check --vulns` also exits `2` on detail failures
+  because it cannot evaluate the gate.
+- Default `sbom` generation warns and omits optional dependency metadata when
+  Hex or local Git enrichment fails, and still exits `0`. `--offline`
+  intentionally skips Hex enrichment. `--reproducible` requires locked-source
+  metadata; failures exit `2`. Invalid root metadata, unsupported sources, and
+  artifact-generation or write errors also exit `2`.
 
 ## Caching
 

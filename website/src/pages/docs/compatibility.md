@@ -56,6 +56,27 @@ We preserve the documented exit-code categories:
 A report-only command can still fail when it cannot complete its work.
 Missing or invalid policy configuration is an error, not a passing check.
 
+Licence reports exit `2` if required package metadata cannot be fetched or
+decoded, even when they show results for other packages. Policy findings in a
+completed report still exit `0`. `update` TOML edit and file-write failures
+also exit `2`, not the gate/usage category `1`.
+
+Optional enrichment has separate completion rules:
+
+- `vulns` and `sbom --vulns` tolerate individual advisory-detail failures:
+  they warn and retain the advisory ID with unknown severity, then exit `0`.
+  An OSV batch request failure exits `2`. `check --vulns` also exits `2` when
+  advisory details are unavailable because it cannot evaluate severity.
+- Default `sbom` generation tolerates missing Hex or local Git dependency
+  enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
+  deliberately skips Hex enrichment. `--reproducible` requires metadata from
+  locked source archives and exits `2` if it cannot obtain it. Root metadata,
+  supported sources, and artifact generation/writes remain required.
+
+These exit-code corrections precede the 1.0 contract: incomplete licence
+reports previously exited `0`, and `update` edit/write failures exited `1`.
+Scripts that relied on those codes must use `2` for operational failure.
+
 Reports and generated artifacts go to stdout unless the user selects an output
 file. Progress, warnings, and errors go to stderr. Commands that support
 `--output` keep stdout empty when they write the artifact to that file.

@@ -39,6 +39,17 @@ include path dependencies and non-GitHub git dependencies. `--offline` skips
 licence requests but continues to validate purls. The [`vulns`](/docs/vulns)
 command has different behavior: it identifies and skips unsupported sources.
 
+## Completion and optional enrichment
+
+Default `sbom` generation exits `0` when optional Hex or local Git dependency
+metadata is unavailable. It warns and omits the unavailable fields.
+`--offline` intentionally skips Hex enrichment. This differs from a licence
+audit, where unavailable package metadata makes the report incomplete (exit `2`).
+
+Root metadata, valid supported purls, and successful artifact generation/writes
+are required; failures exit `2`. `--reproducible` also requires metadata from
+the locked source archives and exits `2` if it cannot obtain it.
+
 ## Embedded vulnerabilities
 
 `--vulns` queries OSV.dev and adds the results to the CycloneDX
@@ -47,6 +58,11 @@ ratings, and an `affects` list. The list refers to affected components by
 `bom-ref` or purl. Tools such as [Dependency-Track][dt] can read the resultant
 VEX-style document. Advisory data changes over time. Therefore, you cannot use
 `--vulns` with `--offline` or `--reproducible`.
+
+An OSV batch request failure exits `2`. An individual advisory-detail failure
+warns and retains its ID with unknown severity; generation still exits `0`.
+In contrast, `check --vulns` exits `2` when details are unavailable because it
+cannot evaluate the severity gate.
 
 ## Reproducible output
 
