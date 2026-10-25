@@ -405,6 +405,11 @@ run. OSV advisories are not cached.
 If you want to wire `licence_audit` into GitHub Actions, use the shared setup
 action. For a Gleam project, set up Gleam first so `manifest.toml` exists:
 
+The example targets the 1.0 release with an exact `v1.0.0` CLI pin.
+Until that tag is published, select an existing tag from the
+[releases page](https://github.com/tylerbutler/licence_audit/releases).
+Keep an exact tag in CI and update it after testing a newer release.
+
 ```yaml
 name: licence audit
 
