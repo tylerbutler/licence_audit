@@ -1561,7 +1561,7 @@ fn finalize_audit(
   output: String,
   reporter: progress.Reporter,
 ) -> #(RunResult, progress.Reporter) {
-  use <- bool.guard(when: check && fetch_failed, return: #(
+  use <- bool.guard(when: fetch_failed, return: #(
     RunResult(2, output),
     progress.defer_error(
       reporter,

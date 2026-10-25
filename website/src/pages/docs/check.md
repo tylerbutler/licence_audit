@@ -67,8 +67,15 @@ Use `--config=other.toml` to read a different file. The file must have a
 `[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
 
 > **Note:** `--allow` and `--deny` also work on the bare command. These options
-> show a policy preview, but the command returns exit code 0. Use `check` to
-> return a failure for a violation.
+> show a policy preview. Findings return exit code `0` when the scan completes.
+> Use `check` to return a failure for a violation.
+
+## Exit codes
+
+Completed licence checks exit `0` when the policy passes and `1` for policy
+violations. Unavailable or invalid package metadata exits `2`, even when a
+partial report is available or other packages violate the policy. The same
+metadata failures exit `2` in the bare report command.
 
 ## Production-only gates
 
@@ -90,9 +97,8 @@ licence_audit check --vulns --vuln-block-unknown
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
 The command reports advisories with unknown severity, but these advisories do
 not cause a failure by default. Use `--vuln-block-unknown` to make these
-advisories cause a failure. `check --vulns` fails if it cannot connect to OSV.dev
-because it cannot complete the check. You can set the threshold in the
-configuration:
+advisories cause a failure. OSV batch or advisory-detail failures exit `2`,
+because the gate cannot complete. You can set the threshold in the configuration:
 
 ```toml
 [tools.licence_audit]
