@@ -917,6 +917,57 @@ pub fn check_failure_only_reports_failing_trees_test() {
   assert !string.contains(output, "argv")
 }
 
+pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
+  list.each(["fetch_root", "fetch_leaf"], fn(failed_package) {
+    list.each(
+      [#([], progress.Normal), #(["--quiet"], progress.Quiet)],
+      fn(mode) {
+        let #(extra, verbosity) = mode
+        let #(result, events) =
+          licence_audit.run_configured(
+            list.append(
+              [
+                "--manifest=test/fixtures/mixed_failure_manifest.toml",
+                "--ignore-config",
+                "check",
+                "--allow=MIT",
+                "--deny=GPL-3.0",
+              ],
+              extra,
+            ),
+            test_clients(fn(name) {
+              case name == failed_package, name {
+                True, _ -> Error(hex.NotFound)
+                False, "denied" -> Ok(hex.licences_only(["GPL-3.0"]))
+                False, _ -> Ok(hex.licences_only(["MIT"]))
+              }
+            }),
+            progress.capturing(verbosity, "report"),
+          )
+
+        should.equal(result.exit_code, 2)
+        assert string.contains(result.output, "denied: GPL-3.0")
+        assert string.contains(result.output, "fetch_root")
+        assert string.contains(result.output, "fetch_leaf")
+        assert string.contains(result.output, "Hex package not found")
+        assert !string.contains(result.output, "allowed_root")
+        assert !string.contains(result.output, "allowed_leaf")
+        assert !string.contains(
+          result.output,
+          "Dependency licence audit failed",
+        )
+        assert list.contains(
+          events,
+          progress.Event(
+            progress.Error,
+            "Licence audit failed: package metadata could not be fetched",
+          ),
+        )
+      },
+    )
+  })
+}
+
 fn failing_osv_batch(
   _purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {

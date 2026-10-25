@@ -8,6 +8,7 @@
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/time/timestamp
 
 import licence_audit/cache_dir
@@ -177,7 +178,7 @@ fn fetch_and_store_quiet(
 ) -> Result(hex.PackageMetadata, hex.Error) {
   case fetched {
     Ok(metadata) -> {
-      store_quiet(table, key, metadata)
+      let _ = store_quiet(table, key, metadata)
       Ok(metadata)
     }
     Error(error) ->
@@ -192,11 +193,13 @@ fn store_quiet(
   table: cache_dir.Store,
   key: String,
   metadata: hex.PackageMetadata,
-) -> Nil {
-  let _ = cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
-  let _ =
-    cache_dir.insert(table, cached_at_key(key), int.to_string(now_seconds()))
-  Nil
+) -> Result(Nil, cache_dir.Error) {
+  use _ <- result.try(cache_dir.insert(
+    table,
+    key,
+    hex.encode_cache_entry(metadata),
+  ))
+  cache_dir.insert(table, cached_at_key(key), int.to_string(now_seconds()))
 }
 
 /// Handle a cache miss: record the fetch result and, on success, best-effort

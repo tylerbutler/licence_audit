@@ -57,6 +57,9 @@ jobs:
       - name: Test CLI output streams
         run: just test-cli-streams
 
+      - name: Test Unicode cache paths
+        run: just test-env-cache-paths
+
       - name: Smoke test built CLI
         run: ./licence_audit --help
 

@@ -170,6 +170,11 @@ test-runtime-startup:
 test-cli-streams: build
     mise exec -- python3 -B test/cli_stream_test.py
 
+# Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
+test-env-cache-paths: build
+    mise exec -- gleam build
+    mise exec -- bash test/env_cache_paths.sh
+
 # Type check without producing artifacts
 check:
     mise exec -- gleam check
@@ -322,6 +327,6 @@ docs-check: _docs-ffi
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci
