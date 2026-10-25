@@ -225,13 +225,10 @@ fn usable_notice_files(
 ) -> Result(List(source_archive.ArchiveFile), error) {
   use files <- result.try(read(False))
   let usable = list.filter(files, fn(file) { !blank_archive_file(file) })
-  let blank_licence =
-    list.any(files, fn(file) {
-      is_licence_basename(basename(file.path)) && blank_archive_file(file)
-    })
+  let discarded_blank = list.any(files, blank_archive_file)
   let usable_licence =
     list.any(usable, fn(file) { is_licence_basename(basename(file.path)) })
-  case blank_licence && !usable_licence {
+  case discarded_blank && !usable_licence {
     True ->
       read(True)
       |> result.map(list.filter(_, fn(file) { !blank_archive_file(file) }))
@@ -960,16 +957,18 @@ fn matches_basename(name: String, bases: List(String)) -> Bool {
 /// LICENCE, or COPYING). A package whose source ships only a NOTICE file — or
 /// nothing, or blank licence files — returns `False` and must use the fallback.
 pub fn has_licence_file(files: List(NoticeFile)) -> Bool {
-  list.any(files, fn(file) { is_licence_file(file) && has_text(file.contents) })
+  list.any(files, is_source_licence_file)
 }
 
 /// Keep only the licence-text files from a list, dropping ancillary NOTICE
 /// files. Used to lift a licence out of a fallback repository archive without
 /// pulling in that repo's own NOTICE.
 pub fn licence_files_only(files: List(NoticeFile)) -> List(NoticeFile) {
-  list.filter(files, fn(file) {
-    is_licence_file(file) && has_text(file.contents)
-  })
+  list.filter(files, is_source_licence_file)
+}
+
+fn is_source_licence_file(file: NoticeFile) -> Bool {
+  is_licence_basename(basename(file.path)) && has_text(file.contents)
 }
 
 /// Extract the licence-text files from a fallback repository's gzip tar
@@ -1087,8 +1086,10 @@ fn ancillary_notice_entries(entries: List(NoticeEntry)) -> List(NoticeEntry) {
 
 fn is_licence_file(file: NoticeFile) -> Bool {
   let path = drop_optional_current_dir(file.path)
-  string.starts_with(path, "SPDX-License-List/")
-  || path |> basename |> is_licence_basename
+  is_source_licence_file(file)
+  || string.starts_with(path, "SPDX-License-List/")
+  && string.ends_with(path, ".txt")
+  && !matches_basename(basename(path), ["notice"])
 }
 
 fn render_licence_group(group: LicenceGroup) -> String {

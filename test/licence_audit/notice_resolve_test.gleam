@@ -143,6 +143,23 @@ fn fresh_cache_path(name: String) -> String {
   path
 }
 
+fn final_cache_key(package: notice.NoticePackage, identity: String) -> String {
+  let metadata =
+    json.object([
+      #("declared_licences", json.array(package.declared_licences, json.string)),
+      #("repo_links", json.array(package.repo_links, json.string)),
+    ])
+    |> json.to_string
+    |> bit_array.from_string
+    |> checksum_of
+  "pkg:v2:"
+  <> identity
+  <> ":metadata:"
+  <> metadata
+  <> ":spdx:"
+  <> spdx.license_list_commit
+}
+
 pub fn source_with_licence_needs_no_fallback_test() {
   let bytes = read_bytes("hex.tar")
   let package = hex_package("has_lic", checksum_of(bytes), ["MIT"], [])
@@ -328,6 +345,130 @@ pub fn blank_repository_uses_next_repository_or_spdx_test() {
   )
 }
 
+fn assert_attribution_requires_fallback(
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  client: notice.Clients,
+) -> Nil {
+  list.each(["LicenseRef-Custom", "mit"], fn(declared) {
+    let package = notice.NoticePackage(..package, declared_licences: [declared])
+    let assert Ok(resolution) = notice_resolve.resolve(cache, package, client)
+    case declared {
+      "LicenseRef-Custom" ->
+        should.equal(resolution.outcome, notice_resolve.Missing)
+      _ -> {
+        let assert notice_resolve.Resolved(files) = resolution.outcome
+        assert list.contains(
+          files,
+          notice.spdx_file(spdx.LicenseRequirement("MIT"), "Canonical MIT text"),
+        )
+        let output =
+          notice.render(
+            [notice.NoticeEntry(package, files)],
+            manifest_path: "manifest.toml",
+          )
+        should.equal(
+          list.length(string.split(output, on: "Products using this licence:")),
+          2,
+        )
+        assert string.contains(output, "Additional notices for")
+      }
+    }
+  })
+}
+
+pub fn attribution_in_spdx_directory_cannot_resolve_or_revive_from_cache_test() {
+  source_archive_test.with_tar_gz(
+    [
+      #("repo/LICENSE", <<" \t\r\n":utf8>>),
+      #("repo/README.md", <<"readme":utf8>>),
+      #("repo/SPDX-License-List/NOTICE", <<"attribution":utf8>>),
+    ],
+    fn(archive) {
+      let source = read_bytes("notice_only_hex.tar")
+      let routes = [
+        #(
+          git_package(
+            repository.Repository(repository.GitHub, "owner", "git_dep"),
+            "https://github.com/owner/git_dep",
+            "sha",
+          ),
+          "git_dep@1.0.0@git:github:owner/git_dep@sha",
+          clients(
+            panic_hex,
+            fn(_, _) { Ok(archive) },
+            panic_resolve,
+            panic_archive,
+            fn(_) { Ok(Some("Canonical MIT text")) },
+          ),
+        ),
+        #(
+          hex_package("hex_dep", checksum_of(source), ["MIT"], [
+            "https://github.com/owner/repo",
+          ]),
+          "hex_dep@1.0.0@hex:" <> checksum_of(source),
+          clients(
+            fn(_, _) { Ok(source) },
+            panic_git,
+            fn(_, _) { Ok(Some("commit")) },
+            fn(_, _) { Ok(archive) },
+            fn(_) { Ok(Some("Canonical MIT text")) },
+          ),
+        ),
+      ]
+      list.each(routes, fn(route) {
+        let #(package, identity, live) = route
+        let cache =
+          notice_cache.open(
+            notice_cache.Enabled(
+              path: Some(fresh_cache_path("attribution_" <> package.name)),
+            ),
+          )
+        assert_attribution_requires_fallback(cache, package, live)
+        let attribution = [
+          notice.NoticeFile("SPDX-License-List/NOTICE", "attribution"),
+        ]
+        notice_cache.put_files(cache, "source:v2:" <> identity, attribution)
+        notice_cache.put_files(
+          cache,
+          "repo:v2:github:owner/repo@commit",
+          attribution,
+        )
+        list.each(["LicenseRef-Custom", "mit"], fn(declared) {
+          notice_cache.put_files(
+            cache,
+            final_cache_key(
+              notice.NoticePackage(..package, declared_licences: [declared]),
+              identity,
+            ),
+            attribution,
+          )
+        })
+        let cached =
+          clients(
+            panic_hex,
+            panic_git,
+            panic_resolve,
+            panic_archive,
+            panic_spdx,
+          )
+        assert_attribution_requires_fallback(cache, package, cached)
+        notice_cache.put_files(
+          cache,
+          final_cache_key(
+            notice.NoticePackage(..package, declared_licences: ["mit"]),
+            identity,
+          ),
+          [notice.spdx_file(spdx.LicenseRequirement("MIT"), "attribution")],
+        )
+        assert_attribution_requires_fallback(cache, package, cached)
+        assert_attribution_requires_fallback(cache, package, cached)
+        let assert None = notice_cache.close(cache)
+      })
+    },
+  )
+}
+
 pub fn stale_blank_source_repository_and_final_caches_are_repaired_test() {
   let path = fresh_cache_path("stale_blank")
   let source = read_bytes("notice_only_hex.tar")
@@ -337,25 +478,11 @@ pub fn stale_blank_source_repository_and_final_caches_are_repaired_test() {
       "https://github.com/owner/repo",
     ])
   let identity = "dep@1.0.0@hex:" <> checksum_of(source)
-  let metadata =
-    json.object([
-      #("declared_licences", json.array(package.declared_licences, json.string)),
-      #("repo_links", json.array(package.repo_links, json.string)),
-    ])
-    |> json.to_string
-    |> bit_array.from_string
-    |> checksum_of
-  let final_key =
-    "pkg:"
-    <> identity
-    <> ":metadata:"
-    <> metadata
-    <> ":spdx:"
-    <> spdx.license_list_commit
+  let final_key = final_cache_key(package, identity)
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let blank_files = [notice.NoticeFile("LICENSE", " \t\r\n")]
-  notice_cache.put_files(cache, "source:" <> identity, blank_files)
-  notice_cache.put_files(cache, "repo:github:owner/repo@commit", blank_files)
+  notice_cache.put_files(cache, "source:v2:" <> identity, blank_files)
+  notice_cache.put_files(cache, "repo:v2:github:owner/repo@commit", blank_files)
   let live =
     clients(
       fn(_, _) { Ok(source) },
@@ -365,7 +492,12 @@ pub fn stale_blank_source_repository_and_final_caches_are_repaired_test() {
       panic_spdx,
     )
   list.each(
-    [blank_files, [], [notice.NoticeFile("NOTICE", "attribution")]],
+    [
+      blank_files,
+      [],
+      [notice.NoticeFile("NOTICE", "attribution")],
+      [notice.NoticeFile("SPDX-License-List/NOTICE", "attribution")],
+    ],
     fn(stale) {
       notice_cache.put_files(cache, final_key, stale)
       let assert Ok(resolved) = notice_resolve.resolve(cache, package, live)
@@ -384,6 +516,85 @@ pub fn stale_blank_source_repository_and_final_caches_are_repaired_test() {
   let assert notice_resolve.Resolved(files) = resolved.outcome
   should.equal(paths(files), ["./NOTICE.txt", "LICENSE"])
   let assert None = notice_cache.close(cache)
+}
+
+pub fn old_empty_material_caches_do_not_hide_nested_licences_test() {
+  source_archive_test.with_tar_gz(
+    [
+      #("repo/NOTICE", <<" \t\r\n":utf8>>),
+      #("repo/README.md", <<"readme":utf8>>),
+      #("repo/legal/LICENSE", <<"Nested licence text":utf8>>),
+    ],
+    fn(archive) {
+      let source = read_bytes("notice_only_hex.tar")
+      let routes = [
+        #(
+          git_package(
+            repository.Repository(repository.GitHub, "owner", "git_dep"),
+            "https://github.com/owner/git_dep",
+            "sha",
+          ),
+          "git_dep@1.0.0@git:github:owner/git_dep@sha",
+        ),
+        #(
+          hex_package("hex_dep", checksum_of(source), ["MIT"], [
+            "https://github.com/owner/repo",
+          ]),
+          "hex_dep@1.0.0@hex:" <> checksum_of(source),
+        ),
+      ]
+      list.each(routes, fn(route) {
+        let #(package, identity) = route
+        let cache =
+          notice_cache.open(
+            notice_cache.Enabled(
+              path: Some(fresh_cache_path("old_empty_" <> package.name)),
+            ),
+          )
+        notice_cache.put_files(cache, "source:" <> identity, [])
+        notice_cache.put_files(cache, "repo:github:owner/repo@commit", [])
+        notice_cache.put_text(
+          cache,
+          "spdx-index:" <> spdx.license_list_commit <> ":licenses",
+          spdx.encode_index(["MIT"]),
+        )
+        notice_cache.put_text(
+          cache,
+          "spdx:" <> spdx.license_list_commit <> ":license:MIT",
+          "Old canonical text",
+        )
+        notice_cache.put_files(
+          cache,
+          string.replace(final_cache_key(package, identity), "pkg:v2:", "pkg:"),
+          [
+            notice.spdx_file(
+              spdx.LicenseRequirement("MIT"),
+              "Old canonical text",
+            ),
+          ],
+        )
+        let assert Ok(resolution) =
+          notice_resolve.resolve(
+            cache,
+            package,
+            clients(
+              fn(_, _) { Ok(source) },
+              fn(_, _) { Ok(archive) },
+              fn(_, _) { Ok(Some("commit")) },
+              fn(_, _) { Ok(archive) },
+              panic_spdx,
+            ),
+          )
+        let assert notice_resolve.Resolved(files) = resolution.outcome
+        assert list.contains(
+          files,
+          notice.NoticeFile("legal/LICENSE", "Nested licence text"),
+        )
+        assert !list.contains(paths(files), "SPDX-License-List/MIT.txt")
+        let assert None = notice_cache.close(cache)
+      })
+    },
+  )
 }
 
 pub fn blank_cached_spdx_is_refetched_and_blank_live_spdx_is_missing_test() {

@@ -1,3 +1,3 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Reject blank licence text in `notices`, continue to usable source and fallback files, and refresh stale blank cache results."
+body = "Ignore blank licence files and attribution-only files in SPDX-like paths in `notices`; use usable fallbacks and refresh stale material caches."
