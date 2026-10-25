@@ -13,6 +13,8 @@ import simplifile
 
 const tmp_dir = "build/tmp/cache_test"
 
+type ConcurrentWriteError
+
 @external(erlang, "cache_process_test_ffi", "concurrent_writes")
 fn concurrent_writes(
   cache_path: String,
@@ -20,7 +22,7 @@ fn concurrent_writes(
   first_value: String,
   second_key: String,
   second_value: String,
-) -> Result(Nil, String)
+) -> Result(Nil, ConcurrentWriteError)
 
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)

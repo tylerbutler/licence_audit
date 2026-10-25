@@ -28,7 +28,28 @@ pub opaque type Store {
 /// Why a cache path could not be resolved or prepared.
 type PathError {
   CacheDirUnknown
-  CacheDirCreateFailed(dir: String, reason: String)
+  CacheDirCreateFailed(dir: String, reason: simplifile.FileError)
+}
+
+pub opaque type Error {
+  PathFailed(PathError)
+  OpenFailed(name: String, path: String, reason: PathError)
+  WriteFailed(key: String, reason: exclusive.SessionError)
+}
+
+pub fn describe_error(error: Error) -> String {
+  case error {
+    PathFailed(reason) -> describe_path_error(reason)
+    OpenFailed(name, path, reason) ->
+      "Unable to open "
+      <> name
+      <> " cache at "
+      <> path
+      <> ": "
+      <> describe_path_error(reason)
+    WriteFailed(key, reason) ->
+      "write " <> key <> ": " <> exclusive.error_message(reason)
+  }
 }
 
 fn describe_path_error(error: PathError) -> String {
@@ -36,7 +57,10 @@ fn describe_path_error(error: PathError) -> String {
     CacheDirUnknown ->
       "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set"
     CacheDirCreateFailed(dir, reason) ->
-      "Unable to create licence cache directory " <> dir <> ": " <> reason
+      "Unable to create licence cache directory "
+      <> dir
+      <> ": "
+      <> simplifile.describe_error(reason)
   }
 }
 
@@ -70,7 +94,7 @@ fn ensure_cache_dir(cache_path: String) -> Result(Nil, PathError) {
   let parent = path.dirname(cache_path)
   simplifile.create_directory_all(parent)
   |> result.map_error(fn(error) {
-    CacheDirCreateFailed(dir: parent, reason: simplifile.describe_error(error))
+    CacheDirCreateFailed(dir: parent, reason: error)
   })
 }
 
@@ -79,21 +103,13 @@ pub fn open_table(
   cache_path: Option(String),
   filename: String,
   name: String,
-) -> Result(Store, String) {
+) -> Result(Store, Error) {
   use resolved <- result.try(
-    resolve_path(cache_path, filename) |> result.map_error(describe_path_error),
+    resolve_path(cache_path, filename) |> result.map_error(PathFailed),
   )
   case ensure_cache_dir(resolved) {
     Ok(Nil) -> Ok(Store(path: resolved, warnings: reference.new()))
-    Error(error) ->
-      Error(
-        "Unable to open "
-        <> name
-        <> " cache at "
-        <> resolved
-        <> ": "
-        <> describe_path_error(error),
-      )
+    Error(error) -> Error(OpenFailed(name, resolved, error))
   }
 }
 
@@ -121,7 +137,7 @@ pub fn lookup(store: Store, key: String) -> Result(String, Nil) {
 }
 
 /// Publish one cache entry in a short exclusive session.
-pub fn insert(store: Store, key: String, value: String) -> Result(Nil, String) {
+pub fn insert(store: Store, key: String, value: String) -> Result(Nil, Error) {
   set.with_exclusive_table(
     path: store.path,
     repair: slate.AutoRepair,
@@ -132,9 +148,9 @@ pub fn insert(store: Store, key: String, value: String) -> Result(Nil, String) {
     callback: fn(table) { set.insert(table, key, value) },
   )
   |> result.map_error(fn(error) {
-    let message = "write " <> key <> ": " <> exclusive.error_message(error)
-    warn(store, message)
-    message
+    let error = WriteFailed(key, error)
+    warn(store, describe_error(error))
+    error
   })
 }
 

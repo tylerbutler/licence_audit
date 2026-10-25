@@ -139,7 +139,9 @@ pub fn duplicates_and_alias_overlaps_fail_test() {
       number: 2,
       finding: exception.Advisory("GHSA-example"),
     )
-  let assert Error(message) =
+  let assert Error(
+    exception.OverlappingEntries(first_match, second_match) as error,
+  ) =
     exception.decide(
       [first, second],
       first.purl,
@@ -147,9 +149,15 @@ pub fn duplicates_and_alias_overlaps_fail_test() {
       ["CVE-2026-12345"],
       "2026-12-01",
     )
-  assert string.contains(message, "exceptions[1] and exceptions[2]")
-  let assert Error(_) =
+  should.equal(first_match, first)
+  should.equal(second_match, second)
+  assert string.contains(
+    exception.describe_error(error),
+    "exceptions[1] and exceptions[2]",
+  )
+  let assert Error(exception.AmbiguousIdentity(ambiguous)) =
     exception.validate_identities([first], [first.purl, first.purl])
+  should.equal(ambiguous, first)
 }
 
 pub fn exact_scope_and_finding_match_test() {
@@ -216,8 +224,14 @@ pub fn utc_expiry_boundaries_and_dates_test() {
     should.equal(exception.is_expired(waiver, exception.utc_date(now)), pair.1)
   })
   should.equal(exception.validate_date("2024-02-29"), Ok(Nil))
-  let assert Error(_) = exception.validate_date("2025-02-29")
-  let assert Error(_) = exception.validate_date("2026-04-31")
+  should.equal(
+    exception.validate_date("2025-02-29"),
+    Error(exception.InvalidDate),
+  )
+  should.equal(
+    exception.validate_date("2026-04-31"),
+    Error(exception.InvalidDate),
+  )
   should.equal(
     exception.is_expired(
       exception.Exception(..waiver, expires: None),

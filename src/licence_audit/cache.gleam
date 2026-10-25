@@ -57,7 +57,8 @@ pub fn open(mode: Mode) -> Cache {
     Enabled(path) ->
       case cache_dir.open_table(path, cache_filename(), "licence") {
         Ok(table) -> Cache(table: Some(table), warning: None)
-        Error(warning) -> Cache(table: None, warning: Some(warning))
+        Error(error) ->
+          Cache(table: None, warning: Some(cache_dir.describe_error(error)))
       }
   }
 }
@@ -245,7 +246,10 @@ fn fetch_and_store(
         Error(error) ->
           progress.detail(
             reporter,
-            "Failed to write cache entry for " <> key <> ": " <> error,
+            "Failed to write cache entry for "
+              <> key
+              <> ": "
+              <> cache_dir.describe_error(error),
           )
       }
       #(Ok(metadata), reporter)
