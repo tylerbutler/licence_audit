@@ -3,6 +3,9 @@
     windows_worker/0]).
 -include_lib("kernel/include/file.hrl").
 
+%% Successful Gleam file writes cannot model partial I/O, owner death, or native
+%% helper-port loss. Inject these OTP failures and inspect OS metadata to prove
+%% atomic replacement and cleanup, including exceptions rather than only Results.
 partial_write(Path, Interrupt) ->
     Write = fun(File, _Contents) ->
         ok = file:write(File, <<"partial replacement">>),

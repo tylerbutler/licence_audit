@@ -1,6 +1,9 @@
 -module(runtime_ffi).
 -export([start/0]).
 
+%% Queso calls Gleam main without starting the OTP application graph. Core Gleam
+%% APIs also do not locate escript NIF sidecars or route OTP logger output away
+%% from stdout, which must remain a clean report/JSON stream during startup too.
 start() ->
     case configure_logger() of
         ok ->

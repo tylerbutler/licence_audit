@@ -82,12 +82,16 @@ fn fallback_to_ipv4(warning: String) -> Nil
 @external(erlang, "httpc_adaptive_ffi", "take_warning")
 pub fn take_warning() -> Option(String)
 
+// OTP expects URL/header charlists rather than Gleam strings. URL bytes are
+// already encoded; response headers need Unicode conversion back to strings.
 @external(erlang, "erlang", "binary_to_list")
 fn charlist_from_string(value: String) -> Charlist
 
 @external(erlang, "unicode", "characters_to_binary")
 fn charlist_to_string(value: Charlist) -> String
 
+// Call OTP directly to select inet/inet6 per request and bound both timeouts;
+// gleam_httpc's automatic fallback does not preserve the probe behavior above.
 @external(erlang, "httpc", "request")
 fn erl_request(
   method: Method,
@@ -99,6 +103,7 @@ fn erl_request(
   HttpcError,
 )
 
+// OTP requires a different request tuple for methods without a request body.
 @external(erlang, "httpc", "request")
 fn erl_request_no_body(
   method: Method,

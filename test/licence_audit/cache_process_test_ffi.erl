@@ -1,6 +1,8 @@
 -module(cache_process_test_ffi).
 -export([concurrent_writes/5, worker/0]).
 
+%% Gleam processes share one VM. Separate erl runtimes exercise SQLite's
+%% cross-process locking and synchronize writes without relying on sleeps.
 concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
     case os:find_executable("erl") of
         false ->

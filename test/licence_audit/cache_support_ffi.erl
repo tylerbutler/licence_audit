@@ -1,6 +1,9 @@
 -module(cache_support_ffi).
 -export([corrupt_entry/2, with_writer/2, assert_busy/1, create_legacy/1, assert_concurrent_cleanup/1]).
 
+%% Typed sqlight calls cannot inject invalid UTF-8 or a legacy DETS file, and
+%% Result matching cannot catch its busy exception. OTP try/after also ensures
+%% test locks/connections are released when a Gleam assertion raises.
 corrupt_entry(Path, Key) ->
     {ok, Connection} = esqlite3:open(binary_to_list(filename:absname(Path))),
     try

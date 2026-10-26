@@ -76,10 +76,9 @@ pub fn decode_archive_metadata_uses_immutable_fields_test() {
 }
 
 pub fn decode_archive_metadata_rejects_invalid_terms_test() {
-  should.equal(
-    hex.package_metadata_from_archive(<<"not erlang terms":utf8>>),
-    Error(Nil),
-  )
+  list.each([<<"not erlang terms":utf8>>, <<1:size(1)>>], fn(input) {
+    should.equal(hex.package_metadata_from_archive(input), Error(Nil))
+  })
 }
 
 pub fn decode_archive_metadata_preserves_source_link_order_test() {
@@ -117,6 +116,14 @@ pub fn decode_archive_metadata_preserves_binary_literals_test() {
       #("<<\"M\",73,\"T\">>", "MIT"),
       #("<<67,97,102,233>>", "Café"),
       #("<<\"Caf\\351\"/utf8>>", "Café"),
+      #("<<\"\\x4D\\111\\^T\">>", "MI\u{14}"),
+      #(
+        "<<\"\\b\\d\\e\\f\\n\\r\\s\\t\\v\">>",
+        "\u{8}\u{7F}\u{1B}\u{C}\n\r \t\u{B}",
+      ),
+      #("<<\"\\^@\\^a\\^Z\\^?\">>", "\u{0}\u{1}\u{1A}\u{7F}"),
+      #("<<\"\\a\\8\\\\\">>", "a8\\"),
+      #("<<195,169,233>>", "Ã©é"),
       #("<<>>", ""),
       #("<<\"a]}.b,\\\"c\">>", "a]}.b,\"c"),
     ],
@@ -153,6 +160,15 @@ pub fn decode_archive_metadata_rejects_unsupported_binary_forms_test() {
       "<<\"MIT\"/utf16>>",
       "<<\"\\x{4E2D}\">>",
       "<<\"\\x{D800}\"/utf8>>",
+      "<<\"\\x{FFFE}\"/utf8>>",
+      "<<\"\\x{FFFF}\"/utf8>>",
+      "<<\"\\x{110000}\"/utf8>>",
+      "<<\"\\x{}\"/utf8>>",
+      "<<\"\\x4\"/utf8>>",
+      "<<\"\\xGG\"/utf8>>",
+      "<<\"\\^1\">>",
+      "<<\"\\^`\">>",
+      "<<\"\\400\">>",
       "<<\"MIT\",>>",
       "<<16#4D,16#49,16#54>>",
       "<<unknown_atom>>",
@@ -180,10 +196,54 @@ pub fn decode_archive_metadata_rejects_unsupported_binary_forms_test() {
   )
 }
 
+pub fn decode_archive_metadata_validates_unused_terms_and_comments_test() {
+  let input =
+    "% before fields
+{<<\"licenses\">>, [% before licence
+<<\"MIT\">>]}.
+{<<\"description\">>, <<\"not % a comment\">>}.
+{<<\"unused\">>, [an_atom@host, 123, {[], \"\\777\"}]}.
+% final comment without a newline"
+  should.equal(
+    hex.package_metadata_from_archive(bit_array.from_string(input)),
+    Ok(hex.PackageMetadata(
+      licences: ["MIT"],
+      description: Some("not % a comment"),
+      links: [],
+      publisher: None,
+    )),
+  )
+  list.each(["[1,]", "\"\\x{D800}\"", "-1", "1.5", "'quoted_atom'"], fn(value) {
+    should.equal(
+      hex.package_metadata_from_archive(bit_array.from_string(
+        "{<<\"licenses\">>, []}.{<<\"unused\">>, " <> value <> "}.",
+      )),
+      Error(Nil),
+    )
+  })
+}
+
 pub fn decode_archive_metadata_enforces_resource_limits_test() {
+  let fields = "{<<\"licenses\">>, []}.\n"
+  should.equal(
+    hex.package_metadata_from_archive(bit_array.from_string(
+      fields <> string.repeat(" ", 1_048_576 - string.byte_size(fields)),
+    )),
+    Ok(hex.licences_only([])),
+  )
+  should.equal(
+    hex.package_metadata_from_archive(bit_array.from_string(
+      fields
+      <> "{<<\"nested\">>, "
+      <> string.repeat("[", 64)
+      <> string.repeat("]", 64)
+      <> "}.\n",
+    )),
+    Ok(hex.licences_only([])),
+  )
   list.each(
     [
-      string.repeat(" ", 1_048_577),
+      fields <> string.repeat(" ", 1_048_577 - string.byte_size(fields)),
       "{<<\"licenses\">>, []}.\n{<<\"nested\">>, "
         <> string.repeat("[", 65)
         <> string.repeat("]", 65)
@@ -206,6 +266,12 @@ pub fn decode_archive_metadata_does_not_extract_partial_fields_test() {
       "{<<\"licenses\">>, []}.\n{<<\"description\">>, <<\"ok\">>, extra}.\n",
       "{<<\"licenses\">>, []}.\n{<<\"links\">>, [{<<\"ok\">>, <<\"url\">>}, unsupported]}.\n",
       "{<<\"licenses\">>, []}.\n{<<\"licenses\">>, [<<\"MIT\">>]}.\n",
+      "{<<\"licenses\">>, []}. trailing",
+      "{<<\"licenses\">>, []}",
+      "{<<\"licenses\">>, []}.{<<\"links\">>, [{<<\"url\">>}]}.\n",
+      "{<<\"licenses\">>, []}.{<<\"description\">>, \"not a binary\"}.\n",
+      "{<<\"licenses\">>, []}.{<<\"links\">>, {}}.\n",
+      "{<<\"licenses\">>, []}.{\"not a binary key\", []}.\n",
     ],
     fn(input) {
       should.equal(

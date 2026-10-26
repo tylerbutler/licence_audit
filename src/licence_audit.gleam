@@ -2031,6 +2031,7 @@ fn option_value(value: option.Option(String), default: String) -> String {
   }
 }
 
+// Returning from main cannot set the CLI exit status or stop OTP applications.
 @external(erlang, "erlang", "halt")
 fn halt(code: Int) -> Nil
 
