@@ -234,10 +234,12 @@ The cache uses `sqlight` 1.2.0 directly for connections, SQL queries, parameter
 binding, and row decoding, with `esqlite` constrained to 0.10.x for synchronous
 statement cleanup.
 SQL, parameter binding, and decoding stay in Gleam. A small `cache_dir_ffi`
-boundary catches esqlite's busy-query exception and closes connections before
-returning or rethrowing unexpected exceptions. Cache operations return warnings
-explicitly to their callers. `runtime_ffi` adds an escript's
+boundary checks native-library loading, catches esqlite's busy-query exception,
+and closes connections before returning or rethrowing unexpected exceptions.
+Cache operations return warnings explicitly to their callers.
+`runtime_ffi` adds an escript's
 native sidecar to the code path; it does not load the NIF or wrap database calls.
+The load check runs only when opening an enabled cache.
 Each operation opens and closes its own connection, including on exceptions.
 Metadata and its optional timestamp share one atomic upsert. Immutable
 metadata and notice values use a null timestamp.
@@ -251,9 +253,9 @@ operation returns, including after a busy write.
 
 Concurrent commands can share the cache without waiting for writer locks.
 Busy queries produce deferred warnings without replacing successful source
-results. Cache paths must still be ASCII, and missing or unloadable native
-libraries can raise `undef` and stop the command. Use `--no-cache` to bypass
-the driver.
+results. Missing or unloadable native libraries also produce deferred warnings
+and disable caching. Cache paths must still be ASCII. Use `--no-cache` to
+bypass the driver without loading it.
 
 The tested Linux build supports absolute database paths up to 504 bytes,
 including directories. Production does not validate path length before calling
@@ -266,15 +268,15 @@ The fix belongs upstream; adopt its published dependency when available so
 normal Gleam source installs and packaged releases use the same native code.
 This follow-up does not stop implementation or platform qualification.
 
-`just test-cache-runtime` checks sqlight's exceptions for missing and
-unloadable native libraries in fresh VMs and verifies that disabled caches
-do not load the NIF.
+`just test-cache-runtime` checks fallback for missing and unloadable native
+libraries in fresh VMs and verifies that disabled caches do not load the NIF.
 
 ### Native packaging
 
 Startup selects an adjacent `sqlite_native/<target>/esqlite`
 application, with `sqlite_native/esqlite` as the source-build fallback.
-Sqlight loads the NIF on first use; load failures are not intercepted.
+The cache checks the NIF on first use; load failures disable caching with a
+deferred warning.
 Native release builds must compile the NIF for each target architecture and
 libc. Cross-building the Queso launcher alone can include a host-built NIF that
 cannot load on the target. The release workflow builds each NIF on its target
@@ -440,7 +442,8 @@ Publish includes the generated `THIRD_PARTY_NOTICES.txt`, project `LICENSE`,
 and vendored `NOTICE` in each archive. It also embeds these documents under
 `META-INF/licenses/` in the bare escript ZIP payload. The generated notices
 cover esqlite and its bundled SQLite. Keep `sqlite_native/` beside the escript
-for cache access; use `--no-cache` with the bare download.
+for cache access. The bare download runs uncached with a warning; `--no-cache`
+skips the load attempt and warning.
 
 Run `just test-release-notices` to test staging and archive checks. Publish reads
 the notice bytes from each staged tar/ZIP and the bare escript, and compares

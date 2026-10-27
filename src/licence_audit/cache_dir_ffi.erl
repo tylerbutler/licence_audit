@@ -1,5 +1,14 @@
 -module(cache_dir_ffi).
--export([with_connection/2]).
+-export([ensure_sqlite_loaded/0, with_connection/2]).
+
+%% Check the on-load result before calling a NIF that may not be available.
+ensure_sqlite_loaded() ->
+    case code:ensure_loaded(esqlite3_nif) of
+        {module, esqlite3_nif} -> {ok, nil};
+        {error, Reason} ->
+            Detail = unicode:characters_to_binary(io_lib:format("~p", [Reason])),
+            {error, <<"SQLite native library unavailable: ", Detail/binary>>}
+    end.
 
 %% Gleam cannot catch driver exceptions or close a connection while unwinding.
 with_connection(Connection, Action) ->

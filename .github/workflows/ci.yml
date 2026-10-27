@@ -127,7 +127,7 @@ jobs:
       - name: Test runtime startup
         run: just test-runtime-startup
 
-      - name: Test sqlight runtime limits and disabled caches
+      - name: Test SQLite native-load fallback and disabled caches
         run: just test-cache-runtime
 
       - name: Test interrupted policy writes

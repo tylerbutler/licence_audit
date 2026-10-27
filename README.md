@@ -547,10 +547,9 @@ Connections close after each operation, including exceptions; no transaction
 stays open during a network request. Metadata and its fetch timestamp are
 written atomically.
 
-The current driver has limits: use ASCII-only cache paths. A missing or
-unloadable native library can raise an exception and stop the command.
-These load exceptions are not converted to cache warnings.
-Use `--no-cache` to bypass the driver.
+The current driver requires ASCII-only cache paths. If its native library is
+missing or cannot load, the command warns and continues without caching.
+Use `--no-cache` to bypass the driver without attempting to load it.
 
 The new `.sqlite3` caches refill on first use. Old `.dets` caches are not
 imported or changed. If `--cache-path` points to a DETS file, the command warns
@@ -598,7 +597,8 @@ Escript installations need the `sqlite_native/` directory beside the escript
 for caching. Release archives and `just build` include it; no `ERL_LIBS`
 setting is needed. Release escript archives include a native library for each
 of the seven supported release targets; the escript selects its platform.
-Use `--no-cache` with a bare escript or an unavailable native library.
+A bare escript automatically runs without caching and warns that the native
+library is unavailable. Use `--no-cache` to skip the load attempt and warning.
 `--no-cache` does not load SQLite.
 
 ## Troubleshooting

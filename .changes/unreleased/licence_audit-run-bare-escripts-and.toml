@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Run bare escripts and installations with an unavailable SQLite native library without caching instead of aborting. Report a deferred warning; `--no-cache` skips native-library loading."

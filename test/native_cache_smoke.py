@@ -82,14 +82,22 @@ def smoke(binary, escript=False, bare=False):
         cache = work / "cache" / "metadata.sqlite3"
         args = ["check", "--verbose", "--color=never", f"--cache-path={cache}"]
         if bare:
-            result = subprocess.run(
-                command + args + ["--no-cache"], cwd=work, env=env, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", timeout=180,
-            )
-            print(result.stdout, end="")
-            assert result.returncode == 0, result.stdout
-            assert "Apache-2.0" in result.stdout, result.stdout
-            assert not cache.exists(), "Bare escript unexpectedly wrote a cache"
+            for no_cache in (False, True):
+                flags = ["--no-cache"] if no_cache else []
+                result = subprocess.run(
+                    command + args + flags, cwd=work, env=env, capture_output=True,
+                    encoding="utf-8", errors="replace", timeout=180,
+                )
+                print(result.stdout, end="")
+                print(result.stderr, end="", file=sys.stderr)
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert "Apache-2.0" in result.stdout, result.stdout
+                assert "SQLite" not in result.stdout, result.stdout
+                if no_cache:
+                    assert "SQLite native library unavailable" not in result.stderr, result.stderr
+                else:
+                    assert "SQLite native library unavailable" in result.stderr, result.stderr
+                assert not cache.exists(), "Bare escript unexpectedly wrote a cache"
         else:
             first = run(command + args, work, env, "fresh")
             assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first

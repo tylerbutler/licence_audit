@@ -16,16 +16,25 @@ for library in missing unloadable; do
       false = code:is_loaded(esqlite3_nif),
       Disabled = licence_audit@cache:open(disabled),
       none = licence_audit@cache:close(Disabled),
+      DisabledNotices = licence_audit@notice_cache:open(disabled),
+      none = licence_audit@notice_cache:close(DisabledNotices),
       false = code:is_loaded(esqlite3_nif),
       Path = unicode:characters_to_binary(os:getenv("CACHE_TEST_PATH")),
-      try licence_audit@cache:open({enabled, {some, Path}}) of
-        _ -> erlang:error(expected_sqlight_native_load_exception)
-      catch
-        error:undef -> ok
-      end,
+      Cache = licence_audit@cache:open({enabled, {some, Path}}),
+      {some, Warning} = licence_audit@cache:close(Cache),
+      {_, _} = binary:match(Warning, <<"SQLite native library unavailable">>),
+      Metadata = licence_audit@hex:licences_only([<<"MIT">>]),
+      {{ok, Metadata}, none} = licence_audit@cache:fetch_cached_quiet(
+          Cache, <<"example">>, <<"1.0.0">>, fun(_) -> {ok, Metadata} end),
+      Notices = licence_audit@notice_cache:open({enabled, {some, Path}}),
+      {some, NoticeWarning} = licence_audit@notice_cache:close(Notices),
+      {_, _} = binary:match(NoticeWarning, <<"SQLite native library unavailable">>),
+      none = licence_audit@notice_cache:put_text(Notices, <<"key">>, <<"text">>),
+      {{error, nil}, none} = licence_audit@notice_cache:get_text(Notices, <<"key">>),
+      false = code:is_loaded(esqlite3_nif),
       false = filelib:is_regular(Path),
       halt().
     '
 done
 
-echo "Sqlight native-load limits and disabled-cache tests passed."
+echo "SQLite native-load fallback and disabled-cache tests passed."

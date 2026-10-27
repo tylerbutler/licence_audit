@@ -146,24 +146,38 @@ class CliStreamTest(unittest.TestCase):
                 else:
                     self.assertEqual(result.stderr, "")
 
-    def test_no_cache_keeps_sbom_stdout_valid_without_sqlite(self):
+    def test_unavailable_sqlite_preserves_reports_and_sbom_stdout(self):
         binary = self.project / "licence_audit"
         shutil.copy2(ROOT / "licence_audit", binary)
         sidecar = self.project / "sqlite_native/esqlite"
-        shutil.copytree(ROOT / "sqlite_native/esqlite", sidecar)
-        for library in (sidecar / "priv").rglob("*"):
-            if library.is_file() and library.suffix in (".so", ".dll", ".dylib"):
-                library.write_bytes(b"Unloadable native library fixture")
         (self.project / "manifest.toml").write_text("packages = []\n")
         env = {**os.environ, "XDG_CACHE_HOME": str(self.project / "cache")}
         env.pop("ERL_LIBS", None)
-        result = subprocess.run(
-            [str(binary), "sbom", "--offline", "--quiet", "--no-cache"],
-            cwd=self.project, env=env, capture_output=True, text=True, timeout=30,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
-        self.assertEqual(result.stderr, "")
+        for state in ("missing", "unloadable"):
+            if state == "unloadable":
+                shutil.copytree(ROOT / "sqlite_native/esqlite", sidecar)
+                for library in (sidecar / "priv").rglob("*"):
+                    if library.is_file() and library.suffix in (".so", ".dll", ".dylib"):
+                        library.write_bytes(b"Unloadable native library fixture")
+            for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
+                for no_cache in (False, True):
+                    with self.subTest(state=state, command=arguments[0], no_cache=no_cache):
+                        flags = ["--quiet", "--no-cache"] if no_cache else []
+                        result = subprocess.run(
+                            [str(binary), *arguments, *flags], cwd=self.project,
+                            env=env, capture_output=True, text=True, timeout=30,
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        if arguments[0] == "sbom":
+                            self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
+                        else:
+                            self.assertTrue(result.stdout)
+                            self.assertNotIn("SQLite", result.stdout)
+                        if no_cache:
+                            self.assertEqual(result.stderr, "")
+                        else:
+                            self.assertIn("SQLite native library unavailable", result.stderr)
+                        self.assertEqual(list((self.project / "cache").rglob("*.sqlite3")), [])
 
     def test_help_version_and_usage_streams(self):
         for argument in ("--help", "--version"):

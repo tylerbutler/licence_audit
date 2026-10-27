@@ -172,7 +172,7 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
-# Verify sqlight's native-load limits and disabled-cache operation.
+# Verify SQLite native-load fallback and disabled-cache operation.
 test-cache-runtime:
     mise exec -- gleam build
     mise exec -- bash test/sqlite_cache_runtime.sh

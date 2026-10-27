@@ -1,7 +1,7 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Each operation opens and closes a sqlight connection. Returned errors and
-//// busy-query exceptions become cache warnings.
+//// Each operation opens and closes a sqlight connection. Returned errors,
+//// busy-query exceptions, and native-library load failures become warnings.
 
 import gleam/dynamic/decode
 import gleam/int
@@ -223,6 +223,8 @@ fn with_connection(
   path: String,
   action: fn(sqlight.Connection) -> Result(value, String),
 ) -> Result(value, String) {
+  use _ <- result.try(ensure_sqlite_loaded())
+  // Failed native opens can still abort the VM; tracked in #168.
   use connection <- result.try(
     sqlight.open(path) |> result.map_error(describe_sqlite_error),
   )
@@ -242,6 +244,9 @@ fn with_connection(
       Error(first <> "; close: " <> describe_sqlite_error(second))
   }
 }
+
+@external(erlang, "cache_dir_ffi", "ensure_sqlite_loaded")
+fn ensure_sqlite_loaded() -> Result(Nil, String)
 
 @external(erlang, "cache_dir_ffi", "with_connection")
 fn run_with_connection(
