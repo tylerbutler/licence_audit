@@ -151,14 +151,9 @@ worker() ->
     gen_tcp:close(Socket),
     halt().
 
-%% Retry sqlight's busy exception only in this test to verify successful writes.
+%% Retry returned contention errors only in this test to verify persisted writes.
 when_available(Action, Retries) ->
-    Outcome = try Action()
-    catch
-        error:{case_clause, '$busy'} when Retries > 0 ->
-            timer:sleep(10),
-            when_available(Action, Retries - 1)
-    end,
+    Outcome = Action(),
     case Outcome of
         {error, Error} when Retries > 0 ->
             Message = licence_audit@cache_dir:describe_error(Error),

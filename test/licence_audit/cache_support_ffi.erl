@@ -1,9 +1,10 @@
 -module(cache_support_ffi).
--export([corrupt_entry/2, with_writer/2, assert_busy/1, create_legacy/1, assert_concurrent_cleanup/1]).
+-export([corrupt_entry/2, with_writer/2, assert_closed_on_exception/1,
+    create_legacy/1, assert_concurrent_cleanup/1]).
 
-%% Typed sqlight calls cannot inject invalid UTF-8 or a legacy DETS file, and
-%% Result matching cannot catch its busy exception. OTP try/after also ensures
-%% test locks/connections are released when a Gleam assertion raises.
+%% Typed sqlight calls cannot inject invalid UTF-8 or a legacy DETS file.
+%% OTP try/after ensures test locks/connections are released when a Gleam
+%% assertion raises.
 corrupt_entry(Path, Key) ->
     {ok, Connection} = esqlite3:open(binary_to_list(filename:absname(Path))),
     try
@@ -27,12 +28,22 @@ with_writer(Path, Action) ->
         ok = esqlite3:close(Connection)
     end.
 
-assert_busy(Action) ->
-    try Action() of
-        _ -> erlang:error(expected_sqlight_busy_exception)
+assert_closed_on_exception(Path) ->
+    {ok, Connection} = sqlight:open(Path),
+    {ok, nil} = sqlight:exec(<<"SELECT count(*) FROM cache_entries">>, Connection),
+    true = filelib:is_regular(<<Path/binary, "-wal">>),
+    try cache_dir_ffi:with_connection(Connection, fun(_) ->
+        erlang:error(cache_test_failure)
+    end) of
+        _ -> erlang:error(expected_cache_test_failure)
     catch
-        error:{case_clause, '$busy'} -> nil
-    end.
+        error:cache_test_failure -> ok
+    end,
+    false = filelib:is_regular(<<Path/binary, "-wal">>),
+    false = filelib:is_regular(<<Path/binary, "-shm">>),
+    %% Retain the resource so GC cannot provide the cleanup this test requires.
+    _ = erlang:phash2(Connection),
+    nil.
 
 create_legacy(Path) ->
     {ok, Table} = dets:open_file(cache_test_legacy, [{file, binary_to_list(Path)}]),

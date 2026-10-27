@@ -1,7 +1,7 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Each operation opens and closes a sqlight connection. Returned errors
-//// become cache warnings; upstream driver exceptions are not intercepted.
+//// Each operation opens and closes a sqlight connection. Returned errors and
+//// busy-query exceptions become cache warnings.
 
 import gleam/dynamic/decode
 import gleam/int
@@ -226,14 +226,15 @@ fn with_connection(
   use connection <- result.try(
     sqlight.open(path) |> result.map_error(describe_sqlite_error),
   )
-  let outcome = {
-    use _ <- result.try(
-      sqlight.exec("PRAGMA busy_timeout=0", on: connection)
-      |> result.map_error(describe_sqlite_error),
-    )
-    action(connection)
-  }
-  case outcome, sqlight.close(connection) {
+  let #(outcome, closed) =
+    run_with_connection(connection, fn(connection) {
+      use _ <- result.try(
+        sqlight.exec("PRAGMA busy_timeout=0", on: connection)
+        |> result.map_error(describe_sqlite_error),
+      )
+      action(connection)
+    })
+  case outcome, closed {
     Ok(value), Ok(Nil) -> Ok(value)
     Error(error), Ok(Nil) -> Error(error)
     Ok(_), Error(error) -> Error(describe_sqlite_error(error))
@@ -241,6 +242,12 @@ fn with_connection(
       Error(first <> "; close: " <> describe_sqlite_error(second))
   }
 }
+
+@external(erlang, "cache_dir_ffi", "with_connection")
+fn run_with_connection(
+  connection: sqlight.Connection,
+  action: fn(sqlight.Connection) -> Result(value, String),
+) -> #(Result(value, String), Result(Nil, sqlight.Error))
 
 fn describe_sqlite_error(error: sqlight.Error) -> String {
   "SQLite error "

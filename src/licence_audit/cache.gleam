@@ -3,8 +3,8 @@
 //// Mutable Hex API entries are keyed by `name@version` and expire after seven
 //// days. Reproducible SBOM entries are keyed by an archive checksum or commit
 //// and never expire. Returned storage errors fall back to the source fetcher
-//// and record a deferred warning. Upstream sqlight exceptions can stop the
-//// command; use `--no-cache` to bypass the driver.
+//// and record a deferred warning. Busy writes also return warnings. Native-load
+//// exceptions can stop the command; use `--no-cache` to bypass the driver.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -48,7 +48,7 @@ fn cache_filename() -> String {
 ///
 /// Returns no error value. If the cache path cannot be prepared, the returned
 /// `Cache` bypasses storage and includes a deferred warning accessible via
-/// `close`. Upstream sqlight exceptions are not intercepted.
+/// `close`. Native-load exceptions are not intercepted.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)

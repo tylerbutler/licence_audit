@@ -15,8 +15,8 @@ pub fn corrupt_entry(cache_path: String, key: String) -> Result(Nil, String)
 @external(erlang, "cache_support_ffi", "with_writer")
 pub fn with_writer(cache_path: String, action: fn() -> a) -> a
 
-@external(erlang, "cache_support_ffi", "assert_busy")
-pub fn assert_busy(action: fn() -> a) -> Nil
+@external(erlang, "cache_support_ffi", "assert_closed_on_exception")
+pub fn assert_closed_on_exception(cache_path: String) -> Nil
 
 @external(erlang, "cache_support_ffi", "create_legacy")
 pub fn create_legacy(cache_path: String) -> Nil

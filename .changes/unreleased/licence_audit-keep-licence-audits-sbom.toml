@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Keep licence audits, SBOM metadata, and notice generation running when the SQLite cache is busy. Return a cache warning and close the connection without discarding fetched results."

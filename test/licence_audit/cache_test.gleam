@@ -483,19 +483,54 @@ pub fn busy_upsert_preserves_value_and_timestamp_test() {
   let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
   should.equal(cache_dir.insert_at(store, "key", "old", Some(10)), Ok(Nil))
   cache_support.with_writer(path, fn() {
-    cache_support.assert_busy(fn() {
-      cache_dir.insert_at(store, "key", "new", Some(20))
-    })
+    let assert Error(error) = cache_dir.insert_at(store, "key", "new", Some(20))
+    should.be_true(string.contains(
+      cache_dir.describe_error(error),
+      "SQLite error 5:",
+    ))
     should.equal(
       cache_dir.lookup_entry(store, "key"),
       Ok(cache_dir.Entry("old", Some(10))),
     )
   })
+  let assert Error(_) = simplifile.read_bits(path <> "-wal")
+  let assert Error(_) = simplifile.read_bits(path <> "-shm")
   should.equal(cache_dir.insert_at(store, "key", "new", Some(20)), Ok(Nil))
   should.equal(
     cache_dir.lookup_entry(store, "key"),
     Ok(cache_dir.Entry("new", Some(20))),
   )
+}
+
+pub fn busy_cache_writes_keep_fetched_metadata_test() {
+  let path = fresh_path("busy_fetch")
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let metadata = hex.licences_only(["MIT"])
+  cache_support.with_writer(path, fn() {
+    let #(fetched, reporter) =
+      cache.wrap(handle, fn(_) { Ok(metadata) })(
+        pkg("reported", "1.0.0"),
+        reporter(),
+      )
+    should.equal(fetched, Ok(metadata))
+    should.be_true(any_contains(warning_messages(reporter), "SQLite error 5:"))
+    let assert #(Ok(quiet), Some(warning)) =
+      cache.fetch_cached_quiet(handle, "quiet", "1.0.0", fn(_) { Ok(metadata) })
+    should.equal(quiet, metadata)
+    should.be_true(string.contains(warning, "SQLite error 5:"))
+    let assert #(Ok(immutable), Some(warning)) =
+      cache.fetch_immutable(handle, "locked", fn() { Ok(metadata) })
+    should.equal(immutable, metadata)
+    should.be_true(string.contains(warning, "SQLite error 5:"))
+  })
+  let assert Error(_) = simplifile.read_bits(path <> "-wal")
+  let assert Error(_) = simplifile.read_bits(path <> "-shm")
+  let assert #(Ok(_), None) =
+    cache.fetch_cached_quiet(handle, "quiet", "1.0.0", fn(_) { Ok(metadata) })
+  let assert #(Ok(_), None) =
+    cache.fetch_cached_quiet(handle, "quiet", "1.0.0", fn(_) {
+      panic as "cache must recover after the writer releases its lock"
+    })
 }
 
 pub fn legacy_dets_file_is_not_modified_test() {
@@ -532,4 +567,10 @@ pub fn cache_operations_release_all_connections_before_return_test() {
 
 pub fn concurrent_independent_caches_release_connections_test() {
   cache_support.assert_concurrent_cleanup(fresh_path("parallel_cleanup"))
+}
+
+pub fn unexpected_cache_exception_closes_connection_test() {
+  let path = fresh_path("exception_cleanup")
+  let assert Ok(_) = cache_dir.open_table(Some(path), "unused", "test")
+  cache_support.assert_closed_on_exception(path)
 }

@@ -534,22 +534,23 @@ them again. Metadata changes on Hex can take up to 7 days to appear; use
 instead stores metadata from locked package archives. Those entries do not
 expire.
 
-Use a local filesystem for the cache location. Give concurrent commands
-separate cache paths, or use `--no-cache`. In CI, restore and save the cache
+Use a local filesystem for the cache location. Concurrent commands can share
+the cache; a busy operation warns and continues without caching that result.
+In CI, restore and save the cache
 directory between jobs, for example with `actions/cache` and
 `--cache-path=.hex-cache/hex-v2.sqlite3` (cache `.hex-cache/`). A fresh runner
 with no restored cache must fetch each package again. Use `--verbose` to see
 cache hits and misses.
 
 The caches use `sqlight` directly, with SQLite WAL and no busy wait.
-Connections close after each operation that returns normally; no transaction
+Connections close after each operation, including exceptions; no transaction
 stays open during a network request. Metadata and its fetch timestamp are
 written atomically.
 
-The current driver has limits: use ASCII-only cache paths, and do not rely on
-concurrent writes to the same cache. A busy query or a missing or unloadable
-native library can raise an exception and stop the command. These exceptions
-are not converted to cache warnings. Use `--no-cache` to bypass the driver.
+The current driver has limits: use ASCII-only cache paths. A missing or
+unloadable native library can raise an exception and stop the command.
+These load exceptions are not converted to cache warnings.
+Use `--no-cache` to bypass the driver.
 
 The new `.sqlite3` caches refill on first use. Old `.dets` caches are not
 imported or changed. If `--cache-path` points to a DETS file, the command warns
@@ -590,7 +591,7 @@ to relocate both caches. A corrupt cached value is treated
 as a miss, and transient network failures are never cached as successes.
 
 If a cache operation returns an error, `licence_audit` writes a warning to
-stderr and continues the run. Upstream driver exceptions are not intercepted.
+stderr and continues the run. Busy-query exceptions also become warnings.
 OSV advisories are not cached.
 
 Escript installations need the `sqlite_native/` directory beside the escript

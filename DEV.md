@@ -233,10 +233,12 @@ deferred warning when neither environment variable is set.
 The cache uses `sqlight` 1.2.0 directly for connections, SQL queries, parameter
 binding, and row decoding, with `esqlite` constrained to 0.10.x for synchronous
 statement cleanup.
-There is no custom SQLite adapter or cache warning-state FFI. Cache operations
-return warnings explicitly to their callers. `runtime_ffi` adds an escript's
+SQL, parameter binding, and decoding stay in Gleam. A small `cache_dir_ffi`
+boundary catches esqlite's busy-query exception and closes connections before
+returning or rethrowing unexpected exceptions. Cache operations return warnings
+explicitly to their callers. `runtime_ffi` adds an escript's
 native sidecar to the code path; it does not load the NIF or wrap database calls.
-Each operation opens and closes its own connection when sqlight returns normally.
+Each operation opens and closes its own connection, including on exceptions.
 Metadata and its optional timestamp share one atomic upsert. Immutable
 metadata and notice values use a null timestamp.
 
@@ -245,13 +247,13 @@ private statement in 0.10.0, including on failure.
 Do not use garbage collection or worker exit as a
 statement-finalization barrier: resource cleanup can finish after those return.
 The connection-lifetime test checks that WAL and SHM files are gone before an
-operation returns normally.
+operation returns, including after a busy write.
 
-The integration accepts sqlight's current limits instead of working around
-them: cache paths must be ASCII, busy queries can raise `'$busy'` exceptions,
-and missing or unloadable native libraries can raise `undef`. Returned errors
-still produce deferred cache warnings, but exceptions can stop the command.
-Use separate paths for concurrent commands, or use `--no-cache`.
+Concurrent commands can share the cache without waiting for writer locks.
+Busy queries produce deferred warnings without replacing successful source
+results. Cache paths must still be ASCII, and missing or unloadable native
+libraries can raise `undef` and stop the command. Use `--no-cache` to bypass
+the driver.
 
 The tested Linux build supports absolute database paths up to 504 bytes,
 including directories. Production does not validate path length before calling
@@ -325,7 +327,7 @@ bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Both runners add `--no-cache`, so they do not touch the on-disk
-caches. Concurrent CLI runs need separate cache paths. `--no-cache` bypasses
+caches. Concurrent CLI runs can share cache paths. `--no-cache` bypasses
 the caches, and `--cache-path=PATH` overrides the licence metadata cache
 location. Source-built escripts require the `sqlite_native/` directory beside
 the executable for cache access; `just build` copies it there.
