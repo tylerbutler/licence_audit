@@ -1,3 +1,3 @@
 package = "licence_audit"
 kind = "Changed"
-body = "Replace the on-disk metadata and notice caches with SQLite WAL. Metadata and its timestamp are written atomically. New `.sqlite3` files refill on first use, and existing DETS caches remain unchanged."
+body = "Replace the on-disk metadata and notice caches with SQLite WAL, storing metadata and its timestamp in one atomic write. New `.sqlite3` caches refill on first use; the command does not import or change existing DETS files. Cache paths must be ASCII; Linux absolute database paths must not exceed 504 bytes (#168). Escript caching requires `sqlite_native/` beside the executable. Busy cache operations report a deferred warning without discarding fetched results. Bare escripts and installations with missing or unloadable SQLite native libraries run without caching and report a deferred warning. Use `--no-cache` to skip native-library loading."

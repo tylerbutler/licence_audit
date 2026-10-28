@@ -1,3 +1,3 @@
 package = "licence_audit"
 kind = "Added"
-body = "Configure `notices` dependency include and exclude filters before metadata, source, and cache access; reject unknown locked package names. Development-only projects still require `--include-dev` when no production dependency table exists."
+body = "Add `include` and `exclude` filters under `[tools.licence_audit.notices]`. Apply them before metadata, source, and cache access, and reject names absent from the lockfile. Projects without a `[dependencies]` table now require `notices --include-dev` to include development dependencies."
