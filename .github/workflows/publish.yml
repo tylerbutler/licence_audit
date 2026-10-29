@@ -32,29 +32,26 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
-      - name: Install Queso packaging dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y binutils-mingw-w64-x86-64 musl-tools
-          python3 -m pip install --user 'ziglang==0.14.1'
-          cargo install --locked cargo-zigbuild --version 0.23.4
-          rustup target add \
-            aarch64-apple-darwin \
-            aarch64-unknown-linux-gnu \
-            aarch64-unknown-linux-musl \
-            x86_64-apple-darwin \
-            x86_64-pc-windows-gnu \
-            x86_64-unknown-linux-musl
-          mise exec -- queso --version
-          python3 -m ziglang version
-          cargo-zigbuild --version
+      - name: Download tested per-target native builds and runtime notices
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          pattern: licence-audit-native-*
+          merge-multiple: true
+          path: build
 
-      - name: Build escript
-        run: just build-strict
+      - name: Download bookworm-built escript and SQLite sidecar
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: licence-audit-escript
+          path: build/escript
 
       - name: Embed required notices in bare escript
         run: |
+          set -euo pipefail
+          cp build/escript/licence_audit licence_audit
+          mkdir -p sqlite_native
+          cp -R build/escript-sidecars/. sqlite_native/
+          chmod +x licence_audit
           mise exec -- python3 -B scripts/release_notices.py embed licence_audit
           mise exec -- python3 -B scripts/release_notices.py check licence_audit
           ./licence_audit --help
@@ -66,18 +63,6 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
-
-      - name: Build Queso executables
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          export XDG_CACHE_HOME="$PWD/build/release-cache"
-          mkdir -p build/release-tmp
-          export TMPDIR="$PWD/build/release-tmp"
-          rustup component add rust-docs
-          just build-queso 2>&1 | tee build/queso-build.log
-          mise exec -- python3 -B scripts/runtime_notices.py --build-log build/queso-build.log
 
       - name: Stage release artifacts
         env:
@@ -91,7 +76,7 @@ jobs:
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
-          cp -r slate_native "$escript_stage/"
+          cp -R sqlite_native "$escript_stage/"
           mise exec -- python3 -B scripts/release_notices.py stage "$escript_stage"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
@@ -117,6 +102,7 @@ jobs:
           )
 
           for target in "${targets[@]}"; do
+            test -s "sqlite_native/$target/esqlite/ebin/esqlite3_nif.beam"
             archive_stage="licence_audit-${REF_NAME}-${target}"
             mkdir -p "$archive_stage"
 
@@ -147,6 +133,8 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
+          tar -tzf "dist/licence_audit-${REF_NAME}.tar.gz" |
+            grep -E "^licence_audit-${REF_NAME}/sqlite_native/[^/]+/esqlite/priv/.+\\.(so|dll|dylib)$" > /dev/null
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
@@ -154,17 +142,27 @@ jobs:
           (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
-      - name: Test packaged native HTTP without system Erlang
+      - name: Test packaged SQLite and HTTPS without system Erlang
         timeout-minutes: 5
         env:
           REF_NAME: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           archive="licence_audit-${REF_NAME}-x86_64-linux-glibc"
-          extracted=$(mktemp -d)
-          trap 'rm -rf -- "$extracted"' EXIT
+          extracted="$PWD/build/release-smoke"
+          mkdir -p "$extracted"
+          tar -xzf "dist/licence_audit-${REF_NAME}.tar.gz" -C "$extracted"
+          mise exec -- python3 -B test/native_cache_smoke.py \
+            "$extracted/licence_audit-${REF_NAME}/licence_audit" --escript
+          mise exec -- python3 -B test/native_cache_smoke.py dist/licence_audit --bare-escript
           tar -xzf "dist/${archive}.tar.gz" -C "$extracted"
-          just smoke-native-http "$extracted/$archive/licence_audit"
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            debian:bookworm-slim sh -ec '
+              apt-get update -qq
+              apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
+              exec python3 -B test/native_cache_smoke.py "$1"
+            ' sh "build/release-smoke/$archive/licence_audit"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7

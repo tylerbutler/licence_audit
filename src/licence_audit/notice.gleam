@@ -11,6 +11,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/cache_dir
 import licence_audit/config
 import licence_audit/hex
 import licence_audit/httpc_adaptive
@@ -174,20 +175,30 @@ pub fn filter_entries(
 pub fn packages_from_entries(
   entries: List(manifest.SbomEntry),
   scopes: Dict(String, manifest.Scope),
-  metadata_for: fn(manifest.SbomEntry) -> Result(hex.PackageMetadata, Error),
-) -> Result(List(NoticePackage), Error) {
-  list.try_map(entries, fn(entry) {
-    use source <- result.try(package_source(entry))
-    use metadata <- result.try(metadata_for(entry))
-    Ok(NoticePackage(
-      name: entry.name,
-      version: entry.version,
-      declared_licences: metadata.licences,
-      repo_links: repo_link_urls(metadata.links),
-      source: source,
-      scope: scope_for(scopes, entry.name),
-    ))
-  })
+  metadata_for: fn(manifest.SbomEntry) ->
+    #(Result(hex.PackageMetadata, Error), Option(String)),
+) -> #(Result(List(NoticePackage), Error), Option(String)) {
+  let #(packages, warning) =
+    list.fold(entries, #(Ok([]), None), fn(acc, entry) {
+      use packages <- cache_dir.try_with_warning(acc)
+      use source <- cache_dir.try_with_warning(#(package_source(entry), None))
+      use metadata <- cache_dir.try_with_warning(metadata_for(entry))
+      #(
+        Ok([
+          NoticePackage(
+            name: entry.name,
+            version: entry.version,
+            declared_licences: metadata.licences,
+            repo_links: repo_link_urls(metadata.links),
+            source: source,
+            scope: scope_for(scopes, entry.name),
+          ),
+          ..packages
+        ]),
+        None,
+      )
+    })
+  #(result.map(packages, list.reverse), warning)
 }
 
 /// Extract the URL of each metadata link, preserving order and de-duplicating.

@@ -1,6 +1,9 @@
 -module(source_archive_test_ffi).
 -export([with_tar_gz/2, large_binary/0, with_inflation_count/1, gunzip/1]).
 
+%% Gleam core has no tar writer or OTP call-count tracing. Generate binary
+%% archive fixtures and count real inflations, not calls to an injected reader;
+%% try/after removes files and tracing even when an assertion raises.
 gunzip(Bytes) ->
     zlib:gunzip(Bytes).
 

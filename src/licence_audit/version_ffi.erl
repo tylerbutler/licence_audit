@@ -5,6 +5,8 @@
 %% resource (the `vsn` baked in from this project's own gleam.toml at build
 %% time). This is independent of the current working directory, so auditing
 %% another project can never leak that project's version into tool metadata.
+%% Gleam has no core application-version API; reading gleam.toml instead would
+%% use the audited project's version and fail outside a source checkout.
 build_version() ->
     _ = application:load(licence_audit),
     case application:get_key(licence_audit, vsn) of

@@ -1,17 +1,14 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Reads and writes use short exclusive sessions so concurrent CLI runs
-//// can share cached entries without corrupting or overwriting each other's
-//// data. Busy caches are bypassed without waiting for another owner.
+//// Each operation opens and closes a sqlight connection. Returned errors,
+//// busy-query exceptions, and native-library load failures become warnings.
 
 import gleam/dynamic/decode
-import gleam/erlang/reference.{type Reference}
+import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import simplifile
-import slate
-import slate/exclusive
-import slate/set
+import sqlight
 
 import licence_audit/env
 import licence_audit/path
@@ -20,7 +17,11 @@ const cache_subdir = "licence_audit"
 
 /// An on-disk string cache.
 pub opaque type Store {
-  Store(path: String, warnings: Reference)
+  Store(path: String)
+}
+
+pub type Entry {
+  Entry(value: String, cached_at: Option(Int))
 }
 
 /// Why a cache path could not be resolved or prepared.
@@ -31,22 +32,20 @@ type PathError {
 
 pub opaque type Error {
   PathFailed(PathError)
-  OpenFailed(name: String, path: String, reason: PathError)
-  WriteFailed(key: String, reason: exclusive.SessionError)
+  OpenFailed(name: String, path: String, reason: String)
+  EntryMissing
+  ReadFailed(key: String, reason: String)
+  WriteFailed(key: String, reason: String)
 }
 
 pub fn describe_error(error: Error) -> String {
   case error {
     PathFailed(reason) -> describe_path_error(reason)
     OpenFailed(name, path, reason) ->
-      "Unable to open "
-      <> name
-      <> " cache at "
-      <> path
-      <> ": "
-      <> describe_path_error(reason)
-    WriteFailed(key, reason) ->
-      "write " <> key <> ": " <> exclusive.error_message(reason)
+      "Unable to open " <> name <> " cache at " <> path <> ": " <> reason
+    EntryMissing -> "Cache entry not found"
+    ReadFailed(key, reason) -> "read " <> key <> ": " <> reason
+    WriteFailed(key, reason) -> "write " <> key <> ": " <> reason
   }
 }
 
@@ -105,71 +104,193 @@ pub fn open_table(
   use resolved <- result.try(
     resolve_path(cache_path, filename) |> result.map_error(PathFailed),
   )
-  case ensure_cache_dir(resolved) {
-    Ok(Nil) -> Ok(Store(path: resolved, warnings: reference.new()))
-    Error(error) -> Error(OpenFailed(name, resolved, error))
-  }
-}
-
-/// Read one cache entry in a short exclusive session.
-pub fn lookup(store: Store, key: String) -> Result(String, Nil) {
-  case
-    set.with_exclusive_table(
-      path: store.path,
-      repair: slate.AutoRepair,
-      access: slate.ReadWrite,
-      wait: exclusive.Immediate,
-      key_decoder: decode.string,
-      value_decoder: decode.string,
-      callback: fn(table) { set.lookup(table, key: key) },
-    )
-  {
-    Ok(value) -> Ok(value)
-    Error(exclusive.SessionFailed(exclusive.CallbackFailure(slate.NotFound))) ->
-      Error(Nil)
-    Error(error) -> {
-      warn(store, "read " <> key <> ": " <> exclusive.error_message(error))
-      Error(Nil)
-    }
-  }
-}
-
-/// Publish one cache entry in a short exclusive session.
-pub fn insert(store: Store, key: String, value: String) -> Result(Nil, Error) {
-  set.with_exclusive_table(
-    path: store.path,
-    repair: slate.AutoRepair,
-    access: slate.ReadWrite,
-    wait: exclusive.Immediate,
-    key_decoder: decode.string,
-    value_decoder: decode.string,
-    callback: fn(table) { set.insert(table, key, value) },
+  use _ <- result.try(
+    ensure_cache_dir(resolved)
+    |> result.map_error(fn(error) {
+      OpenFailed(name, resolved, describe_path_error(error))
+    }),
   )
-  |> result.map_error(fn(error) {
-    let error = WriteFailed(key, error)
-    warn(store, describe_error(error))
-    error
-  })
+  use _ <- result.try(
+    open(resolved)
+    |> result.map_error(fn(error) { OpenFailed(name, resolved, error) }),
+  )
+  Ok(Store(path: resolved))
 }
 
-/// Close a store and return the latest deferred warning.
-pub fn close_table(
-  store: Store,
-  name: String,
-  warning: Option(String),
-) -> Option(String) {
-  case ffi_take_warning(store.warnings) {
-    None -> warning
-    Some(error) -> Some("Failed to access " <> name <> " cache: " <> error)
+/// Read one cache value without keeping a connection open.
+pub fn lookup(store: Store, key: String) -> Result(String, Error) {
+  lookup_entry(store, key) |> result.map(fn(entry) { entry.value })
+}
+
+/// Read a value and its timestamp from the same SQLite row.
+pub fn lookup_entry(store: Store, key: String) -> Result(Entry, Error) {
+  case read_entry(store.path, key) {
+    Ok(Some(entry)) -> Ok(entry)
+    Ok(None) -> Error(EntryMissing)
+    Error(error) -> Error(ReadFailed(key, error))
   }
 }
 
-@external(erlang, "cache_dir_ffi", "warn")
-fn ffi_warn(warnings: Reference, warning: String) -> Nil
+/// Publish an immutable cache value.
+pub fn insert(store: Store, key: String, value: String) -> Result(Nil, Error) {
+  insert_at(store, key, value, None)
+}
 
-@external(erlang, "cache_dir_ffi", "take_warning")
-fn ffi_take_warning(warnings: Reference) -> Option(String)
+/// Publish a value and optional expiry timestamp atomically.
+pub fn insert_at(
+  store: Store,
+  key: String,
+  value: String,
+  cached_at: Option(Int),
+) -> Result(Nil, Error) {
+  write_entry(store.path, key, value, cached_at)
+  |> result.map_error(fn(error) { WriteFailed(key, error) })
+}
 
-fn warn(store: Store, warning: String) -> Nil {
-  ffi_warn(store.warnings, warning)
+fn open(path: String) -> Result(Nil, String) {
+  use connection <- with_connection(path)
+  use modes <- result.try(
+    sqlight.query(
+      "PRAGMA journal_mode=WAL",
+      on: connection,
+      with: [],
+      expecting: decode.field(0, decode.string, decode.success),
+    )
+    |> result.map_error(describe_sqlite_error),
+  )
+  case modes {
+    ["wal"] ->
+      sqlight.exec(
+        "CREATE TABLE IF NOT EXISTS cache_entries (
+           key TEXT PRIMARY KEY,
+           value TEXT NOT NULL,
+           cached_at INTEGER
+         )",
+        on: connection,
+      )
+      |> result.map_error(describe_sqlite_error)
+    _ -> Error("SQLite WAL mode is unavailable")
+  }
+}
+
+fn read_entry(path: String, key: String) -> Result(Option(Entry), String) {
+  use connection <- with_connection(path)
+  let decoder = {
+    use value <- decode.field(0, decode.string)
+    use cached_at <- decode.field(1, decode.optional(decode.int))
+    decode.success(Entry(value, cached_at))
+  }
+  use entries <- result.try(
+    sqlight.query(
+      "SELECT value, cached_at FROM cache_entries WHERE key = ?",
+      on: connection,
+      with: [sqlight.text(key)],
+      expecting: decoder,
+    )
+    |> result.map_error(describe_sqlite_error),
+  )
+  case entries {
+    [] -> Ok(None)
+    [entry] -> Ok(Some(entry))
+    _ -> Error("Invalid cached value or timestamp")
+  }
+}
+
+fn write_entry(
+  path: String,
+  key: String,
+  value: String,
+  cached_at: Option(Int),
+) -> Result(Nil, String) {
+  use connection <- with_connection(path)
+  sqlight.query(
+    "INSERT INTO cache_entries (key, value, cached_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value, cached_at = excluded.cached_at",
+    on: connection,
+    with: [
+      sqlight.text(key),
+      sqlight.text(value),
+      sqlight.nullable(sqlight.int, cached_at),
+    ],
+    expecting: decode.success(Nil),
+  )
+  |> result.map(fn(_) { Nil })
+  |> result.map_error(describe_sqlite_error)
+}
+
+fn with_connection(
+  path: String,
+  action: fn(sqlight.Connection) -> Result(value, String),
+) -> Result(value, String) {
+  use _ <- result.try(ensure_sqlite_loaded())
+  // Failed native opens can still abort the VM; tracked in #168.
+  use connection <- result.try(
+    sqlight.open(path) |> result.map_error(describe_sqlite_error),
+  )
+  let #(outcome, closed) =
+    run_with_connection(connection, fn(connection) {
+      use _ <- result.try(
+        sqlight.exec("PRAGMA busy_timeout=0", on: connection)
+        |> result.map_error(describe_sqlite_error),
+      )
+      action(connection)
+    })
+  case outcome, closed {
+    Ok(value), Ok(Nil) -> Ok(value)
+    Error(error), Ok(Nil) -> Error(error)
+    Ok(_), Error(error) -> Error(describe_sqlite_error(error))
+    Error(first), Error(second) ->
+      Error(first <> "; close: " <> describe_sqlite_error(second))
+  }
+}
+
+@external(erlang, "cache_dir_ffi", "ensure_sqlite_loaded")
+fn ensure_sqlite_loaded() -> Result(Nil, String)
+
+@external(erlang, "cache_dir_ffi", "with_connection")
+fn run_with_connection(
+  connection: sqlight.Connection,
+  action: fn(sqlight.Connection) -> Result(value, String),
+) -> #(Result(value, String), Result(Nil, sqlight.Error))
+
+fn describe_sqlite_error(error: sqlight.Error) -> String {
+  "SQLite error "
+  <> int.to_string(sqlight.error_code_to_int(error.code))
+  <> ": "
+  <> error.message
+}
+
+/// Describe an access failure as a warning, excluding ordinary cache misses.
+pub fn access_warning(error: Error, name: String) -> Option(String) {
+  case error {
+    EntryMissing -> None
+    PathFailed(_)
+    | OpenFailed(_, _, _)
+    | ReadFailed(_, _)
+    | WriteFailed(_, _) ->
+      Some("Failed to access " <> name <> " cache: " <> describe_error(error))
+  }
+}
+
+/// Pass a cache result to its caller, keeping the latest returned warning.
+pub fn with_warning(
+  returned: #(value, Option(String)),
+  next: fn(value) -> #(output, Option(String)),
+) -> #(output, Option(String)) {
+  let #(value, warning) = returned
+  let #(output, next_warning) = next(value)
+  #(output, option.or(next_warning, warning))
+}
+
+/// Stop on an error without losing the warning returned with it.
+pub fn try_with_warning(
+  returned: #(Result(value, error), Option(String)),
+  next: fn(value) -> #(Result(output, error), Option(String)),
+) -> #(Result(output, error), Option(String)) {
+  use outcome <- with_warning(returned)
+  case outcome {
+    Ok(value) -> next(value)
+    Error(error) -> #(Error(error), None)
+  }
 }

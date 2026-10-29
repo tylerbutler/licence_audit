@@ -36,17 +36,6 @@ class ReleaseNoticesTest(unittest.TestCase):
         os.chdir(self.work)
         for name in notices.APPLICATION:
             Path(name).write_text(f"Application fixture: {name}\n")
-        slate = Path("slate_native/licenses")
-        slate.mkdir(parents=True)
-        (slate / "THIRD_PARTY_NOTICES.txt").write_text("Slate fixture\n")
-        (slate / "rust").mkdir()
-        (slate / "rust/COPYRIGHT-library.html").write_text("Rust fixture\n")
-        (slate / "manifest.json").write_text(json.dumps({
-            "checksums": {
-                name: hashlib.sha256((slate / name).read_bytes()).hexdigest()
-                for name in ("THIRD_PARTY_NOTICES.txt", "rust/COPYRIGHT-library.html")
-            }
-        }))
 
     def tearDown(self):
         os.chdir(self.previous)
@@ -87,7 +76,7 @@ class ReleaseNoticesTest(unittest.TestCase):
                     notices.check(self.archive(stage, extension))
 
     def test_missing_or_empty_source_material_fails(self):
-        for name in (*notices.APPLICATION, "slate_native/licenses/THIRD_PARTY_NOTICES.txt"):
+        for name in notices.APPLICATION:
             with self.subTest(name=name):
                 path = Path(name)
                 original = path.read_bytes()
@@ -119,33 +108,19 @@ class ReleaseNoticesTest(unittest.TestCase):
         notices.stage(stage, target)
         for extension in (".tar.gz", ".zip"):
             notices.check(self.archive(stage, extension), target)
-        with self.assertRaises(FileNotFoundError):
-            notices.stage(Path("other"), "aarch64-macos")
-
-    def test_slate_runtime_documents_are_required_and_checksum_verified(self):
-        path = Path("slate_native/licenses/rust/COPYRIGHT-library.html")
-        original = path.read_bytes()
-        path.write_text("Corrupt\n")
+        document = source / "rust/COPYRIGHT-library.html"
+        original = document.read_bytes()
+        document.write_text("Corrupt runtime notice\n")
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
-            notices.stage(Path("stage"))
-        path.unlink()
-        with self.assertRaises(FileNotFoundError):
-            notices.embed(Path("licence_audit"))
-        path.write_bytes(original)
-        stage = Path("licence_audit-v1")
-        notices.stage(stage)
-        archived = stage / "slate_native/licenses/rust/COPYRIGHT-library.html"
+            notices.stage(stage, target)
+        document.write_bytes(original)
+        archived = stage / "runtime-notices/rust/COPYRIGHT-library.html"
         archived.write_text("Corrupt archived runtime notice\n")
         for extension in (".tar.gz", ".zip"):
-            with self.subTest(extension=extension):
-                with self.assertRaisesRegex(ValueError, "Missing or changed"):
-                    notices.check(self.archive(stage, extension))
-        notices.stage(stage)
-        shutil.rmtree(stage / "slate_native/licenses/rust")
-        for extension in (".tar.gz", ".zip"):
-            with self.subTest(extension=extension):
-                with self.assertRaises(KeyError):
-                    notices.check(self.archive(stage, extension))
+            with self.assertRaisesRegex(ValueError, "Missing or changed"):
+                notices.check(self.archive(stage, extension), target)
+        with self.assertRaises(FileNotFoundError):
+            notices.stage(Path("other"), "aarch64-macos")
 
     def test_publish_stage_completes_and_checks_all_advertised_archives(self):
         workflow = (ROOT / ".github/workflows/publish.yml").read_text()
@@ -156,6 +131,11 @@ class ReleaseNoticesTest(unittest.TestCase):
         names = ("otp/bom.spdx.json", "queso/dependency-notices.json",
                  "rust/COPYRIGHT-library.html", "openssl/LICENSE.txt", "otp-distribution.json")
         for target in targets:
+            sidecar = Path("sqlite_native") / target / "esqlite"
+            (sidecar / "ebin").mkdir(parents=True)
+            (sidecar / "ebin/esqlite3_nif.beam").write_bytes(b"BEAM fixture")
+            (sidecar / "priv").mkdir()
+            (sidecar / "priv/esqlite3_nif.so").write_bytes(b"NIF fixture")
             destination = Path("build/release-notices") / target
             for name in names:
                 path = destination / name
@@ -194,6 +174,55 @@ class ReleaseNoticesTest(unittest.TestCase):
         with mock.patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(data)):
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
                 runtime.fetch("https://example.invalid/otp-bom", "sha256:" + "0" * 64)
+
+    def test_zig_wheel_tags_expand_compressed_metadata(self):
+        self.assertEqual(
+            runtime.wheel_tags("py3", "none", "manylinux_2_17_x86_64.manylinux2014_x86_64"),
+            {"py3-none-manylinux_2_17_x86_64", "py3-none-manylinux2014_x86_64"},
+        )
+        self.assertEqual(
+            runtime.wheel_tags("py2.py3", "abi3.none", "win_amd64"),
+            {"py2-abi3-win_amd64", "py2-none-win_amd64",
+             "py3-abi3-win_amd64", "py3-none-win_amd64"},
+        )
+        self.assertEqual(
+            runtime.wheel_metadata_tags(
+                "Wheel-Version: 1.0\nTag:\n "
+                "py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64\n\n"
+            ),
+            {"py3-none-manylinux_2_17_aarch64", "py3-none-manylinux2014_aarch64",
+             "py3-none-musllinux_1_1_aarch64"},
+        )
+
+    def test_launcher_lockfile_accepts_crlf_but_rejects_dependency_changes(self):
+        cache = Path("cache")
+        lock = cache / "launcher-build/0.3.0-fixture/launcher/Cargo.lock"
+        lock.parent.mkdir(parents=True)
+        Path("build").mkdir()
+        upstream = (
+            b'version = 4\n\n[[package]]\nname = "fixture"\nversion = "1.0.0"\n'
+            b'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+            b'checksum = "abc123"\n'
+        )
+        document = {"licenses": [{
+            "used_by": [{"crate": {"name": "fixture", "version": "1.0.0"}}],
+            "text": "Full fixture licence",
+        }], "crates": []}
+        with mock.patch.object(runtime, "api", return_value={"sha": "queso-revision"}), \
+                mock.patch.object(runtime, "raw", side_effect=lambda repo, revision, path:
+                                  upstream if path.endswith("Cargo.lock") else b"Queso licence"), \
+                mock.patch.object(runtime, "command", return_value=json.dumps(document)):
+            for newline in (b"\n", b"\r\n"):
+                with self.subTest(newline=newline):
+                    original = upstream.replace(b"\n", newline)
+                    lock.write_bytes(original)
+                    files = runtime.launcher_material(cache, "0.3.0", ["x86_64-windows"])
+                    self.assertEqual(files["queso/Cargo.lock"], original)
+            for old, new in ((b"1.0.0", b"1.0.1"), (b"abc123", b"def456")):
+                with self.subTest(change=old):
+                    lock.write_bytes(upstream.replace(old, new))
+                    with self.assertRaisesRegex(ValueError, "differs from pinned upstream"):
+                        runtime.launcher_material(cache, "0.3.0", ["x86_64-windows"])
 
     def test_otp_collection_preserves_extracted_licences_and_copyright(self):
         bom = json.dumps({

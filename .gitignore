@@ -6,6 +6,7 @@
 /.hex-cache
 /licence_audit
 /slate_native
+/sqlite_native
 erl_crash.dump
 /priv/
 

@@ -38,10 +38,6 @@ def manifest_material(directory, prefix, mandatory):
 
 def materials(target=None):
     files = {name: required(Path(name)) for name in APPLICATION}
-    files.update(manifest_material(
-        Path("slate_native/licenses"), "slate_native/licenses/",
-        ("THIRD_PARTY_NOTICES.txt", "rust/COPYRIGHT-library.html"),
-    ))
     if target:
         files.update(manifest_material(
             Path("build/release-notices") / target, "runtime-notices/",

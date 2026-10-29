@@ -2,6 +2,9 @@
 -export([write/2, write/3, write/4, windows_command/4]).
 -include_lib("kernel/include/file.hrl").
 
+%% simplifile.write truncates the destination; write-then-rename alone loses
+%% metadata and OTP's Windows rename is not atomic. Keep the original intact on
+%% failure, follow its symlink, and preserve permissions/ownership/access rules.
 write(Path, Contents) ->
     case write(Path, Contents, fun file:write/2) of
         ok -> {ok, nil};

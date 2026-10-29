@@ -2,7 +2,7 @@
 
 # Persisted package metadata cache path. Kept in-repo so CI can restore
 # .hex-cache/ between runs via actions/cache and avoid repeated downloads.
-hex_cache := ".hex-cache/hex-v2.dets"
+hex_cache := ".hex-cache/hex-v2.sqlite3"
 
 # OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
@@ -130,20 +130,17 @@ xerj-reference query:
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
     mise exec -- gleam export escript
-    just slate-native
+    just sqlite-native
 
-# Copy slate's native lock library beside the escript (escripts cannot bundle it).
-slate-native:
-    rm -rf slate_native
-    mkdir slate_native
-    cp -r build/packages/slate/priv/slate_lock/. slate_native/
-    rm -rf slate_native/source
+# Stage SQLite's native application beside the escript.
+sqlite-native:
+    mise exec -- python3 -B scripts/sqlite_native.py
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
     mise exec -- gleam export escript
-    just slate-native
+    just sqlite-native
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:
@@ -175,6 +172,11 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
+# Verify SQLite native-load fallback and disabled-cache operation.
+test-cache-runtime:
+    mise exec -- gleam build
+    mise exec -- bash test/sqlite_cache_runtime.sh
+
 # Reproduce an interrupted update write in a fresh VM (Linux only).
 test-update-atomic:
     mise exec -- gleam build
@@ -184,7 +186,7 @@ test-update-atomic:
 test-cli-streams: build
     mise exec -- python3 -B test/cli_stream_test.py
 
-# Test Unicode environment paths in fresh VMs and the cache-enabled CLI.
+# Test Unicode environment conversion and ASCII cache paths in fresh VMs.
 test-env-cache-paths: build
     mise exec -- gleam build
     mise exec -- bash test/env_cache_paths.sh
@@ -341,6 +343,6 @@ docs-check: _docs-ffi
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
 
 alias pr := ci

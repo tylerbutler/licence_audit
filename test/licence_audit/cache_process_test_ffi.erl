@@ -1,9 +1,8 @@
 -module(cache_process_test_ffi).
--export([concurrent_writes/5, worker/0, monotonic_milliseconds/0]).
+-export([concurrent_writes/5, worker/0]).
 
-monotonic_milliseconds() ->
-    erlang:monotonic_time(millisecond).
-
+%% Gleam processes share one VM. Separate erl runtimes exercise SQLite's
+%% cross-process locking and synchronize writes without relying on sleeps.
 concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
     case os:find_executable("erl") of
         false ->
@@ -33,7 +32,10 @@ run_workers(Erl, Root, Entries) ->
                     fun(Socket) -> ok = gen_tcp:send(Socket, term_to_binary(go)) end,
                     Sockets
                 ),
-                receive_results(Sockets);
+                case receive_results(Sockets) of
+                    {ok, nil} -> wait_workers(Ports);
+                    {error, _} = Error -> Error
+                end;
             {error, Reason} ->
                 {error, describe(<<"accept worker">>, Reason)}
         end,
@@ -41,8 +43,19 @@ run_workers(Erl, Root, Entries) ->
     lists:foreach(fun close_port/1, Ports),
     Result.
 
+wait_workers([]) ->
+    {ok, nil};
+wait_workers([Port | Rest]) ->
+    receive
+        {Port, {exit_status, 0}} -> wait_workers(Rest);
+        {Port, {exit_status, Status}} ->
+            {error, describe(<<"worker exit">>, Status)}
+    after 10000 ->
+        {error, <<"Timed out waiting for cache worker exit">>}
+    end.
+
 start_worker(Erl, Root, Key, Value, Port) ->
-    Ebin = filename:dirname(code:which(cache_dir_ffi)),
+    Ebin = filename:dirname(code:which(licence_audit@cache_dir)),
     LibDirs = filelib:wildcard(filename:join(filename:dirname(filename:dirname(filename:dirname(code:which(gleam@result)))), "*/ebin")),
     TestEbin = filename:dirname(code:which(?MODULE)),
     open_port(
@@ -123,9 +136,13 @@ worker() ->
     ok = gen_tcp:send(Socket, term_to_binary({ready, Key})),
     {ok, Go} = gen_tcp:recv(Socket, 0, 10000),
     go = binary_to_term(Go, [safe]),
-    {ok, Store} = licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>),
+    {ok, Store} = when_available(fun() ->
+        licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>)
+    end, 100),
     Result =
-        case insert_when_available(Store, Key, Value, 100) of
+        case when_available(fun() ->
+            licence_audit@cache_dir:insert(Store, Key, Value)
+        end, 100) of
             {ok, nil} -> {ok, nil};
             {error, Error} ->
                 {error, licence_audit@cache_dir:describe_error(Error)}
@@ -134,17 +151,17 @@ worker() ->
     gen_tcp:close(Socket),
     halt().
 
-%% Immediate cache writes can skip a busy lock; retry here to verify both
-%% successful writes survive the cross-VM race.
-insert_when_available(Store, Key, Value, Retries) ->
-    case licence_audit@cache_dir:insert(Store, Key, Value) of
+%% Retry returned contention errors only in this test to verify persisted writes.
+when_available(Action, Retries) ->
+    Outcome = Action(),
+    case Outcome of
         {error, Error} when Retries > 0 ->
             Message = licence_audit@cache_dir:describe_error(Error),
-            case binary:match(Message, <<"Another session owns the table.">>) of
+            case binary:match(Message, <<"SQLite error 5:">>) of
                 nomatch -> {error, Error};
                 _ ->
                     timer:sleep(10),
-                    insert_when_available(Store, Key, Value, Retries - 1)
+                    when_available(Action, Retries - 1)
             end;
         Result -> Result
     end.

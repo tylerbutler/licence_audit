@@ -9,6 +9,7 @@ import gleam/result
 import gleam/string
 import gleam/time/timestamp
 import licence_audit/cache
+import licence_audit/cache_dir
 import licence_audit/cli
 import licence_audit/color
 import licence_audit/config
@@ -384,13 +385,18 @@ fn run_selected_notices(
   let metadata_for = fn(entry: manifest.SbomEntry) {
     notice_metadata_for_entry(entry, project_root, cached_fetcher)
   }
-  case notice.packages_from_entries(selected, scopes, metadata_for) {
+  let #(packages, metadata_warning) =
+    notice.packages_from_entries(selected, scopes, metadata_for)
+  let reporter =
+    apply_cache_warning(
+      reporter,
+      option.or(metadata_warning, cache.close(metadata_cache)),
+    )
+  case packages {
     Error(notice_error) -> {
-      let _ = cache.close(metadata_cache)
-      let _ = notice_cache.close(source_cache)
       #(
         diagnostic(error.Notices(notice.describe_error(notice_error))),
-        reporter,
+        apply_cache_warning(reporter, notice_cache.close(source_cache)),
       )
     }
     Ok(packages) -> {
@@ -411,9 +417,7 @@ fn run_selected_notices(
           clients,
           reporter,
         )
-      let metadata_warning = cache.close(metadata_cache)
       let source_warning = notice_cache.close(source_cache)
-      let reporter = apply_cache_warning(reporter, metadata_warning)
       let reporter = apply_cache_warning(reporter, source_warning)
       #(run_result, reporter)
     }
@@ -518,7 +522,13 @@ fn resolve_notice_entries_loop(
     [] -> finalize_notice_entries(entries, missing, warnings)
     [package, ..rest] -> {
       let source_package = package_for_source_read(package, project_root)
-      case notice_resolve.resolve(source_cache, source_package, clients) {
+      let #(resolved, cache_warning) =
+        notice_resolve.resolve(source_cache, source_package, clients)
+      let warnings = case cache_warning {
+        None -> warnings
+        Some(message) -> list.append(warnings, [message])
+      }
+      case resolved {
         Error(error) -> #(Error(error), warnings)
         Ok(resolution) -> {
           let warnings = list.append(warnings, resolution.warnings)
@@ -579,41 +589,55 @@ fn accumulate_notice_outcome(
 fn notice_metadata_for_entry(
   entry: manifest.SbomEntry,
   project_root: String,
-  cached_fetcher: fn(String, String) -> Result(hex.PackageMetadata, hex.Error),
-) -> Result(hex.PackageMetadata, notice.Error) {
+  cached_fetcher: fn(String, String) ->
+    #(Result(hex.PackageMetadata, hex.Error), Option(String)),
+) -> #(Result(hex.PackageMetadata, notice.Error), Option(String)) {
   case entry.provenance {
-    manifest.HexProvenance(_, _) ->
-      case cached_fetcher(entry.name, entry.version) {
-        Ok(metadata) -> Ok(metadata)
-        Error(fetch_error) ->
-          Error(notice.MetadataFailed(
-            package: entry.name,
-            reason: hex.describe_error(fetch_error),
-          ))
-      }
+    manifest.HexProvenance(_, _) -> {
+      use fetched <- cache_dir.with_warning(cached_fetcher(
+        entry.name,
+        entry.version,
+      ))
+      #(
+        case fetched {
+          Ok(metadata) -> Ok(metadata)
+          Error(fetch_error) ->
+            Error(notice.MetadataFailed(
+              package: entry.name,
+              reason: hex.describe_error(fetch_error),
+            ))
+        },
+        None,
+      )
+    }
     manifest.GitProvenance(repo, _commit) -> {
       let repo_url = strip_git_suffix(repo)
       let path =
         project_root <> "/build/packages/" <> entry.name <> "/gleam.toml"
-      case read_gleam_toml_metadata(path, repo_url) {
-        Ok(metadata) -> Ok(metadata)
-        Error(_) ->
-          Ok(hex.PackageMetadata(
-            licences: [],
-            description: None,
-            links: [#("Repository", repo_url)],
-            publisher: None,
-          ))
-      }
+      #(
+        case read_gleam_toml_metadata(path, repo_url) {
+          Ok(metadata) -> Ok(metadata)
+          Error(_) ->
+            Ok(hex.PackageMetadata(
+              licences: [],
+              description: None,
+              links: [#("Repository", repo_url)],
+              publisher: None,
+            ))
+        },
+        None,
+      )
     }
-    manifest.PathProvenance(path) ->
+    manifest.PathProvenance(path) -> #(
       case
         read_path_gleam_toml_metadata(resolve_project_path(project_root, path))
       {
         Ok(metadata) -> Ok(metadata)
         Error(_) -> Ok(hex.licences_only([]))
-      }
-    manifest.UnknownProvenance(_) -> Ok(hex.licences_only([]))
+      },
+      None,
+    )
+    manifest.UnknownProvenance(_) -> #(Ok(hex.licences_only([])), None)
   }
 }
 
@@ -713,16 +737,21 @@ fn run_sbom_for_manifest(
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
 
-  let metadata_result = case options.offline, options.reproducible {
-    True, True -> Ok(#(dict.new(), reporter))
-    True, False ->
+  let #(metadata_result, cache_warning) = case
+    options.offline,
+    options.reproducible
+  {
+    True, True -> #(Ok(#(dict.new(), reporter)), None)
+    True, False -> #(
       Ok(fetch_package_metadata(
         sbom_manifest,
         project_root,
         cached_fetcher,
         True,
         reporter,
-      ))
+      )),
+      None,
+    )
     False, True ->
       fetch_reproducible_package_metadata(
         sbom_manifest,
@@ -730,16 +759,18 @@ fn run_sbom_for_manifest(
         source_clients,
         reporter,
       )
-    False, False ->
+    False, False -> #(
       Ok(fetch_package_metadata(
         sbom_manifest,
         project_root,
         cached_fetcher,
         False,
         reporter,
-      ))
+      )),
+      None,
+    )
   }
-  let cache_warning = cache.close(cache_handle)
+  let cache_warning = option.or(cache_warning, cache.close(cache_handle))
 
   case metadata_result {
     Error(metadata_error) -> #(
@@ -786,17 +817,20 @@ fn fetch_reproducible_package_metadata(
   cache_handle: cache.Cache,
   clients: notice.Clients,
   reporter: progress.Reporter,
-) -> Result(
-  #(dict.Dict(String, hex.PackageMetadata), progress.Reporter),
-  error.Error,
+) -> #(
+  Result(
+    #(dict.Dict(String, hex.PackageMetadata), progress.Reporter),
+    error.Error,
+  ),
+  Option(String),
 ) {
-  list.try_fold(
+  list.fold(
     over: manifest_value.entries,
-    from: #(dict.new(), reporter),
+    from: #(Ok(#(dict.new(), reporter)), None),
     with: fn(acc, entry) {
-      let #(metadata, reporter) = acc
+      use #(metadata, reporter) <- cache_dir.try_with_warning(acc)
       case immutable_metadata_key(entry) {
-        Error(_) -> Ok(#(metadata, reporter))
+        Error(_) -> #(Ok(#(metadata, reporter)), None)
         Ok(key) -> {
           let reporter =
             progress.detail(
@@ -806,12 +840,15 @@ fn fetch_reproducible_package_metadata(
                 <> "@"
                 <> entry.version,
             )
-          use package_metadata <- result.try(
+          use package_metadata <- cache_dir.try_with_warning(
             cache.fetch_immutable(cache_handle, key, fn() {
               metadata_from_locked_source(entry, clients)
             }),
           )
-          Ok(#(dict.insert(metadata, entry.name, package_metadata), reporter))
+          #(
+            Ok(#(dict.insert(metadata, entry.name, package_metadata), reporter)),
+            None,
+          )
         }
       }
     },
@@ -1026,25 +1063,29 @@ fn gather_sbom_license_texts(
     False -> notice_cache.Enabled(options.cache_path)
   }
   let text_cache = notice_cache.open(mode)
-  let texts =
-    list.try_map(ids, fn(id) {
-      case
-        notice_resolve.resolve_spdx(
-          text_cache,
-          "SBOM",
-          spdx.LicenseRequirement(id),
-          clients,
-        )
-      {
-        Ok(Some(file)) -> Ok(#(id, file.contents))
-        Ok(None) ->
-          Error(error.Notices("Canonical SPDX licence text unavailable: " <> id))
-        Error(fetch_error) ->
-          Error(error.Notices(notice.describe_error(fetch_error)))
-      }
+  let #(texts, warning) =
+    list.fold(ids, #(Ok(dict.new()), None), fn(acc, id) {
+      use texts <- cache_dir.try_with_warning(acc)
+      use resolved <- cache_dir.with_warning(notice_resolve.resolve_spdx(
+        text_cache,
+        "SBOM",
+        spdx.LicenseRequirement(id),
+        clients,
+      ))
+      #(
+        case resolved {
+          Ok(Some(file)) -> Ok(dict.insert(texts, id, file.contents))
+          Ok(None) ->
+            Error(error.Notices(
+              "Canonical SPDX licence text unavailable: " <> id,
+            ))
+          Error(fetch_error) ->
+            Error(error.Notices(notice.describe_error(fetch_error)))
+        },
+        None,
+      )
     })
-    |> result.map(dict.from_list)
-  let warning = notice_cache.close(text_cache)
+  let warning = option.or(warning, notice_cache.close(text_cache))
   #(texts, apply_cache_warning(reporter, warning))
 }
 
@@ -1990,6 +2031,7 @@ fn option_value(value: option.Option(String), default: String) -> String {
   }
 }
 
+// Returning from main cannot set the CLI exit status or stop OTP applications.
 @external(erlang, "erlang", "halt")
 fn halt(code: Int) -> Nil
 

@@ -23,21 +23,34 @@ jobs:
   windows-policy:
     runs-on: windows-latest
     name: Windows atomic policy writes
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
+      CC: clang-cl.exe
+      CXX: clang-cl.exe
+      LINKER: lld-link.exe
+      REBAR_TARGET_ARCH: win32
+      REBAR_TARGET_ARCH_WORDSIZE: "64"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref }}
 
       - name: Setup pinned toolchain
-        uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # ratchet:erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
         with:
           otp-version: "28.3"
           gleam-version: "1.19.0-rc3"
           rebar3-version: "3.26.0"
           version-type: strict
+
+      - name: Setup SQLite NIF C compiler
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # ratchet:ilammy/msvc-dev-cmd@v1
+
+      - name: Use LLVM for the SQLite NIF
+        run: |
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "C:\Program Files\LLVM\bin\clang-cl.exe" --version
 
       # Gleam's Windows directory copy cannot copy cvss's licence symlink.
       # Keep its exact licence text, but use a regular file in the build cache.
@@ -51,6 +64,13 @@ jobs:
 
       - name: Test real Windows replacement and interruption
         run: python -u -B test/update_atomic_windows.py
+
+      - name: Test Windows escript SQLite sidecar
+        run: |
+          gleam export escript
+          python -B scripts/sqlite_native.py
+          python -B test/native_cache_smoke.py licence_audit --escript
+          python -B test/native_cache_smoke.py licence_audit --bare-escript
 
   test:
     runs-on: ubuntu-latest
@@ -68,6 +88,9 @@ jobs:
 
       - name: Test release notice staging
         run: just test-release-notices
+
+      - name: Test SQLite sidecar staging
+        run: mise exec -- python3 -B test/native_cache_smoke.py --self-test
 
       - name: Check formatting
         run: just format-check
@@ -87,6 +110,11 @@ jobs:
           mise exec -- python3 -B scripts/release_notices.py check licence_audit
           ./licence_audit --help
 
+      - name: Test relocated escript SQLite cache
+        run: |
+          mise exec -- python3 -B test/native_cache_smoke.py licence_audit --escript
+          mise exec -- python3 -B test/native_cache_smoke.py licence_audit --bare-escript
+
       - name: Check vendored production boundary
         run: just test-vendor-production
 
@@ -99,13 +127,16 @@ jobs:
       - name: Test runtime startup
         run: just test-runtime-startup
 
+      - name: Test SQLite native-load fallback and disabled caches
+        run: just test-cache-runtime
+
       - name: Test interrupted policy writes
         run: just test-update-atomic
 
       - name: Test CLI output streams
         run: just test-cli-streams
 
-      - name: Test Unicode cache paths
+      - name: Test Unicode environment conversion and ASCII cache paths
         run: just test-env-cache-paths
 
       - name: Smoke test built CLI
@@ -129,31 +160,7 @@ jobs:
       - name: Validate SBOM (schema)
         run: just sbom-validate
 
-  native-http:
-    runs-on: ubuntu-latest
-    name: Native HTTP
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-        with:
-          ref: ${{ inputs.checkout_ref }}
-
-      - name: Setup environment
-        uses: ./.github/actions/setup
-
-      - name: Install Queso glibc packaging dependencies
-        # Queso treats glibc as a cross target even on Linux glibc hosts.
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user 'ziglang==0.14.1'
-          cargo install --locked cargo-zigbuild --version 0.23.4
-
-      - name: Build native Linux executable
-        run: mise exec -- queso build --target x86_64-linux-glibc
-
-      - name: Test native HTTP without system Erlang
-        run: |
-          set -euo pipefail
-          binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
-          test "${#binaries[@]}" -eq 1
-          just smoke-native-http "${binaries[0]}"
+  native:
+    uses: ./.github/workflows/native-build.yml
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}
