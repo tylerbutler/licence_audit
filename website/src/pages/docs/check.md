@@ -23,8 +23,8 @@ deny  = ["GPL-3.0-only"]
 ```
 
 An `allow` list permits only the specified licences. A `deny` list rejects
-matching licences. To create the policy, use [`licence_audit
-update`](/docs/update). The command gets metadata, selects existing entries,
+matching licences. To create the policy, use
+[`licence_audit update`](/docs/update). The command gets metadata, selects existing entries,
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
 
@@ -43,11 +43,12 @@ SPDX identifiers match without regard to case; custom `LicenseRef-`
 identifiers remain case-sensitive. The parser checks syntax, not membership
 in the SPDX licence list. It does not infer equivalence between identifiers.
 
-Separate strings in a package's licence list must all pass. An exact
-expression in `allow` accepts its terms but does not override operand deny
-rules. An exact expression in `deny` rejects that declaration.
-Expression matching ignores whitespace between tokens and SPDX identifier
-case, but preserves custom-reference case and the expression's tokens.
+Each separate string in a package's licence list must pass. A full
+expression in `allow` accepts its terms. It does not override a `deny` rule on
+one of its operands. A full expression in `deny` rejects that declaration.
+Expression matching ignores whitespace between tokens and the case of SPDX
+identifiers. It keeps the case of custom references and the tokens of the
+expression.
 
 Malformed expressions fail the gate, even with a deny-only policy.
 For untrusted metadata, the parser limits each expression to 64 KiB,
@@ -66,7 +67,7 @@ licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
 Use `--config=other.toml` to read a different file. The file must have a
 `[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
 
-> **Note:** `--allow` and `--deny` also work on the bare command. These options
+> **Note:** `--allow` and `--deny` also work on the command with no subcommand. These options
 > show a policy preview. Findings return exit code `0` when the scan completes.
 > Use `check` to return a failure for a violation.
 
@@ -74,8 +75,8 @@ Use `--config=other.toml` to read a different file. The file must have a
 
 Completed licence checks exit `0` when the policy passes and `1` for policy
 violations. Unavailable or invalid package metadata exits `2`, even when a
-partial report is available or other packages violate the policy. The same
-metadata failures exit `2` in the bare report command.
+partial report is available or other packages violate the policy. The command
+with no subcommand also exits `2` for these metadata failures.
 
 ## Production-only gates
 
@@ -95,8 +96,8 @@ licence_audit check --vulns --vuln-block-unknown
 ```
 
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
-The command reports advisories with unknown severity, but these advisories do
-not cause a failure by default. Use `--vuln-block-unknown` to make these
+The command reports advisories with unknown severity. By default, these
+advisories do not cause a failure. Use `--vuln-block-unknown` to make these
 advisories cause a failure. OSV batch or advisory-detail failures exit `2`,
 because the gate cannot complete. You can set the threshold in the configuration:
 
@@ -207,7 +208,7 @@ their own; matching expired findings follow normal policy and severity rules.
 An entry is `not evaluated` if its scan is disabled, `--prod-only` excludes
 the package, or the command cannot get the evidence. Do not treat these
 entries as stale. Licence-only runs do not evaluate advisory exceptions.
-The bare command previews licence exceptions without enforcing them, and
+The command with no subcommand previews licence exceptions without enforcing them, and
 [`vulns`](/docs/vulns) displays advisory exceptions without enforcing a gate.
 
 Exceptions cannot accept failed network requests, malformed metadata, missing
