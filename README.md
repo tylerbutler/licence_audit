@@ -636,6 +636,11 @@ library is unavailable. Use `--no-cache` to skip the load attempt and warning.
 If you want to wire `licence_audit` into GitHub Actions, use the shared setup
 action. For a Gleam project, set up Gleam first so `manifest.toml` exists:
 
+The example targets the 1.0 release with an exact `v1.0.0` CLI pin.
+Until that tag is published, select an existing tag from the
+[releases page](https://github.com/tylerbutler/licence_audit/releases).
+Keep an exact tag in CI and update it after testing a newer release.
+
 ```yaml
 name: licence audit
 
@@ -652,7 +657,7 @@ jobs:
       - uses: tylerbutler/actions/setup-gleam@v1
       - uses: tylerbutler/actions/setup-licence-audit@v1
         with:
-          version: v0.3.0
+          version: v1.0.0
           setup-beam: "false"
       - run: licence_audit check
 ```
