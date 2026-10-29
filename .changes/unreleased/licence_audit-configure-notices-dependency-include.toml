@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Added"
-body = "Add `include` and `exclude` filters under `[tools.licence_audit.notices]`. Apply them before metadata, source, and cache access, and reject names absent from the lockfile. Projects without a `[dependencies]` table now require `notices --include-dev` to include development dependencies."
