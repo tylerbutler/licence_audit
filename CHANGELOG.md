@@ -1,5 +1,16 @@
 # licence_audit changelog
 
+## v0.14.0 - 2026-10-29
+
+### Added
+
+- Add `sbom --license-text` to embed canonical SPDX licence text for recognised IDs without changing default output.
+- Add `include` and `exclude` filters under `[tools.licence_audit.notices]`. Apply them before metadata, source, and cache access, and reject names absent from the lockfile. Projects without a `[dependencies]` table now require `notices --include-dev` to include development dependencies.
+
+### Changed
+
+- Replace the on-disk metadata and notice caches with SQLite WAL, storing metadata and its timestamp in one atomic write. New `.sqlite3` caches refill on first use; the command does not import or change existing DETS files. Cache paths must be ASCII; Linux absolute database paths must not exceed 504 bytes (#168). Escript caching requires `sqlite_native/` beside the executable. Busy cache operations report a deferred warning without discarding fetched results. Bare escripts and installations with missing or unloadable SQLite native libraries run without caching and report a deferred warning. Use `--no-cache` to skip native-library loading.
+
 ## v0.13.2 - 2026-10-25
 
 ### Fixed
