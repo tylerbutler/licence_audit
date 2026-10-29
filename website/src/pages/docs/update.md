@@ -5,8 +5,8 @@ description: Select the discovered licences and write a policy to your Gleam con
 ---
 
 Use `update` to create a policy. It gets licence metadata and shows each
-licence in the dependency tree. It selects entries that are already in your
-configuration. It then writes your choices to `[tools.licence_audit]` in
+licence in the dependency tree. It preselects the entries that are already in
+your configuration. It then writes your choices to `[tools.licence_audit]` in
 `gleam.toml` and preserves comments.
 
 ```sh
@@ -15,11 +15,11 @@ licence_audit update
 
 ## Update process
 
-1. Resolves the dependency tree and gets licence metadata from Hex.
-2. Shows an interactive list of the licences. The list selects existing allow
-   and deny entries.
-3. Writes the result to `gleam.toml` without changing existing comments or
-   formatting.
+1. `update` resolves the dependency tree and gets licence metadata from Hex.
+2. It shows an interactive list of the licences. Existing allow and deny
+   entries are preselected.
+3. It writes the result to `gleam.toml`. Existing comments and formatting do
+   not change.
 
 `update` preserves [scoped policy exceptions](/docs/check#scoped-policy-exceptions)
 and their comments. It does not create, renew, or remove review decisions.
@@ -28,8 +28,7 @@ selection or write. Use the audit report to find stale entries and remove
 them from the configuration.
 
 Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
-file read/write failures exit `2`. Edit/write failures previously exited `1`;
-scripts must now treat them as operational errors, not usage failures.
+file read/write failures exit `2`.
 
 ## Terminal requirement
 

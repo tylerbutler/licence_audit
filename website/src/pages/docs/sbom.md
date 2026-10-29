@@ -28,8 +28,7 @@ component. A `dependencies` graph represents the dependency tree.
 Each licence has the property `acknowledgement: "declared"` because the data
 comes from package metadata, not a source scan. If a package declares multiple
 licences, `sbom` creates one entry for each licence. Hex does not specify an
-`AND` or `OR` relationship. Therefore, `sbom` does not create an SPDX
-expression.
+`AND` or `OR` relationship, so `sbom` does not create an SPDX expression.
 
 ## Supported sources
 
@@ -46,20 +45,26 @@ metadata is unavailable. It warns and omits the unavailable fields.
 `--offline` intentionally skips Hex enrichment. This differs from a licence
 audit, where unavailable package metadata makes the report incomplete (exit `2`).
 
-Root metadata, valid supported purls, and successful artifact generation/writes
-are required; failures exit `2`. Without `--offline`, `--reproducible` also
-requires metadata from the locked source archives and exits `2` if it cannot
-obtain it. `--reproducible --offline` skips all dependency enrichment, including
-local Git metadata. It omits dependency licence fields and can exit `0`
-without fetching locked-source metadata.
+These items are required. If one fails, the command exits `2`:
+
+- root metadata,
+- valid purls for supported sources,
+- SBOM generation and file writes.
+
+How `--reproducible` and `--offline` combine:
+
+| Flags | Dependency metadata | If metadata is unavailable |
+|---|---|---|
+| `--reproducible` | Read from the locked source archives. | Exit `2`. |
+| `--reproducible --offline` | None. All enrichment, including local Git metadata, is skipped. Licence fields are omitted. | Not applicable. Can exit `0`. |
 
 ## Embedded vulnerabilities
 
 `--vulns` queries OSV.dev and adds the results to the CycloneDX
 `vulnerabilities` array. Each advisory has an `id`, an `OSV` source link,
 ratings, and an `affects` list. The list refers to affected components by
-`bom-ref` or purl. Tools such as [Dependency-Track][dt] can read the resultant
-VEX-style document. Advisory data changes over time. Therefore, you cannot use
+`bom-ref` or purl. Tools such as [Dependency-Track][dt] can read this
+VEX-style document. Advisory data changes over time, so you cannot use
 `--vulns` with `--offline` or `--reproducible`.
 
 An OSV batch request failure exits `2`. An individual advisory-detail failure
@@ -70,7 +75,7 @@ cannot evaluate the severity gate.
 ## Reproducible output
 
 By default, `sbom` uses a random `serialNumber` and the current time for
-`timestamp`. Thus, the output from two runs is different. With
+`timestamp`. The output from two runs is different. With
 `--reproducible` without `--offline`, the command reads Hex metadata from each
 checksum-verified package archive and Git metadata from the archive at the
 locked commit. It omits mutable Hex publisher data, uses a content hash for

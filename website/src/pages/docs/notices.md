@@ -55,7 +55,7 @@ The output starts with a header that identifies the source `manifest.toml`
 file. Two types of sections follow:
 
 - **Licence groups.** `notices` writes each distinct licence text one time.
-  Then, it lists the products that use the text. It groups dependencies that
+  Then, it lists the packages that use the text. It groups dependencies that
   have identical licence text. Thus, the file does not repeat shared text for
   each package.
 - **Notice sections.** `notices` copies each package-specific `NOTICE` or
@@ -63,9 +63,8 @@ file. Two types of sections follow:
 
 ## Licence text sources
 
-If a dependency source archive contains no licence text, `notices` uses
-fallback sources. It preserves applicable files from the source archive. The
-command uses these sources in sequence:
+`notices` looks for licence text in the sources below, in this order. It uses
+a later source only when the earlier sources give no licence text.
 
 1. **Source archive** (highest priority). The command uses each
    `LICENSE`, `LICENCE`, or `COPYING` file in the package archive without
@@ -87,8 +86,8 @@ warning and continues to the SPDX fallback.
 
 ## Failure conditions
 
-`notices` returns a nonzero exit code if it cannot create a complete bundle. It
-fails in these conditions:
+`notices` exits `2` if it cannot create a complete bundle. It fails in these
+conditions:
 
 - A selected dependency has no recognized licence text after all fallbacks.
   This condition includes custom `LicenseRef-` licences that have no canonical

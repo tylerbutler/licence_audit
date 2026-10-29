@@ -114,8 +114,9 @@ SQLite WAL allows reads during writes. Busy operations are skipped without
 waiting and produce a warning. Save CI caches only after all commands finish;
 copying an active database can omit committed WAL data.
 
-The new SQLite files refill on first use. Existing `.dets` files are not
-imported or changed. Choose a new `--cache-path` if it points to a DETS file.
+The cache is a SQLite file that fills on first use. `licence_audit` does not
+read or change old `.dets` files. If `--cache-path` points to a `.dets` file,
+choose a new path.
 On Linux, absolute cache paths must not exceed 504 UTF-8 bytes. Longer paths
 produce a warning and the audit runs without caching.
 
