@@ -218,18 +218,31 @@ requirements. `update` preserves exception entries and their comments.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--allow` | Allow licences, comma-separated. Merges with config. |
-| `--deny` | Deny licences, comma-separated. Merges with config. |
-| `--prod-only` | Only audit production dependencies. |
-| `--vulns` | Also query OSV.dev and fail on advisories at or above `--vuln-severity`. |
-| `--vuln-severity` | Minimum failing severity: `low` \| `medium` \| `high` (default) \| `critical`. |
-| `--vuln-block-unknown` | Fail `check --vulns` on advisories with unknown severity. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration files; use only CLI flags. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+<!-- cli-reference -->
+Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+
+**Usage:**
+
+```
+licence_audit check [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--vuln-block-unknown` | `BOOL` | `false` | Fail `check --vulns` on advisories whose severity is unknown |
+| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high) |
+| `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |
+<!-- cli-referencestop -->

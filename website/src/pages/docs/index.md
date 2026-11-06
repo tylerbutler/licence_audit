@@ -68,6 +68,7 @@ status symbol:
 | `✓` | Policy permits the licence (`check` only) |
 | `✗` | Policy denies the licence (`check` only) |
 | `?` | No policy evaluated, or status unknown |
+| `~` | Finding accepted by a scoped policy exception |
 | `·` | Command skips the package (non-Hex source) |
 
 Use `--color` or `--colour` to control colour. The permitted values are `auto`,
@@ -117,8 +118,19 @@ copying an active database can omit committed WAL data.
 The cache is a SQLite file that fills on first use. `licence_audit` does not
 read or change old `.dets` files. If `--cache-path` points to a `.dets` file,
 choose a new path.
-On Linux, absolute cache paths must not exceed 504 UTF-8 bytes. Longer paths
-produce a warning and the audit runs without caching.
+The current cache driver requires ASCII-only paths. If its native library is
+missing or cannot load, the command warns and continues without caching.
+`--no-cache` bypasses the driver without attempting to load it.
+
+Escript archives include a `sqlite_native/` directory beside the escript.
+Keep this directory with the executable for caching; no `ERL_LIBS` setting
+is needed. A bare escript warns and runs without caching. `--no-cache` skips
+the native-library load attempt and its warning.
+
+On Linux, keep absolute database paths within 504 bytes, including directories.
+Longer paths are unsupported. Some failed opens can abort the VM because of
+an upstream driver bug tracked in [#168][cache-bug]. Use a shorter
+`XDG_CACHE_HOME` or `--cache-path`, or use `--no-cache`.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the
@@ -133,6 +145,78 @@ or TLS details for IPv4 and IPv6. Request timeout errors include the
 5000 ms limit. When the HTTP client does not identify the failed stage,
 the message says so.
 
+## Set up with an AI agent
+
+Install the setup skill with [APM][apm]:
+
+```sh
+apm install tylerbutler/licence_audit/.apm/skills/setup-licence-audit
+```
+
+This installs the setup skill, not the executable or repository development
+skills. Ask your agent:
+
+> Set up licence_audit for local licence and vulnerability checks in this
+> project. Preserve the existing policy and tool versions. Do not change CI.
+
+To include CI, add:
+
+> Also enforce the same licence policy and vulnerability threshold in CI.
+
+The skill adds CI only when requested. You make the licence approval decisions.
+For manual CI setup, install a fixed release and run `licence_audit check`
+against a policy committed to version control.
+
+## Troubleshooting
+
+- **Manifest not found:** run `gleam deps download` to create `manifest.toml`.
+- **Hex request fails:** retry or reuse cached entries without `--no-cache`.
+  Required metadata failures still make a licence report incomplete.
+- **Unsupported SBOM source:** `sbom` requires a valid purl for every dependency;
+  `--offline` does not bypass source validation.
+- **OSV.dev unavailable:** vulnerability commands need access to `api.osv.dev`.
+  Advisory responses are not cached.
+- **No colours in automated output:** use `--color=always` to force ANSI codes
+  or `--color=never` for plain text. `--colour` is an alias.
+
+Licence audits cover locked Hex packages. Non-Hex sources remain in the tree
+and are identified as skipped. Hex licence metadata is package-level data,
+not a source inspection or a per-release licence conclusion.
+
+## Root usage and flags
+
+This section is generated from the CLI. Use `licence_audit --help` for the
+options available in your installed version.
+
+<!-- cli-reference -->
+Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy.
+
+**Usage:**
+
+```
+licence_audit (check | notices | sbom | update | vulns) [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--version` | `BOOL` | `false` | Print the installed version |
+<!-- cli-referencestop -->
+
 [releases]: https://github.com/tylerbutler/licence_audit/releases
 [mise]: https://mise.jdx.dev/
 [dev]: https://github.com/tylerbutler/licence_audit/blob/main/DEV.md
+[apm]: https://github.com/microsoft/apm
+[cache-bug]: https://github.com/tylerbutler/licence_audit/issues/168
