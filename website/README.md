@@ -23,6 +23,17 @@ in the Gleam job.
 Use `pnpm deploy` to build and deploy to the production domains. Use
 `pnpm preview` to serve a local Astro build.
 
+## Open Graph image
+
+`pnpm build:og` creates `public/og.png`, a 1200 × 630 PNG used by Open Graph
+and Twitter cards on all pages. Both `pnpm dev` and `pnpm build` run this
+script automatically. The generated file is not committed.
+
+Edit `scripts/build-og-image.js` to change the image text or layout. The builder
+uses the site's bundled fonts and does not need a browser, system fonts, or
+network access. `pnpm test` checks the image dimensions, size, repeatability,
+and output path.
+
 ## Worker Previews
 
 Run `pnpm deploy` once after changing `preview_urls` to apply preview routing.
