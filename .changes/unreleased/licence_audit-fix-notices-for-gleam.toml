@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = 'Fix `notices` for Gleam local path dependencies by recognizing `source = "local"` in the manifest; retain `source = "path"` as an alias.'

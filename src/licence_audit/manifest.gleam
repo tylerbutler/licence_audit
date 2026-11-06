@@ -177,7 +177,7 @@ fn decode_provenance(
       use commit <- result.try(required_string(table, "commit", package_name))
       Ok(GitProvenance(repo: repo, commit: commit))
     }
-    "path" -> {
+    "local" | "path" -> {
       use path <- result.try(required_string(table, "path", package_name))
       Ok(PathProvenance(path: path))
     }
