@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Added"
-body = "Add `-q` for `--quiet` on every command, `--color`/`--colour` on `sbom` and `notices` with plain payloads, `--config`/`--ignore-config` on `notices`, and `--prod-only` on `vulns`."

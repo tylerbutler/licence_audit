@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Remove the ineffective `vulns --no-cache` flag before 1.0. The `vulns` command queries OSV directly and does not use an on-disk cache."

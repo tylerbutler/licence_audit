@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Reject unknown policy and notices configuration keys and malformed SPDX expressions in config and CLI allow/deny entries with exit code 2."

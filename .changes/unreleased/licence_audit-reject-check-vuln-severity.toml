@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Reject `check --vuln-severity` and `--vuln-block-unknown` without enabled `--vulns` as usage errors instead of silently skipping the vulnerability scan."
