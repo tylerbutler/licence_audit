@@ -403,6 +403,74 @@ class CliStreamTest(unittest.TestCase):
                 self.assertIn("package metadata could not be fetched", result.stderr)
                 self.assertNotIn("healthy", result.stderr)
 
+    def test_unexpected_cli_exceptions_exit_two_without_raw_trace(self):
+        evaluation = """
+            [ClassName] = init:get_plain_arguments(),
+            Class = list_to_existing_atom(ClassName),
+            Forms = [
+                {attribute, 1, module, args_ffi},
+                {attribute, 1, export, [{arguments, 0}]},
+                {function, 1, arguments, 0, [
+                    {clause, 1, [], [], [
+                        {call, 1, {remote, 1, {atom, 1, erlang}, {atom, 1, Class}},
+                            [{atom, 1, unexpected_cli_failure}]}
+                    ]}
+                ]}
+            ],
+            {ok, Module, Binary} = compile:forms(Forms, [binary]),
+            {module, Module} = code:load_binary(Module, "exception_fixture", Binary),
+            licence_audit:main().
+        """
+        for exception_class in ("error", "throw", "exit"):
+            with self.subTest(exception_class=exception_class):
+                result = subprocess.run(
+                    [
+                        "erl", "-noshell", "-pa",
+                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                        "-eval", evaluation, "-extra", exception_class,
+                    ],
+                    cwd=self.project,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={**os.environ, "NO_COLOR": "1"},
+                )
+                self.assert_diagnostic(result)
+                self.assertEqual(
+                    result.stderr,
+                    "Error: Unexpected Erlang exception: "
+                    f"{exception_class}: unexpected_cli_failure\n",
+                )
+
+    def test_missing_ca_bundle_exits_two_in_escript(self):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "gleam_stdlib", version = "0.60.0", '
+            'build_tools = ["gleam"], requirements = [], '
+            'otp_app = "gleam_stdlib", source = "hex", outer_checksum = "ABC" }]\n'
+            '[requirements]\ngleam_stdlib = ">= 0.60.0"\n'
+        )
+        for arguments in (["check", "--allow=MIT", "--no-cache"], ["vulns"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [str(ROOT / "licence_audit"), *arguments],
+                    cwd=self.project,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={
+                        **os.environ,
+                        "NO_COLOR": "1",
+                        "ERL_FLAGS": "-public_key cacerts_path [47,110,111]",
+                    },
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("failed_load_cacerts", result.stderr)
+                self.assertIn("enoent", result.stderr)
+                self.assertNotIn("runtime error:", result.stderr.lower())
+                self.assertNotIn("stack trace", result.stderr.lower())
+                self.assertNotIn("runtime terminating", result.stderr.lower())
+                self.assertFalse((self.project / "erl_crash.dump").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

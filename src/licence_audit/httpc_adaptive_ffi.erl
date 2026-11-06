@@ -3,6 +3,7 @@
     fallback_to_ipv4/1,
     ipv6_host_verified/1,
     normalise_error/1,
+    request/4,
     remember_ipv6_host/1,
     selected_family/0,
     take_warning/0
@@ -11,6 +12,13 @@
 -define(FAMILY_KEY, {?MODULE, family}).
 -define(IPV6_HOSTS_KEY, {?MODULE, ipv6_hosts}).
 -define(WARNING_KEY, {?MODULE, warning}).
+
+%% OTP can raise before returning a request error, for example loading CA roots.
+request(Method, Request, HttpOptions, Options) ->
+    try httpc:request(Method, Request, HttpOptions, Options)
+    catch
+        Class:Reason -> {error, {httpc_exception, Class, Reason}}
+    end.
 
 %% gleam_httpc's inet6fb4 can exhaust the request timeout before IPv4 succeeds.
 %% Gleam owns the bounded probe; OTP process-local state keeps its fallback for
@@ -51,6 +59,9 @@ ipv6_hosts() ->
 %% error while retaining DNS/TCP/TLS and address-family details.
 normalise_error(timeout) ->
     response_timeout;
+normalise_error({httpc_exception, Class, Reason}) ->
+    {request_failed, <<"Erlang ", (atom_to_binary(Class))/binary, ": ",
+        (describe_error(Reason))/binary>>};
 normalise_error(Error = {failed_connect, Options}) ->
     case lists:keyfind(inet, 1, Options) of
         {inet, _, Reason} ->

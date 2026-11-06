@@ -90,9 +90,9 @@ fn charlist_from_string(value: String) -> Charlist
 @external(erlang, "unicode", "characters_to_binary")
 fn charlist_to_string(value: Charlist) -> String
 
-// Call OTP directly to select inet/inet6 per request and bound both timeouts;
+// Call OTP through the exception boundary to select inet/inet6 and bound timeouts;
 // gleam_httpc's automatic fallback does not preserve the probe behavior above.
-@external(erlang, "httpc", "request")
+@external(erlang, "httpc_adaptive_ffi", "request")
 fn erl_request(
   method: Method,
   request: #(Charlist, List(#(Charlist, Charlist)), Charlist, BitArray),
@@ -104,7 +104,7 @@ fn erl_request(
 )
 
 // OTP requires a different request tuple for methods without a request body.
-@external(erlang, "httpc", "request")
+@external(erlang, "httpc_adaptive_ffi", "request")
 fn erl_request_no_body(
   method: Method,
   request: #(Charlist, List(#(Charlist, Charlist))),

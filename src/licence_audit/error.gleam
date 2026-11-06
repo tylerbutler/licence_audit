@@ -12,6 +12,7 @@ pub type Error {
   MissingPolicy
   Usage(String)
   RuntimeStartup(String)
+  RuntimeException(String)
   Config(String)
   Input(String)
   Hex(String)
@@ -41,6 +42,7 @@ pub fn message(error: Error) -> String {
       "The `check` subcommand requires a non-empty allow list, including with --vulns. Add allow to [tools.licence_audit] in gleam.toml or pass --allow."
     Usage(message) -> message
     RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
+    RuntimeException(reason) -> "Unexpected Erlang exception: " <> reason
     Config(message) -> message
     Input(message) -> message
     Hex(message) -> message

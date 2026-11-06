@@ -169,6 +169,13 @@ This uses fresh Erlang VMs, because the Gleam test runner starts application
 dependencies before it runs tests. The CLI must also start these dependencies
 when Queso calls `main()` directly.
 
+The same recipe checks error, throw, and exit exceptions at the CLI boundary,
+including cleanup while the exception unwinds. `just test-cli-streams` checks
+the escript with an invalid CA bundle path
+(`ERL_FLAGS='-public_key cacerts_path [47,110,111]'`).
+These runtime failures must exit 2 without a raw
+stack trace. Policy and usage failures must still exit 1.
+
 To test environment conversion and cache paths without network access:
 
 ```sh
