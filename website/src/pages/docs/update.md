@@ -48,10 +48,10 @@ The command does not use OTP's non-atomic Windows rename.
 - It exits `1` on non-interactive stdin (for example, in CI).
 - It exits `130` if you cancel.
 
-> **Note:** The interactive list requires Erlang/OTP **28.x or newer**.
-> Earlier releases cannot reattach stdin in raw mode. As a result, the list
-> does not receive keyboard input. If `update` does not respond to keyboard
-> input, check your OTP version.
+> **Note:** If you use the escript, Erlang/OTP **28 or later** is required
+> for all commands, not only interactive `update`. Unsupported OTP versions
+> can fail before any command runs. The self-contained native binaries bundle
+> the runtime. See the [installation requirements](/docs#install).
 
 After you create a policy, enforce it with [`licence_audit
 check`](/docs/check).

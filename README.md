@@ -9,7 +9,7 @@ third-party notices, and checks for known vulnerabilities through OSV.dev.
 Download a self-contained archive for your platform from the
 [releases](https://github.com/tylerbutler/licence_audit/releases), extract it,
 and put `licence_audit` on your `PATH`. These executables include the Erlang
-runtime; you do not need to install Erlang/OTP.
+runtime; you do not need to install Erlang/OTP. Prefer them for CI.
 
 With [mise](https://mise.jdx.dev/):
 
@@ -20,13 +20,13 @@ mise use -g github:tylerbutler/licence_audit@latest
 Replace `latest` with a release tag to select a fixed version. Omit `-g` for
 a project-local install.
 
-The release also provides escript archives and a bare escript. Escript
-installations require Erlang/OTP 28 or newer. Prefer the self-contained
-executable for CI. Windows ARM64 archives are not published.
+The release also provides escript archives and a bare escript. **The escript
+requires Erlang/OTP 28 or newer for all commands.** Windows ARM64 archives
+are not published.
 
-Older OTP releases can fail while loading the escript, before CLI error
-handling starts (for example, a corrupt atom table error with exit `127`).
-These failures are outside the [CLI exit-code contract](https://licence-audit.tylerbutler.com/docs/compatibility#exit-codes-and-output-streams).
+On OTP 27, the VM can fail to load the escript with `corrupt atom table`
+and exit `127`, before any command runs. This unsupported-runtime failure is
+outside the [CLI exit-code contract](https://licence-audit.tylerbutler.com/docs/compatibility#exit-codes-and-output-streams).
 
 For source builds, see [DEV.md](./DEV.md).
 
