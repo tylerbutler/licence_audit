@@ -93,8 +93,9 @@ pub fn from_config_error(error: config.Error) -> Error {
     config.InvalidToml(message) -> Config(message)
     config.InvalidField(field, expected) ->
       Config("Invalid config field " <> field <> ": expected " <> expected)
+    config.UnknownField(field) -> Config("Unknown config field " <> field)
     config.InvalidLicenceIdentifier ->
-      Config("Licence identifiers must not be empty")
+      Config("Allow and deny entries must be valid SPDX expressions")
     config.InvalidException(message) -> Config("Invalid config " <> message)
     config.FileReadError(path) -> Input("Could not read " <> path)
   }

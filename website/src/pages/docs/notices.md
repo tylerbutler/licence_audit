@@ -30,6 +30,11 @@ include = ["package_a", "package_b"]
 exclude = ["package_b"]
 ```
 
+Only `include` and `exclude` are supported in this table. An unknown key or
+a malformed setting causes exit code `2`; the error names an unknown key.
+The command also validates any licence policy in `[tools.licence_audit]`,
+including the SPDX syntax of its `allow` and `deny` entries.
+
 An absent or empty `include` selects all eligible locked dependencies. A
 nonempty `include` selects only the named packages. `exclude` takes precedence,
 so this example selects only `package_a`.

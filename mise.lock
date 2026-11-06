@@ -315,62 +315,6 @@ url = "https://github.com/tylerbutler/trellis/releases/download/v1.0.0/trellis-g
 url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/573442895"
 provenance = "github-attestations"
 
-[[tools."github:xerj-org/xerj"]]
-version = "1.0.0-rc.93"
-backend = "github:xerj-org/xerj"
-specifiers = ["1.0.0-rc.93"]
-
-[tools."github:xerj-org/xerj".options]
-asset_pattern = "xerj-*-aarch64-unknown-linux-musl.tar.gz"
-
-[tools."github:xerj-org/xerj"."platforms.linux-arm64"]
-checksum = "sha256:e52c8e31149be81d187b0c96609929754d46f944d3affaad04bd02ad3f2dbbdb"
-url = "https://github.com/xerj-org/xerj/releases/download/v1.0.0-rc.93/xerj-1.0.0-rc.93-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/xerj-org/xerj/releases/assets/622954922"
-provenance = "github-attestations"
-
-[[tools."github:xerj-org/xerj"]]
-version = "1.0.0-rc.93"
-backend = "github:xerj-org/xerj"
-specifiers = ["1.0.0-rc.93"]
-
-[tools."github:xerj-org/xerj".options]
-asset_pattern = "xerj-*-x86_64-unknown-linux-musl.tar.gz"
-
-[tools."github:xerj-org/xerj"."platforms.linux-x64"]
-checksum = "sha256:be6130a1c8a5e357314219dd1be52d82d6ff66f7f567aafae4d46401fb34b824"
-url = "https://github.com/xerj-org/xerj/releases/download/v1.0.0-rc.93/xerj-1.0.0-rc.93-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/xerj-org/xerj/releases/assets/622954915"
-provenance = "github-attestations"
-
-[[tools."github:xerj-org/xerj"]]
-version = "1.0.0-rc.93"
-backend = "github:xerj-org/xerj"
-specifiers = ["1.0.0-rc.93"]
-
-[tools."github:xerj-org/xerj".options]
-asset_pattern = "xerj-*-aarch64-apple-darwin.tar.gz"
-
-[tools."github:xerj-org/xerj"."platforms.macos-arm64"]
-checksum = "sha256:88bd1367c36867fcaef6802154c8f1e515c4a1223687f8514112fb64eddbbd79"
-url = "https://github.com/xerj-org/xerj/releases/download/v1.0.0-rc.93/xerj-1.0.0-rc.93-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/xerj-org/xerj/releases/assets/622954935"
-provenance = "github-attestations"
-
-[[tools."github:xerj-org/xerj"]]
-version = "1.0.0-rc.93"
-backend = "github:xerj-org/xerj"
-specifiers = ["1.0.0-rc.93"]
-
-[tools."github:xerj-org/xerj".options]
-asset_pattern = "xerj-*-x86_64-apple-darwin.tar.gz"
-
-[tools."github:xerj-org/xerj"."platforms.macos-x64"]
-checksum = "sha256:ef0b804dc580c21987c2de36a7dde2119f3e48c01e19510820a1d36dcb969336"
-url = "https://github.com/xerj-org/xerj/releases/download/v1.0.0-rc.93/xerj-1.0.0-rc.93-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/xerj-org/xerj/releases/assets/622954919"
-provenance = "github-attestations"
-
 [[tools.gleam]]
 version = "1.19.2"
 backend = "aqua:gleam-lang/gleam"

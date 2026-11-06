@@ -74,7 +74,11 @@ pub fn config_errors_map_to_app_errors_test() {
   )
   should.equal(
     error.from_config_error(config.InvalidLicenceIdentifier),
-    error.Config("Licence identifiers must not be empty"),
+    error.Config("Allow and deny entries must be valid SPDX expressions"),
+  )
+  should.equal(
+    error.from_config_error(config.UnknownField("notices.incldue")),
+    error.Config("Unknown config field notices.incldue"),
   )
   should.equal(
     error.from_config_error(config.FileReadError("gleam.toml")),
