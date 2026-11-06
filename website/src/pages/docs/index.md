@@ -155,38 +155,26 @@ integration interfaces.
 
 ## Caching
 
-`licence_audit` caches Hex licence metadata on disk between runs at
-`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2.sqlite3`. Override it with
-`--cache-path=PATH`, or bypass the caches with `--no-cache`. `licence_audit`
-reuses Hex API entries for 7 days, so metadata changes on Hex can take up to
-7 days to appear. Use `--no-cache` when you need fresh data.
+`licence_audit` caches Hex licence metadata on disk between runs in the
+`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2/` directory. Override it
+with `--cache-path=DIR`, or bypass the caches with `--no-cache`.
+`licence_audit` reuses Hex API entries for 7 days, so metadata changes on Hex
+can take up to 7 days to appear. Use `--no-cache` when you need fresh data.
 
 The cache is shared across projects and commands for each package name and
-version. Concurrent commands can share the cache on a local filesystem. In
-CI, restore and save the cache directory between jobs, for example with
-`actions/cache`, `--cache-path=.hex-cache/hex-v2.sqlite3`, and `.hex-cache/` as
-the path to save. Use `--verbose` to see cache hits and misses.
+version. Concurrent commands can share the cache. In CI, restore and save the
+cache directory between jobs, for example with `actions/cache`,
+`--cache-path=.hex-cache/hex-v2`, and `.hex-cache/` as the path to save. Use
+`--verbose` to see cache hits and misses.
 
-SQLite WAL allows reads during writes. Busy operations are skipped without
-waiting and produce a warning. Save CI caches only after all commands finish;
-copying an active database can omit committed WAL data.
+The cache directory contains one JSON file for each entry. A command writes
+each entry to a temporary file and then renames it, so other commands never
+read a partial entry. You can copy the cache directory at any time. To clear
+the cache, delete the directory.
 
-The cache is a SQLite file that fills on first use. `licence_audit` does not
-read or change old `.dets` files. If `--cache-path` points to a `.dets` file,
-choose a new path.
-The current cache driver requires ASCII-only paths. If its native library is
-missing or cannot load, the command warns and continues without caching.
-`--no-cache` bypasses the driver without attempting to load it.
-
-Escript archives include a `sqlite_native/` directory beside the escript.
-Keep this directory with the executable for caching; no `ERL_LIBS` setting
-is needed. A bare escript warns and runs without caching. `--no-cache` skips
-the native-library load attempt and its warning.
-
-On Linux, keep absolute database paths within 504 bytes, including directories.
-Longer paths are unsupported. Some failed opens can abort the VM because of
-an upstream driver bug tracked in [#168][cache-bug]. Use a shorter
-`XDG_CACHE_HOME` or `--cache-path`, or use `--no-cache`.
+The cache fills on first use. `licence_audit` does not read or change old
+`.dets` or `.sqlite3` cache files. You can delete them. If `--cache-path`
+points to a file, the command warns and continues without caching.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the
@@ -262,7 +250,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
@@ -280,4 +268,3 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 [mise]: https://mise.jdx.dev/
 [dev]: https://github.com/tylerbutler/licence_audit/blob/main/DEV.md
 [apm]: https://github.com/microsoft/apm
-[cache-bug]: https://github.com/tylerbutler/licence_audit/issues/168

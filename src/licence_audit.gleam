@@ -77,6 +77,9 @@ fn arguments() -> List(String)
 @external(erlang, "runtime_ffi", "start")
 fn start_runtime() -> Result(Nil, error.Error)
 
+@external(erlang, "runtime_ffi", "run")
+fn run_cli(action: fn() -> Nil) -> Result(Nil, error.Error)
+
 type FetchResult {
   FetchResult(
     rows: List(report.Row),
@@ -86,6 +89,17 @@ type FetchResult {
 }
 
 pub fn main() -> Nil {
+  case run_cli(main_action) {
+    Ok(Nil) -> Nil
+    Error(runtime_error) -> {
+      let result = diagnostic(runtime_error)
+      io.print_error(result.result.output)
+      halt(result.result.exit_code)
+    }
+  }
+}
+
+fn main_action() -> Nil {
   case glint.execute(cli.app(), cli.normalize_args(arguments())) {
     Error(message) -> {
       io.println_error(message)
@@ -373,10 +387,10 @@ fn run_selected_notices(
     True -> #(cache.Disabled, notice_cache.Disabled)
     False -> #(
       cache.Enabled(path: options.cache_path),
-      // `--cache-path` overrides a single file and applies to the metadata
-      // cache (as on every other command). The source cache keeps its own
-      // version-namespaced filename at the default location (still relocatable
-      // via XDG_CACHE_HOME) so format bumps invalidate it correctly.
+      // `--cache-path` overrides the metadata cache directory (as on every
+      // other command). The source cache keeps its own version-namespaced
+      // directory at the default location (still relocatable via
+      // XDG_CACHE_HOME) so format bumps invalidate it correctly.
       notice_cache.Enabled(path: None),
     )
   }

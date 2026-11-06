@@ -29,9 +29,7 @@ mise install --locked
 ```
 
 The Erlang Linux build target is fixed to Ubuntu 24.04 so locked installs use
-the same OTP asset when the hosted runner's Ubuntu version changes. Linux
-rustup bootstrap binaries are static musl executables, but the installed Rust
-host toolchain must match the build container's libc (GNU or musl).
+the same OTP asset when the hosted runner's Ubuntu version changes.
 
 If you have unrelated global mise tools without their own lockfile, select
 the project tools explicitly (for example, `mise install --locked erlang
@@ -47,27 +45,10 @@ just build-strict
 just test
 ```
 
-The native release script uses `scripts/build_inputs.json` for direct Gleam,
-rebar3, rustup-init, and Queso downloads. `scripts/build_inputs.py` rejects
-version drift and checks the committed SHA-256 before extraction or execution.
-When updating these tools, update the input manifest as well as the mise and
-workflow pins. Obtain Gleam, rebar3, and Queso hashes from their versioned GitHub
-release asset digests. Obtain rustup-init hashes from
-`https://static.rust-lang.org/rustup/archive/VERSION/PLATFORM/rustup-init.sha256`.
-Download and check each supported asset against that upstream hash before
-committing it. Do not replace a hash only because a download failed verification.
-
-For example, download and verify a pinned asset without executing it:
-
-```sh
-python3 -B scripts/build_inputs.py rustup x86_64-unknown-linux-musl build/native-tools/rustup-init
-```
-
-This checks the direct downloads, not every build input. System package
-repositories, runner images, setup-beam downloads, Rust toolchain installation,
-and transitive Cargo and pip downloads still use their own trust and verification
-mechanisms. The build is not fully hermetic. Cargo-about 0.9.2 has no macOS
-x86-64 release asset; the native build installs it from Cargo with `--locked`.
+The lockfile pins the URLs and checksums of mise-installed tools, including
+Queso and cargo-about. The release job also installs the Rust targets, Zig,
+cargo-zigbuild, and system packages. These use their own trust and verification
+mechanisms. The build is not fully hermetic.
 
 ## Build from source
 
@@ -78,18 +59,7 @@ just build
 `just build` uses `gleam export escript` to compile production sources and
 produce the escript at `./licence_audit`. The pinned compiler provides this
 exporter, so the build does not need `gleescript`.
-The build also copies the SQLite native application to `./sqlite_native/`.
-Keep that directory beside the escript when you move or distribute it.
-Source builds stage the local application at `sqlite_native/esqlite/`.
-Release escript archives instead include `sqlite_native/<target>/esqlite/`
-for all seven release targets. The escript selects the native library from
-the Erlang runtime's architecture and operating system, including musl.
-
-Source builds need a C compiler for esqlite. On Windows, use an x64 Visual
-Studio developer shell with LLVM on `PATH`. Set `CC=clang-cl.exe`,
-`CXX=clang-cl.exe`, `LINKER=lld-link.exe`, `REBAR_TARGET_ARCH=win32`, and
-`REBAR_TARGET_ARCH_WORDSIZE=64` before the build. The last two settings select
-64-bit Windows link flags in esqlite's port compiler.
+The escript has no native dependencies. You can move it without other files.
 
 ### Vendored packages
 
@@ -199,79 +169,50 @@ This uses fresh Erlang VMs, because the Gleam test runner starts application
 dependencies before it runs tests. The CLI must also start these dependencies
 when Queso calls `main()` directly.
 
-To test environment conversion and ASCII cache paths without network access:
+The same recipe checks error, throw, and exit exceptions at the CLI boundary,
+including cleanup while the exception unwinds. `just test-cli-streams` checks
+the escript with an invalid CA bundle path
+(`ERL_FLAGS='-public_key cacerts_path [47,110,111]'`).
+These runtime failures must exit 2 without a raw
+stack trace. Policy and usage failures must still exit 1.
+
+To test environment conversion and cache paths without network access:
 
 ```sh
 just test-env-cache-paths
 ```
 
 The test checks `é` and `中` in `XDG_CACHE_HOME` and `HOME` with caching
-disabled. It then writes cache entries at ASCII paths, runs the cache-enabled
+disabled. It then writes cache entries, runs the cache-enabled
 CLI, and checks for cache hits. It also checks conversion failures and the
 deferred warning when neither environment variable is set.
 
-## SQLite cache
+## File cache
 
-The cache uses `sqlight` 1.2.0 directly for connections, SQL queries, parameter
-binding, and row decoding, with `esqlite` constrained to 0.10.x for synchronous
-statement cleanup.
-SQL, parameter binding, and decoding stay in Gleam. A small `cache_dir_ffi`
-boundary checks native-library loading, catches esqlite's busy-query exception,
-and closes connections before returning or rethrowing unexpected exceptions.
-Cache operations return warnings explicitly to their callers.
-`runtime_ffi` adds an escript's
-native sidecar to the code path; it does not load the NIF or wrap database calls.
-The load check runs only when opening an enabled cache.
-Each operation opens and closes its own connection, including on exceptions.
-Metadata and its optional timestamp share one atomic upsert. Immutable
-metadata and notice values use a null timestamp.
+`cache_dir.gleam` stores each cache entry as one JSON file in the cache
+directory. The file name is the lowercase hex SHA-256 hash of the key, with a
+`.json` suffix. The file contains the key, the optional timestamp, and the
+value. A read that finds a different key, invalid JSON, or invalid UTF-8 gives
+a deferred warning and a cache miss. Immutable metadata and notice values use
+a null timestamp.
 
-`sqlight.query` uses `esqlite`'s `q/3`, which synchronously finalizes its
-private statement in 0.10.0, including on failure.
-Do not use garbage collection or worker exit as a
-statement-finalization barrier: resource cleanup can finish after those return.
-The connection-lifetime test checks that WAL and SHM files are gone before an
-operation returns, including after a busy write.
+A write goes to a temporary file with a random name in the same directory.
+Then `simplifile.rename` moves it over the entry file. On POSIX systems, this
+rename is atomic, so a reader sees the old entry or the new entry. OTP's
+Windows rename moves an existing entry aside before it moves the new file into
+place. Thus a reader can see no entry for a short time, which is a cache miss.
+Readers never see a partial file. If a rename fails and the entry file exists,
+another writer won the race, and the write is a success.
 
-Concurrent commands can share the cache without waiting for writer locks.
-Busy queries produce deferred warnings without replacing successful source
-results. Missing or unloadable native libraries also produce deferred warnings
-and disable caching. Cache paths must still be ASCII. Use `--no-cache` to
-bypass the driver without loading it.
-
-The tested Linux build supports absolute database paths up to 504 bytes,
-including directories. Production does not validate path length before calling
-sqlight. Keep cache paths ASCII and within that limit, or use `--no-cache`.
-
-**Upstream follow-up: [#168](https://github.com/tylerbutler/licence_audit/issues/168).**
-The published driver can close a freed SQLite handle twice when opening fails.
-AddressSanitizer reproduced a VM abort. This cannot be caught in Erlang.
-The fix belongs upstream; adopt its published dependency when available so
-normal Gleam source installs and packaged releases use the same native code.
-This follow-up does not stop implementation or platform qualification.
-
-`just test-cache-runtime` checks fallback for missing and unloadable native
-libraries in fresh VMs and verifies that disabled caches do not load the NIF.
-
-### Native packaging
-
-Startup selects an adjacent `sqlite_native/<target>/esqlite`
-application, with `sqlite_native/esqlite` as the source-build fallback.
-The cache checks the NIF on first use; load failures disable caching with a
-deferred warning.
-Native release builds must compile the NIF for each target architecture and
-libc. Cross-building the Queso launcher alone can include a host-built NIF that
-cannot load on the target. The release workflow builds each NIF on its target
-platform and checks both native and escript releases.
+The cache has no locks. Concurrent commands can share a cache directory: when
+two writers race on one key, both values are valid. A failed write leaves a
+`.tmp` file only if the command stops during the write. Lookups ignore these
+files. The cache does not remove old entries; delete the directory to clear it.
 
 ### Cache snapshots
 
-Save caches after commands finish and close their connections. A copy of a
-live database file alone can omit committed WAL data. An active cache needs
-SQLite's backup mechanism or coordinated access; copying the directory during
-writes does not guarantee a consistent snapshot. See
-[SQLite's WAL documentation](https://www.sqlite.org/wal.html) and
-[online backup API](https://www.sqlite.org/backup.html).
+The cache directory is safe to copy at any time. A copy can omit entries that
+a running command writes during the copy, but each copied entry is complete.
 
 ## Common tasks
 
@@ -317,9 +258,8 @@ reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Both runners add `--no-cache`, so they do not touch the on-disk
 caches. Concurrent CLI runs can share cache paths. `--no-cache` bypasses
-the caches, and `--cache-path=PATH` overrides the licence metadata cache
-location. Source-built escripts require the `sqlite_native/` directory beside
-the executable for cache access; `just build` copies it there.
+the caches, and `--cache-path=DIR` overrides the licence metadata cache
+directory.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 
@@ -427,19 +367,16 @@ archive for that target.
 
 Publish includes the generated `THIRD_PARTY_NOTICES.txt`, project `LICENSE`,
 and vendored `NOTICE` in each archive. It also embeds these documents under
-`META-INF/licenses/` in the bare escript ZIP payload. The generated notices
-cover esqlite and its bundled SQLite. Keep `sqlite_native/` beside the escript
-for cache access. The bare download runs uncached with a warning; `--no-cache`
-skips the load attempt and warning.
+`META-INF/licenses/` in the bare escript ZIP payload.
 
 Run `just test-release-notices` to test staging and archive checks. Publish reads
 the notice bytes from each staged tar/ZIP and the bare escript, and compares
 them with the required source documents. Missing, empty, or changed documents
 stop publication. Older tags without required documents also fail this check.
 
-Each target-native build runs
+After building native executables, Publish runs
 `mise exec -- python3 -B scripts/runtime_notices.py`. It uses a fresh,
-worktree-local Queso cache on Linux so the collector reads
+worktree-local Queso cache under `build/release-cache/` so the collector reads
 the runtime installations and launcher lockfile used by that build. For a
 focused local check against an existing Queso cache, pass
 `--target x86_64-linux-glibc --cache <cache-directory>/queso`.

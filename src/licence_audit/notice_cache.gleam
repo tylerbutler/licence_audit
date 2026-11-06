@@ -5,8 +5,8 @@
 //// dependencies.
 ////
 //// Returned storage errors let the resolver read live and produce deferred
-//// warnings returned with each operation. Busy writes and unavailable native
-//// libraries also return warnings. Use `--no-cache` to bypass the driver.
+//// warnings returned with each operation. Use `--no-cache` to bypass the
+//// cache.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -33,25 +33,25 @@ pub opaque type Cache {
 /// materials, repository tag→commit resolutions, repository-extracted licence
 /// files, pinned SPDX indexes, and canonical SPDX records shared across
 /// packages. The version is encoded into the
-/// cache filename so data written by an older format is ignored rather than
+/// cache directory name so data written by an older format is ignored rather than
 /// mis-decoded; `notice.decode_notice_files` also treats any unparseable entry
 /// as a miss, so forward-compatible drift self-heals without a bump.
 const cache_format_version = 3
 
-fn cache_filename() -> String {
-  "notices-v" <> int.to_string(cache_format_version) <> ".sqlite3"
+fn cache_directory() -> String {
+  "notices-v" <> int.to_string(cache_format_version)
 }
 
 /// Open a cache according to `mode`.
 ///
 /// Returns no error value. If the cache path cannot be prepared, the returned
 /// `Cache` bypasses storage and includes a deferred warning accessible via
-/// `close`. An unavailable native library also bypasses storage.
+/// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
-      case cache_dir.open_table(path, cache_filename(), "notices") {
+      case cache_dir.open_table(path, cache_directory(), "notices") {
         Ok(table) -> Cache(table: Some(table), warning: None)
         Error(error) ->
           Cache(table: None, warning: Some(cache_dir.describe_error(error)))

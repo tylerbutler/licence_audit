@@ -3,8 +3,7 @@
 //// Mutable Hex API entries are keyed by `name@version` and expire after seven
 //// days. Reproducible SBOM entries are keyed by an archive checksum or commit
 //// and never expire. Returned storage errors fall back to the source fetcher
-//// and record a deferred warning. Busy writes and unavailable native libraries
-//// also return warnings. Use `--no-cache` to bypass the driver.
+//// and record a deferred warning. Use `--no-cache` to bypass the cache.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -32,7 +31,7 @@ const cache_entry_ttl_seconds = 604_800
 
 /// On-disk cache format version. Bump on any incompatible change to the cached
 /// value shape (see `hex.encode_cache_entry`). The version is encoded into the
-/// cache filename so data written by an older format is ignored
+/// cache directory name so data written by an older format is ignored
 /// rather than read back with the wrong decoder. `hex.decode_cache_entry` also
 /// treats any unparseable entry as a miss, so minor/forward-compatible drift
 /// self-heals without a bump — reserve bumps for changes that would mis-decode
@@ -40,20 +39,20 @@ const cache_entry_ttl_seconds = 604_800
 /// object).
 const cache_format_version = 2
 
-fn cache_filename() -> String {
-  "hex-v" <> int.to_string(cache_format_version) <> ".sqlite3"
+fn cache_directory() -> String {
+  "hex-v" <> int.to_string(cache_format_version)
 }
 
 /// Open a cache according to `mode`.
 ///
 /// Returns no error value. If the cache path cannot be prepared, the returned
 /// `Cache` bypasses storage and includes a deferred warning accessible via
-/// `close`. An unavailable native library also bypasses storage.
+/// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
-      case cache_dir.open_table(path, cache_filename(), "licence") {
+      case cache_dir.open_table(path, cache_directory(), "licence") {
         Ok(table) -> Cache(table: Some(table), warning: None)
         Error(error) ->
           Cache(table: None, warning: Some(cache_dir.describe_error(error)))
@@ -62,7 +61,7 @@ pub fn open(mode: Mode) -> Cache {
 }
 
 /// Return the warning from opening the cache. Operations return their own
-/// warnings explicitly; no connection remains open between operations.
+/// warnings explicitly; no file remains open between operations.
 pub fn close(cache: Cache) -> Option(String) {
   cache.warning
 }

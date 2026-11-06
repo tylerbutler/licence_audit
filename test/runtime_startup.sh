@@ -8,8 +8,32 @@ timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
   true = is_pid(whereis(httpc_manager)),
   true = lists:keymember(ssl, 1, application:which_applications()),
   {ok, nil} = runtime_ffi:start(),
+  {ok, nil} = runtime_ffi:run(fun() -> nil end),
+  lists:foreach(fun(Class) ->
+    erase(cleaned),
+    {error, {runtime_exception, Message}} = runtime_ffi:run(fun() ->
+      try erlang:apply(erlang, Class, [unexpected_runtime_failure])
+      after put(cleaned, true)
+      end
+    end),
+    true = get(cleaned),
+    Expected = atom_to_binary(Class),
+    <<Expected:(byte_size(Expected))/binary, ": unexpected_runtime_failure">> = Message
+  end, [error, throw, exit]),
   halt(0).
 '
+
+for expected in 0 1 2 130; do
+  status=0
+  timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
+    [Code] = init:get_plain_arguments(),
+    runtime_ffi:run(fun() -> halt(list_to_integer(Code)) end).
+  ' -extra "$expected" || status=$?
+  if [ "$status" -ne "$expected" ]; then
+    printf 'Expected intentional exit %s, got %s\n' "$expected" "$status" >&2
+    exit 1
+  fi
+done
 
 status=0
 output=$(timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
