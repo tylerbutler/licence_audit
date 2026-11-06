@@ -358,10 +358,10 @@ fn run_selected_notices(
     True -> #(cache.Disabled, notice_cache.Disabled)
     False -> #(
       cache.Enabled(path: options.cache_path),
-      // `--cache-path` overrides a single file and applies to the metadata
-      // cache (as on every other command). The source cache keeps its own
-      // version-namespaced filename at the default location (still relocatable
-      // via XDG_CACHE_HOME) so format bumps invalidate it correctly.
+      // `--cache-path` overrides the metadata cache directory (as on every
+      // other command). The source cache keeps its own version-namespaced
+      // directory at the default location (still relocatable via
+      // XDG_CACHE_HOME) so format bumps invalidate it correctly.
       notice_cache.Enabled(path: None),
     )
   }

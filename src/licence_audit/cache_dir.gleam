@@ -1,23 +1,36 @@
 //// Shared on-disk cache storage for `licence_audit`.
 ////
-//// Each operation opens and closes a sqlight connection. Returned errors,
-//// busy-query exceptions, and native-library load failures become warnings.
+//// Each entry is one JSON file named by the SHA-256 hash of its key. A write
+//// goes to a unique temporary file in the same directory, which is then
+//// renamed over the entry. Readers therefore see the old entry, the new entry,
+//// or no entry, but never a partial file. Concurrent commands need no locks:
+//// when two writers race on one key, either value is acceptable.
+////
+//// OTP's Windows rename moves an existing destination aside before it moves
+//// the new file into place, so a reader can see no entry for a short time.
+//// That is an ordinary cache miss.
 
+import gleam/bit_array
+import gleam/crypto
 import gleam/dynamic/decode
-import gleam/int
+import gleam/json
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import simplifile
-import sqlight
 
 import licence_audit/env
 import licence_audit/path
 
 const cache_subdir = "licence_audit"
 
-/// An on-disk string cache.
+const entry_suffix = ".json"
+
+const temporary_suffix = ".tmp"
+
+/// An on-disk string cache rooted at one directory.
 pub opaque type Store {
-  Store(path: String)
+  Store(directory: String)
 }
 
 pub type Entry {
@@ -63,46 +76,48 @@ fn describe_path_error(error: PathError) -> String {
 
 fn resolve_path(
   override: Option(String),
-  filename: String,
+  directory: String,
 ) -> Result(String, PathError) {
   case override {
     Some(cache_path) -> Ok(cache_path)
-    None -> default_path(filename)
+    None -> default_path(directory)
   }
 }
 
-fn default_path(filename: String) -> Result(String, PathError) {
+fn default_path(directory: String) -> Result(String, PathError) {
   case env.get("XDG_CACHE_HOME") {
     Ok(cache_home) if cache_home != "" ->
-      Ok(path.join(path.join(cache_home, cache_subdir), filename))
+      Ok(path.join(path.join(cache_home, cache_subdir), directory))
     _ ->
       case env.get("HOME") {
         Ok(home) if home != "" ->
           Ok(path.join(
             path.join(path.join(home, ".cache"), cache_subdir),
-            filename,
+            directory,
           ))
         _ -> Error(CacheDirUnknown)
       }
   }
 }
 
-fn ensure_cache_dir(cache_path: String) -> Result(Nil, PathError) {
-  let parent = path.dirname(cache_path)
-  simplifile.create_directory_all(parent)
+fn ensure_cache_dir(directory: String) -> Result(Nil, PathError) {
+  simplifile.create_directory_all(directory)
   |> result.map_error(fn(error) {
-    CacheDirCreateFailed(dir: parent, reason: error)
+    CacheDirCreateFailed(dir: directory, reason: error)
   })
 }
 
 /// Open a string-keyed cache store, returning its deferred warning on failure.
+///
+/// `cache_path` overrides the store directory. Otherwise the store uses
+/// `directory` below the user cache directory.
 pub fn open_table(
   cache_path: Option(String),
-  filename: String,
+  directory: String,
   name: String,
 ) -> Result(Store, Error) {
   use resolved <- result.try(
-    resolve_path(cache_path, filename) |> result.map_error(PathFailed),
+    resolve_path(cache_path, directory) |> result.map_error(PathFailed),
   )
   use _ <- result.try(
     ensure_cache_dir(resolved)
@@ -110,24 +125,22 @@ pub fn open_table(
       OpenFailed(name, resolved, describe_path_error(error))
     }),
   )
-  use _ <- result.try(
-    open(resolved)
-    |> result.map_error(fn(error) { OpenFailed(name, resolved, error) }),
-  )
-  Ok(Store(path: resolved))
+  Ok(Store(directory: resolved))
 }
 
-/// Read one cache value without keeping a connection open.
+/// Read one cache value.
 pub fn lookup(store: Store, key: String) -> Result(String, Error) {
   lookup_entry(store, key) |> result.map(fn(entry) { entry.value })
 }
 
-/// Read a value and its timestamp from the same SQLite row.
+/// Read a value and its timestamp from the same entry file.
 pub fn lookup_entry(store: Store, key: String) -> Result(Entry, Error) {
-  case read_entry(store.path, key) {
-    Ok(Some(entry)) -> Ok(entry)
-    Ok(None) -> Error(EntryMissing)
-    Error(error) -> Error(ReadFailed(key, error))
+  case simplifile.read(entry_path(store, key)) {
+    Ok(contents) ->
+      decode_entry(contents, key)
+      |> result.map_error(fn(reason) { ReadFailed(key, reason) })
+    Error(simplifile.Enoent) -> Error(EntryMissing)
+    Error(error) -> Error(ReadFailed(key, simplifile.describe_error(error)))
   }
 }
 
@@ -143,122 +156,66 @@ pub fn insert_at(
   value: String,
   cached_at: Option(Int),
 ) -> Result(Nil, Error) {
-  write_entry(store.path, key, value, cached_at)
-  |> result.map_error(fn(error) { WriteFailed(key, error) })
-}
-
-fn open(path: String) -> Result(Nil, String) {
-  use connection <- with_connection(path)
-  use modes <- result.try(
-    sqlight.query(
-      "PRAGMA journal_mode=WAL",
-      on: connection,
-      with: [],
-      expecting: decode.field(0, decode.string, decode.success),
-    )
-    |> result.map_error(describe_sqlite_error),
-  )
-  case modes {
-    ["wal"] ->
-      sqlight.exec(
-        "CREATE TABLE IF NOT EXISTS cache_entries (
-           key TEXT PRIMARY KEY,
-           value TEXT NOT NULL,
-           cached_at INTEGER
-         )",
-        on: connection,
-      )
-      |> result.map_error(describe_sqlite_error)
-    _ -> Error("SQLite WAL mode is unavailable")
+  let destination = entry_path(store, key)
+  let temporary = temporary_path(destination)
+  let contents = encode_entry(key, value, cached_at)
+  let outcome = {
+    use _ <- result.try(simplifile.write(to: temporary, contents: contents))
+    simplifile.rename(at: temporary, to: destination)
+  }
+  case outcome {
+    Ok(Nil) -> Ok(Nil)
+    Error(error) -> {
+      let _ = simplifile.delete(temporary)
+      // On Windows, a rename that loses a race with another writer can fail.
+      // The other writer's entry is an equally valid cache value.
+      case simplifile.is_file(destination) {
+        Ok(True) -> Ok(Nil)
+        Ok(False) | Error(_) ->
+          Error(WriteFailed(key, simplifile.describe_error(error)))
+      }
+    }
   }
 }
 
-fn read_entry(path: String, key: String) -> Result(Option(Entry), String) {
-  use connection <- with_connection(path)
+fn entry_path(store: Store, key: String) -> String {
+  let digest =
+    crypto.hash(crypto.Sha256, bit_array.from_string(key))
+    |> bit_array.base16_encode
+    |> string.lowercase
+  path.join(store.directory, digest <> entry_suffix)
+}
+
+/// A temporary name that is unique across concurrent VMs.
+fn temporary_path(destination: String) -> String {
+  let nonce =
+    crypto.strong_random_bytes(12)
+    |> bit_array.base16_encode
+    |> string.lowercase
+  destination <> "." <> nonce <> temporary_suffix
+}
+
+fn encode_entry(key: String, value: String, cached_at: Option(Int)) -> String {
+  json.object([
+    #("key", json.string(key)),
+    #("cached_at", json.nullable(cached_at, json.int)),
+    #("value", json.string(value)),
+  ])
+  |> json.to_string
+}
+
+fn decode_entry(contents: String, key: String) -> Result(Entry, String) {
   let decoder = {
-    use value <- decode.field(0, decode.string)
-    use cached_at <- decode.field(1, decode.optional(decode.int))
-    decode.success(Entry(value, cached_at))
+    use stored_key <- decode.field("key", decode.string)
+    use cached_at <- decode.field("cached_at", decode.optional(decode.int))
+    use value <- decode.field("value", decode.string)
+    decode.success(#(stored_key, Entry(value, cached_at)))
   }
-  use entries <- result.try(
-    sqlight.query(
-      "SELECT value, cached_at FROM cache_entries WHERE key = ?",
-      on: connection,
-      with: [sqlight.text(key)],
-      expecting: decoder,
-    )
-    |> result.map_error(describe_sqlite_error),
-  )
-  case entries {
-    [] -> Ok(None)
-    [entry] -> Ok(Some(entry))
-    _ -> Error("Invalid cached value or timestamp")
+  case json.parse(from: contents, using: decoder) {
+    Ok(#(stored_key, entry)) if stored_key == key -> Ok(entry)
+    Ok(_) -> Error("Cache entry belongs to a different key")
+    Error(_) -> Error("Invalid cached value or timestamp")
   }
-}
-
-fn write_entry(
-  path: String,
-  key: String,
-  value: String,
-  cached_at: Option(Int),
-) -> Result(Nil, String) {
-  use connection <- with_connection(path)
-  sqlight.query(
-    "INSERT INTO cache_entries (key, value, cached_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET
-       value = excluded.value, cached_at = excluded.cached_at",
-    on: connection,
-    with: [
-      sqlight.text(key),
-      sqlight.text(value),
-      sqlight.nullable(sqlight.int, cached_at),
-    ],
-    expecting: decode.success(Nil),
-  )
-  |> result.map(fn(_) { Nil })
-  |> result.map_error(describe_sqlite_error)
-}
-
-fn with_connection(
-  path: String,
-  action: fn(sqlight.Connection) -> Result(value, String),
-) -> Result(value, String) {
-  use _ <- result.try(ensure_sqlite_loaded())
-  // Failed native opens can still abort the VM; tracked in #168.
-  use connection <- result.try(
-    sqlight.open(path) |> result.map_error(describe_sqlite_error),
-  )
-  let #(outcome, closed) =
-    run_with_connection(connection, fn(connection) {
-      use _ <- result.try(
-        sqlight.exec("PRAGMA busy_timeout=0", on: connection)
-        |> result.map_error(describe_sqlite_error),
-      )
-      action(connection)
-    })
-  case outcome, closed {
-    Ok(value), Ok(Nil) -> Ok(value)
-    Error(error), Ok(Nil) -> Error(error)
-    Ok(_), Error(error) -> Error(describe_sqlite_error(error))
-    Error(first), Error(second) ->
-      Error(first <> "; close: " <> describe_sqlite_error(second))
-  }
-}
-
-@external(erlang, "cache_dir_ffi", "ensure_sqlite_loaded")
-fn ensure_sqlite_loaded() -> Result(Nil, String)
-
-@external(erlang, "cache_dir_ffi", "with_connection")
-fn run_with_connection(
-  connection: sqlight.Connection,
-  action: fn(sqlight.Connection) -> Result(value, String),
-) -> #(Result(value, String), Result(Nil, sqlight.Error))
-
-fn describe_sqlite_error(error: sqlight.Error) -> String {
-  "SQLite error "
-  <> int.to_string(sqlight.error_code_to_int(error.code))
-  <> ": "
-  <> error.message
 }
 
 /// Describe an access failure as a warning, excluding ordinary cache misses.

@@ -11,8 +11,7 @@ export TMP="$TMPDIR" TEMP="$TMPDIR"
 
 case "$(uname -s)" in
   Linux)
-    # The container is native to the runner, including libc. Queso does not
-    # cross-compile the esqlite NIF copied by gleam export erlang-shipment.
+    # The container is native to the runner, including libc.
     if [ -f /etc/alpine-release ]; then
       rust_host="$(uname -m)-unknown-linux-musl"
       apk add --no-cache bash build-base ca-certificates curl git linux-headers \
@@ -102,18 +101,10 @@ fi
 gleam build --target erlang --warnings-as-errors
 mkdir -p build/native-logs
 queso build --target "$target" 2>&1 | tee "build/native-logs/$target.log"
-python3 -B scripts/sqlite_native.py \
-  --destination "build/escript-sidecars/$target/esqlite"
 python3 -B scripts/runtime_notices.py --target "$target" --cache "$queso_cache" \
   --build-log "build/native-logs/$target.log"
 
 gleam export escript
 mkdir -p build/escript
 cp licence_audit build/escript/
-python3 -B scripts/sqlite_native.py \
-  --destination "build/escript/sqlite_native/$target/esqlite"
-test ! -e build/escript/sqlite_native/esqlite
 python3 -B test/native_cache_smoke.py build/escript/licence_audit --escript
-if [ "$target" = x86_64-linux-glibc ]; then
-  python3 -B test/native_cache_smoke.py build/escript/licence_audit --bare-escript
-fi

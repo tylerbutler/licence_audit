@@ -1,8 +1,8 @@
 -module(cache_process_test_ffi).
 -export([concurrent_writes/5, worker/0]).
 
-%% Gleam processes share one VM. Separate erl runtimes exercise SQLite's
-%% cross-process locking and synchronize writes without relying on sleeps.
+%% Gleam processes share one VM. Separate erl runtimes write to one cache
+%% directory at the same time, and synchronize without relying on sleeps.
 concurrent_writes(CachePath, FirstKey, FirstValue, SecondKey, SecondValue) ->
     case os:find_executable("erl") of
         false ->
@@ -136,34 +136,19 @@ worker() ->
     ok = gen_tcp:send(Socket, term_to_binary({ready, Key})),
     {ok, Go} = gen_tcp:recv(Socket, 0, 10000),
     go = binary_to_term(Go, [safe]),
-    {ok, Store} = when_available(fun() ->
-        licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>)
-    end, 100),
-    Result =
-        case when_available(fun() ->
-            licence_audit@cache_dir:insert(Store, Key, Value)
-        end, 100) of
-            {ok, nil} -> {ok, nil};
-            {error, Error} ->
-                {error, licence_audit@cache_dir:describe_error(Error)}
-        end,
+    {ok, Store} = licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>),
+    Result = write_repeatedly(Store, Key, Value, 50),
     ok = gen_tcp:send(Socket, term_to_binary(Result)),
     gen_tcp:close(Socket),
     halt().
 
-%% Retry returned contention errors only in this test to verify persisted writes.
-when_available(Action, Retries) ->
-    Outcome = Action(),
-    case Outcome of
-        {error, Error} when Retries > 0 ->
-            Message = licence_audit@cache_dir:describe_error(Error),
-            case binary:match(Message, <<"SQLite error 5:">>) of
-                nomatch -> {error, Error};
-                _ ->
-                    timer:sleep(10),
-                    when_available(Action, Retries - 1)
-            end;
-        Result -> Result
+%% Repeated writes make a same-key race between the two VMs likely.
+write_repeatedly(_Store, _Key, _Value, 0) ->
+    {ok, nil};
+write_repeatedly(Store, Key, Value, Remaining) ->
+    case licence_audit@cache_dir:insert(Store, Key, Value) of
+        {ok, nil} -> write_repeatedly(Store, Key, Value, Remaining - 1);
+        {error, Error} -> {error, licence_audit@cache_dir:describe_error(Error)}
     end.
 
 env_binary(Name) ->

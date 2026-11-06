@@ -245,7 +245,7 @@ licence_audit check [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |

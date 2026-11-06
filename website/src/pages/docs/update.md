@@ -71,7 +71,7 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |

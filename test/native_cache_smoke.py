@@ -1,16 +1,14 @@
-"""Check a relocated release with real HTTPS and persistent SQLite cache hits."""
+"""Check a relocated release with real HTTPS and persistent cache hits."""
 
 import argparse
-from contextlib import closing
-import importlib.util
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
-import unittest
 import uuid
 
 
@@ -38,7 +36,7 @@ def run(command, work, env, name):
     return result.stdout
 
 
-def smoke(binary, escript=False, bare=False):
+def smoke(binary, escript=False):
     binary = binary.resolve(strict=True)
     work = ROOT / "build" / ("native-cache-smoke-" + uuid.uuid4().hex[:8])
     work.mkdir(parents=True)
@@ -47,8 +45,6 @@ def smoke(binary, escript=False, bare=False):
         tools.mkdir()
         relocated = tools / ("licence_audit.exe" if binary.suffix == ".exe" else "licence_audit")
         shutil.copy2(binary, relocated)
-        if escript and not bare:
-            shutil.copytree(binary.parent / "sqlite_native", tools / "sqlite_native")
         for name in ("gleam.toml", "manifest.toml"):
             shutil.copy2(ROOT / "test/fixtures/native_http" / name, work / name)
         env = dict(os.environ)
@@ -79,44 +75,24 @@ def smoke(binary, escript=False, bare=False):
         command = [str(relocated)]
         if escript and os.name == "nt":
             command.insert(0, shutil.which("escript") or "escript")
-        cache = work / "cache" / "metadata.sqlite3"
+        cache = work / "cache" / "metadata"
         args = ["check", "--verbose", "--color=never", f"--cache-path={cache}"]
-        if bare:
-            for no_cache in (False, True):
-                flags = ["--no-cache"] if no_cache else []
-                result = subprocess.run(
-                    command + args + flags, cwd=work, env=env, capture_output=True,
-                    encoding="utf-8", errors="replace", timeout=180,
-                )
-                print(result.stdout, end="")
-                print(result.stderr, end="", file=sys.stderr)
-                assert result.returncode == 0, result.stdout + result.stderr
-                assert "Apache-2.0" in result.stdout, result.stdout
-                assert "SQLite" not in result.stdout, result.stdout
-                if no_cache:
-                    assert "SQLite native library unavailable" not in result.stderr, result.stderr
-                else:
-                    assert "SQLite native library unavailable" in result.stderr, result.stderr
-                assert not cache.exists(), "Bare escript unexpectedly wrote a cache"
-        else:
-            first = run(command + args, work, env, "fresh")
-            assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first
-            with closing(sqlite3.connect(cache)) as db:
-                row = db.execute(
-                    "SELECT value, cached_at FROM cache_entries WHERE key = ?",
-                    ("gleam_stdlib@1.0.5",),
-                ).fetchone()
-                assert row and "Apache-2.0" in row[0] and isinstance(row[1], int), row
-                assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
-                assert db.execute("PRAGMA journal_mode").fetchone() == ("wal",)
-            second = run(command + args, work, env, "cached")
-            assert "Cache hit for gleam_stdlib@1.0.5" in second, second
-            run(command + ["sbom", "--reproducible", "--offline", "--output=smoke-sbom.json"],
-                work, env, "sbom")
-            assert "pkg:hex/gleam_stdlib@1.0.5" in (work / "smoke-sbom.json").read_text()
-            vulnerabilities = run(command + ["vulns", "--color=never"], work, env, "vulns")
-            assert "Checked 1 packages:" in vulnerabilities, vulnerabilities
-        print("Relocated SQLite/HTTPS smoke test passed.")
+        first = run(command + args, work, env, "fresh")
+        assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first
+        key = "gleam_stdlib@1.0.5"
+        entry_file = cache / (hashlib.sha256(key.encode()).hexdigest() + ".json")
+        entry = json.loads(entry_file.read_text(encoding="utf-8"))
+        assert entry["key"] == key, entry
+        assert "Apache-2.0" in entry["value"] and isinstance(entry["cached_at"], int), entry
+        assert not list(cache.glob("*.tmp")), "Temporary cache files were left behind"
+        second = run(command + args, work, env, "cached")
+        assert "Cache hit for gleam_stdlib@1.0.5" in second, second
+        run(command + ["sbom", "--reproducible", "--offline", "--output=smoke-sbom.json"],
+            work, env, "sbom")
+        assert "pkg:hex/gleam_stdlib@1.0.5" in (work / "smoke-sbom.json").read_text()
+        vulnerabilities = run(command + ["vulns", "--color=never"], work, env, "vulns")
+        assert "Checked 1 packages:" in vulnerabilities, vulnerabilities
+        print("Relocated cache/HTTPS smoke test passed.")
     except BaseException:
         print(f"Smoke test files retained at {work}", file=sys.stderr)
         raise
@@ -124,46 +100,11 @@ def smoke(binary, escript=False, bare=False):
         shutil.rmtree(work)
 
 
-class StagingTests(unittest.TestCase):
-    def test_compiled_only_and_missing_nif(self):
-        spec = importlib.util.spec_from_file_location("sqlite_native", ROOT / "scripts/sqlite_native.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        work = ROOT / "build" / ("sqlite-stage-test-" + uuid.uuid4().hex[:8])
-        source, destination = work / "compiled", work / "sidecar"
-        try:
-            for name in ("ebin/esqlite.beam", "ebin/esqlite.app", "priv/esqlite3_nif.so",
-                         "priv/source/not-shipped.c", "src/not-shipped.erl"):
-                path = source / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(b"compiled")
-            module.stage(source, destination)
-            self.assertEqual(
-                sorted(path.relative_to(destination).as_posix()
-                       for path in destination.rglob("*") if path.is_file()),
-                ["ebin/esqlite.app", "ebin/esqlite.beam", "priv/esqlite3_nif.so"],
-            )
-            with self.assertRaises(ValueError):
-                module.stage(source, work)
-            with self.assertRaises(ValueError):
-                module.stage(source, source / "sidecar")
-            (source / "priv/esqlite3_nif.so").unlink()
-            with self.assertRaises(ValueError):
-                module.stage(source, destination)
-            self.assertTrue((destination / "priv/esqlite3_nif.so").exists())
-        finally:
-            shutil.rmtree(work)
-
-
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-    if sys.argv[1:] == ["--self-test"]:
-        unittest.main(argv=[sys.argv[0]])
-    else:
-        parser = argparse.ArgumentParser(description=__doc__)
-        parser.add_argument("binary", type=Path)
-        parser.add_argument("--escript", action="store_true")
-        parser.add_argument("--bare-escript", action="store_true")
-        args = parser.parse_args()
-        smoke(args.binary, args.escript or args.bare_escript, args.bare_escript)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("binary", type=Path)
+    parser.add_argument("--escript", action="store_true")
+    args = parser.parse_args()
+    smoke(args.binary, args.escript)

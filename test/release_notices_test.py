@@ -131,11 +131,6 @@ class ReleaseNoticesTest(unittest.TestCase):
         names = ("otp/bom.spdx.json", "queso/dependency-notices.json",
                  "rust/COPYRIGHT-library.html", "openssl/LICENSE.txt", "otp-distribution.json")
         for target in targets:
-            sidecar = Path("sqlite_native") / target / "esqlite"
-            (sidecar / "ebin").mkdir(parents=True)
-            (sidecar / "ebin/esqlite3_nif.beam").write_bytes(b"BEAM fixture")
-            (sidecar / "priv").mkdir()
-            (sidecar / "priv/esqlite3_nif.so").write_bytes(b"NIF fixture")
             destination = Path("build/release-notices") / target
             for name in names:
                 path = destination / name

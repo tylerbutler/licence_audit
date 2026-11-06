@@ -107,7 +107,7 @@ resolved licence materials. The cache prevents repeated downloads and fallback
 operations:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.sqlite3
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3/
 ```
 
 Immutable content addresses are the cache keys. The cache contains extracted
@@ -115,8 +115,8 @@ source materials, final package materials, repository tag-to-commit results,
 licence files from repositories, and canonical SPDX records. Packages that
 declare the same identifier share one SPDX record. Cache entries do not expire.
 Use `XDG_CACHE_HOME` to relocate the caches, or use `--no-cache` to bypass
-both the metadata and licence materials caches. `--cache-path=PATH` overrides
-only the metadata cache location. The command reads local path dependencies
+both the metadata and licence materials caches. `--cache-path=DIR` overrides
+only the metadata cache directory. The command reads local path dependencies
 live and does not cache them.
 
 Corrupt cached values are treated as misses. Transient network failures are
@@ -137,7 +137,7 @@ licence_audit notices [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--include-dev` | `BOOL` | `false` | Include dev-only dependencies in the notice file |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

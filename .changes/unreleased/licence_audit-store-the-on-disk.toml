@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Changed"
+body = "Store the on-disk caches as one JSON file per entry, not as SQLite databases. The CLI no longer has native dependencies: escripts no longer need the `sqlite_native/` directory, and cache paths can contain non-ASCII characters and are no longer limited to 504 bytes on Linux. `--cache-path` now names the metadata cache directory, for example `.hex-cache/hex-v2`. The default caches are `hex-v2/` and `notices-v3/` below `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. The caches refill on first use; you can delete old `.sqlite3` files."
