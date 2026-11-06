@@ -20,5 +20,5 @@ licence_audit update [--flags]
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

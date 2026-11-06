@@ -1,6 +1,6 @@
 import gleam/dict
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -363,5 +363,65 @@ pub fn notices_rejects_invalid_configuration_before_fetching_test() {
   let result = run(root, [])
   should.equal(result.exit_code, 2)
   assert string.contains(result.output, "notices.include")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn notices_explicit_config_controls_filters_and_preserves_project_paths_test() {
+  let root =
+    project("explicit-config", "[tools.licence_audit.notices]\ninclude = true")
+  let alternate = root <> "/alternate.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      "[tools.licence_audit.notices]\ninclude = [\"path_dep\"]",
+      to: alternate,
+    )
+  let assert Ok(_) = simplifile.create_directory_all(root <> "/local")
+  let assert Ok(_) =
+    simplifile.write("Local licence text", to: root <> "/local/LICENSE")
+  let plain = run(root, ["--config=" <> alternate, "--color=never"])
+  let forced = run(root, ["--config=" <> alternate, "--colour=always"])
+  should.equal(plain.exit_code, 0)
+  should.equal(forced, plain)
+  assert string.contains(plain.output, "Local licence text")
+  assert !string.contains(plain.output, "hex_dep 1.0.0")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn notices_config_failures_happen_before_network_requests_test() {
+  let root = project("config-errors", "")
+  let missing = root <> "/missing.toml"
+  let result = run(root, ["--config=" <> missing])
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, missing)
+  let malformed = root <> "/malformed.toml"
+  let assert Ok(_) = simplifile.write("[broken", to: malformed)
+  should.equal(run(root, ["--config=" <> malformed]).exit_code, 2)
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn notices_loader_preserves_empty_settings_and_ignore_precedence_test() {
+  let root =
+    project(
+      "loader-options",
+      "[tools.licence_audit.notices]\ninclude = [\"path_dep\"]",
+    )
+  let alternate = root <> "/plain.toml"
+  let assert Ok(_) = simplifile.write("name = \"plain\"", to: alternate)
+  should.equal(
+    config.load_notices(root, Some(alternate), False),
+    Ok(config.Notices([], [])),
+  )
+  should.equal(
+    config.load_notices(root, Some(root <> "/missing"), True),
+    Ok(config.Notices([], [])),
+  )
+  should.equal(
+    config.load_notices(root, None, True),
+    Ok(config.Notices([], [])),
+  )
+  should.equal(
+    config.load_notices(root, None, False),
+    Ok(config.Notices(["path_dep"], [])),
+  )
   let assert Ok(_) = simplifile.delete(root)
 }

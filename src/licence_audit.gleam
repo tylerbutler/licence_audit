@@ -167,7 +167,15 @@ pub fn run(args: List(String)) -> RunResult {
 }
 
 fn library_args(args: List(String)) -> List(String) {
-  use <- bool.guard(when: list.contains(args, "--no-cache"), return: args)
+  let command =
+    args
+    |> cli.normalize_args
+    |> list.filter(fn(arg) { !string.starts_with(arg, "--") })
+    |> list.first
+  use <- bool.guard(
+    when: list.contains(args, "--no-cache") || command == Ok("vulns"),
+    return: args,
+  )
   list.append(args, ["--no-cache"])
 }
 
@@ -295,7 +303,11 @@ fn run_notices_options(
 
   let selection = {
     use configuration <- result.try(
-      config.load_notices(project_root)
+      config.load_notices(
+        project_root,
+        options.config_path,
+        options.ignore_config,
+      )
       |> result.map_error(error.from_config_error),
     )
     use sbom_manifest <- result.try(
@@ -305,7 +317,10 @@ fn run_notices_options(
     let scopes =
       manifest.sbom_scopes(
         sbom_manifest,
-        resolve_notices_prod_seed(project_root, sbom_manifest.root_requirements),
+        resolve_filtered_prod_seed(
+          project_root,
+          sbom_manifest.root_requirements,
+        ),
       )
     use selected <- result.try(
       notice.selected_entries(
@@ -1924,7 +1939,7 @@ fn resolve_prod_seed(
   }
 }
 
-fn resolve_notices_prod_seed(
+fn resolve_filtered_prod_seed(
   project_root: String,
   all_direct: List(String),
 ) -> List(String) {
@@ -2094,13 +2109,30 @@ fn run_vulns_options(
     let scopes =
       manifest.sbom_scopes(
         sbom_manifest,
-        resolve_prod_seed(project_root, sbom_manifest.root_requirements),
+        resolve_filtered_prod_seed(
+          project_root,
+          sbom_manifest.root_requirements,
+        ),
       )
-    let #(purl_pairs, purl_errors) = build_purl_pairs(sbom_manifest)
+    let #(all_purl_pairs, _) = build_purl_pairs(sbom_manifest)
+    let active_entries =
+      list.filter(sbom_manifest.entries, fn(entry) {
+        !options.prod_only || scope_for(scopes, entry.name) == manifest.Prod
+      })
+    let #(purl_pairs, purl_errors) =
+      build_purl_pairs(
+        manifest.SbomManifest(..sbom_manifest, entries: active_entries),
+      )
+    let excluded =
+      all_purl_pairs
+      |> list.filter(fn(pair) {
+        options.prod_only && scope_for(scopes, pair.0.name) == manifest.Dev
+      })
+      |> list.map(fn(pair) { #(pair.1, "excluded by --prod-only") })
     let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
     use _ <- result.try(
-      validate_exception_identities(config_policy.exceptions, purl_pairs)
+      validate_exception_identities(config_policy.exceptions, all_purl_pairs)
       |> result.map_error(fn(review_error) {
         #(diagnostic(review_error), reporter)
       }),
@@ -2113,7 +2145,7 @@ fn run_vulns_options(
             config_policy.exceptions,
             today,
             exception.NotEvaluated("licence scan disabled"),
-            exception.Evaluated([], []),
+            exception.Evaluated([], excluded),
           )
         #(report_result(0, output), reporter)
       }
@@ -2129,6 +2161,7 @@ fn run_vulns_options(
           palette,
           config_policy.exceptions,
           today,
+          excluded,
         )
     })
   }
@@ -2150,6 +2183,7 @@ fn query_and_report_vulns(
   palette: color.Palette,
   exceptions: List(exception.Exception),
   today: String,
+  excluded: List(#(String, String)),
 ) -> #(ActionResult, progress.Reporter) {
   let reporter =
     progress.detail(
@@ -2170,7 +2204,10 @@ fn query_and_report_vulns(
                 exceptions,
                 today,
                 exception.NotEvaluated("licence scan disabled"),
-                unavailable_vulns(purl_pairs, "OSV request failed"),
+                with_excluded_vulns(
+                  unavailable_vulns(purl_pairs, "OSV request failed"),
+                  excluded,
+                ),
               ),
           ),
         ),
@@ -2190,12 +2227,23 @@ fn query_and_report_vulns(
               exceptions,
               today,
               exception.NotEvaluated("licence scan disabled"),
-              vuln_row_coverage(rows),
+              with_excluded_vulns(vuln_row_coverage(rows), excluded),
             )
           #(report_result(0, output), reporter)
         }
       }
     }
+  }
+}
+
+fn with_excluded_vulns(
+  coverage: exception.Coverage,
+  excluded: List(#(String, String)),
+) -> exception.Coverage {
+  case coverage {
+    exception.NotEvaluated(_) -> coverage
+    exception.Evaluated(matched, unavailable) ->
+      exception.Evaluated(matched, list.append(unavailable, excluded))
   }
 }
 
