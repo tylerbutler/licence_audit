@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Keep `check` gate verdicts on stdout without duplicate stderr errors, and send OSV request failure diagnostics to stderr even with `--quiet`."

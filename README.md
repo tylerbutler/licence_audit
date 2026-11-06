@@ -458,22 +458,27 @@ non-blocking.
 
 ## Output, colours & exit codes
 
-**Streams.** Reports go to stdout; everything else to stderr:
+**Streams.** Reports and gate verdicts go to stdout. Operational diagnostics go
+to stderr:
 
 | Output | Stream |
 | ------ | ------ |
-| Human audit reports | stdout |
+| Human audit reports and gate verdicts | stdout |
 | `sbom` JSON (no `--output`) | stdout |
 | `sbom --output=PATH` | `PATH` (stdout empty) |
 | Progress, warnings, errors | stderr |
 
 Reports stay on stdout even when an enforced gate fails or a report is
-incomplete. Fatal diagnostics go to stderr, including with `--quiet`.
+incomplete. A completed `check` that fails a licence or vulnerability policy
+prints its verdict after the report and exits 1, without a duplicate stderr
+error. Operational failures, such as OSV batch or advisory-detail request
+failures, go to stderr and exit 2; any available report stays on stdout.
+Fatal diagnostics go to stderr, including with `--quiet`.
 Erlang runtime reports, including native-library load errors, also go to stderr.
 If SBOM generation fails before a document is available, stdout stays empty.
 
-Progress messages are written to stderr as the audit runs; use `--quiet` to
-silence them or `--verbose` for package-level detail.
+Progress messages are written to stderr as the audit runs. `--quiet` hides INFO
+and WARN messages, but never errors. Use `--verbose` for package-level detail.
 
 **Report format.** Rows are indented to reflect the dependency tree (`├─`/`└─`)
 and prefixed with a status glyph:
