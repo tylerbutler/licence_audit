@@ -128,7 +128,13 @@ class ReleasePrTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
             shutil.copy2(ROOT / "gleam.toml", work)
-            shutil.copytree(ROOT / ".changes", work / ".changes")
+            unreleased = work / ".changes/unreleased"
+            unreleased.mkdir(parents=True)
+            (unreleased / "candidate-lifecycle.toml").write_text(
+                'package = "licence_audit"\n'
+                'kind = "Fixed"\n'
+                'body = "Fix the release candidate lifecycle fixture."\n'
+            )
             shutil.copy2(ROOT / "CHANGELOG.md", work)
             for source in [ROOT / "test/fixtures", ROOT / "vendor"]:
                 for manifest in source.rglob("gleam.toml"):
