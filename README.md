@@ -185,11 +185,15 @@ Then enforce it:
 
 ```sh
 licence_audit check
-licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only   # ad-hoc policy
+licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only   # add to configured policy
 ```
 
-CLI `--allow`/`--deny` values merge with config. `check` exits non-zero on any
-violation. Pass `--config=other.toml` to read policy from a different file (it
+CLI `--allow`/`--deny` values form a union with the corresponding config lists;
+duplicates are removed. `--allow` adds permitted licences for this run and can
+widen the gate. `--deny` adds denied licences for this run. Neither option
+replaces the configured list, and `deny` still takes precedence over `allow`.
+`check` exits non-zero on any violation.
+Pass `--config=other.toml` to read policy from a different file (it
 must still have a `[tools.licence_audit]` section) or `--ignore-config` to use
 only CLI flags.
 

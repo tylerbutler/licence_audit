@@ -4,6 +4,7 @@ import gleam/string
 import gleeunit/should
 import licence_audit
 import licence_audit/config
+import licence_audit/hex
 import licence_audit/progress
 import licence_audit/toml
 import simplifile
@@ -109,6 +110,80 @@ pub fn merge_errors_on_empty_licence_identifier_test() {
   let assert Error(error) = config.merge(file, cli)
 
   should.equal(error, config.InvalidLicenceIdentifier)
+}
+
+pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {
+  [
+    #(Some("test/fixtures/licence_audit_config.toml"), ["BSD-3-Clause", "MIT"], [
+      "AGPL-3.0-only",
+      "GPL-3.0-only",
+    ]),
+    #(None, ["MIT", "Apache-2.0", "BSD-3-Clause"], [
+      "GPL-3.0-only",
+      "AGPL-3.0-only",
+    ]),
+  ]
+  |> list.each(fn(test_case) {
+    let #(config_path, expected_allow, expected_deny) = test_case
+    let assert Ok(policy) =
+      config.load(config.LoadOptions(
+        config_path:,
+        project_root: "test/fixtures",
+        allow_licences: ["MIT", "BSD-3-Clause", "MIT"],
+        deny_licences: ["GPL-3.0-only", "AGPL-3.0-only", "GPL-3.0-only"],
+        vuln_severity: None,
+        vuln_block_unknown: False,
+        ignore_config: False,
+        check: True,
+      ))
+
+    should.equal(policy.allow, expected_allow)
+    should.equal(policy.deny, expected_deny)
+  })
+}
+
+pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
+  [
+    #("MIT", [], 1, "unknown: MIT"),
+    #("MIT", ["--allow=MIT"], 0, "allowed"),
+    #("BSD-3-Clause", ["--allow=MIT"], 0, "allowed"),
+    #("AGPL-3.0-only", ["--allow=AGPL-3.0-only"], 1, "denied: AGPL-3.0-only"),
+    #(
+      "GPL-3.0-only",
+      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      1,
+      "denied: GPL-3.0-only",
+    ),
+    #(
+      "AGPL-3.0-only",
+      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      1,
+      "denied: AGPL-3.0-only",
+    ),
+  ]
+  |> list.each(fn(test_case) {
+    let #(licence, additions, expected_exit_code, expected_output) = test_case
+    let clients =
+      licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
+        Ok(hex.licences_only([licence]))
+      })
+    let #(result, _) =
+      licence_audit.run_configured(
+        list.append(
+          [
+            "check",
+            "--manifest=test/fixtures/manifest.toml",
+            "--config=test/fixtures/licence_audit_config.toml",
+          ],
+          additions,
+        ),
+        clients,
+        progress.disabled(),
+      )
+
+    should.equal(result.exit_code, expected_exit_code)
+    assert string.contains(result.output, expected_output)
+  })
 }
 
 pub fn parse_errors_on_invalid_field_type_test() {
