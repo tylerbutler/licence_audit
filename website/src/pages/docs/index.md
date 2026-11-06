@@ -55,6 +55,9 @@ returns exit code `0` when the scan completes. An incomplete licence report
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
 
+See [configuration discovery](/docs/configuration#discovery) for how the
+manifest selects the project and policy file.
+
 ## Optional GitHub Actions usage
 
 Use mise in GitHub Actions to install the same native binary as a local
@@ -107,7 +110,8 @@ jobs:
 
 ## Output, colours, and exit codes
 
-Reports go to **stdout**. Progress, warnings, and errors go to **stderr**.
+Reports and gate verdicts go to **stdout**. Progress, warnings, and operational
+errors go to **stderr**. `--quiet` hides INFO and WARN messages, but never errors.
 Rows use indentation to show the dependency tree. Each row starts with a
 status symbol:
 

@@ -23,8 +23,9 @@ a package URL, a SHA-256 hash for Hex packages, the package description,
 declared licences, and external references. The package URL is `pkg:hex/...`
 for Hex and `pkg:github/owner/repo@<commit>` for GitHub git dependencies. The
 external references can identify the tarball, source, home page, and
-documentation. Data from `gleam.toml` supplies information for the root
-component. A `dependencies` graph represents the dependency tree.
+documentation. [Project configuration](/docs/configuration#discovery) supplies
+information for the root component. A `dependencies` graph represents the
+dependency tree.
 
 Each licence has the property `acknowledgement: "declared"` because the data
 comes from package metadata, not a source scan. If a package declares multiple

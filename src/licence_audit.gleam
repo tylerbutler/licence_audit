@@ -1746,10 +1746,7 @@ fn finalize_audit(
   ))
   use <- bool.guard(when: check && policy_failed, return: #(
     report_result(1, output <> error.message(error.AuditFailed) <> "\n"),
-    progress.defer_error(
-      reporter,
-      "Licence audit failed: policy violations detected",
-    ),
+    reporter,
   ))
   use <- bool.guard(when: vuln_failed, return: #(
     report_result(
@@ -1762,11 +1759,7 @@ fn finalize_audit(
           "Vulnerability check failed: one or more advisories at or above threshold severity.\n"
       },
     ),
-    progress.defer_error(reporter, case vuln_unknown_failed {
-      True ->
-        "Vulnerability check failed: threshold or unknown-severity blockers detected"
-      False -> "Vulnerability check failed: advisories at or above threshold"
-    }),
+    reporter,
   ))
   #(
     report_result(0, output),
@@ -2616,7 +2609,7 @@ fn query_vuln_gate(
           "Vulnerability check failed: OSV request failed",
         )
       VulnGateOutcome(
-        report_text: "\nVulnerability check failed: OSV request failed.\n",
+        report_text: format_unsupported_sources(unsupported_packages),
         gate_failed: False,
         unknown_failed: False,
         incomplete: True,
@@ -2665,12 +2658,11 @@ fn evaluate_vuln_gate(
     let reporter =
       progress.defer_error(
         reporter,
-        "Vulnerability check incomplete: failed to fetch OSV advisory details for "
-          <> int.to_string(list.length(detail_failures))
-          <> " advisory/advisories",
+        format_vuln_detail_failures_output(detail_failures)
+          |> string.trim,
       )
     VulnGateOutcome(
-      report_text: format_vuln_detail_failures_output(detail_failures),
+      report_text: format_unsupported_sources(unsupported_packages),
       gate_failed: False,
       unknown_failed: False,
       incomplete: True,

@@ -51,6 +51,20 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("--quiet", "--no-cache"))
 
+    def test_vulnerability_flags_require_scan_before_reading_manifest(self):
+        for flags in (
+            ["--vuln-severity=critical"],
+            ["--vuln-block-unknown"],
+            ["--vuln-block-unknown=false"],
+            ["--vuln-severity=high", "--vuln-block-unknown"],
+        ):
+            for scan in ([], ["--vulns=false"]):
+                with self.subTest(flags=flags, scan=scan):
+                    result = self.run_cli("check", "--quiet", *flags, *scan)
+                    self.assert_diagnostic(result, status=1)
+                    self.assertIn("require --vulns", result.stderr)
+                    self.assertNotIn("manifest", result.stderr)
+
     def test_help_alias_and_root_only_version(self):
         for command in ("", "check", "sbom", "vulns", "notices", "update"):
             arguments = [command] if command else []
@@ -174,18 +188,132 @@ class CliStreamTest(unittest.TestCase):
         )
         self.assertEqual(seed.returncode, 0, seed.stdout + seed.stderr)
         for licence, status in (("Apache-2.0", 1), ("MIT", 0)):
-            with self.subTest(licence=licence):
-                result = self.run_cli(
-                    "check", "--quiet", f"--allow={licence}",
-                    f"--cache-path={cache_path}",
-                )
-                self.assertEqual(result.returncode, status, result.stderr)
-                self.assertIn("example", result.stdout)
-                if status == 1:
-                    self.assertIn("policy violations detected", result.stderr)
-                    self.assertNotIn("example", result.stderr)
-                else:
-                    self.assertEqual(result.stderr, "")
+            for quiet in (False, True):
+                with self.subTest(licence=licence, quiet=quiet):
+                    result = self.run_cli(
+                        "check", f"--allow={licence}",
+                        f"--cache-path={cache_path}",
+                        *(["--quiet"] if quiet else []),
+                    )
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertIn("example", result.stdout)
+                    self.assertNotIn("ERROR", result.stderr)
+                    self.assertNotIn("policy violations detected", result.stderr)
+                    self.assertEqual(
+                        "Dependency licence audit failed" in result.stdout,
+                        status == 1,
+                    )
+                    if quiet:
+                        self.assertEqual(result.stderr, "")
+
+    def test_vulnerability_gate_and_operational_failure_streams(self):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "example", version = "1.0.0", '
+            'build_tools = ["gleam"], requirements = [], '
+            'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
+            '[requirements]\nexample = ">= 1.0.0"\n'
+        )
+        # Replace only fetch functions in a fresh VM, retaining the real OSV
+        # formatting/severity functions and main's stream dispatch.
+        evaluation = """
+            Metadata = 'licence_audit@hex':licences_only([<<"MIT">>]),
+            HexForms = [
+                {attribute, 1, module, 'licence_audit@hex'},
+                {attribute, 1, export, [{fetch_package_metadata_from_hex, 1}]},
+                {function, 1, fetch_package_metadata_from_hex, 1, [
+                    {clause, 1, [{var, 1, '_'}], [],
+                        [erl_parse:abstract({ok, Metadata})]}
+                ]}
+            ],
+            {ok, Hex, HexBinary} = compile:forms(HexForms, [binary]),
+            {module, Hex} = code:load_binary(Hex, "stream_fixture", HexBinary),
+            Mode = os:getenv("STREAM_OSV_MODE"),
+            Severity = case Mode of "unknown" -> unknown_severity; _ -> high end,
+            Batch = case Mode of
+                "batch_failure" -> {error, network_failure};
+                _ -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>,
+                    [<<"CVE-STREAM-0001">>]}]}
+            end,
+            Detail = case Mode of
+                "detail_failure" -> {error, not_found};
+                _ -> {ok, {vulnerability, <<"CVE-STREAM-0001">>, [],
+                    <<"Fixture advisory">>, Severity, []}}
+            end,
+            Osv = 'licence_audit@osv',
+            {ok, {Osv, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                beam_lib:chunks(code:which(Osv), [abstract_code]),
+            Replaced = lists:map(fun
+                ({function, Line, Name, 1, _}) when
+                    Name =:= query_batch_from_osv;
+                    Name =:= fetch_vulnerability_from_osv ->
+                    Result = case Name of
+                        query_batch_from_osv -> Batch;
+                        fetch_vulnerability_from_osv -> Detail
+                    end,
+                    {function, Line, Name, 1, [
+                        {clause, Line, [{var, Line, '_'}], [],
+                            [erl_parse:abstract(Result)]}
+                    ]};
+                (Form) -> Form
+            end, Forms),
+            {ok, Osv, OsvBinary} = compile:forms(Replaced, [binary]),
+            {module, Osv} = code:load_binary(Osv, "stream_fixture", OsvBinary),
+            licence_audit:main().
+        """
+        cases = (
+            ("high", False, 1),
+            ("unknown", False, 1),
+            ("batch_failure", False, 2),
+            ("detail_failure", False, 2),
+            ("batch_failure", True, 2),
+            ("detail_failure", True, 2),
+        )
+        for mode, deny_licence, status in cases:
+            for quiet in (False, True):
+                with self.subTest(mode=mode, deny_licence=deny_licence, quiet=quiet):
+                    arguments = ["check", "--allow=MIT", "--vulns", "--no-cache"]
+                    if mode == "unknown":
+                        arguments += ["--vuln-block-unknown"]
+                    if deny_licence:
+                        arguments += ["--deny=MIT"]
+                    if quiet:
+                        arguments += ["--quiet"]
+                    result = subprocess.run(
+                        [
+                            "erl", "-noshell", "-pa",
+                            *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                            "-eval", evaluation, "-extra", *arguments,
+                        ],
+                        cwd=self.project, capture_output=True, text=True,
+                        timeout=30,
+                        env={
+                            **os.environ, "NO_COLOR": "1",
+                            "STREAM_OSV_MODE": mode,
+                        },
+                    )
+                    self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                    self.assertIn("example", result.stdout)
+                    if status == 1:
+                        self.assertIn("CVE-STREAM-0001", result.stdout)
+                        self.assertIn("Vulnerability check failed:", result.stdout)
+                        self.assertNotIn("ERROR", result.stderr)
+                        if quiet:
+                            self.assertEqual(result.stderr, "")
+                    else:
+                        diagnostic = (
+                            "OSV request failed" if mode == "batch_failure"
+                            else "failed to fetch OSV advisory details"
+                        )
+                        self.assertNotIn(diagnostic, result.stdout)
+                        self.assertIn(diagnostic, result.stderr)
+                        self.assertEqual(result.stderr.count("ERROR"), 1)
+                        self.assertNotIn("Dependency licence audit failed", result.stdout)
+                        if mode == "detail_failure":
+                            self.assertNotIn("CVE-STREAM-0001", result.stdout)
+                            self.assertIn("CVE-STREAM-0001: OSV resource not found", result.stderr)
+                        if quiet:
+                            self.assertNotIn("INFO", result.stderr)
+                            self.assertNotIn("WARN", result.stderr)
 
     def test_unavailable_cache_preserves_reports_and_sbom_stdout(self):
         (self.project / "manifest.toml").write_text("packages = []\n")

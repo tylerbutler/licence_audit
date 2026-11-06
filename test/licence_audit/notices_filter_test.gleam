@@ -150,8 +150,8 @@ fn project(name: String, settings: String) -> String {
       "packages = [
   { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"unused\" },
   { name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/dep\", commit = \"abc\" },
-  { name = \"path_dep\", version = \"1.0.0\", source = \"path\", path = \"local\" },
-  { name = \"dev_dep\", version = \"1.0.0\", source = \"path\", path = \"dev\" },
+  { name = \"path_dep\", version = \"1.0.0\", source = \"local\", path = \"local\" },
+  { name = \"dev_dep\", version = \"1.0.0\", source = \"local\", path = \"dev\" },
 ]
 [requirements]
 hex_dep = { version = \">= 1.0.0\" }
@@ -196,12 +196,56 @@ pub fn notices_filters_before_metadata_and_source_reads_test() {
   let assert Ok(_) = simplifile.create_directory_all(root <> "/local")
   let assert Ok(_) =
     simplifile.write("Local licence text", to: root <> "/local/LICENSE")
+  let assert Ok(_) =
+    simplifile.write(
+      "name = \"path_dep\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]",
+      to: root <> "/local/gleam.toml",
+    )
   let result = run(root, [])
   should.equal(result.exit_code, 0)
   assert string.contains(result.output, "path_dep 1.0.0")
   assert string.contains(result.output, "Local licence text")
+  assert string.contains(result.output, "Declared licences: MIT")
   assert !string.contains(result.output, "hex_dep 1.0.0")
   assert !string.contains(result.output, "git_dep 1.0.0")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn notices_local_dependency_missing_directory_is_explicit_error_test() {
+  let root =
+    project(
+      "local-missing-directory",
+      "[tools.licence_audit.notices]\ninclude = [\"path_dep\"]",
+    )
+  let result = run(root, [])
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Failed to read path dependency path_dep",
+  )
+  assert string.contains(result.output, root <> "/local")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn notices_local_dependency_invalid_path_is_manifest_error_test() {
+  let root =
+    project(
+      "local-invalid-path",
+      "[tools.licence_audit.notices]\ninclude = [\"path_dep\"]",
+    )
+  let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      string.replace(contents, "path = \"local\"", "path = 42"),
+      to: root <> "/manifest.toml",
+    )
+  let result = run(root, [])
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Invalid manifest package path_dep field path: expected String",
+  )
+  assert !string.contains(result.output, "unsupported source")
   let assert Ok(_) = simplifile.delete(root)
 }
 
