@@ -275,7 +275,10 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
       should.equal(result.exit_code, 2)
       assert string.contains(result.output, "Unknown config field " <> field)
     })
-    should.equal(config.load_notices(root), Error(config.UnknownField(field)))
+    should.equal(
+      config.load_notices(root, None, False),
+      Error(config.UnknownField(field)),
+    )
   })
   list.each(["allow", "deny"], fn(field) {
     let assert Ok(_) =
@@ -304,7 +307,7 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
       assert string.contains(result.output, "valid SPDX expressions")
     })
     should.equal(
-      config.load_notices(root),
+      config.load_notices(root, None, False),
       Error(config.InvalidLicenceIdentifier),
     )
   })

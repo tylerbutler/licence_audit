@@ -779,7 +779,7 @@ pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_te
   should.equal(empty_identifier.exit_code, 2)
   assert string.contains(
     empty_identifier.output,
-    "Licence identifiers must not be empty",
+    "Allow and deny entries must be valid SPDX expressions",
   )
 }
 

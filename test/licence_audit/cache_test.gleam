@@ -571,6 +571,8 @@ pub fn repeated_writes_leave_no_temporary_files_test() {
 }
 
 pub fn failed_write_over_existing_entry_returns_error_test() {
+  // An aborted earlier run can leave the directory read-only.
+  let _ = simplifile.set_permissions_octal(tmp_dir <> "/read_only_store", 0o755)
   let path = fresh_path("read_only_store")
   let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
   should.equal(cache_dir.insert(store, "key", "old"), Ok(Nil))
