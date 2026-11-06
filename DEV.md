@@ -17,6 +17,52 @@ recipe wraps its commands in `mise exec --` already, so `just build`,
 back to `mise exec -- <command>` when running tools that don't have a
 `just` recipe.
 
+The stable compiler and just versions are exact pins in `.mise.toml`.
+`mise.lock` records versions and backend-provided download URLs and SHA-256
+hashes for Linux and macOS on x86-64 and ARM64. Rebar3 uses the explicit GitHub
+release backend so its lock entries include URLs and hashes. Install without
+changing the lockfile:
+
+```sh
+mise install --locked
+```
+
+If you have unrelated global mise tools without their own lockfile, select
+the project tools explicitly (for example, `mise install --locked erlang
+gleam just github:erlang/rebar3`). A bare install includes global tools as well.
+
+CI requires a locked install. For a tool update, change its pin, regenerate
+the lockfile, and review the versions, URLs, and hashes before committing:
+
+```sh
+mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64
+just test-build-inputs
+just build-strict
+just test
+```
+
+The native release script uses `scripts/build_inputs.json` for direct Gleam,
+rebar3, rustup-init, and Queso downloads. `scripts/build_inputs.py` rejects
+version drift and checks the committed SHA-256 before extraction or execution.
+When updating these tools, update the input manifest as well as the mise and
+workflow pins. Obtain Gleam, rebar3, and Queso hashes from their versioned GitHub
+release asset digests. Obtain rustup-init hashes from
+`https://static.rust-lang.org/rustup/archive/VERSION/PLATFORM/rustup-init.sha256`.
+Download and check each supported asset against that upstream hash before
+committing it. Do not replace a hash only because a download failed verification.
+
+For example, download and verify a pinned asset without executing it:
+
+```sh
+python3 -B scripts/build_inputs.py rustup x86_64-unknown-linux-musl build/native-tools/rustup-init
+```
+
+This checks the direct downloads, not every build input. System package
+repositories, runner images, setup-beam downloads, Rust toolchain installation,
+and transitive Cargo and pip downloads still use their own trust and verification
+mechanisms. The build is not fully hermetic. Cargo-about 0.9.2 has no macOS
+x86-64 release asset; the native build installs it from Cargo with `--locked`.
+
 ## Reference coding
 
 Use [XERJ](https://xerj.org/llms.txt) to search this project's sources and peer

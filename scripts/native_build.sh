@@ -27,25 +27,21 @@ case "$(uname -s)" in
       "$arch-linux-glibc") test ! -f /etc/alpine-release ;;
       *) echo "Target does not match the native Linux host: $target" >&2; exit 1 ;;
     esac
-    gleam_version=$(python3 -c 'import tomllib; print(tomllib.load(open(".mise.toml", "rb"))["tools"]["gleam"])')
-    rebar_version=$(python3 -c 'import tomllib; print(tomllib.load(open(".mise.toml", "rb"))["tools"]["rebar"])')
     otp=$(python3 -c 'import tomllib; print(tomllib.load(open(".mise.toml", "rb"))["tools"]["erlang"])')
     actual_otp=$(erl -noshell -eval 'io:format("~s", [string:trim(element(2, file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"]))))]), halt().')
     test "$actual_otp" = "$otp"
-    curl --fail --location --retry 3 \
-      "https://github.com/gleam-lang/gleam/releases/download/v${gleam_version}/gleam-v${gleam_version}-${arch}-unknown-linux-musl.tar.gz" \
-      -o build/native-tools/gleam.tar.gz
+    python3 -B scripts/build_inputs.py gleam "${arch}-unknown-linux-musl" build/native-tools/gleam.tar.gz
     tar -xzf build/native-tools/gleam.tar.gz -C build/native-tools
-    curl --fail --location --retry 3 \
-      "https://github.com/erlang/rebar3/releases/download/${rebar_version}/rebar3" \
-      -o build/native-tools/rebar3
+    python3 -B scripts/build_inputs.py github:erlang/rebar3 any build/native-tools/rebar3
     chmod +x build/native-tools/rebar3
     export PATH="$PWD/build/native-tools:$PATH"
     export CARGO_HOME="$PWD/build/native-tools/cargo"
     export RUSTUP_HOME="$PWD/build/native-tools/rustup"
-    curl --fail --location --retry 3 https://sh.rustup.rs -o build/native-tools/rustup-init.sh
-    sh build/native-tools/rustup-init.sh -y --no-modify-path --profile minimal
+    python3 -B scripts/build_inputs.py rustup "${arch}-unknown-linux-musl" build/native-tools/rustup-init
+    chmod +x build/native-tools/rustup-init
+    build/native-tools/rustup-init -y --no-modify-path --profile minimal
     export PATH="$CARGO_HOME/bin:$PATH"
+    rustup set auto-self-update disable
     python3 -m venv build/native-tools/python
     export PATH="$PWD/build/native-tools/python/bin:$PATH"
     queso_platform="${arch}-unknown-linux-musl"
@@ -87,16 +83,11 @@ case "$target" in
 esac
 rustup target add "$rust_target"
 
-queso_version=$(python3 -c 'import tomllib; print(tomllib.load(open(".mise.toml", "rb"))["tools"]["github:jtdowney/queso"])')
 if [ "$target" = x86_64-windows ]; then
-  curl --fail --location --retry 3 \
-    "https://github.com/jtdowney/queso/releases/download/v${queso_version}/queso-${queso_platform}.zip" \
-    -o build/native-tools/queso.zip
+  python3 -B scripts/build_inputs.py github:jtdowney/queso "$queso_platform" build/native-tools/queso.zip
   python3 -m zipfile -e build/native-tools/queso.zip build/native-tools
 else
-  curl --fail --location --retry 3 \
-    "https://github.com/jtdowney/queso/releases/download/v${queso_version}/queso-${queso_platform}.tar.gz" \
-    -o build/native-tools/queso.tar.gz
+  python3 -B scripts/build_inputs.py github:jtdowney/queso "$queso_platform" build/native-tools/queso.tar.gz
   tar -xzf build/native-tools/queso.tar.gz -C build/native-tools
 fi
 export PATH="$PWD/build/native-tools:$PATH"
