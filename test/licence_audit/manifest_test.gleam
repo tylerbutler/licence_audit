@@ -88,6 +88,59 @@ pub fn sbom_requires_source_specific_fields_test() {
   )
 }
 
+pub fn sbom_local_fixture_preserves_path_provenance_test() {
+  let assert Ok(parsed) =
+    manifest.load_sbom("test/fixtures/manifest_path_dep.toml")
+  let assert [_, local] = parsed.entries
+  should.equal(
+    local,
+    manifest.SbomEntry(
+      name: "local_dep",
+      version: "0.1.0",
+      requirements: [],
+      provenance: manifest.PathProvenance("../local_dep"),
+    ),
+  )
+  should.equal(parsed.root_requirements, ["gleam_stdlib", "local_dep"])
+}
+
+pub fn local_and_path_alias_share_provenance_and_field_errors_test() {
+  list.each(["local", "path"], fn(source) {
+    let prefix =
+      "packages = [{ name = \"local_dep\", version = \"0.1.0\", source = \""
+      <> source
+      <> "\", requirements = [\"hex_dep\"]"
+    let assert Ok(parsed) =
+      manifest.sbom_entries(prefix <> ", path = \"../local dep\" }]")
+    let assert [entry] = parsed.entries
+    should.equal(entry.requirements, ["hex_dep"])
+    should.equal(entry.provenance, manifest.PathProvenance("../local dep"))
+    list.each(["", ", path = 42"], fn(path_field) {
+      should.equal(
+        manifest.sbom_entries(prefix <> path_field <> " }]"),
+        Error(manifest.InvalidPackageField("local_dep", "path", "String")),
+      )
+    })
+  })
+}
+
+pub fn local_dependencies_remain_in_audit_graph_and_skipped_summary_test() {
+  let assert Ok(parsed) = manifest.load("test/fixtures/manifest_path_dep.toml")
+  should.equal(parsed.skipped_packages, [
+    manifest.SkippedPackage("local_dep", "0.1.0", "local", []),
+  ])
+  should.equal(
+    dict.get(manifest.dep_paths(parsed), "local_dep"),
+    Ok([
+      "local_dep",
+    ]),
+  )
+  let assert Ok(vulns) =
+    manifest.load_vulns("test/fixtures/manifest_path_dep.toml")
+  let assert [_, local] = vulns.entries
+  should.equal(local.provenance, manifest.PathProvenance("../local_dep"))
+}
+
 pub fn audit_and_sbom_share_common_field_errors_test() {
   let input =
     "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", requirements = [42] }]"

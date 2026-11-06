@@ -15,6 +15,9 @@ licence_audit update
 
 ## Update process
 
+See [configuration discovery](/docs/configuration#discovery) for policy
+selection and the [write target](/docs/configuration#update-write-target).
+
 1. `update` resolves the dependency tree and gets licence metadata from Hex.
 2. It shows an interactive list of the licences. Existing allow and deny
    entries are preselected.
@@ -29,6 +32,12 @@ them from the configuration.
 
 Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
 file read/write failures exit `2`.
+
+An empty `allow` selection is saved, including a deny-only policy. `update`
+warns that you must add allow rules before running `check` or `check --vulns`.
+Those commands require a non-empty allow list and otherwise exit `2`.
+Report-only use remains available. `--quiet` suppresses the warning with other
+progress output.
 
 The command writes a complete temporary file in the configuration directory
 before an atomic replacement. It preserves file permissions and ownership.

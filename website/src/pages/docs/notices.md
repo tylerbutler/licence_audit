@@ -21,8 +21,8 @@ By default, `notices` includes only **production** dependencies. Use
 
 ## Dependency filters
 
-Set filters in the `gleam.toml` next to the manifest you select with
-`--manifest` (or next to the default `manifest.toml`):
+Set filters in the file selected by
+[configuration discovery](/docs/configuration#discovery):
 
 ```toml
 [tools.licence_audit.notices]
@@ -90,6 +90,11 @@ a later source only when the earlier sources give no licence text.
 
 If a temporary error occurs during a repository fallback, `notices` writes a
 warning and continues to the SPDX fallback.
+
+For local path dependencies, Gleam writes `source = "local"` in the manifest.
+`notices` reads licence files and declared licences from the local package.
+Relative paths resolve from the directory that contains the selected manifest.
+The older `source = "path"` spelling is also accepted.
 
 ## Failure conditions
 

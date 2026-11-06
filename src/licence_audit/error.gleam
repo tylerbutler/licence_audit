@@ -38,7 +38,7 @@ pub fn message(error: Error) -> String {
     AuditFailed ->
       "Dependency licence audit failed. Review the report above and update the dependency or policy."
     MissingPolicy ->
-      "No licence policy supplied for the `check` subcommand. Add a [tools.licence_audit] section to gleam.toml or pass --allow/--deny."
+      "The `check` subcommand requires a non-empty allow list, including with --vulns. Add allow to [tools.licence_audit] in gleam.toml or pass --allow."
     Usage(message) -> message
     RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
     Config(message) -> message
@@ -90,6 +90,8 @@ pub fn from_exception_error(error: exception.Error) -> Error {
 pub fn from_config_error(error: config.Error) -> Error {
   case error {
     config.MissingPolicy -> MissingPolicy
+    config.MissingPolicySection(path) ->
+      Config("Config file " <> path <> " is missing [tools.licence_audit]")
     config.InvalidToml(message) -> Config(message)
     config.InvalidField(field, expected) ->
       Config("Invalid config field " <> field <> ": expected " <> expected)

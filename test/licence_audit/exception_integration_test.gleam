@@ -224,7 +224,7 @@ pub fn custom_reference_exception_casing_cannot_bypass_deny_test() {
   let root =
     project(
       "custom_reference_casing",
-      "[tools.licence_audit]\ndeny = [\"LicenseRef-Custom WITH Classpath-exception-2.0\"]\n",
+      "[tools.licence_audit]\nallow = [\"MIT\", \"LicenseRef-Custom WITH Classpath-exception-2.0\"]\ndeny = [\"LicenseRef-Custom WITH Classpath-exception-2.0\"]\n",
     )
   let result =
     run(
