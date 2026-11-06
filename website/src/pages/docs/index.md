@@ -107,7 +107,8 @@ jobs:
 
 ## Output, colours, and exit codes
 
-Reports go to **stdout**. Progress, warnings, and errors go to **stderr**.
+Reports and gate verdicts go to **stdout**. Progress, warnings, and operational
+errors go to **stderr**. `--quiet` hides INFO and WARN messages, but never errors.
 Rows use indentation to show the dependency tree. Each row starts with a
 status symbol:
 

@@ -693,7 +693,7 @@ pub fn denied_dependency_fails_in_check_mode_with_report_test() {
   assert string.contains(output, "Dependency licence audit failed")
 }
 
-pub fn policy_failure_emits_error_progress_event_test() {
+pub fn policy_failure_does_not_emit_error_progress_event_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_configured(
       manifest_args(["check", "--allow=MIT,Apache-2.0", "--deny=MIT"]),
@@ -702,13 +702,7 @@ pub fn policy_failure_emits_error_progress_event_test() {
     )
 
   should.equal(exit_code, 1)
-  assert list.contains(
-    events,
-    progress.Event(
-      progress.Error,
-      "Licence audit failed: policy violations detected",
-    ),
-  )
+  assert !list.any(events, fn(event) { event.kind == progress.Error })
 }
 
 pub fn fetch_failure_in_check_mode_emits_error_progress_event_test() {
@@ -1028,7 +1022,7 @@ fn unused_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
 }
 
 pub fn check_vulns_osv_batch_failure_exits_two_test() {
-  let result =
+  let #(result, events) =
     licence_audit.run_configured(
       manifest_args(["check", "--allow=MIT,Apache-2.0", "--vulns"]),
       licence_audit.Clients(
@@ -1036,14 +1030,21 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
         osv_batch_fetcher: failing_osv_batch,
         osv_detail_fetcher: unused_vuln_detail,
       ),
-      progress.disabled(),
-    ).0
+      progress.capturing(progress.Quiet, "check"),
+    )
 
   should.equal(result.exit_code, 2)
-  assert string.contains(
+  assert !string.contains(
     result.output,
     "Vulnerability check failed: OSV request failed",
   )
+  assert string.contains(result.output, "gleam_stdlib")
+  should.equal(events, [
+    progress.Event(
+      progress.Error,
+      "Vulnerability check failed: OSV request failed",
+    ),
+  ])
 }
 
 fn unknown_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
@@ -1340,9 +1341,9 @@ pub fn check_vulns_detail_failure_exits_two_by_default_test() {
     ).0
 
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Vulnerability check incomplete")
-  assert string.contains(result.output, "CVE-2024-0001")
-  assert string.contains(result.output, "OSV resource not found")
+  assert string.contains(result.output, "gleam_stdlib")
+  assert !string.contains(result.output, "Vulnerability check incomplete")
+  assert !string.contains(result.output, "OSV resource not found")
 }
 
 pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
@@ -1374,7 +1375,7 @@ pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
   should.equal(error_events, [
     progress.Event(
       progress.Error,
-      "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories",
+      "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories. The gate cannot confirm these are safe, so the check fails:\n  CVE-2024-0001: OSV resource not found",
     ),
   ])
   assert !list.contains(
@@ -1407,9 +1408,9 @@ pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
     ).0
 
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Vulnerability check incomplete")
-  assert string.contains(result.output, "CVE-2024-0001")
-  assert string.contains(result.output, "OSV resource not found")
+  assert string.contains(result.output, "gleam_stdlib")
+  assert !string.contains(result.output, "Vulnerability check incomplete")
+  assert !string.contains(result.output, "OSV resource not found")
 }
 
 pub fn check_vulns_config_and_ignore_config_control_unknown_gate_test() {

@@ -103,9 +103,21 @@ These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.
 Scripts that relied on those codes must use `2` for operational failure.
 
-Reports and generated artifacts go to stdout unless the user selects an output
-file. Progress, warnings, and errors go to stderr. Commands that support
-`--output` keep stdout empty when they write the artifact to that file.
+Reports, gate verdicts, and generated artifacts go to stdout unless the user
+selects an output file. Progress, warnings, and operational errors go to stderr.
+Commands that support `--output` keep stdout empty when they write the artifact
+to that file.
+
+Reports stay on stdout even when an enforced gate fails or a report is
+incomplete. A completed `check` that fails a licence or vulnerability policy
+prints its verdict after the report and exits `1`, without a duplicate stderr
+error. Operational failures, such as OSV batch or advisory-detail request
+failures, go to stderr and exit `2`; any available report and exception
+coverage stay on stdout.
+
+`--quiet` hides INFO and WARN messages on stderr, but never errors. Erlang
+runtime reports, including native-library load errors, also go to stderr.
+If SBOM generation fails before a document is available, stdout stays empty.
 
 Use exit codes to determine command status. Do not parse diagnostic messages.
 
