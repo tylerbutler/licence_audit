@@ -1,5 +1,32 @@
 # licence_audit changelog
 
+## v0.14.0 - 2026-10-29
+
+### Added
+
+- Add `sbom --license-text` to embed canonical SPDX licence text for recognised IDs without changing default output.
+- Add `include` and `exclude` filters under `[tools.licence_audit.notices]`. Apply them before metadata, source, and cache access, and reject names absent from the lockfile. Projects without a `[dependencies]` table now require `notices --include-dev` to include development dependencies.
+
+### Changed
+
+- Replace the on-disk metadata and notice caches with SQLite WAL, storing metadata and its timestamp in one atomic write. New `.sqlite3` caches refill on first use; the command does not import or change existing DETS files. Cache paths must be ASCII; Linux absolute database paths must not exceed 504 bytes (#168). Escript caching requires `sqlite_native/` beside the executable. Busy cache operations report a deferred warning without discarding fetched results. Bare escripts and installations with missing or unloadable SQLite native libraries run without caching and report a deferred warning. Use `--no-cache` to skip native-library loading.
+
+## v0.13.2 - 2026-10-25
+
+### Fixed
+
+- Fix `sbom --reproducible` metadata decoding for quoted UTF-8 and numeric Hex binary literals; reject unsupported literals and ignore incomplete legacy immutable cache entries.
+- Include application dependency notices and complete Slate attribution in release archives and the bare escript. Generate native runtime attribution from the built OTP, Queso, and toolchain inputs, and verify required notice contents in staged archives.
+- Keep metadata-fetch failure trees visible beside policy failures in `check`, including with `--quiet`.
+- Keep valid Git vulnerability queries in `check --vulns` when an unrelated Hex checksum is missing or malformed.
+- Make `update` replace policy files atomically so interrupted writes leave the original configuration intact, while preserving permissions, ownership, comments, and unrelated TOML.
+- Preserve Unicode in `XDG_CACHE_HOME` and `HOME` when the CLI resolves its cache directory, and handle environment conversion failures without crashing.
+- Prevent repeated cache lock waits across dependency fetches; skip busy caches with a nonfatal warning.
+- Ignore blank licence files and attribution-only files in SPDX-like paths in `notices`; use usable fallbacks and refresh stale material caches.
+- Reject nested or dotted subfields for reserved policy settings, including empty descendant tables and nested exception expiry settings, instead of silently treating them as absent.
+- Return exit code `2` for incomplete licence reports and `update` TOML edit/write failures. Report-only findings still exit `0`; optional advisory details and default SBOM enrichment remain non-fatal. Scripts must handle the changed report (`0` to `2`) and update (`1` to `2`) failure codes.
+- Send fatal CLI diagnostics to stderr while keeping gate-failure reports on stdout and failed SBOM output empty.
+
 ## v0.13.1 - 2026-10-20
 
 ### Fixed

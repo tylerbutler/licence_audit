@@ -7,6 +7,9 @@
     extract_root_file_tar_gz/2
 ]).
 
+%% Gleam core has no tar/gzip reader. OTP extracts in memory, avoiding disk paths
+%% from untrusted archives; selected reads load only matching regular files and
+%% share one inflated tar across inventory and extraction.
 extract_tar(Data) when is_binary(Data) ->
     extract(Data, []);
 extract_tar(_Data) ->

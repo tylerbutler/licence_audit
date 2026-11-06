@@ -20,13 +20,19 @@ command first reads `database_specific.severity` from OSV. If this value is not
 available, it uses the CVSS vector. The report ends with the numbers of checked,
 affected, and clean packages.
 
-The presence of a vulnerability does not cause `vulns` to fail: findings exit
-`0`. Input, configuration, manifest, and OSV batch network/decode errors exit
-`2`. Individual advisory-detail failures are tolerated: the report keeps the
-advisory ID with unknown severity and a warning, and still exits `0`. This is
-optional enrichment, not a complete severity assessment. The command queries
-Hex and GitHub dependencies. It skips other sources and lists them at the end. The command
-gets advisories through HTTPS and does **not** cache them.
+A vulnerability does not make `vulns` fail. Exit codes:
+
+- `0`: the scan completes, with or without findings.
+- `2`: an input, configuration, manifest, or OSV batch network or decode
+  error.
+
+If the request for one advisory fails, the report keeps the advisory ID with
+unknown severity and a warning. The command still exits `0`. The severity is
+then incomplete.
+
+The command queries Hex and GitHub dependencies. It skips other sources and
+lists them at the end. It gets advisories through HTTPS and does **not** cache
+them.
 
 Hex queries identify the package and locked version. GitHub queries send the
 locked commit through OSV's `commit` field. Reports, scoped exceptions, and
@@ -73,13 +79,29 @@ for configuration and override rules.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration, including advisory exceptions. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+`--no-cache` bypasses on-disk caches. OSV advisories are not cached, so this
+option does not change advisory freshness.
+
+<!-- cli-reference -->
+Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
+
+**Usage:**
+
+```
+licence_audit vulns [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+<!-- cli-referencestop -->
 
 [osv]: https://osv.dev/

@@ -183,9 +183,9 @@ pub fn package_metadata_uses_only_repository_links_test() {
       publisher: None,
     )
 
-  let assert Ok([package]) =
+  let assert #(Ok([package]), None) =
     notice.packages_from_entries([entry], dict.new(), fn(_entry) {
-      Ok(metadata)
+      #(Ok(metadata), None)
     })
   should.equal(package.repo_links, ["https://github.com/example/dep"])
 }

@@ -5,6 +5,8 @@
 -export([to_utf8/1]).
 -endif.
 
+%% Gleam core has no environment API. Decode OTP's Unicode charlists explicitly:
+%% byte-oriented conversion corrupts non-ASCII paths and invalid values must fail.
 get(Name) when is_binary(Name) ->
     case os:getenv(binary_to_list(Name)) of
         false -> {error, nil};

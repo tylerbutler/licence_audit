@@ -9,10 +9,11 @@ dependencies. It does **not** evaluate licence policy.
 
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
-licence_audit sbom --output=sbom.json  # compact JSON to a file
+licence_audit sbom --output=sbom.json  # pretty JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
 licence_audit sbom --reproducible      # reproducible output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
+licence_audit sbom --license-text      # embed canonical SPDX licence text
 ```
 
 ## Document contents
@@ -28,8 +29,39 @@ component. A `dependencies` graph represents the dependency tree.
 Each licence has the property `acknowledgement: "declared"` because the data
 comes from package metadata, not a source scan. If a package declares multiple
 licences, `sbom` creates one entry for each licence. Hex does not specify an
-`AND` or `OR` relationship. Therefore, `sbom` does not create an SPDX
-expression.
+`AND` or `OR` relationship, so `sbom` does not create an SPDX expression.
+
+These are **declared** licences, not **concluded** licences from a source scan.
+`licence_audit` does not inspect dependency source to conclude licences or
+extract copyright holders. Use a source scanner when you need that evidence.
+
+## Embedded licence text
+
+`--license-text` adds canonical SPDX License List text to recognised licence
+IDs on dependencies and the root component:
+
+```json
+{"license":{"id":"Apache-2.0","text":{"contentType":"text/plain","content":"..."},"acknowledgement":"declared"}}
+```
+
+The text comes from the same fixed SPDX revision and shared cache as
+[`notices`](/docs/notices), not from package source. It is reference text,
+not package-specific copyright or attribution evidence. Default output does
+not include this text.
+
+IDs match without regard to case. Each declared ID receives its own text.
+Expressions with `AND`, `OR`, or `WITH`, custom `LicenseRef-*` references,
+and unknown names remain `name` entries without text. The command does not
+select an expression alternative or combine texts.
+
+This flag requires network access on a cache miss and **conflicts with
+`--offline`**. It works with `--reproducible` because the SPDX revision is
+fixed. Use `--no-cache` to bypass the text cache. `--cache-path` relocates the
+metadata cache only; use `XDG_CACHE_HOME` to relocate both caches.
+
+A failed text request, invalid SPDX response, or missing text for a recognised
+ID exits `2` before writing the SBOM. Optional package metadata enrichment
+remains unchanged: a dependency without licence metadata has no licence text.
 
 ## Supported sources
 
@@ -46,20 +78,26 @@ metadata is unavailable. It warns and omits the unavailable fields.
 `--offline` intentionally skips Hex enrichment. This differs from a licence
 audit, where unavailable package metadata makes the report incomplete (exit `2`).
 
-Root metadata, valid supported purls, and successful artifact generation/writes
-are required; failures exit `2`. Without `--offline`, `--reproducible` also
-requires metadata from the locked source archives and exits `2` if it cannot
-obtain it. `--reproducible --offline` skips all dependency enrichment, including
-local Git metadata. It omits dependency licence fields and can exit `0`
-without fetching locked-source metadata.
+These items are required. If one fails, the command exits `2`:
+
+- root metadata,
+- valid purls for supported sources,
+- SBOM generation and file writes.
+
+How `--reproducible` and `--offline` combine:
+
+| Flags | Dependency metadata | If metadata is unavailable |
+|---|---|---|
+| `--reproducible` | Read from the locked source archives. | Exit `2`. |
+| `--reproducible --offline` | None. All enrichment, including local Git metadata, is skipped. Licence fields are omitted. | Not applicable. Can exit `0`. |
 
 ## Embedded vulnerabilities
 
 `--vulns` queries OSV.dev and adds the results to the CycloneDX
 `vulnerabilities` array. Each advisory has an `id`, an `OSV` source link,
 ratings, and an `affects` list. The list refers to affected components by
-`bom-ref` or purl. Tools such as [Dependency-Track][dt] can read the resultant
-VEX-style document. Advisory data changes over time. Therefore, you cannot use
+`bom-ref` or purl. Tools such as [Dependency-Track][dt] can read this
+VEX-style document. Advisory data changes over time, so you cannot use
 `--vulns` with `--offline` or `--reproducible`.
 
 An OSV batch request failure exits `2`. An individual advisory-detail failure
@@ -70,7 +108,7 @@ cannot evaluate the severity gate.
 ## Reproducible output
 
 By default, `sbom` uses a random `serialNumber` and the current time for
-`timestamp`. Thus, the output from two runs is different. With
+`timestamp`. The output from two runs is different. With
 `--reproducible` without `--offline`, the command reads Hex metadata from each
 checksum-verified package archive and Git metadata from the archive at the
 locked commit. It omits mutable Hex publisher data, uses a content hash for
@@ -84,16 +122,33 @@ location, or `--no-cache` to fetch the metadata again.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--output` | Write the SBOM to `PATH` (compact) instead of stdout (pretty). |
-| `--offline` | Skip Hex metadata; with `--reproducible`, skip all dependency enrichment, including Git. |
-| `--reproducible` | Use locked package archives (unless `--offline`), a content hash, and `SOURCE_DATE_EPOCH` for reproducible output. |
-| `--vulns` | Query OSV.dev and embed a `vulnerabilities` array. Conflicts with `--offline` and `--reproducible`. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+Both stdout and `--output=PATH` use pretty-printed JSON. When writing a file,
+stdout stays empty.
+
+<!-- cli-reference -->
+Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
+
+**Usage:**
+
+```
+licence_audit sbom [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline) |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git |
+| `--output` | `STRING` |  | Write SBOM to PATH instead of stdout |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--reproducible` | `BOOL` | `false` | Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--vulns` | `BOOL` | `false` | Query OSV.dev and embed a CycloneDX vulnerabilities array (requires network; conflicts with --offline and --reproducible) |
+<!-- cli-referencestop -->
 
 [cyclonedx]: https://cyclonedx.org/
 [dt]: https://dependencytrack.org/

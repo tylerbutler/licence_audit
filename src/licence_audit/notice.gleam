@@ -11,6 +11,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/cache_dir
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/manifest
@@ -118,6 +120,7 @@ pub fn default_clients() -> Clients {
 }
 
 pub type Error {
+  UnknownPackages(packages: List(String))
   MissingLicenceText(packages: List(String))
   MetadataFailed(package: String, reason: String)
   UnsupportedSource(package: String, source: String, detail: String)
@@ -144,23 +147,58 @@ pub fn selected_entries(
   })
 }
 
+pub fn filter_entries(
+  selected: List(manifest.SbomEntry),
+  locked: List(manifest.SbomEntry),
+  configuration: config.Notices,
+) -> Result(List(manifest.SbomEntry), Error) {
+  let names = list.map(locked, fn(entry) { entry.name })
+  let unknown =
+    list.append(configuration.include, configuration.exclude)
+    |> list.unique
+    |> list.filter(fn(name) { !list.contains(names, name) })
+  case unknown {
+    [] ->
+      Ok(
+        list.filter(selected, fn(entry) {
+          {
+            configuration.include == []
+            || list.contains(configuration.include, entry.name)
+          }
+          && !list.contains(configuration.exclude, entry.name)
+        }),
+      )
+    _ -> Error(UnknownPackages(unknown))
+  }
+}
+
 pub fn packages_from_entries(
   entries: List(manifest.SbomEntry),
   scopes: Dict(String, manifest.Scope),
-  metadata_for: fn(manifest.SbomEntry) -> Result(hex.PackageMetadata, Error),
-) -> Result(List(NoticePackage), Error) {
-  list.try_map(entries, fn(entry) {
-    use source <- result.try(package_source(entry))
-    use metadata <- result.try(metadata_for(entry))
-    Ok(NoticePackage(
-      name: entry.name,
-      version: entry.version,
-      declared_licences: metadata.licences,
-      repo_links: repo_link_urls(metadata.links),
-      source: source,
-      scope: scope_for(scopes, entry.name),
-    ))
-  })
+  metadata_for: fn(manifest.SbomEntry) ->
+    #(Result(hex.PackageMetadata, Error), Option(String)),
+) -> #(Result(List(NoticePackage), Error), Option(String)) {
+  let #(packages, warning) =
+    list.fold(entries, #(Ok([]), None), fn(acc, entry) {
+      use packages <- cache_dir.try_with_warning(acc)
+      use source <- cache_dir.try_with_warning(#(package_source(entry), None))
+      use metadata <- cache_dir.try_with_warning(metadata_for(entry))
+      #(
+        Ok([
+          NoticePackage(
+            name: entry.name,
+            version: entry.version,
+            declared_licences: metadata.licences,
+            repo_links: repo_link_urls(metadata.links),
+            source: source,
+            scope: scope_for(scopes, entry.name),
+          ),
+          ..packages
+        ]),
+        None,
+      )
+    })
+  #(result.map(packages, list.reverse), warning)
 }
 
 /// Extract the URL of each metadata link, preserving order and de-duplicating.
@@ -531,6 +569,9 @@ pub fn render(
 
 pub fn describe_error(error: Error) -> String {
   case error {
+    UnknownPackages(packages) ->
+      "Unknown locked package names in notices configuration: "
+      <> string.join(list.sort(packages, by: string.compare), ", ")
     MissingLicenceText(packages) ->
       "Missing licence text for packages: "
       <> string.join(list.sort(packages, by: string.compare), ", ")

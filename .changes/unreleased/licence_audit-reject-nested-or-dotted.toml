@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Reject nested or dotted subfields for reserved policy settings, including empty descendant tables and nested exception expiry settings, instead of silently treating them as absent."

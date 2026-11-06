@@ -1,6 +1,9 @@
 -module(httpc_adaptive_test_ffi).
 -export([reset/0, with_http_response/2]).
 
+%% Injected Gleam transports bypass httpc. Use real loopback TCP for malformed
+%% responses/disconnects and OTP try/after to clear sockets and transport state
+%% even when a test assertion raises.
 reset() ->
     erlang:erase({httpc_adaptive_ffi, family}),
     erlang:erase({httpc_adaptive_ffi, ipv6_hosts}),

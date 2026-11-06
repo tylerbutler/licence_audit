@@ -12,7 +12,9 @@
 -define(IPV6_HOSTS_KEY, {?MODULE, ipv6_hosts}).
 -define(WARNING_KEY, {?MODULE, warning}).
 
-%% The CLI runs requests in one process; keep the fallback local to that run.
+%% gleam_httpc's inet6fb4 can exhaust the request timeout before IPv4 succeeds.
+%% Gleam owns the bounded probe; OTP process-local state keeps its fallback for
+%% this command without global state or threading transport state through callers.
 selected_family() ->
     case erlang:get(?FAMILY_KEY) of
         ipv4 -> use_ipv4;
@@ -45,6 +47,8 @@ ipv6_hosts() ->
         _ -> []
     end.
 
+%% OTP failure tuples have several shapes; the Gleam boundary exposes one typed
+%% error while retaining DNS/TCP/TLS and address-family details.
 normalise_error(timeout) ->
     response_timeout;
 normalise_error(Error = {failed_connect, Options}) ->
