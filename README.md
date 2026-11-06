@@ -17,8 +17,9 @@ With [mise](https://mise.jdx.dev/):
 mise use -g github:tylerbutler/licence_audit@latest
 ```
 
-Replace `latest` with a release tag to select a fixed version. Omit `-g` for
-a project-local install.
+To pin a version, replace `latest` with an exact release tag (`vX.Y.Z`).
+Choose a tag from a [published release](https://github.com/tylerbutler/licence_audit/releases/latest).
+Omit `-g` for a project-local install.
 
 The release also provides escript archives and a bare escript. **The escript
 requires Erlang/OTP 28 or newer for all commands.** Windows ARM64 archives
@@ -37,6 +38,7 @@ documentation. It contains installation and setup guidance, generated CLI
 usage and flag tables, and command behavior:
 
 - [Quick start](https://licence-audit.tylerbutler.com/docs)
+- [GitHub Actions](https://licence-audit.tylerbutler.com/docs#optional-github-actions-usage)
 - [Licence policy and checks](https://licence-audit.tylerbutler.com/docs/check)
 - [Create a policy](https://licence-audit.tylerbutler.com/docs/update)
 - [SBOMs](https://licence-audit.tylerbutler.com/docs/sbom)

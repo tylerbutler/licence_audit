@@ -29,8 +29,9 @@ With [mise][mise], install directly from the `github:` provider:
 mise use -g github:tylerbutler/licence_audit@latest
 ```
 
-Replace `latest` with a tag such as `v0.7.0` to select a fixed version. mise
-selects the self-contained archive for your operating system and architecture.
+To pin a version, replace `latest` with an exact release tag (`vX.Y.Z`).
+Choose a tag from the [latest published release][latest-release]. mise selects
+the self-contained archive for your operating system and architecture.
 You do not need Erlang/OTP. For source build instructions, refer to [DEV.md][dev].
 
 ## Standard workflow
@@ -53,6 +54,46 @@ The `licence_audit` command reports policy findings without enforcing them and
 returns exit code `0` when the scan completes. An incomplete licence report
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
+
+## Optional GitHub Actions usage
+
+Use mise in GitHub Actions to install the same native binary as a local
+install. We recommend native binaries for CI because they include the Erlang
+runtime. For a Gleam project, set up Gleam first so `manifest.toml` exists.
+The example selects OTP 28 for the job instead of relying on the project's
+OTP version.
+
+Replace `vX.Y.Z` below with the tag from the
+[latest published release][latest-release].
+Keep an exact tag in CI and update it after testing a newer release. mise's
+[GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html#verification)
+checks release digests or published checksums and verifies available GitHub
+artifact attestations. It does not require a release to have attestations.
+
+```yaml
+name: licence audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  licence-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tylerbutler/actions/setup-gleam@v1
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - run: mise exec github:tylerbutler/licence_audit@vX.Y.Z -- licence_audit check
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+```
 
 ## Commands
 
@@ -227,6 +268,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 <!-- cli-referencestop -->
 
 [releases]: https://github.com/tylerbutler/licence_audit/releases
+[latest-release]: https://github.com/tylerbutler/licence_audit/releases/latest
 [mise]: https://mise.jdx.dev/
 [dev]: https://github.com/tylerbutler/licence_audit/blob/main/DEV.md
 [apm]: https://github.com/microsoft/apm
