@@ -123,6 +123,10 @@ Use `--color` or `--colour` to control colour. The permitted values are `auto`,
 `always`, and `never`. The `auto` value uses `NO_COLOR`, `FORCE_COLOR`, `TERM`,
 `CI`, and `COLORTERM`.
 
+SBOM JSON and notice payloads stay plain in every color mode, including
+`always`. Use `--help` or `-h` with any command. `--version` is available only
+at the root.
+
 The command uses these exit codes:
 
 | Code | Meaning |
@@ -249,8 +253,8 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
-| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->

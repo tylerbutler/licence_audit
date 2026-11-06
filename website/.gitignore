@@ -1,5 +1,7 @@
 # build output
 dist/
+# generated Open Graph image
+public/og.png
 # generated types
 .astro/
 # dependencies

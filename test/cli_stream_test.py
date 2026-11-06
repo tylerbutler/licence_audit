@@ -40,7 +40,9 @@ class CliStreamTest(unittest.TestCase):
         for command in ("", "check", "sbom", "vulns", "notices", "update"):
             with self.subTest(command=command):
                 arguments = [command] if command else []
-                arguments += ["--quiet", "--no-cache"]
+                arguments += ["--quiet"]
+                if command != "vulns":
+                    arguments += ["--no-cache"]
                 if command == "check":
                     arguments += ["--allow=MIT"]
                 self.assert_diagnostic(self.run_cli(*arguments))
@@ -48,6 +50,45 @@ class CliStreamTest(unittest.TestCase):
     def test_invalid_config_is_a_diagnostic(self):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("--quiet", "--no-cache"))
+
+    def test_help_alias_and_root_only_version(self):
+        for command in ("", "check", "sbom", "vulns", "notices", "update"):
+            arguments = [command] if command else []
+            with self.subTest(command=command):
+                help_result = self.run_cli(*arguments, "-h")
+                self.assertEqual(help_result.returncode, 0, help_result.stderr)
+                self.assertIn("--quiet", help_result.stdout)
+                self.assertIn("-q", help_result.stdout)
+                version = self.run_cli(*arguments, "--version")
+                self.assertEqual(version.returncode, 1 if command else 0)
+
+    def test_vulns_removed_cache_flags_and_short_quiet(self):
+        for flag in ("--no-cache", "--cache-path=cache.sqlite3"):
+            result = self.run_cli("vulns", flag)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("invalid flag", result.stderr)
+        for arguments in (("vulns", "-q"), ("-q", "vulns")):
+            self.assert_diagnostic(self.run_cli(*arguments))
+
+    def test_generated_payloads_ignore_color_modes(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for command in ("sbom", "notices"):
+            flags = ["--offline", "--reproducible"] if command == "sbom" else []
+            with self.subTest(command=command):
+                plain = self.run_cli(command, "-q", *flags, "--color=never")
+                forced = self.run_cli(command, "-q", *flags, "--colour=always")
+                self.assertEqual(plain.returncode, 0, plain.stderr)
+                self.assertEqual(forced.returncode, 0, forced.stderr)
+                self.assertEqual(forced.stdout, plain.stdout)
+                self.assertNotIn("\x1b[", forced.stdout)
+                destination = self.project / f"{command}.txt"
+                written = self.run_cli(
+                    command, "-q", *flags, "--colour=always",
+                    f"--output={destination}",
+                )
+                self.assertEqual(written.returncode, 0, written.stderr)
+                self.assertEqual(destination.read_text(), plain.stdout)
 
     def test_invalid_sbom_manifest_is_a_diagnostic(self):
         (self.project / "manifest.toml").write_text("packages = [")

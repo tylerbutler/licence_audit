@@ -2197,6 +2197,31 @@ pub fn vulns_report_labels_scope_test() {
   assert string.contains(output, "[prod]")
 }
 
+pub fn sbom_color_modes_preserve_plain_json_payload_test() {
+  let args = [
+    "sbom",
+    "--manifest=test/fixtures/manifest_github_git.toml",
+    "--offline",
+    "--reproducible",
+  ]
+  let plain =
+    licence_audit.run_configured(
+      list.append(args, ["--color=never"]),
+      test_clients(fake_fetcher),
+      progress.disabled(),
+    ).0
+  let forced =
+    licence_audit.run_configured(
+      list.append(args, ["--colour=always"]),
+      test_clients(fake_fetcher),
+      progress.disabled(),
+    ).0
+  should.equal(plain.exit_code, 0)
+  should.equal(forced, plain)
+  assert string.contains(plain.output, "\"bomFormat\"")
+  assert !string.contains(plain.output, "\u{001b}[")
+}
+
 pub fn vulns_reuses_shared_advisory_details_test() {
   reset_detail_fetch("CVE-2024-0001")
   let result =

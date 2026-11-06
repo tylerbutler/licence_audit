@@ -22,8 +22,19 @@ pub type Notices {
   Notices(include: List(String), exclude: List(String))
 }
 
-pub fn load_notices(project_root: String) -> Result(Notices, Error) {
-  use contents <- result.try(read_optional(project_root <> "/gleam.toml"))
+pub fn load_notices(
+  project_root: String,
+  config_path: Option(String),
+  ignore_config: Bool,
+) -> Result(Notices, Error) {
+  use <- bool.guard(
+    when: ignore_config,
+    return: Ok(Notices(include: [], exclude: [])),
+  )
+  use contents <- result.try(case config_path {
+    Some(path) -> read_required(path) |> result.map(Some)
+    None -> read_optional(project_root <> "/gleam.toml")
+  })
   case contents {
     None -> Ok(Notices(include: [], exclude: []))
     Some(input) -> parse_notices(input)

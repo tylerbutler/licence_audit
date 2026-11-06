@@ -79,11 +79,12 @@ for configuration and override rules.
 
 ## Flags
 
-`--no-cache` bypasses on-disk caches. OSV advisories are not cached, so this
-option does not change advisory freshness.
+`vulns` includes development dependencies by default. Use `--prod-only` to
+exclude them. OSV advisories are not cached; this command does not accept
+`--no-cache` or `--cache-path`.
 
 <!-- cli-reference -->
-Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy.
+Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --prod-only is set. Queries OSV directly and uses no on-disk cache.
 
 **Usage:**
 
@@ -99,8 +100,8 @@ licence_audit vulns [--flags]
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- cli-referencestop -->
 

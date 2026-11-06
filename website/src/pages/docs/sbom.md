@@ -126,7 +126,7 @@ Both stdout and `--output=PATH` use pretty-printed JSON. When writing a file,
 stdout stays empty.
 
 <!-- cli-reference -->
-Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy.
+Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies with their CycloneDX scope. JSON output stays plain in every color mode.
 
 **Usage:**
 
@@ -139,12 +139,13 @@ licence_audit sbom [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git |
 | `--output` | `STRING` |  | Write SBOM to PATH instead of stdout |
-| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--reproducible` | `BOOL` | `false` | Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--vulns` | `BOOL` | `false` | Query OSV.dev and embed a CycloneDX vulnerabilities array (requires network; conflicts with --offline and --reproducible) |
