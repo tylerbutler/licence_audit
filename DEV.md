@@ -350,6 +350,46 @@ token lets the tag push start `publish.yml`.
 Trellis marks candidate GitHub Releases as prereleases. The `v*` tag trigger
 publishes the same artifacts for candidates and stable releases.
 
+### Hex publication
+
+After CI, binary packaging, and GitHub Release asset upload succeed,
+`publish.yml` publishes each new release to Hex, including `0.x`, RCs,
+and other prerelease types. The tag must match `v{version}` from its
+`gleam.toml`. The workflow checks out an exact tag and runs the pinned
+`trellis publish --tag "$RELEASE_TAG"`.
+
+Before the first publication, a Hex package owner must create an API
+key with permission to publish `licence_audit` and store it as the repository
+Actions secret `HEXPM_API_KEY` (Settings > Secrets and variables > Actions).
+For the first publication, the key must permit package creation; after
+creation, restrict it to this package. Do not put the key in source files
+or workflow inputs. A missing key fails the Hex job before publication.
+
+Trellis checks the tag/version match, skips versions already on Hex, and
+retries Hex API, build, test, and publication failures. It runs Gleam
+format, strict build, and test checks before publishing. Publication jobs
+for the same tag run one at a time. Failed retries fail the job.
+
+To recover a failed Hex publication, fix the secret or reported error and
+rerun the failed Hex job. If the workflow needs a fix, merge it
+to `main`, then dispatch from `main` with the existing tag:
+
+```sh
+gh workflow run publish.yml --ref main -f tag=v1.0.0-rc.0
+```
+
+The dispatch uses the tagged package and its pinned toolchain. It does not
+backfill historical releases unless you dispatch their tags. Preview the
+publication plan without credentials or publication:
+
+```sh
+mise exec -- trellis publish --tag v0.14.0 --dry-run
+```
+
+Use a tag that matches the checked-out package version. The dry run reads
+the public Hex API. The Gleam exporter includes runtime native sources,
+`LICENSE`, and vendored `NOTICE`; no custom file list is needed.
+
 To recover a merged release that has no tag or GitHub Release, run the
 auto-tag workflow manually against the current version on `main`:
 

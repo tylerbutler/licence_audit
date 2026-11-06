@@ -14,6 +14,30 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  publish-hex:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: hex-publication-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      - name: Publish release to Hex
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+        run: |
+          set -euo pipefail
+          : "${HEXPM_API_KEY:?Set the repository Actions secret HEXPM_API_KEY before publishing.}"
+          mise exec -- trellis publish --tag "$RELEASE_TAG"
+
   test:
     uses: ./.github/workflows/ci.yml
     with:
