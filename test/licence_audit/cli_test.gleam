@@ -134,7 +134,7 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
 }
 
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
-  let options = parse_options(["check", "--vuln-block-unknown"])
+  let options = parse_options(["check", "--vulns", "--vuln-block-unknown"])
 
   should.equal(options.vuln_block_unknown, True)
 }
@@ -352,9 +352,45 @@ pub fn invalid_check_vuln_severity_returns_usage_error_test() {
 
 pub fn check_vuln_severity_preserves_supported_values_test() {
   use severity <- list.each(["low", "medium", "high", "critical"])
-  let options = parse_options(["check", "--vuln-severity=" <> severity])
+  let options =
+    parse_options(["check", "--vulns", "--vuln-severity=" <> severity])
 
   should.equal(options.vuln_severity, Some(severity))
+}
+
+pub fn check_vulnerability_flags_require_enabled_scan_test() {
+  use flags <- list.each([
+    ["--vuln-severity=critical"],
+    ["--vuln-block-unknown"],
+    ["--vuln-block-unknown=true"],
+    ["--vuln-block-unknown=false"],
+    ["--vuln-severity=high", "--vuln-block-unknown"],
+  ])
+  use scan <- list.each([[], ["--vulns=false"]])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), list.append(["check", ..scan], flags))
+  assert string.contains(message, "require --vulns")
+}
+
+pub fn check_enabled_scan_preserves_explicit_boolean_values_test() {
+  use value <- list.each([#("true", True), #("false", False)])
+  let #(text, expected) = value
+  use flags <- list.each([
+    ["--vulns", "--vuln-block-unknown=" <> text],
+    ["--vuln-block-unknown=" <> text, "--vulns=true"],
+  ])
+  let options = parse_options(["check", ..flags])
+  should.equal(options.check_vulns, True)
+  should.equal(options.vuln_block_unknown, expected)
+}
+
+pub fn vulnerability_gate_flags_remain_check_only_test() {
+  use command <- list.each([[], ["update"], ["notices"], ["sbom"], ["vulns"]])
+  use flag <- list.each(["--vuln-severity=high", "--vuln-block-unknown"])
+  let message = usage_error(list.append(command, [flag]))
+  assert string.contains(message, "vuln-")
+  let message = usage_error(list.append(command, ["--vulns", flag]))
+  assert string.contains(message, "vuln")
 }
 
 pub fn update_subcommand_parses_defaults_test() {

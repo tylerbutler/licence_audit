@@ -51,6 +51,20 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("--quiet", "--no-cache"))
 
+    def test_vulnerability_flags_require_scan_before_reading_manifest(self):
+        for flags in (
+            ["--vuln-severity=critical"],
+            ["--vuln-block-unknown"],
+            ["--vuln-block-unknown=false"],
+            ["--vuln-severity=high", "--vuln-block-unknown"],
+        ):
+            for scan in ([], ["--vulns=false"]):
+                with self.subTest(flags=flags, scan=scan):
+                    result = self.run_cli("check", "--quiet", *flags, *scan)
+                    self.assert_diagnostic(result, status=1)
+                    self.assertIn("require --vulns", result.stderr)
+                    self.assertNotIn("manifest", result.stderr)
+
     def test_help_alias_and_root_only_version(self):
         for command in ("", "check", "sbom", "vulns", "notices", "update"):
             arguments = [command] if command else []

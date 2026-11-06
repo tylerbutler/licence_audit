@@ -204,7 +204,7 @@ fn check_command() -> glint.Command(CliAction) {
   use prod_only <- glint.flag(prod_only_flag())
   use check_vulns <- glint.flag(check_vulns_flag())
   use vuln_severity <- glint.optional_flag(vuln_severity_flag())
-  use vuln_block_unknown <- glint.flag(vuln_block_unknown_flag())
+  use vuln_block_unknown <- glint.optional_flag(vuln_block_unknown_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -222,11 +222,22 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
   let assert Ok(vuln_block_unknown_value) = vuln_block_unknown(flags)
 
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(verbosity_error), _ ->
+  case
+    verbosity(quiet, verbose),
+    color.mode_from_string(color_value),
+    !check_vulns_value
+    && {
+      option.is_some(vuln_severity_value)
+      || option.is_some(vuln_block_unknown_value)
+    }
+  {
+    Error(verbosity_error), _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), Ok(color_mode) ->
+    _, Error(color_error), _ ->
+      InvalidUsage(color.mode_error_message(color_error))
+    _, _, True ->
+      InvalidUsage("--vuln-severity and --vuln-block-unknown require --vulns")
+    Ok(verbosity), Ok(color_mode), False ->
       RunAudit(Options(
         manifest_path: manifest_path,
         config_path: config_path,
@@ -240,7 +251,7 @@ fn check_command() -> glint.Command(CliAction) {
         cache_path: cache_path_value,
         check_vulns: check_vulns_value,
         vuln_severity: vuln_severity_value,
-        vuln_block_unknown: vuln_block_unknown_value,
+        vuln_block_unknown: option.unwrap(vuln_block_unknown_value, False),
         prod_only: prod_only_value,
       ))
   }
@@ -333,15 +344,14 @@ fn vuln_severity_flag() -> glint.Flag(String) {
     constraint.one_of(["low", "medium", "high", "critical"]),
   )
   |> glint.flag_help(
-    "Minimum severity that triggers `check --vulns` failure: low|medium|high|critical (default high)",
+    "Minimum severity that triggers `check --vulns` failure: low|medium|high|critical (default high; requires --vulns)",
   )
 }
 
 fn vuln_block_unknown_flag() -> glint.Flag(Bool) {
   glint.bool_flag("vuln-block-unknown")
-  |> glint.flag_default(False)
   |> glint.flag_help(
-    "Fail `check --vulns` on advisories whose severity is unknown",
+    "Fail `check --vulns` on advisories whose severity is unknown (default false; requires --vulns)",
   )
 }
 
