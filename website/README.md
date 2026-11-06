@@ -2,6 +2,24 @@
 
 Run website commands from this directory.
 
+The guides under `src/pages/docs/` are the canonical user documentation.
+From the repository root, run `just docs` after changing CLI definitions.
+This updates marked reference regions without replacing guide prose.
+`just docs-check` rejects generated drift and invalid markers.
+
+For local validation, use the pinned Node and pnpm versions from `.mise.toml`:
+
+```sh
+just website-deps
+just website-check
+just website-build
+```
+
+Run these recipes from the repository root. They install the locked dependencies,
+run Astro type checks and worker tests, and build the site without deployment.
+CI runs the same website checks and keeps CLI documentation drift checking
+in the Gleam job.
+
 Use `pnpm deploy` to build and deploy to the production domains. Use
 `pnpm preview` to serve a local Astro build.
 

@@ -111,6 +111,7 @@ class BuildInputsTest(unittest.TestCase):
         setup = (ROOT / ".github/actions/setup/action.yml").read_text()
         self.assertIn("install_args: --locked", setup)
         self.assertTrue(self.config["settings"]["lockfile"])
+        self.assertEqual(self.config["settings"]["erlang"]["precompiled_os"], "ubuntu-24.04")
         lock = tomllib.loads((ROOT / "mise.lock").read_text())
         for tool in self.tools:
             version = self.tools[tool]
@@ -128,6 +129,10 @@ class BuildInputsTest(unittest.TestCase):
         script = (ROOT / "scripts/native_build.sh").read_text()
         self.assertNotIn("curl --", script)
         self.assertNotIn("sh.rustup.rs", script)
+        self.assertIn('--default-host "$rust_host"', script)
+        self.assertIn('rust_host="$(uname -m)-unknown-linux-gnu"', script)
+        self.assertIn('rust_host="$(uname -m)-unknown-linux-musl"', script)
+        self.assertLess(script.index("cargo --version"), script.index("cargo install"))
         self.assertEqual(script.count("scripts/build_inputs.py"), 5)
         for tool, destination, use in [
             ("gleam", "gleam.tar.gz", "tar -xzf build/native-tools/gleam.tar.gz"),

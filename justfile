@@ -335,18 +335,34 @@ _docs-ffi: build
     mise exec -- gleam build
     mise exec -- erlc -o build/dev/erlang/licence_audit/ebin native/dev/licence_audit/internal/vendor/licence_audit_vendor_glint_markdown_filesystem_ffi.erl
 
-# Generate Markdown reference docs into ./docs and inject the topics index
-# into README.md between the <!-- commands --> sentinels.
+# Generate marked CLI reference sections in the canonical website guides.
 docs: _docs-ffi
-    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md
+    mise exec -- gleam run -m licence_audit/gen_docs
 
 # Fail if `just docs` would change anything on disk (use in CI to catch drift).
 docs-check: _docs-ffi
-    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md --check
+    mise exec -- gleam run -m licence_audit/gen_docs -- --check
+
+# Exercise generator drift and failure handling in isolated guide copies.
+test-docs: _docs-ffi
+    mise exec -- python3 -B test/docs_generation.py
+
+# Install the website's locked dependencies.
+website-deps:
+    mise exec -- pnpm --dir website install --frozen-lockfile
+
+# Check Astro types and the website routing worker.
+website-check:
+    mise exec -- pnpm --dir website check
+    mise exec -- pnpm --dir website test
+
+# Build the static website without deploying it.
+website-build:
+    mise exec -- pnpm --dir website build
 
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
 
 alias pr := ci

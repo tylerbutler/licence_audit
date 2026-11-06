@@ -14,9 +14,11 @@ case "$(uname -s)" in
     # The container is native to the runner, including libc. Queso does not
     # cross-compile the esqlite NIF copied by gleam export erlang-shipment.
     if [ -f /etc/alpine-release ]; then
+      rust_host="$(uname -m)-unknown-linux-musl"
       apk add --no-cache bash build-base ca-certificates curl git linux-headers \
         ncurses-libs openssl-dev perl pkgconf python3 py3-pip
     else
+      rust_host="$(uname -m)-unknown-linux-gnu"
       apt-get update -qq
       apt-get install -y --no-install-recommends build-essential ca-certificates \
         curl git libssl-dev pkg-config python3 python3-venv
@@ -39,9 +41,10 @@ case "$(uname -s)" in
     export RUSTUP_HOME="$PWD/build/native-tools/rustup"
     python3 -B scripts/build_inputs.py rustup "${arch}-unknown-linux-musl" build/native-tools/rustup-init
     chmod +x build/native-tools/rustup-init
-    build/native-tools/rustup-init -y --no-modify-path --profile minimal
+    build/native-tools/rustup-init -y --no-modify-path --profile minimal --default-host "$rust_host"
     export PATH="$CARGO_HOME/bin:$PATH"
     rustup set auto-self-update disable
+    cargo --version
     python3 -m venv build/native-tools/python
     export PATH="$PWD/build/native-tools/python/bin:$PATH"
     queso_platform="${arch}-unknown-linux-musl"

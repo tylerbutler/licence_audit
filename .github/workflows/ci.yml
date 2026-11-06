@@ -20,6 +20,34 @@ on:
         default: false
 
 jobs:
+  website:
+    runs-on: ubuntu-latest
+    name: Website
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # ratchet:actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.9.0
+
+      - name: Install locked website dependencies
+        working-directory: website
+        run: pnpm install --frozen-lockfile
+
+      - name: Check website
+        working-directory: website
+        run: pnpm check && pnpm test
+
+      - name: Build website
+        working-directory: website
+        run: pnpm build
+
   windows-policy:
     runs-on: windows-latest
     name: Windows atomic policy writes
@@ -147,6 +175,9 @@ jobs:
 
       - name: Check generated docs are up to date
         run: just docs-check
+
+      - name: Test documentation generation
+        run: just test-docs
 
       - name: Cache Hex licence metadata
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
