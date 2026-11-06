@@ -328,11 +328,27 @@ Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
 workflows; do not edit `CHANGELOG.md` or bump the version in `gleam.toml` by
 hand.
 
+To prepare `1.0.0-rc.0`, dispatch the release workflow on `main`:
+
+```sh
+gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
+```
+
+After the candidate PR merges, dispatch with only `-f pre=rc` for the next
+candidate, or `-f pre=none` to promote it to `1.0.0`. Trellis keeps the
+fragments unreleased during the candidate cycle and consumes them on
+promotion. Leave both inputs empty for the normal stable release flow.
+Automatic pushes leave a pending prerelease PR unchanged and do not prepare
+releases while `main` contains a prerelease. Manual runs can replace the
+pending release request. Release preparation runs one job at a time.
+
 When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
 out its merge commit and runs `trellis tag create --github-release`. This
 uses the tag format in `gleam.toml` and the matching changelog section.
 It does not require a PR label or Changie configuration. The GitHub App
 token lets the tag push start `publish.yml`.
+Trellis marks candidate GitHub Releases as prereleases. The `v*` tag trigger
+publishes the same artifacts for candidates and stable releases.
 
 To recover a merged release that has no tag or GitHub Release, run the
 auto-tag workflow manually against the current version on `main`:
