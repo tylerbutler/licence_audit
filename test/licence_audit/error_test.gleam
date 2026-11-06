@@ -28,6 +28,15 @@ pub fn audit_failure_maps_to_exit_one_and_message_test() {
   )
 }
 
+pub fn runtime_exception_maps_to_exit_two_and_message_test() {
+  let failure = error.RuntimeException("error: badarg")
+  should.equal(error.exit_code(failure), 2)
+  should.equal(
+    error.message(failure),
+    "Unexpected Erlang exception: error: badarg",
+  )
+}
+
 pub fn missing_policy_maps_to_exit_two_and_message_test() {
   should.equal(error.exit_code(error.MissingPolicy), 2)
   should.equal(

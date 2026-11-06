@@ -633,7 +633,7 @@ local_dep = { path = \"deps/local_dep\" }
 }
 
 pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
-  let cache_path = "build/tmp/run-with-notice-clients-cache.sqlite3"
+  let cache_path = "build/tmp/run-with-notice-clients-cache"
   let _ = simplifile.create_directory_all("build/tmp")
   let _ = simplifile.delete(cache_path)
 
@@ -779,7 +779,7 @@ pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_te
   should.equal(empty_identifier.exit_code, 2)
   assert string.contains(
     empty_identifier.output,
-    "Licence identifiers must not be empty",
+    "Allow and deny entries must be valid SPDX expressions",
   )
 }
 

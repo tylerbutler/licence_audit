@@ -327,7 +327,7 @@ fn prod_only_flag() -> glint.Flag(Bool) {
 
 fn cache_path_flag() -> glint.Flag(String) {
   glint.string_flag("cache-path")
-  |> glint.flag_help("Override the licence metadata cache location")
+  |> glint.flag_help("Override the licence metadata cache directory")
 }
 
 fn check_vulns_flag() -> glint.Flag(Bool) {

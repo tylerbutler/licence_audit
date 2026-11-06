@@ -164,7 +164,7 @@ class CliStreamTest(unittest.TestCase):
             'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
-        cache_path = self.project / "metadata.dets"
+        cache_path = self.project / "metadata"
         seed = subprocess.run(
             [
                 "erl", "-noshell", "-pa",
@@ -315,38 +315,30 @@ class CliStreamTest(unittest.TestCase):
                             self.assertNotIn("INFO", result.stderr)
                             self.assertNotIn("WARN", result.stderr)
 
-    def test_unavailable_sqlite_preserves_reports_and_sbom_stdout(self):
-        binary = self.project / "licence_audit"
-        shutil.copy2(ROOT / "licence_audit", binary)
-        sidecar = self.project / "sqlite_native/esqlite"
+    def test_unavailable_cache_preserves_reports_and_sbom_stdout(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
-        env = {**os.environ, "XDG_CACHE_HOME": str(self.project / "cache")}
-        env.pop("ERL_LIBS", None)
-        for state in ("missing", "unloadable"):
-            if state == "unloadable":
-                shutil.copytree(ROOT / "sqlite_native/esqlite", sidecar)
-                for library in (sidecar / "priv").rglob("*"):
-                    if library.is_file() and library.suffix in (".so", ".dll", ".dylib"):
-                        library.write_bytes(b"Unloadable native library fixture")
-            for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
-                for no_cache in (False, True):
-                    with self.subTest(state=state, command=arguments[0], no_cache=no_cache):
-                        flags = ["--quiet", "--no-cache"] if no_cache else []
-                        result = subprocess.run(
-                            [str(binary), *arguments, *flags], cwd=self.project,
-                            env=env, capture_output=True, text=True, timeout=30,
-                        )
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        if arguments[0] == "sbom":
-                            self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
-                        else:
-                            self.assertTrue(result.stdout)
-                            self.assertNotIn("SQLite", result.stdout)
-                        if no_cache:
-                            self.assertEqual(result.stderr, "")
-                        else:
-                            self.assertIn("SQLite native library unavailable", result.stderr)
-                        self.assertEqual(list((self.project / "cache").rglob("*.sqlite3")), [])
+        blocker = self.project / "cache"
+        blocker.write_text("not a directory")
+        env = {**os.environ, "XDG_CACHE_HOME": str(blocker)}
+        for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
+            for no_cache in (False, True):
+                with self.subTest(command=arguments[0], no_cache=no_cache):
+                    flags = ["--quiet", "--no-cache"] if no_cache else []
+                    result = subprocess.run(
+                        [str(ROOT / "licence_audit"), *arguments, *flags], cwd=self.project,
+                        env=env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if arguments[0] == "sbom":
+                        self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
+                    else:
+                        self.assertTrue(result.stdout)
+                        self.assertNotIn("cache", result.stdout.lower())
+                    if no_cache:
+                        self.assertEqual(result.stderr, "")
+                    else:
+                        self.assertIn("Unable to open licence cache", result.stderr)
+                    self.assertEqual(blocker.read_text(), "not a directory")
 
     def test_help_version_and_usage_streams(self):
         for argument in ("--help", "--version"):
@@ -410,6 +402,74 @@ class CliStreamTest(unittest.TestCase):
                 self.assertIn("fixture metadata failure", result.stdout)
                 self.assertIn("package metadata could not be fetched", result.stderr)
                 self.assertNotIn("healthy", result.stderr)
+
+    def test_unexpected_cli_exceptions_exit_two_without_raw_trace(self):
+        evaluation = """
+            [ClassName] = init:get_plain_arguments(),
+            Class = list_to_existing_atom(ClassName),
+            Forms = [
+                {attribute, 1, module, args_ffi},
+                {attribute, 1, export, [{arguments, 0}]},
+                {function, 1, arguments, 0, [
+                    {clause, 1, [], [], [
+                        {call, 1, {remote, 1, {atom, 1, erlang}, {atom, 1, Class}},
+                            [{atom, 1, unexpected_cli_failure}]}
+                    ]}
+                ]}
+            ],
+            {ok, Module, Binary} = compile:forms(Forms, [binary]),
+            {module, Module} = code:load_binary(Module, "exception_fixture", Binary),
+            licence_audit:main().
+        """
+        for exception_class in ("error", "throw", "exit"):
+            with self.subTest(exception_class=exception_class):
+                result = subprocess.run(
+                    [
+                        "erl", "-noshell", "-pa",
+                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                        "-eval", evaluation, "-extra", exception_class,
+                    ],
+                    cwd=self.project,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={**os.environ, "NO_COLOR": "1"},
+                )
+                self.assert_diagnostic(result)
+                self.assertEqual(
+                    result.stderr,
+                    "Error: Unexpected Erlang exception: "
+                    f"{exception_class}: unexpected_cli_failure\n",
+                )
+
+    def test_missing_ca_bundle_exits_two_in_escript(self):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "gleam_stdlib", version = "0.60.0", '
+            'build_tools = ["gleam"], requirements = [], '
+            'otp_app = "gleam_stdlib", source = "hex", outer_checksum = "ABC" }]\n'
+            '[requirements]\ngleam_stdlib = ">= 0.60.0"\n'
+        )
+        for arguments in (["check", "--allow=MIT", "--no-cache"], ["vulns"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [str(ROOT / "licence_audit"), *arguments],
+                    cwd=self.project,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={
+                        **os.environ,
+                        "NO_COLOR": "1",
+                        "ERL_FLAGS": "-public_key cacerts_path [47,110,111]",
+                    },
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("failed_load_cacerts", result.stderr)
+                self.assertIn("enoent", result.stderr)
+                self.assertNotIn("runtime error:", result.stderr.lower())
+                self.assertNotIn("stack trace", result.stderr.lower())
+                self.assertNotIn("runtime terminating", result.stderr.lower())
+                self.assertFalse((self.project / "erl_crash.dump").exists())
 
 
 if __name__ == "__main__":

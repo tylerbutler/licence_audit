@@ -42,6 +42,35 @@ fn normalise_error(error: RawError) -> httpc_adaptive.Error
 @external(erlang, "httpc_adaptive_test_ffi", "with_http_response")
 pub fn with_http_response(response: BitArray, client: fn(String) -> a) -> a
 
+@external(erlang, "httpc_adaptive_test_ffi", "request_with_invalid_options")
+fn request_with_invalid_options(has_body: Bool) -> httpc_adaptive.Error
+
+pub fn otp_request_exceptions_keep_class_and_reason_test() {
+  list.each([False, True], fn(has_body) {
+    should.equal(
+      request_with_invalid_options(has_body),
+      httpc_adaptive.RequestFailed("Erlang error: badarg"),
+    )
+  })
+}
+
+pub fn successful_get_and_post_requests_pass_through_boundary_test() {
+  list.each([Get, Post], fn(method) {
+    with_http_response(
+      <<
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok":utf8,
+      >>,
+      fn(url) {
+        let assert Ok(req) = request.to(url)
+        let req = req |> request.set_method(method) |> request.set_body("body")
+        let assert Ok(result) = httpc_adaptive.dispatch(req, timeout_ms: 1000)
+        should.equal(result.status, 200)
+        should.equal(result.body, "ok")
+      },
+    )
+  })
+}
+
 pub fn request_failures_return_typed_errors_test() {
   should.equal(
     normalise_error(SocketClosedRemotely),
