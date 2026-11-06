@@ -21,14 +21,19 @@ By default, `notices` includes only **production** dependencies. Use
 
 ## Dependency filters
 
-Set filters in the `gleam.toml` next to the manifest you select with
-`--manifest` (or next to the default `manifest.toml`):
+Set filters in the file selected by
+[configuration discovery](/docs/configuration#discovery):
 
 ```toml
 [tools.licence_audit.notices]
 include = ["package_a", "package_b"]
 exclude = ["package_b"]
 ```
+
+Only `include` and `exclude` are supported in this table. An unknown key or
+a malformed setting causes exit code `2`; the error names an unknown key.
+The command also validates any licence policy in `[tools.licence_audit]`,
+including the SPDX syntax of its `allow` and `deny` entries.
 
 An absent or empty `include` selects all eligible locked dependencies. A
 nonempty `include` selects only the named packages. `exclude` takes precedence,
@@ -69,6 +74,8 @@ a later source only when the earlier sources give no licence text.
 1. **Source archive** (highest priority). The command uses each
    `LICENSE`, `LICENCE`, or `COPYING` file in the package archive without
    changes. It also preserves each `NOTICE` file.
+   Empty or whitespace-only files do not count as licence text and do not
+   stop fallback to another source.
 2. **Declared repository** (Hex packages only). The command follows declared
    repository links for `github.com`, `codeberg.org`, and `gitlab.com`. It
    resolves a version tag, first `v<version>` and then `<version>`, to an
@@ -83,6 +90,11 @@ a later source only when the earlier sources give no licence text.
 
 If a temporary error occurs during a repository fallback, `notices` writes a
 warning and continues to the SPDX fallback.
+
+For local path dependencies, Gleam writes `source = "local"` in the manifest.
+`notices` reads licence files and declared licences from the local package.
+Relative paths resolve from the directory that contains the selected manifest.
+The older `source = "path"` spelling is also accepted.
 
 ## Failure conditions
 
@@ -105,7 +117,7 @@ resolved licence materials. The cache prevents repeated downloads and fallback
 operations:
 
 ```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3.sqlite3
+${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3/
 ```
 
 Immutable content addresses are the cache keys. The cache contains extracted
@@ -113,17 +125,36 @@ source materials, final package materials, repository tag-to-commit results,
 licence files from repositories, and canonical SPDX records. Packages that
 declare the same identifier share one SPDX record. Cache entries do not expire.
 Use `XDG_CACHE_HOME` to relocate the caches, or use `--no-cache` to bypass
-both the metadata and licence materials caches. `--cache-path=PATH` overrides
-only the metadata cache location. The command reads local path dependencies
+both the metadata and licence materials caches. `--cache-path=DIR` overrides
+only the metadata cache directory. The command reads local path dependencies
 live and does not cache them.
+
+Corrupt cached values are treated as misses. Transient network failures are
+never cached as successful results.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--output` | Write the notices file to `PATH` instead of stdout. |
-| `--include-dev` | Include development-only dependencies in the bundle. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk metadata and licence materials caches. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+<!-- cli-reference -->
+Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked dependencies. The output inventories each product, includes its applicable licence text, and preserves package-specific NOTICE attribution. Products with identical licence text are grouped so the shared text is emitted once. Each package's own source archive is used first; when it ships no licence text the command falls back to the declared repository (GitHub, Codeberg, or GitLab, at an immutable tag commit) and then to canonical SPDX License List text. A transient repository failure is non-fatal: it warns and continues to the SPDX fallback. Output stays plain in every color mode. Configuration reads only notices include/exclude settings; a missing notices section means no filters.
+
+**Usage:**
+
+```
+licence_audit notices [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--include-dev` | `BOOL` | `false` | Include dev-only dependencies in the notice file |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--output` | `STRING` |  | Write notices to PATH instead of stdout |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+<!-- cli-referencestop -->

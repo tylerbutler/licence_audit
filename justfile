@@ -2,14 +2,11 @@
 
 # Persisted package metadata cache path. Kept in-repo so CI can restore
 # .hex-cache/ between runs via actions/cache and avoid repeated downloads.
-hex_cache := ".hex-cache/hex-v2.sqlite3"
+hex_cache := ".hex-cache/hex-v2"
 
 # OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
 ort_out := "ort-result"
-
-xerj_home := env("HOME") / ".local/share/xerj/licence-audit"
-xerj_url := "http://127.0.0.1:19200"
 
 # === ALIASES ===
 alias b := build
@@ -46,101 +43,24 @@ vendor-test:
 test-release-notices:
     mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
 
+# Verify toolchain pin consistency without a network.
+test-build-inputs:
+    mise exec -- python3 -B -m unittest discover -s test -p build_inputs_test.py
+
 # Check the production application and the shipped escript.
 test-vendor-production: build
     mise exec -- bash test/vendor_production.sh
-
-# === REFERENCE CODING ===
-
-# Install the pinned local search tool.
-xerj-install:
-    mise install github:xerj-org/xerj
-
-# Run the local search node in the foreground.
-xerj-serve:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    umask 077
-    mkdir -p {{quote(xerj_home / "data")}}
-    mise exec -- xerj --config xerj.toml --data-dir {{quote(xerj_home / "data")}} --embed-mode lexical --disable-feedback
-
-[positional-arguments]
-_xerj *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    umask 077
-    export XERJ_CODE_HOME={{quote(xerj_home)}}
-    export XERJ_URL={{quote(xerj_url)}}
-    export XERJ_API_KEY="$(cat {{quote(xerj_home / "data/admin.key")}})"
-    export XERJ_AUTH="ApiKey $XERJ_API_KEY"
-    export XERJ_DISABLE_FEEDBACK=true
-    exec mise exec -- xerj "$@"
-
-# Index project sources; pass --dry-run to inspect the plan first.
-[positional-arguments]
-xerj-index *flags:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just _xerj autoindex {{quote(justfile_directory())}} --url {{quote(xerj_url)}} \
-      --prefix licence-audit --state-dir {{quote(xerj_home / "project-state")}} \
-      --no-graph --workers 2 --code-analyzer code "$@"
-
-# Clone reference repositories and record their commits and licences.
-xerj-reference-add:
-    XERJ_CODE_HOME={{quote(xerj_home)}} XERJ_DISABLE_FEEDBACK=true mise exec -- xerj corpus add licence-audit-references \
-      https://github.com/EmbarkStudios/cargo-deny https://github.com/google/osv-scanner \
-      https://github.com/oss-review-toolkit/ort https://github.com/gleam-lang/gleam
-    cp reference-code.xerjignore {{quote(xerj_home / "corpora/licence-audit-references/.xerjignore")}}
-
-# Index the cloned references; pass --fresh for a verified replacement index.
-[positional-arguments]
-xerj-reference-index *flags:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just _xerj corpus index licence-audit-references "$@"
-
-# Search this project's indexed sources.
-xerj-search query:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    key=$(cat {{quote(xerj_home / "data/admin.key")}})
-    jq -n --arg query {{quote(query)}} '{
-      query: {multi_match: {query: $query, fields: ["text", "body", "defs^4"], operator: "and"}},
-      size: 5, _source: ["ax_path", "start_line", "end_line"], fields: ["_passage"]
-    }' | curl --silent --show-error --fail-with-body \
-      -H "Authorization: ApiKey $key" -H 'Content-Type: application/json' \
-      --data-binary @- {{quote(xerj_url + "/licence-audit-*/_search")}} | jq -r '
-      if .error then error(.error.reason)
-      elif .timed_out then error("XERJ search timed out.")
-      elif ._shards.failed > 0 then error("XERJ search reported failed shards.")
-      elif ._shards.total == 0 then error("Project index is missing; run just xerj-index.")
-      elif .hits == null then error("XERJ response has no search results.")
-      elif .hits.hits | length == 0 then "No matching project source passages."
-      else .hits.hits[] |
-        "\n\(.["_source"].ax_path):\(.["_source"].start_line // "?")-\(.["_source"].end_line // "?")",
-        (.fields._passage[]?.text // empty)
-      end'
-
-# Find a mechanism in the reference repositories, with file and line citations.
-xerj-reference query:
-    @just _xerj code licence-audit-references {{quote(query)}}
 
 # === STANDARD RECIPES ===
 
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
     mise exec -- gleam export escript
-    just sqlite-native
-
-# Stage SQLite's native application beside the escript.
-sqlite-native:
-    mise exec -- python3 -B scripts/sqlite_native.py
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
     mise exec -- gleam export escript
-    just sqlite-native
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:
@@ -171,11 +91,6 @@ test-notices-filter:
 test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
-
-# Verify SQLite native-load fallback and disabled-cache operation.
-test-cache-runtime:
-    mise exec -- gleam build
-    mise exec -- bash test/sqlite_cache_runtime.sh
 
 # Reproduce an interrupted update write in a fresh VM (Linux only).
 test-update-atomic:
@@ -331,18 +246,34 @@ _docs-ffi: build
     mise exec -- gleam build
     mise exec -- erlc -o build/dev/erlang/licence_audit/ebin native/dev/licence_audit/internal/vendor/licence_audit_vendor_glint_markdown_filesystem_ffi.erl
 
-# Generate Markdown reference docs into ./docs and inject the topics index
-# into README.md between the <!-- commands --> sentinels.
+# Generate marked CLI reference sections in the canonical website guides.
 docs: _docs-ffi
-    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md
+    mise exec -- gleam run -m licence_audit/gen_docs
 
 # Fail if `just docs` would change anything on disk (use in CI to catch drift).
 docs-check: _docs-ffi
-    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md --check
+    mise exec -- gleam run -m licence_audit/gen_docs -- --check
+
+# Exercise generator drift and failure handling in isolated guide copies.
+test-docs: _docs-ffi
+    mise exec -- python3 -B test/docs_generation.py
+
+# Install the website's locked dependencies.
+website-deps:
+    mise exec -- pnpm --dir website install --frozen-lockfile
+
+# Check Astro types and the website routing worker.
+website-check:
+    mise exec -- pnpm --dir website check
+    mise exec -- pnpm --dir website test
+
+# Build the static website without deploying it.
+website-build:
+    mise exec -- pnpm --dir website build
 
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-cache-runtime test-env-cache-paths build-strict test-vendor-production docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
 
 alias pr := ci

@@ -1,25 +1,28 @@
-import sqlight
+import gleam/bit_array
+import gleam/crypto
+import gleam/result
+import gleam/string
+import simplifile
 
-pub fn drop_table(cache_path: String) -> Nil {
-  let assert Ok(connection) = sqlight.open(cache_path)
-  let assert Ok(Nil) = sqlight.exec("DROP TABLE cache_entries", on: connection)
-  let assert Ok(Nil) = sqlight.close(connection)
+/// The entry file for `key`, computed independently of `cache_dir`.
+pub fn entry_path(cache_path: String, key: String) -> String {
+  let digest =
+    crypto.hash(crypto.Sha256, bit_array.from_string(key))
+    |> bit_array.base16_encode
+    |> string.lowercase
+  cache_path <> "/" <> digest <> ".json"
+}
+
+/// Replace the cache directory with a file, so later reads and writes fail.
+pub fn break_store(cache_path: String) -> Nil {
+  let assert Ok(Nil) = simplifile.delete(cache_path)
+  let assert Ok(Nil) = simplifile.write("not a directory", to: cache_path)
   Nil
 }
 
-/// Store an invalid SQLite value so cache reads exercise their type checks.
-@external(erlang, "cache_support_ffi", "corrupt_entry")
-pub fn corrupt_entry(cache_path: String, key: String) -> Result(Nil, String)
-
-/// Hold a separate writer while running a test callback.
-@external(erlang, "cache_support_ffi", "with_writer")
-pub fn with_writer(cache_path: String, action: fn() -> a) -> a
-
-@external(erlang, "cache_support_ffi", "assert_closed_on_exception")
-pub fn assert_closed_on_exception(cache_path: String) -> Nil
-
-@external(erlang, "cache_support_ffi", "create_legacy")
-pub fn create_legacy(cache_path: String) -> Nil
-
-@external(erlang, "cache_support_ffi", "assert_concurrent_cleanup")
-pub fn assert_concurrent_cleanup(path_prefix: String) -> Nil
+/// Store bytes that are not UTF-8, so cache reads exercise their checks.
+pub fn corrupt_entry(cache_path: String, key: String) -> Result(Nil, String) {
+  let assert Ok(Nil) = simplifile.create_directory_all(cache_path)
+  simplifile.write_bits(<<0xFF>>, to: entry_path(cache_path, key))
+  |> result.map_error(simplifile.describe_error)
+}

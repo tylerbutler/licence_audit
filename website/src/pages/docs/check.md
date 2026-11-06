@@ -14,6 +14,9 @@ licence_audit check
 
 ## Define a policy
 
+See [configuration discovery](/docs/configuration#discovery) for how the
+command selects the policy file and handles explicit `--config` files.
+
 Add the policy to `[tools.licence_audit]` in `gleam.toml`:
 
 ```toml
@@ -27,6 +30,33 @@ matching licences. To create the policy, use
 [`licence_audit update`](/docs/update). The command gets metadata, selects existing entries,
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
+
+### Configuration validation
+
+Unknown keys in `[tools.licence_audit]` or its `notices` table are errors with
+exit code `2`. The policy keys are `allow`, `deny`, `vuln_severity`,
+`vuln_block_unknown`, `exceptions`, and `notices`; the notices keys are `include`
+and `exclude`. The error names the unknown key. An older binary therefore
+rejects keys added by a newer release instead of silently ignoring them.
+
+Every `allow` and `deny` entry, from config or CLI, must parse as an SPDX
+expression. Empty entries and malformed expressions such as `MIT/Apache-2.0`
+or `Apache 2.0` cause exit code `2`. Validation checks syntax, not membership in
+the SPDX License List. Custom identifiers and `LicenseRef-`/`DocumentRef-`
+forms remain supported. Validation does not change the entry text.
+
+### 1.0 allow-list requirement
+
+For version 1.0, `check` requires a non-empty `allow` list. A deny-only policy
+returns exit code `2` and asks you to add `allow`. This also applies to
+`check --vulns`: it remains a combined licence and vulnerability gate, not a
+vulnerability-only check. This requirement replaces deny-only checks supported
+by earlier releases.
+
+`deny` is an exact-match override and wins over `allow`. Matching does not
+normalise deprecated identifiers, a trailing `+`, `-or-later` identifiers, or
+`WITH` terms into equivalent licences. List the complete identifiers or terms
+that you intend to allow or deny.
 
 ### SPDX expressions
 
@@ -50,15 +80,20 @@ Expression matching ignores whitespace between tokens and the case of SPDX
 identifiers. It keeps the case of custom references and the tokens of the
 expression.
 
-Malformed expressions fail the gate, even with a deny-only policy.
+Malformed expressions fail licence evaluation.
 For untrusted metadata, the parser limits each expression to 64 KiB,
 1024 tokens, and 64 nested parentheses. Expressions above these limits fail
 the gate.
 
 ## Ad-hoc and merged policy
 
-The command merges CLI `--allow` and `--deny` values with the configuration.
-Use these options to add restrictions for one run:
+CLI `--allow` and `--deny` values form a union with the corresponding
+configuration lists; duplicates are removed. `--allow` adds permitted licences
+for this run and can widen the gate. `--deny` adds denied licences for this run.
+Neither option replaces the configured list, and `deny` still takes precedence
+over `allow`.
+
+For example, add permitted and denied licences to the configured policy:
 
 ```sh
 licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
@@ -106,6 +141,11 @@ because the gate cannot complete. You can set the threshold in the configuration
 vuln_severity = "high"
 vuln_block_unknown = true
 ```
+
+The CLI flags `--vuln-severity` and `--vuln-block-unknown` require `--vulns`.
+Without it, they cause a usage error (exit 1), including an explicit
+`--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
+remain valid without `--vulns` and apply only when the scan is enabled.
 
 `--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
 can only enable blocking: if you omit it, a configured `true` still applies.
@@ -218,18 +258,31 @@ requirements. `update` preserves exception entries and their comments.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--allow` | Allow licences, comma-separated. Merges with config. |
-| `--deny` | Deny licences, comma-separated. Merges with config. |
-| `--prod-only` | Only audit production dependencies. |
-| `--vulns` | Also query OSV.dev and fail on advisories at or above `--vuln-severity`. |
-| `--vuln-severity` | Minimum failing severity: `low` \| `medium` \| `high` (default) \| `critical`. |
-| `--vuln-block-unknown` | Fail `check --vulns` on advisories with unknown severity. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration files; use only CLI flags. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+<!-- cli-reference -->
+Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+
+**Usage:**
+
+```
+licence_audit check [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--vuln-block-unknown` | `BOOL` |  | Fail `check --vulns` on advisories whose severity is unknown (default false; requires --vulns) |
+| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high; requires --vulns) |
+| `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |
+<!-- cli-referencestop -->

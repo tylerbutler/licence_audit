@@ -224,7 +224,7 @@ pub fn custom_reference_exception_casing_cannot_bypass_deny_test() {
   let root =
     project(
       "custom_reference_casing",
-      "[tools.licence_audit]\ndeny = [\"LicenseRef-Custom WITH Classpath-exception-2.0\"]\n",
+      "[tools.licence_audit]\nallow = [\"MIT\", \"LicenseRef-Custom WITH Classpath-exception-2.0\"]\ndeny = [\"LicenseRef-Custom WITH Classpath-exception-2.0\"]\n",
     )
   let result =
     run(
@@ -596,6 +596,105 @@ pub fn disabled_and_production_filtered_scans_are_not_unused_test() {
     result.output,
     "not evaluated: excluded by --prod-only #2",
   )
+}
+
+pub fn standalone_vulns_prod_only_filters_queries_and_exception_coverage_test() {
+  let root =
+    project(
+      "standalone-prod",
+      licence_rules
+        <> advisory_waiver("pkg:hex/second@2.0.0", "CVE-2026-12345", ""),
+    )
+  let query = fn(purls) {
+    should.equal(list.contains(purls, "pkg:hex/second@2.0.0"), False)
+    assert list.contains(purls, "pkg:hex/first@1.0.0")
+    first_batch(purls)
+  }
+  let result =
+    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+  should.equal(result.exit_code, 0)
+  assert string.contains(
+    result.output,
+    "not evaluated: excluded by --prod-only",
+  )
+  assert !string.contains(result.output, "second 2.0.0")
+  assert !string.contains(result.output, "unused")
+}
+
+pub fn standalone_vulns_prod_only_skips_all_dev_sources_without_query_test() {
+  let root = project("standalone-all-dev", "")
+  let assert Ok(_) =
+    simplifile.write(
+      "[dev-dependencies]\nfirst = \"1.0.0\"\nsecond = \"2.0.0\"\ngit_dep = \"0.1.0\"\nlocal_dep = { path = \"local\" }\n"
+        <> advisory_waiver("pkg:hex/second@2.0.0", "CVE-2026-12345", ""),
+      to: root <> "/gleam.toml",
+    )
+  let query = fn(_) { panic as "No production packages should reach OSV" }
+  let result =
+    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+  should.equal(result.exit_code, 0)
+  assert !string.contains(result.output, "local_dep")
+  assert !string.contains(result.output, "git_dep")
+  assert string.contains(
+    result.output,
+    "not evaluated: excluded by --prod-only",
+  )
+  assert !string.contains(result.output, "unused")
+}
+
+pub fn standalone_vulns_prod_only_keeps_shared_production_dependencies_test() {
+  let root = project("standalone-shared", "")
+  let assert Ok(_) =
+    simplifile.write(
+      string.replace(
+        manifest,
+        "outer_checksum = \"AAAA\", requirements = []",
+        "outer_checksum = \"AAAA\", requirements = [\"second\"]",
+      ),
+      to: root <> "/manifest.toml",
+    )
+  let query = fn(purls) {
+    assert list.contains(purls, "pkg:hex/first@1.0.0")
+    assert list.contains(purls, "pkg:hex/second@2.0.0")
+    first_batch(purls)
+  }
+  should.equal(
+    run(root, ["vulns", "--prod-only"], clean_licences, query, detail).exit_code,
+    0,
+  )
+}
+
+pub fn standalone_vulns_rejects_explicit_removed_cache_flag_test() {
+  let root = project("standalone-no-cache", "")
+  let result = run(root, ["vulns", "--no-cache"], clean_licences, batch, detail)
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "no-cache")
+}
+
+pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_test() {
+  let root = project("standalone-leading-flags", "")
+  let expected =
+    run(
+      root,
+      ["vulns", "--prod-only", "-q"],
+      clean_licences,
+      first_batch,
+      detail,
+    )
+  use quiet <- list.each(["--quiet", "-q"])
+  let actual =
+    run(
+      root,
+      [quiet, "vulns", "--prod-only"],
+      clean_licences,
+      first_batch,
+      detail,
+    )
+  should.equal(actual.exit_code, 0)
+  should.equal(actual, expected)
+  let explicit =
+    run(root, [quiet, "vulns", "--no-cache"], clean_licences, batch, detail)
+  should.equal(explicit.exit_code, 1)
 }
 
 pub fn unknown_severity_obeys_exception_and_existing_threshold_rules_test() {

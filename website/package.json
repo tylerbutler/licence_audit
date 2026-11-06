@@ -5,13 +5,14 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
+    "dev": "pnpm build:og && astro dev",
+    "build": "pnpm build:og && astro build",
+    "build:og": "node scripts/build-og-image.js",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:preview": "pnpm build && wrangler preview",
     "preview": "astro preview",
     "check": "astro check",
-    "test": "node --test worker.test.js"
+    "test": "node --test worker.test.js scripts/*.test.js"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.2.9",
@@ -21,6 +22,11 @@
     "astro-expressive-code": "^0.44.0"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^24.0.0",
+    "fontkit": "^2.0.4",
+    "typescript": "^5.9.3",
     "wrangler": "4.141.0"
   }
 }

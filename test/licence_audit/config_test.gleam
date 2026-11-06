@@ -4,6 +4,7 @@ import gleam/string
 import gleeunit/should
 import licence_audit
 import licence_audit/config
+import licence_audit/hex
 import licence_audit/progress
 import licence_audit/toml
 import simplifile
@@ -111,6 +112,80 @@ pub fn merge_errors_on_empty_licence_identifier_test() {
   should.equal(error, config.InvalidLicenceIdentifier)
 }
 
+pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {
+  [
+    #(Some("test/fixtures/licence_audit_config.toml"), ["BSD-3-Clause", "MIT"], [
+      "AGPL-3.0-only",
+      "GPL-3.0-only",
+    ]),
+    #(None, ["MIT", "Apache-2.0", "BSD-3-Clause"], [
+      "GPL-3.0-only",
+      "AGPL-3.0-only",
+    ]),
+  ]
+  |> list.each(fn(test_case) {
+    let #(config_path, expected_allow, expected_deny) = test_case
+    let assert Ok(policy) =
+      config.load(config.LoadOptions(
+        config_path:,
+        project_root: "test/fixtures",
+        allow_licences: ["MIT", "BSD-3-Clause", "MIT"],
+        deny_licences: ["GPL-3.0-only", "AGPL-3.0-only", "GPL-3.0-only"],
+        vuln_severity: None,
+        vuln_block_unknown: False,
+        ignore_config: False,
+        check: True,
+      ))
+
+    should.equal(policy.allow, expected_allow)
+    should.equal(policy.deny, expected_deny)
+  })
+}
+
+pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
+  [
+    #("MIT", [], 1, "unknown: MIT"),
+    #("MIT", ["--allow=MIT"], 0, "allowed"),
+    #("BSD-3-Clause", ["--allow=MIT"], 0, "allowed"),
+    #("AGPL-3.0-only", ["--allow=AGPL-3.0-only"], 1, "denied: AGPL-3.0-only"),
+    #(
+      "GPL-3.0-only",
+      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      1,
+      "denied: GPL-3.0-only",
+    ),
+    #(
+      "AGPL-3.0-only",
+      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      1,
+      "denied: AGPL-3.0-only",
+    ),
+  ]
+  |> list.each(fn(test_case) {
+    let #(licence, additions, expected_exit_code, expected_output) = test_case
+    let clients =
+      licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
+        Ok(hex.licences_only([licence]))
+      })
+    let #(result, _) =
+      licence_audit.run_configured(
+        list.append(
+          [
+            "check",
+            "--manifest=test/fixtures/manifest.toml",
+            "--config=test/fixtures/licence_audit_config.toml",
+          ],
+          additions,
+        ),
+        clients,
+        progress.disabled(),
+      )
+
+    should.equal(result.exit_code, expected_exit_code)
+    assert string.contains(result.output, expected_output)
+  })
+}
+
 pub fn parse_errors_on_invalid_field_type_test() {
   let assert Error(error) =
     config.parse("[tools.licence_audit]\nallow = \"MIT\"\n")
@@ -166,18 +241,14 @@ allow = [\"MIT\"]
 deny = []
 vuln_severity = \"high\"
 vuln_block_unknown = true
-\"allow.licences\" = [\"Apache-2.0\"]
-custom.allow = [\"Apache-2.0\"]
 [tools.licence_audit.notices]
 exclude = [\"example\"]
-[tools.licence_audit.custom.deny]
-value = true
 [tools.other.allow]
 licences = [\"Apache-2.0\"]
-[tools.licence_audit.notices.empty]
-[[tools.licence_audit.custom.extra.allow]]
-[tools.licence_audit.\"deny.licences\".empty]
-[tools.licence_audit.\"exceptions.expires\"]
+[tools.other.empty]
+[[tools.other.extra.allow]]
+[tools.other.\"deny.licences\".empty]
+[tools.other.\"exceptions.expires\"]
 ",
     )
   should.equal(actual, expected)
@@ -241,7 +312,7 @@ pub fn parse_keeps_bom_crlf_and_unrelated_empty_headers_test() {
     config.parse(
       "\u{FEFF}"
       <> string.replace(tools_section, "\n", "\r\n")
-      <> "[tools.licence_audit.notices.empty]\r\n",
+      <> "[tools.other.empty]\r\n",
     ),
     Ok(expected),
   )
@@ -253,6 +324,7 @@ pub fn parse_ignores_table_headers_inside_comments_and_strings_test() {
     config.parse(
       tools_section
       <> "# [tools.licence_audit.allow.empty]\n"
+      <> "[tools.other]\n"
       <> "custom = \"\"\"\n[tools.licence_audit.deny.empty]\n\"\"\"\n"
       <> "more = '''\n[[tools.licence_audit.exceptions.expires]]\n'''\n"
       <> "arrays = [[\"[tools.licence_audit.vuln_severity.empty]\"]]\n",
@@ -276,7 +348,15 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
     licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
       panic as "invalid config must stop before fetching"
     })
-  [[], ["--allow=MIT", "--deny=GPL-3.0-only", "--vuln-severity=critical"]]
+  [
+    [],
+    [
+      "--allow=MIT",
+      "--deny=GPL-3.0-only",
+      "--vulns",
+      "--vuln-severity=critical",
+    ],
+  ]
   |> list.each(fn(overrides) {
     let #(result, _) =
       licence_audit.run_configured(
@@ -329,6 +409,7 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "--config=" <> path,
           "--allow=MIT",
           "--deny=GPL-3.0-only",
+          "--vulns",
           "--vuln-severity=critical",
           "--vuln-block-unknown",
         ],

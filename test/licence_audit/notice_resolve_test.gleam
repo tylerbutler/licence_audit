@@ -139,10 +139,8 @@ fn paths(files: List(notice.NoticeFile)) -> List(String) {
 
 fn fresh_cache_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
-  let path = tmp_dir <> "/" <> name <> ".sqlite3"
-  list.each(["", "-wal", "-shm"], fn(suffix) {
-    let _ = simplifile.delete(path <> suffix)
-  })
+  let path = tmp_dir <> "/" <> name
+  let _ = simplifile.delete(path)
   path
 }
 
@@ -186,30 +184,27 @@ pub fn source_with_licence_needs_no_fallback_test() {
   should.equal(resolution.warnings, [])
 }
 
-pub fn busy_cache_keeps_resolved_notice_text_test() {
-  let path = fresh_cache_path("busy_resolution")
+pub fn unavailable_cache_keeps_resolved_notice_text_test() {
+  let path = fresh_cache_path("unavailable_resolution")
   let cache = notice_cache.open(notice_cache.Enabled(Some(path)))
+  cache_support.break_store(path)
   let source = read_bytes("notice_only_hex.tar")
-  let package = hex_package("busy", checksum_of(source), ["MIT"], [])
-  cache_support.with_writer(path, fn() {
-    let assert #(Ok(resolution), Some(warning)) =
-      notice_resolve.resolve(
-        cache,
-        package,
-        clients(
-          fn(_, _) { Ok(source) },
-          panic_git,
-          panic_resolve,
-          panic_archive,
-          fn(_) { Ok(Some("Canonical MIT text")) },
-        ),
-      )
-    let assert notice_resolve.Resolved(files) = resolution.outcome
-    should.equal(paths(files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
-    should.be_true(string.contains(warning, "SQLite error 5:"))
-  })
-  let assert Error(_) = simplifile.read_bits(path <> "-wal")
-  let assert Error(_) = simplifile.read_bits(path <> "-shm")
+  let package = hex_package("unavailable", checksum_of(source), ["MIT"], [])
+  let assert #(Ok(resolution), Some(warning)) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        fn(_, _) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        fn(_) { Ok(Some("Canonical MIT text")) },
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = resolution.outcome
+  should.equal(paths(files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
+  should.be_true(string.contains(warning, "Failed to access notices cache:"))
 }
 
 pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
@@ -764,7 +759,7 @@ pub fn repository_network_failure_warns_and_uses_spdx_test() {
 pub fn spdx_network_failure_preserves_cache_warning_test() {
   let path = fresh_cache_path("failed_spdx_warning")
   let cache = notice_cache.open(notice_cache.Enabled(Some(path)))
-  cache_support.drop_table(path)
+  cache_support.break_store(path)
   let source = read_bytes("notice_only_hex.tar")
   let package = hex_package("notice_only", checksum_of(source), ["MIT"], [])
   let client =

@@ -40,7 +40,9 @@ class CliStreamTest(unittest.TestCase):
         for command in ("", "check", "sbom", "vulns", "notices", "update"):
             with self.subTest(command=command):
                 arguments = [command] if command else []
-                arguments += ["--quiet", "--no-cache"]
+                arguments += ["--quiet"]
+                if command != "vulns":
+                    arguments += ["--no-cache"]
                 if command == "check":
                     arguments += ["--allow=MIT"]
                 self.assert_diagnostic(self.run_cli(*arguments))
@@ -48,6 +50,59 @@ class CliStreamTest(unittest.TestCase):
     def test_invalid_config_is_a_diagnostic(self):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("--quiet", "--no-cache"))
+
+    def test_vulnerability_flags_require_scan_before_reading_manifest(self):
+        for flags in (
+            ["--vuln-severity=critical"],
+            ["--vuln-block-unknown"],
+            ["--vuln-block-unknown=false"],
+            ["--vuln-severity=high", "--vuln-block-unknown"],
+        ):
+            for scan in ([], ["--vulns=false"]):
+                with self.subTest(flags=flags, scan=scan):
+                    result = self.run_cli("check", "--quiet", *flags, *scan)
+                    self.assert_diagnostic(result, status=1)
+                    self.assertIn("require --vulns", result.stderr)
+                    self.assertNotIn("manifest", result.stderr)
+
+    def test_help_alias_and_root_only_version(self):
+        for command in ("", "check", "sbom", "vulns", "notices", "update"):
+            arguments = [command] if command else []
+            with self.subTest(command=command):
+                help_result = self.run_cli(*arguments, "-h")
+                self.assertEqual(help_result.returncode, 0, help_result.stderr)
+                self.assertIn("--quiet", help_result.stdout)
+                self.assertIn("-q", help_result.stdout)
+                version = self.run_cli(*arguments, "--version")
+                self.assertEqual(version.returncode, 1 if command else 0)
+
+    def test_vulns_removed_cache_flags_and_short_quiet(self):
+        for flag in ("--no-cache", "--cache-path=cache.sqlite3"):
+            result = self.run_cli("vulns", flag)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("invalid flag", result.stderr)
+        for arguments in (("vulns", "-q"), ("-q", "vulns")):
+            self.assert_diagnostic(self.run_cli(*arguments))
+
+    def test_generated_payloads_ignore_color_modes(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for command in ("sbom", "notices"):
+            flags = ["--offline", "--reproducible"] if command == "sbom" else []
+            with self.subTest(command=command):
+                plain = self.run_cli(command, "-q", *flags, "--color=never")
+                forced = self.run_cli(command, "-q", *flags, "--colour=always")
+                self.assertEqual(plain.returncode, 0, plain.stderr)
+                self.assertEqual(forced.returncode, 0, forced.stderr)
+                self.assertEqual(forced.stdout, plain.stdout)
+                self.assertNotIn("\x1b[", forced.stdout)
+                destination = self.project / f"{command}.txt"
+                written = self.run_cli(
+                    command, "-q", *flags, "--colour=always",
+                    f"--output={destination}",
+                )
+                self.assertEqual(written.returncode, 0, written.stderr)
+                self.assertEqual(destination.read_text(), plain.stdout)
 
     def test_invalid_sbom_manifest_is_a_diagnostic(self):
         (self.project / "manifest.toml").write_text("packages = [")
@@ -109,7 +164,7 @@ class CliStreamTest(unittest.TestCase):
             'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
-        cache_path = self.project / "metadata.dets"
+        cache_path = self.project / "metadata"
         seed = subprocess.run(
             [
                 "erl", "-noshell", "-pa",
@@ -133,51 +188,157 @@ class CliStreamTest(unittest.TestCase):
         )
         self.assertEqual(seed.returncode, 0, seed.stdout + seed.stderr)
         for licence, status in (("Apache-2.0", 1), ("MIT", 0)):
-            with self.subTest(licence=licence):
-                result = self.run_cli(
-                    "check", "--quiet", f"--allow={licence}",
-                    f"--cache-path={cache_path}",
-                )
-                self.assertEqual(result.returncode, status, result.stderr)
-                self.assertIn("example", result.stdout)
-                if status == 1:
-                    self.assertIn("policy violations detected", result.stderr)
-                    self.assertNotIn("example", result.stderr)
-                else:
-                    self.assertEqual(result.stderr, "")
+            for quiet in (False, True):
+                with self.subTest(licence=licence, quiet=quiet):
+                    result = self.run_cli(
+                        "check", f"--allow={licence}",
+                        f"--cache-path={cache_path}",
+                        *(["--quiet"] if quiet else []),
+                    )
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertIn("example", result.stdout)
+                    self.assertNotIn("ERROR", result.stderr)
+                    self.assertNotIn("policy violations detected", result.stderr)
+                    self.assertEqual(
+                        "Dependency licence audit failed" in result.stdout,
+                        status == 1,
+                    )
+                    if quiet:
+                        self.assertEqual(result.stderr, "")
 
-    def test_unavailable_sqlite_preserves_reports_and_sbom_stdout(self):
-        binary = self.project / "licence_audit"
-        shutil.copy2(ROOT / "licence_audit", binary)
-        sidecar = self.project / "sqlite_native/esqlite"
-        (self.project / "manifest.toml").write_text("packages = []\n")
-        env = {**os.environ, "XDG_CACHE_HOME": str(self.project / "cache")}
-        env.pop("ERL_LIBS", None)
-        for state in ("missing", "unloadable"):
-            if state == "unloadable":
-                shutil.copytree(ROOT / "sqlite_native/esqlite", sidecar)
-                for library in (sidecar / "priv").rglob("*"):
-                    if library.is_file() and library.suffix in (".so", ".dll", ".dylib"):
-                        library.write_bytes(b"Unloadable native library fixture")
-            for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
-                for no_cache in (False, True):
-                    with self.subTest(state=state, command=arguments[0], no_cache=no_cache):
-                        flags = ["--quiet", "--no-cache"] if no_cache else []
-                        result = subprocess.run(
-                            [str(binary), *arguments, *flags], cwd=self.project,
-                            env=env, capture_output=True, text=True, timeout=30,
-                        )
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        if arguments[0] == "sbom":
-                            self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
-                        else:
-                            self.assertTrue(result.stdout)
-                            self.assertNotIn("SQLite", result.stdout)
-                        if no_cache:
+    def test_vulnerability_gate_and_operational_failure_streams(self):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "example", version = "1.0.0", '
+            'build_tools = ["gleam"], requirements = [], '
+            'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
+            '[requirements]\nexample = ">= 1.0.0"\n'
+        )
+        # Replace only fetch functions in a fresh VM, retaining the real OSV
+        # formatting/severity functions and main's stream dispatch.
+        evaluation = """
+            Metadata = 'licence_audit@hex':licences_only([<<"MIT">>]),
+            HexForms = [
+                {attribute, 1, module, 'licence_audit@hex'},
+                {attribute, 1, export, [{fetch_package_metadata_from_hex, 1}]},
+                {function, 1, fetch_package_metadata_from_hex, 1, [
+                    {clause, 1, [{var, 1, '_'}], [],
+                        [erl_parse:abstract({ok, Metadata})]}
+                ]}
+            ],
+            {ok, Hex, HexBinary} = compile:forms(HexForms, [binary]),
+            {module, Hex} = code:load_binary(Hex, "stream_fixture", HexBinary),
+            Mode = os:getenv("STREAM_OSV_MODE"),
+            Severity = case Mode of "unknown" -> unknown_severity; _ -> high end,
+            Batch = case Mode of
+                "batch_failure" -> {error, network_failure};
+                _ -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>,
+                    [<<"CVE-STREAM-0001">>]}]}
+            end,
+            Detail = case Mode of
+                "detail_failure" -> {error, not_found};
+                _ -> {ok, {vulnerability, <<"CVE-STREAM-0001">>, [],
+                    <<"Fixture advisory">>, Severity, []}}
+            end,
+            Osv = 'licence_audit@osv',
+            {ok, {Osv, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                beam_lib:chunks(code:which(Osv), [abstract_code]),
+            Replaced = lists:map(fun
+                ({function, Line, Name, 1, _}) when
+                    Name =:= query_batch_from_osv;
+                    Name =:= fetch_vulnerability_from_osv ->
+                    Result = case Name of
+                        query_batch_from_osv -> Batch;
+                        fetch_vulnerability_from_osv -> Detail
+                    end,
+                    {function, Line, Name, 1, [
+                        {clause, Line, [{var, Line, '_'}], [],
+                            [erl_parse:abstract(Result)]}
+                    ]};
+                (Form) -> Form
+            end, Forms),
+            {ok, Osv, OsvBinary} = compile:forms(Replaced, [binary]),
+            {module, Osv} = code:load_binary(Osv, "stream_fixture", OsvBinary),
+            licence_audit:main().
+        """
+        cases = (
+            ("high", False, 1),
+            ("unknown", False, 1),
+            ("batch_failure", False, 2),
+            ("detail_failure", False, 2),
+            ("batch_failure", True, 2),
+            ("detail_failure", True, 2),
+        )
+        for mode, deny_licence, status in cases:
+            for quiet in (False, True):
+                with self.subTest(mode=mode, deny_licence=deny_licence, quiet=quiet):
+                    arguments = ["check", "--allow=MIT", "--vulns", "--no-cache"]
+                    if mode == "unknown":
+                        arguments += ["--vuln-block-unknown"]
+                    if deny_licence:
+                        arguments += ["--deny=MIT"]
+                    if quiet:
+                        arguments += ["--quiet"]
+                    result = subprocess.run(
+                        [
+                            "erl", "-noshell", "-pa",
+                            *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                            "-eval", evaluation, "-extra", *arguments,
+                        ],
+                        cwd=self.project, capture_output=True, text=True,
+                        timeout=30,
+                        env={
+                            **os.environ, "NO_COLOR": "1",
+                            "STREAM_OSV_MODE": mode,
+                        },
+                    )
+                    self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                    self.assertIn("example", result.stdout)
+                    if status == 1:
+                        self.assertIn("CVE-STREAM-0001", result.stdout)
+                        self.assertIn("Vulnerability check failed:", result.stdout)
+                        self.assertNotIn("ERROR", result.stderr)
+                        if quiet:
                             self.assertEqual(result.stderr, "")
-                        else:
-                            self.assertIn("SQLite native library unavailable", result.stderr)
-                        self.assertEqual(list((self.project / "cache").rglob("*.sqlite3")), [])
+                    else:
+                        diagnostic = (
+                            "OSV request failed" if mode == "batch_failure"
+                            else "failed to fetch OSV advisory details"
+                        )
+                        self.assertNotIn(diagnostic, result.stdout)
+                        self.assertIn(diagnostic, result.stderr)
+                        self.assertEqual(result.stderr.count("ERROR"), 1)
+                        self.assertNotIn("Dependency licence audit failed", result.stdout)
+                        if mode == "detail_failure":
+                            self.assertNotIn("CVE-STREAM-0001", result.stdout)
+                            self.assertIn("CVE-STREAM-0001: OSV resource not found", result.stderr)
+                        if quiet:
+                            self.assertNotIn("INFO", result.stderr)
+                            self.assertNotIn("WARN", result.stderr)
+
+    def test_unavailable_cache_preserves_reports_and_sbom_stdout(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        blocker = self.project / "cache"
+        blocker.write_text("not a directory")
+        env = {**os.environ, "XDG_CACHE_HOME": str(blocker)}
+        for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
+            for no_cache in (False, True):
+                with self.subTest(command=arguments[0], no_cache=no_cache):
+                    flags = ["--quiet", "--no-cache"] if no_cache else []
+                    result = subprocess.run(
+                        [str(ROOT / "licence_audit"), *arguments, *flags], cwd=self.project,
+                        env=env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if arguments[0] == "sbom":
+                        self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
+                    else:
+                        self.assertTrue(result.stdout)
+                        self.assertNotIn("cache", result.stdout.lower())
+                    if no_cache:
+                        self.assertEqual(result.stderr, "")
+                    else:
+                        self.assertIn("Unable to open licence cache", result.stderr)
+                    self.assertEqual(blocker.read_text(), "not a directory")
 
     def test_help_version_and_usage_streams(self):
         for argument in ("--help", "--version"):

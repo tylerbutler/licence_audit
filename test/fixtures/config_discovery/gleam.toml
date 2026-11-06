@@ -1,0 +1,4 @@
+name = "parent"
+
+[tools.licence_audit]
+allow = ["MIT"]

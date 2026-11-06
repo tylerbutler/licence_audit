@@ -170,7 +170,7 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
       contents: "[tools.licence_audit]\nallow = [\"Zlib\", \"Apache-2.0\"]\ndeny = [\"GPL-3.0\"]\n",
     )
 
-  let #(result, _) =
+  let #(result, updated_reporter) =
     update.run_with_picker(
       manifest_path,
       ".",
@@ -190,7 +190,40 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
     string.contains(contents, "allow = [\"Apache-2.0\", \"MIT\"]")
   let assert True = string.contains(contents, "deny = [\"GPL-3.0\"]")
   let assert True = string.contains(result.output, "(2 allowed, 1 denied)")
+  assert !list.any(progress.events(updated_reporter), fn(event) {
+    event.kind == progress.Warning
+  })
   let _ = simplifile.delete(path)
+}
+
+pub fn empty_allow_selection_is_saved_with_check_warning_test() {
+  list.each([[], ["GPL-3.0-only"]], fn(deny) {
+    let path = fresh_path("empty_allow")
+    let #(result, updated_reporter) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(path),
+        True,
+        True,
+        None,
+        successful_fetcher,
+        fn(_, _, _, _) { Ok(picker.Selection(allow: [], deny: deny)) },
+        reporter(),
+      )
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "Wrote " <> path)
+    let assert Ok(contents) = simplifile.read(path)
+    let assert Ok(saved_policy) = config.parse(contents)
+    should.equal(saved_policy.allow, [])
+    should.equal(saved_policy.deny, deny)
+    assert list.any(progress.events(updated_reporter), fn(event) {
+      event.kind == progress.Warning
+      && string.contains(event.message, "empty allow list")
+      && string.contains(event.message, "check --vulns")
+    })
+    let assert Ok(_) = simplifile.delete(path)
+  })
 }
 
 pub fn invalid_target_parent_fails_before_writing_test() {
@@ -326,7 +359,10 @@ pub fn update_preserves_file_when_read_fails_after_selection_test() {
   let path = fresh_path("read_after_picker")
   let original = <<255, 254>>
   let assert Ok(_) =
-    simplifile.write(to: path, contents: "name = \"keep_me\"\n")
+    simplifile.write(
+      to: path,
+      contents: "name = \"keep_me\"\n[tools.licence_audit]\n",
+    )
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
@@ -443,7 +479,10 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
   let target = fresh_path("link_target")
   let link = fresh_path("linked_policy")
   let assert Ok(_) =
-    simplifile.write(to: target, contents: "# Keep this comment\n")
+    simplifile.write(
+      to: target,
+      contents: "# Keep this comment\n[tools.licence_audit]\n",
+    )
   let assert Ok(_) = make_link("link_target.toml", link)
   let #(result, _) =
     update.run_with_picker(
