@@ -38,7 +38,7 @@ pub fn message(error: Error) -> String {
     AuditFailed ->
       "Dependency licence audit failed. Review the report above and update the dependency or policy."
     MissingPolicy ->
-      "No licence policy supplied for the `check` subcommand. Add a [tools.licence_audit] section to gleam.toml or pass --allow/--deny."
+      "The `check` subcommand requires a non-empty allow list, including with --vulns. Add allow to [tools.licence_audit] in gleam.toml or pass --allow."
     Usage(message) -> message
     RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
     Config(message) -> message

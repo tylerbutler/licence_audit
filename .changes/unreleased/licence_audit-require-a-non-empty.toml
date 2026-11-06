@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Changed"
+body = "Require a non-empty `allow` list for `check`, including `check --vulns`. Keep `deny` as an exact-match override without licence variant equivalence. Warn when `update` saves an empty allow list."

@@ -20,6 +20,9 @@ pub type Error {
   MissingPolicy
 }
 
+/// Check mode requires an allow list; deny rules are exact-match overrides.
+/// Matching ignores token whitespace and ordinary identifier case, but keeps
+/// custom reference case, parentheses, and licence variants distinct.
 pub fn new(
   allow allow: List(String),
   deny deny: List(String),
@@ -27,7 +30,7 @@ pub fn new(
 ) -> Result(Policy, Error) {
   let audit_policy = Policy(allow: list.unique(allow), deny: list.unique(deny))
 
-  case check_mode && is_empty(audit_policy) {
+  case check_mode && audit_policy.allow == [] {
     True -> Error(MissingPolicy)
     False -> Ok(audit_policy)
   }
