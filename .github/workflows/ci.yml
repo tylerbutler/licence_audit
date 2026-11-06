@@ -68,7 +68,7 @@ jobs:
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
         with:
           otp-version: "28.3"
-          gleam-version: "1.19.0-rc3"
+          gleam-version: "1.19.2"
           rebar3-version: "3.26.0"
           version-type: strict
 
@@ -116,6 +116,9 @@ jobs:
 
       - name: Test release notice staging
         run: just test-release-notices
+
+      - name: Test release build input verification
+        run: just test-build-inputs
 
       - name: Test SQLite sidecar staging
         run: mise exec -- python3 -B test/native_cache_smoke.py --self-test

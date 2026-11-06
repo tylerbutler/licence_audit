@@ -1,8 +1,8 @@
 [tools]
 erlang = "28.3"
-gleam = "1.19.0-rc3"
-just = "latest"
-rebar = "3.26.0"
+gleam = "1.19.2"
+just = "1.59.0"
+"github:erlang/rebar3" = { version = "3.26.0", bin = "rebar3" }
 node = "24.21.0"
 pnpm = "11.9.0"
 "github:jtdowney/queso" = "0.3.0"
@@ -39,3 +39,9 @@ macos-x64 = { asset_pattern = "xerj-*-x86_64-apple-darwin.tar.gz" }
 macos-arm64 = { asset_pattern = "xerj-*-aarch64-apple-darwin.tar.gz" }
 windows-x64 = { asset_pattern = "xerj-*-x86_64-pc-windows-msvc.zip" }
 windows-arm64 = { asset_pattern = "xerj-*-aarch64-pc-windows-msvc.zip" }
+
+[settings]
+lockfile = true
+
+[settings.erlang]
+precompiled_os = "ubuntu-24.04"
