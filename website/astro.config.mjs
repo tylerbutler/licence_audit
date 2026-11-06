@@ -13,7 +13,6 @@ export default defineConfig({
       themes: ["github-dark"],
       useDarkModeMediaQuery: false,
       defaultProps: {
-        showLineNumbers: false,
         wrap: false,
       },
       styleOverrides: {
@@ -37,7 +36,6 @@ export default defineConfig({
           editorTabBarBackground: "var(--term-bar)",
           editorTabBarBorderBottomColor: "var(--term-border)",
           editorActiveTabForeground: "var(--term-fg)",
-          editorInactiveTabForeground: "var(--term-dim)",
           terminalBackground: "var(--term-bg)",
           terminalTitlebarBackground: "var(--term-bar)",
           terminalTitlebarBorderBottomColor: "var(--term-border)",

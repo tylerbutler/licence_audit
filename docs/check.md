@@ -1,30 +1,7 @@
-<a id="command-licence-audit-check"></a>
+# check
 
-# `licence_audit check`
+Read the [check guide](https://licence-audit.tylerbutler.com/docs/check)
+on the canonical documentation website.
 
-Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
-
-**Usage:**
-
-```
-licence_audit check [--flags]
-```
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
-| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
-| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
-| `--vuln-block-unknown` | `BOOL` | `false` | Fail `check --vulns` on advisories whose severity is unknown |
-| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high) |
-| `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |
+The guide source is
+[`website/src/pages/docs/check.md`](../website/src/pages/docs/check.md).

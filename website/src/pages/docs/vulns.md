@@ -79,13 +79,30 @@ for configuration and override rules.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration, including advisory exceptions. |
-| `--no-cache` | Accepted for consistency with other commands. It has no effect because `vulns` does not use a cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+`vulns` includes development dependencies by default. Use `--prod-only` to
+exclude them. OSV advisories are not cached; this command does not accept
+`--no-cache` or `--cache-path`.
+
+<!-- cli-reference -->
+Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --prod-only is set. Queries OSV directly and uses no on-disk cache.
+
+**Usage:**
+
+```
+licence_audit vulns [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+<!-- cli-referencestop -->
 
 [osv]: https://osv.dev/

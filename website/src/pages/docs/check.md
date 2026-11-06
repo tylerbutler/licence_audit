@@ -28,6 +28,19 @@ matching licences. To create the policy, use
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
 
+### 1.0 allow-list requirement
+
+For version 1.0, `check` requires a non-empty `allow` list. A deny-only policy
+returns exit code `2` and asks you to add `allow`. This also applies to
+`check --vulns`: it remains a combined licence and vulnerability gate, not a
+vulnerability-only check. This requirement replaces deny-only checks supported
+by earlier releases.
+
+`deny` is an exact-match override and wins over `allow`. Matching does not
+normalise deprecated identifiers, a trailing `+`, `-or-later` identifiers, or
+`WITH` terms into equivalent licences. List the complete identifiers or terms
+that you intend to allow or deny.
+
 ### SPDX expressions
 
 `AND` requires both terms to pass. `OR` needs one passing alternative.
@@ -50,7 +63,7 @@ Expression matching ignores whitespace between tokens and the case of SPDX
 identifiers. It keeps the case of custom references and the tokens of the
 expression.
 
-Malformed expressions fail the gate, even with a deny-only policy.
+Malformed expressions fail licence evaluation.
 For untrusted metadata, the parser limits each expression to 64 KiB,
 1024 tokens, and 64 nested parentheses. Expressions above these limits fail
 the gate.
@@ -218,18 +231,31 @@ requirements. `update` preserves exception entries and their comments.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--allow` | Allow licences, comma-separated. Merges with config. |
-| `--deny` | Deny licences, comma-separated. Merges with config. |
-| `--prod-only` | Only audit production dependencies. |
-| `--vulns` | Also query OSV.dev and fail on advisories at or above `--vuln-severity`. |
-| `--vuln-severity` | Minimum failing severity: `low` \| `medium` \| `high` (default) \| `critical`. |
-| `--vuln-block-unknown` | Fail `check --vulns` on advisories with unknown severity. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration files; use only CLI flags. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+<!-- cli-reference -->
+Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+
+**Usage:**
+
+```
+licence_audit check [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--vuln-block-unknown` | `BOOL` | `false` | Fail `check --vulns` on advisories whose severity is unknown |
+| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high) |
+| `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |
+<!-- cli-referencestop -->
