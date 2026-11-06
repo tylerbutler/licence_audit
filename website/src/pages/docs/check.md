@@ -28,6 +28,20 @@ matching licences. To create the policy, use
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
 
+### Configuration validation
+
+Unknown keys in `[tools.licence_audit]` or its `notices` table are errors with
+exit code `2`. The policy keys are `allow`, `deny`, `vuln_severity`,
+`vuln_block_unknown`, `exceptions`, and `notices`; the notices keys are `include`
+and `exclude`. The error names the unknown key. An older binary therefore
+rejects keys added by a newer release instead of silently ignoring them.
+
+Every `allow` and `deny` entry, from config or CLI, must parse as an SPDX
+expression. Empty entries and malformed expressions such as `MIT/Apache-2.0`
+or `Apache 2.0` cause exit code `2`. Validation checks syntax, not membership in
+the SPDX License List. Custom identifiers and `LicenseRef-`/`DocumentRef-`
+forms remain supported. Validation does not change the entry text.
+
 ### 1.0 allow-list requirement
 
 For version 1.0, `check` requires a non-empty `allow` list. A deny-only policy

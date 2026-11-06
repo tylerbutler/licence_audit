@@ -5,6 +5,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import licence_audit/exception
+import licence_audit/spdx_expression
 import licence_audit/toml
 import simplifile
 
@@ -45,18 +46,83 @@ pub fn parse_notices(input: String) -> Result(Notices, Error) {
   use document <- result.try(
     toml.parse(input) |> result.replace_error(InvalidToml("Invalid TOML")),
   )
+  use notices <- result.try(validate_configuration(document))
+  use _ <- result.try(
+    case toml.get_table(document, ["tools", "licence_audit"]) {
+      Ok(section) -> parse_policy_section(section, document)
+      Error(toml.TableLookupMissing) -> parse_policy_section([], document)
+      Error(toml.TableLookupNotTable) ->
+        Error(InvalidField("tools.licence_audit", "Table"))
+    },
+  )
+  Ok(notices)
+}
+
+fn validate_configuration(document: toml.Document) -> Result(Notices, Error) {
+  use headers <- result.try(
+    toml.table_headers(document)
+    |> result.replace_error(InvalidToml("Invalid TOML table header")),
+  )
+  use _ <- result.try(
+    list.try_each(headers, fn(path) {
+      case path {
+        ["tools", "licence_audit", "notices", "include" as field, ..]
+        | ["tools", "licence_audit", "notices", "exclude" as field, ..] ->
+          Error(InvalidField("notices." <> field, "List(String)"))
+        ["tools", "licence_audit", ..fields] -> validate_key_path(fields)
+        _ -> Ok(Nil)
+      }
+    }),
+  )
   use _ <- result.try(
     case toml.get_table(document, ["tools", "licence_audit"]) {
       Error(toml.TableLookupNotTable) ->
         Error(InvalidField("tools.licence_audit", "Table"))
-      Error(toml.TableLookupMissing) | Ok(_) -> Ok(Nil)
+      Error(toml.TableLookupMissing) -> Ok(Nil)
+      Ok(section) ->
+        list.try_each(section, fn(field) { validate_key_path(field.0) })
+    },
+  )
+  use _ <- result.try(
+    case toml.get_table(document, ["tools", "licence_audit", "notices"]) {
+      Error(toml.TableLookupMissing) -> Ok(Nil)
+      Error(toml.TableLookupNotTable) -> Error(InvalidField("notices", "Table"))
+      Ok(section) ->
+        list.try_each(section, fn(field) {
+          validate_key_path(["notices", ..field.0])
+        })
     },
   )
   use include <- result.try(notices_string_list(document, "include"))
   use exclude <- result.try(notices_string_list(document, "exclude"))
-  case toml.get_table(document, ["tools", "licence_audit", "notices"]) {
-    Error(toml.TableLookupMissing) | Ok(_) -> Ok(Notices(include:, exclude:))
-    Error(toml.TableLookupNotTable) -> Error(InvalidField("notices", "Table"))
+  Ok(Notices(include:, exclude:))
+}
+
+fn validate_key_path(path: List(String)) -> Result(Nil, Error) {
+  case path {
+    ["notices", field, ..rest] ->
+      case field {
+        "include" | "exclude" ->
+          case rest {
+            [] -> Ok(Nil)
+            _ -> Error(InvalidField("notices." <> field, "List(String)"))
+          }
+        _ -> Error(UnknownField("notices." <> field))
+      }
+    [field, ..] ->
+      case
+        list.contains(
+          [
+            "allow", "deny", "vuln_severity", "vuln_block_unknown", "exceptions",
+            "notices",
+          ],
+          field,
+        )
+      {
+        True -> Ok(Nil)
+        False -> Error(UnknownField(field))
+      }
+    [] -> Ok(Nil)
   }
 }
 
@@ -89,6 +155,7 @@ pub type Error {
   InvalidToml(String)
   MissingPolicy
   InvalidField(field: String, expected: String)
+  UnknownField(String)
   InvalidLicenceIdentifier
   InvalidException(String)
   FileReadError(String)
@@ -120,7 +187,8 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
 pub fn parse(input: String) -> Result(Policy, Error) {
   case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
-    Ok(document) ->
+    Ok(document) -> {
+      use _ <- result.try(validate_configuration(document))
       case toml.get_table(document, ["tools", "licence_audit"]) {
         Error(toml.TableLookupMissing) ->
           // An empty child table may not appear in Tomlet's parent lookup.
@@ -132,6 +200,7 @@ pub fn parse(input: String) -> Result(Policy, Error) {
           Error(InvalidField(field: "tools.licence_audit", expected: "Table"))
         Ok(section) -> parse_policy_section(section, document)
       }
+    }
   }
 }
 
@@ -352,10 +421,12 @@ fn validate(policy: Policy) -> Result(Policy, Error) {
     |> result.map_error(exception.describe_error)
     |> result.map_error(InvalidException),
   )
-  use <- bool.guard(
-    when: has_empty_identifier(policy.allow)
-      || has_empty_identifier(policy.deny),
-    return: Error(InvalidLicenceIdentifier),
+  use _ <- result.try(
+    list.try_each(list.append(policy.allow, policy.deny), fn(licence) {
+      spdx_expression.parse(licence)
+      |> result.replace_error(InvalidLicenceIdentifier)
+      |> result.map(fn(_) { Nil })
+    }),
   )
   validate_vuln_severity(policy)
 }
@@ -374,10 +445,6 @@ fn validate_vuln_severity(policy: Policy) -> Result(Policy, Error) {
       }
     }
   }
-}
-
-fn has_empty_identifier(licences: List(String)) -> Bool {
-  list.any(licences, fn(licence) { string.trim(licence) == "" })
 }
 
 fn is_empty(policy: Policy) -> Bool {
