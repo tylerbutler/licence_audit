@@ -32,24 +32,31 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
-      - name: Download tested per-target native builds and runtime notices
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
-        with:
-          pattern: licence-audit-native-*
-          merge-multiple: true
-          path: build
+      - name: Install Queso packaging dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y binutils-mingw-w64-x86-64 musl-tools
+          python3 -m pip install --user 'ziglang==0.14.1'
+          cargo install --locked cargo-zigbuild --version 0.23.4
+          rustup target add \
+            aarch64-apple-darwin \
+            aarch64-unknown-linux-gnu \
+            aarch64-unknown-linux-musl \
+            x86_64-apple-darwin \
+            x86_64-pc-windows-gnu \
+            x86_64-unknown-linux-musl
+          mise exec -- queso --version
+          mise exec -- cargo about --version
+          python3 -m ziglang version
+          cargo-zigbuild --version
 
-      - name: Download bookworm-built escript
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
-        with:
-          name: licence-audit-escript
-          path: build/escript
+      - name: Build escript
+        run: just build-strict
 
       - name: Embed required notices in bare escript
         run: |
           set -euo pipefail
-          cp build/escript/licence_audit licence_audit
-          chmod +x licence_audit
           mise exec -- python3 -B scripts/release_notices.py embed licence_audit
           mise exec -- python3 -B scripts/release_notices.py check licence_audit
           ./licence_audit --help
@@ -61,6 +68,18 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
+
+      - name: Build Queso executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export XDG_CACHE_HOME="$PWD/build/release-cache"
+          mkdir -p build/release-tmp
+          export TMPDIR="$PWD/build/release-tmp"
+          rustup component add rust-docs
+          just build-queso 2>&1 | tee build/queso-build.log
+          mise exec -- python3 -B scripts/runtime_notices.py --build-log build/queso-build.log
 
       - name: Stage release artifacts
         env:

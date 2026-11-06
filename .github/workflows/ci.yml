@@ -107,7 +107,7 @@ jobs:
       - name: Test release notice staging
         run: just test-release-notices
 
-      - name: Test release build input verification
+      - name: Test toolchain pin consistency
         run: just test-build-inputs
 
       - name: Check formatting
@@ -176,7 +176,37 @@ jobs:
       - name: Validate SBOM (schema)
         run: just sbom-validate
 
-  native:
-    uses: ./.github/workflows/native-build.yml
-    with:
-      checkout_ref: ${{ inputs.checkout_ref }}
+  native-http:
+    runs-on: ubuntu-latest
+    name: Native HTTP
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      - name: Install Queso glibc packaging dependencies
+        # Queso treats glibc as a cross target even on Linux glibc hosts.
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user 'ziglang==0.14.1'
+          cargo install --locked cargo-zigbuild --version 0.23.4
+
+      - name: Build native Linux executable
+        run: mise exec -- queso build --target x86_64-linux-glibc
+
+      - name: Test cache and HTTPS without system Erlang
+        run: |
+          set -euo pipefail
+          binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
+          test "${#binaries[@]}" -eq 1
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            debian:bookworm-slim sh -ec '
+              apt-get update -qq
+              apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
+              exec python3 -B test/native_cache_smoke.py "$1"
+            ' sh "${binaries[0]}"

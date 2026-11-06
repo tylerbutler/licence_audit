@@ -46,7 +46,7 @@ vendor-test:
 test-release-notices:
     mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
 
-# Verify direct release downloads and toolchain pin consistency without a network.
+# Verify toolchain pin consistency without a network.
 test-build-inputs:
     mise exec -- python3 -B -m unittest discover -s test -p build_inputs_test.py
 

@@ -29,9 +29,7 @@ mise install --locked
 ```
 
 The Erlang Linux build target is fixed to Ubuntu 24.04 so locked installs use
-the same OTP asset when the hosted runner's Ubuntu version changes. Linux
-rustup bootstrap binaries are static musl executables, but the installed Rust
-host toolchain must match the build container's libc (GNU or musl).
+the same OTP asset when the hosted runner's Ubuntu version changes.
 
 If you have unrelated global mise tools without their own lockfile, select
 the project tools explicitly (for example, `mise install --locked erlang
@@ -47,27 +45,10 @@ just build-strict
 just test
 ```
 
-The native release script uses `scripts/build_inputs.json` for direct Gleam,
-rebar3, rustup-init, and Queso downloads. `scripts/build_inputs.py` rejects
-version drift and checks the committed SHA-256 before extraction or execution.
-When updating these tools, update the input manifest as well as the mise and
-workflow pins. Obtain Gleam, rebar3, and Queso hashes from their versioned GitHub
-release asset digests. Obtain rustup-init hashes from
-`https://static.rust-lang.org/rustup/archive/VERSION/PLATFORM/rustup-init.sha256`.
-Download and check each supported asset against that upstream hash before
-committing it. Do not replace a hash only because a download failed verification.
-
-For example, download and verify a pinned asset without executing it:
-
-```sh
-python3 -B scripts/build_inputs.py rustup x86_64-unknown-linux-musl build/native-tools/rustup-init
-```
-
-This checks the direct downloads, not every build input. System package
-repositories, runner images, setup-beam downloads, Rust toolchain installation,
-and transitive Cargo and pip downloads still use their own trust and verification
-mechanisms. The build is not fully hermetic. Cargo-about 0.9.2 has no macOS
-x86-64 release asset; the native build installs it from Cargo with `--locked`.
+The lockfile pins the URLs and checksums of mise-installed tools, including
+Queso and cargo-about. The release job also installs the Rust targets, Zig,
+cargo-zigbuild, and system packages. These use their own trust and verification
+mechanisms. The build is not fully hermetic.
 
 ## Reference coding
 
@@ -466,9 +447,9 @@ the notice bytes from each staged tar/ZIP and the bare escript, and compares
 them with the required source documents. Missing, empty, or changed documents
 stop publication. Older tags without required documents also fail this check.
 
-Each target-native build runs
+After building native executables, Publish runs
 `mise exec -- python3 -B scripts/runtime_notices.py`. It uses a fresh,
-worktree-local Queso cache on Linux so the collector reads
+worktree-local Queso cache under `build/release-cache/` so the collector reads
 the runtime installations and launcher lockfile used by that build. For a
 focused local check against an existing Queso cache, pass
 `--target x86_64-linux-glibc --cache <cache-directory>/queso`.
