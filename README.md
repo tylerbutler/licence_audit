@@ -48,7 +48,8 @@ usage and flag tables, and command behavior:
 - [Compatibility policy](https://licence-audit.tylerbutler.com/docs/compatibility)
 
 Use `licence_audit --help` or `licence_audit <command> --help` for the CLI
-options in your installed version.
+options in your installed version. `-h` is an alias for `--help`.
+`--version` is available only at the root.
 
 ## Contributing and security
 
