@@ -24,12 +24,13 @@ Prebuilt archives are attached to each
 For most users, download the self-contained archive for your platform, extract
 it, and put `licence_audit` on your `PATH`. These Queso-built executables bundle
 the Erlang runtime, so Erlang/OTP does not need to be installed on the target
-machine.
+machine. Use these native binaries for CI to avoid a separate OTP requirement.
 
 The release also keeps the original escript archive and bare `licence_audit`
-escript for compatibility. The escript runs on any platform with Erlang/OTP 28.x
-or newer. Older OTP releases cannot reattach stdin in raw mode, which breaks
-keyboard input for `licence_audit update`.
+escript for compatibility. **The escript needs Erlang/OTP 28 or later for all
+commands.** On OTP 27, the VM can fail to load it with `corrupt atom table`
+and exit `127`, before any command runs. This unsupported-runtime failure is
+outside the [CLI exit-code contract](https://licence-audit.tylerbutler.com/docs/compatibility#exit-codes-and-output-streams).
 
 Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
 explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
@@ -616,9 +617,9 @@ library is unavailable. Use `--no-cache` to skip the load attempt and warning.
   doesn't bypass this.
 - **OSV.dev unreachable** — `vulns` and `check --vulns` need network access to
   `api.osv.dev`; there's no on-disk cache for advisories.
-- **`update` does not react to keystrokes** — use Erlang/OTP 28.x or newer.
-  Earlier OTP releases cannot reattach stdin in raw mode, so the interactive
-  picker cannot receive keyboard input.
+- **Escript fails with `corrupt atom table` and exit `127`** — use Erlang/OTP
+  28 or later, or install a self-contained native binary. The escript requires
+  a supported OTP version for all commands, not only interactive `update`.
 - **No colours in automated output** — pass `--color=always` or
   `--colour=always` to force ANSI codes, or `--color=never`/`--colour=never`
   (or set `NO_COLOR=1`) for plain text.
