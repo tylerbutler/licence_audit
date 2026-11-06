@@ -159,22 +159,26 @@ pub fn insert_at(
   let destination = entry_path(store, key)
   let temporary = temporary_path(destination)
   let contents = encode_entry(key, value, cached_at)
-  let outcome = {
-    use _ <- result.try(simplifile.write(to: temporary, contents: contents))
-    simplifile.rename(at: temporary, to: destination)
+  let fail = fn(error) {
+    let _ = simplifile.delete(temporary)
+    Error(WriteFailed(key, simplifile.describe_error(error)))
   }
-  case outcome {
-    Ok(Nil) -> Ok(Nil)
-    Error(error) -> {
-      let _ = simplifile.delete(temporary)
-      // On Windows, a rename that loses a race with another writer can fail.
-      // The other writer's entry is an equally valid cache value.
-      case simplifile.is_file(destination) {
-        Ok(True) -> Ok(Nil)
-        Ok(False) | Error(_) ->
-          Error(WriteFailed(key, simplifile.describe_error(error)))
+  case simplifile.write(to: temporary, contents: contents) {
+    Error(error) -> fail(error)
+    Ok(Nil) ->
+      case simplifile.rename(at: temporary, to: destination) {
+        Ok(Nil) -> Ok(Nil)
+        Error(error) ->
+          // On Windows, a rename that loses a race with another writer can
+          // fail. The other writer's entry is an equally valid cache value.
+          case simplifile.is_file(destination) {
+            Ok(True) -> {
+              let _ = simplifile.delete(temporary)
+              Ok(Nil)
+            }
+            Ok(False) | Error(_) -> fail(error)
+          }
       }
-    }
   }
 }
 

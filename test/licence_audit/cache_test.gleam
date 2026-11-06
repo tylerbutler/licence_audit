@@ -569,3 +569,24 @@ pub fn repeated_writes_leave_no_temporary_files_test() {
   })
   should.equal(simplifile.read_directory(path), Ok([entry_name(path, "key")]))
 }
+
+pub fn failed_write_over_existing_entry_returns_error_test() {
+  let path = fresh_path("read_only_store")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  should.equal(cache_dir.insert(store, "key", "old"), Ok(Nil))
+  let assert Ok(Nil) = simplifile.set_permissions_octal(path, 0o555)
+  // Root and Windows ignore the directory mode, so the test cannot fail a write.
+  let probe = path <> "/probe"
+  case simplifile.write(to: probe, contents: "") {
+    Ok(Nil) -> Nil
+    Error(_) -> {
+      let assert Error(error) = cache_dir.insert(store, "key", "new")
+      should.be_true(string.starts_with(
+        cache_dir.describe_error(error),
+        "write key:",
+      ))
+    }
+  }
+  let assert Ok(Nil) = simplifile.set_permissions_octal(path, 0o755)
+  should.equal(cache_dir.lookup(store, "key"), Ok("old"))
+}
