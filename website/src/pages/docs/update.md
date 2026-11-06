@@ -15,6 +15,9 @@ licence_audit update
 
 ## Update process
 
+See [configuration discovery](/docs/configuration#discovery) for policy
+selection and the [write target](/docs/configuration#update-write-target).
+
 1. `update` resolves the dependency tree and gets licence metadata from Hex.
 2. It shows an interactive list of the licences. Existing allow and deny
    entries are preselected.

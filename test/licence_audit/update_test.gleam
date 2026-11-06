@@ -326,7 +326,10 @@ pub fn update_preserves_file_when_read_fails_after_selection_test() {
   let path = fresh_path("read_after_picker")
   let original = <<255, 254>>
   let assert Ok(_) =
-    simplifile.write(to: path, contents: "name = \"keep_me\"\n")
+    simplifile.write(
+      to: path,
+      contents: "name = \"keep_me\"\n[tools.licence_audit]\n",
+    )
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
@@ -443,7 +446,10 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
   let target = fresh_path("link_target")
   let link = fresh_path("linked_policy")
   let assert Ok(_) =
-    simplifile.write(to: target, contents: "# Keep this comment\n")
+    simplifile.write(
+      to: target,
+      contents: "# Keep this comment\n[tools.licence_audit]\n",
+    )
   let assert Ok(_) = make_link("link_target.toml", link)
   let #(result, _) =
     update.run_with_picker(

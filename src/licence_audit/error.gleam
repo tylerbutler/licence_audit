@@ -90,6 +90,8 @@ pub fn from_exception_error(error: exception.Error) -> Error {
 pub fn from_config_error(error: config.Error) -> Error {
   case error {
     config.MissingPolicy -> MissingPolicy
+    config.MissingPolicySection(path) ->
+      Config("Config file " <> path <> " is missing [tools.licence_audit]")
     config.InvalidToml(message) -> Config(message)
     config.InvalidField(field, expected) ->
       Config("Invalid config field " <> field <> ": expected " <> expected)

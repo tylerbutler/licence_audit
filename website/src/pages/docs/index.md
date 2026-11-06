@@ -55,6 +55,9 @@ returns exit code `0` when the scan completes. An incomplete licence report
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
 
+See [configuration discovery](/docs/configuration#discovery) for how the
+manifest selects the project and policy file.
+
 ## Optional GitHub Actions usage
 
 Use mise in GitHub Actions to install the same native binary as a local
