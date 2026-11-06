@@ -12,6 +12,24 @@ you upgrade.
 The CLI is the only supported interface. We do not provide a supported Gleam
 library API.
 
+## Canonical documentation
+
+The [documentation website](/docs) is the canonical source for user-facing
+CLI and configuration behavior. Its source is `website/src/pages/docs/**`.
+Usage and flag tables are generated from the CLI definitions; the surrounding
+guides explain configuration, command behavior, and limits. CI checks the
+generated sections for drift and checks and builds the website.
+
+The repository README and command files in `docs/` link to these guides.
+They are not separate compatibility contracts. Release notes and contributor
+decision records describe changes or design history, not additional CLI
+interfaces.
+
+Compatibility applies to the documentation and CLI definitions for the
+installed release. The latest website can describe options introduced after
+an older release; use that release's tagged website sources and its `--help`
+output when checking an older installation.
+
 ## Versioning
 
 We use [Semantic Versioning](https://semver.org/):
@@ -52,6 +70,12 @@ We preserve the documented exit-code categories:
 | `1` | An enforced gate failed, CLI usage was invalid, or `update` could not run with non-interactive stdin. |
 | `2` | An input, configuration, manifest, network, decode, or artifact-generation error prevented completion. |
 | `130` | The user cancelled `update`. |
+
+These categories apply after the CLI starts on a supported runtime. Escript
+installations require Erlang/OTP 28 or newer for every command. An unsupported
+runtime can fail while loading the program, before CLI error handling starts
+(for example, a corrupt atom table error with exit `127`). Such failures are
+outside this exit-code contract. Prefer a self-contained executable for CI.
 
 A report-only command can still fail when it cannot complete its work.
 Missing or invalid policy configuration is an error, not a passing check.
