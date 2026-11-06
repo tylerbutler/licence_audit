@@ -290,6 +290,11 @@ Run `just` with no arguments to see the full recipe list. The local `just ci`
 recipe and GitHub Actions both validate the SBOM after checking the committed
 SBOM for drift.
 
+For PRs from `release/pending`, CI and PR Validation cancel older queued
+and running workflow runs when a new run arrives. Each workflow has its own
+concurrency group for the PR. Other branches and release builds use separate
+groups for each run and do not cancel earlier runs.
+
 To run a single Gleam test module, invoke `gleam test` directly through
 mise and pass the module name:
 
