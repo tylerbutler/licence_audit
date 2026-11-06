@@ -164,7 +164,7 @@ class CliStreamTest(unittest.TestCase):
             'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
-        cache_path = self.project / "metadata.dets"
+        cache_path = self.project / "metadata"
         seed = subprocess.run(
             [
                 "erl", "-noshell", "-pa",
@@ -315,38 +315,30 @@ class CliStreamTest(unittest.TestCase):
                             self.assertNotIn("INFO", result.stderr)
                             self.assertNotIn("WARN", result.stderr)
 
-    def test_unavailable_sqlite_preserves_reports_and_sbom_stdout(self):
-        binary = self.project / "licence_audit"
-        shutil.copy2(ROOT / "licence_audit", binary)
-        sidecar = self.project / "sqlite_native/esqlite"
+    def test_unavailable_cache_preserves_reports_and_sbom_stdout(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
-        env = {**os.environ, "XDG_CACHE_HOME": str(self.project / "cache")}
-        env.pop("ERL_LIBS", None)
-        for state in ("missing", "unloadable"):
-            if state == "unloadable":
-                shutil.copytree(ROOT / "sqlite_native/esqlite", sidecar)
-                for library in (sidecar / "priv").rglob("*"):
-                    if library.is_file() and library.suffix in (".so", ".dll", ".dylib"):
-                        library.write_bytes(b"Unloadable native library fixture")
-            for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
-                for no_cache in (False, True):
-                    with self.subTest(state=state, command=arguments[0], no_cache=no_cache):
-                        flags = ["--quiet", "--no-cache"] if no_cache else []
-                        result = subprocess.run(
-                            [str(binary), *arguments, *flags], cwd=self.project,
-                            env=env, capture_output=True, text=True, timeout=30,
-                        )
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        if arguments[0] == "sbom":
-                            self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
-                        else:
-                            self.assertTrue(result.stdout)
-                            self.assertNotIn("SQLite", result.stdout)
-                        if no_cache:
-                            self.assertEqual(result.stderr, "")
-                        else:
-                            self.assertIn("SQLite native library unavailable", result.stderr)
-                        self.assertEqual(list((self.project / "cache").rglob("*.sqlite3")), [])
+        blocker = self.project / "cache"
+        blocker.write_text("not a directory")
+        env = {**os.environ, "XDG_CACHE_HOME": str(blocker)}
+        for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
+            for no_cache in (False, True):
+                with self.subTest(command=arguments[0], no_cache=no_cache):
+                    flags = ["--quiet", "--no-cache"] if no_cache else []
+                    result = subprocess.run(
+                        [str(ROOT / "licence_audit"), *arguments, *flags], cwd=self.project,
+                        env=env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if arguments[0] == "sbom":
+                        self.assertEqual(json.loads(result.stdout)["bomFormat"], "CycloneDX")
+                    else:
+                        self.assertTrue(result.stdout)
+                        self.assertNotIn("cache", result.stdout.lower())
+                    if no_cache:
+                        self.assertEqual(result.stderr, "")
+                    else:
+                        self.assertIn("Unable to open licence cache", result.stderr)
+                    self.assertEqual(blocker.read_text(), "not a directory")
 
     def test_help_version_and_usage_streams(self):
         for argument in ("--help", "--version"):

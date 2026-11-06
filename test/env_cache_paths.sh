@@ -35,7 +35,6 @@ for character in é 中; do
         {ok, Root} = env_ffi:get(Variable),
         Disabled = licence_audit@cache:open(disabled),
         none = licence_audit@cache:close(Disabled),
-        false = code:is_loaded(esqlite3_nif),
         halt().
       '
   done
@@ -57,14 +56,14 @@ for variable in XDG_CACHE_HOME HOME; do
       Variable = list_to_binary(os:getenv("CACHE_TEST_VARIABLE")),
       Root = unicode:characters_to_binary(os:getenv("CACHE_TEST_ROOT")),
       {ok, Root} = env_ffi:get(Variable),
-      {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2.sqlite3">>, <<"licence">>),
+      {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2">>, <<"licence">>),
       Key = <<"gleam_stdlib@1.0.5">>,
       {ok, nil} = licence_audit@cache_dir:insert_at(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>, {some, erlang:system_time(second)}),
-      Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2.sqlite3"),
-      true = filelib:is_regular(Expected),
+      Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2"),
+      [_] = filelib:wildcard(filename:join(Expected, "*.json")),
       halt().
     '
-  test -s "$expected/hex-v2.sqlite3"
+  test -d "$expected/hex-v2"
 
   # A fresh, cache-enabled CLI must read this entry without a network request.
   (

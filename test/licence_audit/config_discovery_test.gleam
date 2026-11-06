@@ -193,7 +193,7 @@ pub fn discovery_does_not_search_above_manifest_directory_test() {
       progress.disabled(),
     )
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "No licence policy supplied")
+  assert string.contains(result.output, "requires a non-empty allow list")
 }
 
 pub fn update_rejects_missing_section_before_fetch_picker_or_write_test() {

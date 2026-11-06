@@ -118,8 +118,8 @@ the variable is not set. The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
 
 The command reuses the shared [metadata cache](/docs/#caching). Entries from
-locked archives do not expire. Use `--cache-path=PATH` to override the cache
-location, or `--no-cache` to fetch the metadata again.
+locked archives do not expire. Use `--cache-path=DIR` to override the cache
+directory, or `--no-cache` to fetch the metadata again.
 
 ## Flags
 
@@ -139,7 +139,7 @@ licence_audit sbom [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
