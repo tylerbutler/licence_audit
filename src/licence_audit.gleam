@@ -77,6 +77,9 @@ fn arguments() -> List(String)
 @external(erlang, "runtime_ffi", "start")
 fn start_runtime() -> Result(Nil, error.Error)
 
+@external(erlang, "runtime_ffi", "run")
+fn run_cli(action: fn() -> Nil) -> Result(Nil, error.Error)
+
 type FetchResult {
   FetchResult(
     rows: List(report.Row),
@@ -86,6 +89,17 @@ type FetchResult {
 }
 
 pub fn main() -> Nil {
+  case run_cli(main_action) {
+    Ok(Nil) -> Nil
+    Error(runtime_error) -> {
+      let result = diagnostic(runtime_error)
+      io.print_error(result.result.output)
+      halt(result.result.exit_code)
+    }
+  }
+}
+
+fn main_action() -> Nil {
   case glint.execute(cli.app(), cli.normalize_args(arguments())) {
     Error(message) -> {
       io.println_error(message)

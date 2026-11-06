@@ -1,5 +1,13 @@
 -module(httpc_adaptive_test_ffi).
--export([reset/0, with_http_response/2]).
+-export([request_with_invalid_options/1, reset/0, with_http_response/2]).
+
+request_with_invalid_options(HasBody) ->
+    {Method, Request} = case HasBody of
+        true -> {post, {"https://example.invalid", [], "text/plain", <<>>}};
+        false -> {get, {"https://example.invalid", []}}
+    end,
+    {error, Reason} = httpc_adaptive_ffi:request(Method, Request, not_a_list, []),
+    httpc_adaptive_ffi:normalise_error(Reason).
 
 %% Injected Gleam transports bypass httpc. Use real loopback TCP for malformed
 %% responses/disconnects and OTP try/after to clear sockets and transport state

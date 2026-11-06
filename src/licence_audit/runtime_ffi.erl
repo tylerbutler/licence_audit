@@ -1,5 +1,16 @@
 -module(runtime_ffi).
--export([start/0]).
+-export([run/1, start/0]).
+
+%% Let resource owners unwind before Gleam prints the diagnostic and halts.
+%% erlang:halt/1 is not an exception, so intentional CLI exits pass through.
+run(Action) ->
+    try Action() of
+        nil -> {ok, nil}
+    catch
+        Class:Reason ->
+            Message = unicode:characters_to_binary(io_lib:format("~p: ~tp", [Class, Reason])),
+            {error, {runtime_exception, Message}}
+    end.
 
 %% Queso calls Gleam main without starting the OTP application graph. Core Gleam
 %% APIs also do not locate escript NIF sidecars or route OTP logger output away
