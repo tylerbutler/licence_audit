@@ -36,7 +36,7 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
-      - name: Publish eligible release to Hex
+      - name: Publish release to Hex
         env:
           HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
         run: mise exec -- python3 -B "$RUNNER_TEMP/hex_publish.py" "$RELEASE_TAG"

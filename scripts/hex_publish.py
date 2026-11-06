@@ -1,24 +1,15 @@
-"""Publish eligible release tags to Hex without replacing existing releases."""
+"""Publish release tags to Hex without replacing existing releases."""
 
 import argparse
 import io
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import tarfile
 import tomllib
 from urllib.error import HTTPError
 from urllib.request import urlopen
-
-
-def eligible(tag, version):
-    if tag != f"v{version}":
-        raise ValueError(f"Release tag {tag!r} does not match package version {version!r}.")
-    number = r"(0|[1-9][0-9]*)"
-    match = re.fullmatch(rf"v{number}\.{number}\.{number}(?:-rc\.{number})?", tag)
-    return match is not None and int(match[1]) >= 1
 
 
 def release_exists(version):
@@ -61,9 +52,8 @@ def publish(tag):
     if config["name"] != "licence_audit":
         raise ValueError("Expected the licence_audit package.")
     version = config["version"]
-    if not eligible(tag, version):
-        print(f"Skip Hex publication for {tag}: only stable 1.0.0+ and rc.N tags qualify.")
-        return
+    if tag != f"v{version}":
+        raise ValueError(f"Release tag {tag!r} does not match package version {version!r}.")
     if release_exists(version):
         print(f"Hex already has licence_audit {version}; do not replace it.")
         return

@@ -18,19 +18,29 @@ SPEC.loader.exec_module(hex_publish)
 
 
 class HexPublishTest(unittest.TestCase):
-    def test_eligible_versions(self):
-        for version in ["1.0.0", "1.0.0-rc.0", "1.0.0-rc.12", "1.1.0", "2.0.0-rc.1"]:
-            with self.subTest(version=version):
-                self.assertTrue(hex_publish.eligible(f"v{version}", version))
-        for version in ["0.14.0", "0.99.0-rc.0", "1.0.0-alpha.0", "1.0.0-beta.1",
-                        "1.0.0-rc", "1.0.0-rc.01", "01.0.0", "1.0.0+build", "1.0"]:
-            with self.subTest(version=version):
-                self.assertFalse(hex_publish.eligible(f"v{version}", version))
+    def test_all_release_versions_publish(self):
+        for version in ["0.14.0", "0.99.0-rc.0", "1.0.0", "1.0.0-rc.0",
+                        "1.0.0-alpha.0", "1.0.0-beta.1", "1.1.0", "2.0.0-rc.1"]:
+            with self.subTest(version=version), \
+                    patch.object(Path, "read_text", return_value=f'name = "licence_audit"\nversion = "{version}"'), \
+                    patch.object(hex_publish, "release_exists", return_value=False) as exists, \
+                    patch.object(hex_publish, "check_package"), \
+                    patch.dict(os.environ, {"HEXPM_API_KEY": "test-only"}), \
+                    patch.object(hex_publish.subprocess, "run") as run:
+                hex_publish.publish(f"v{version}")
+                exists.assert_called_once_with(version)
+                self.assertEqual([call.args[0] for call in run.call_args_list],
+                                 [["gleam", "export", "hex-tarball"],
+                                  ["gleam", "publish", "--yes"]])
 
     def test_tag_must_match_package(self):
         for tag in ["v1.0.1", "1.0.0", "refs/heads/main", "v1.0.0\n"]:
-            with self.subTest(tag=tag), self.assertRaises(ValueError):
-                hex_publish.eligible(tag, "1.0.0")
+            with self.subTest(tag=tag), \
+                    patch.object(Path, "read_text", return_value='name = "licence_audit"\nversion = "1.0.0"'), \
+                    patch.object(hex_publish, "release_exists") as exists:
+                with self.assertRaises(ValueError):
+                    hex_publish.publish(tag)
+                exists.assert_not_called()
 
     def test_hex_lookup(self):
         response = io.BytesIO(json.dumps({"version": "1.0.0-rc.0"}).encode())
@@ -96,15 +106,6 @@ class HexPublishTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 hex_publish.publish("v1.0.0-rc.0")
             self.assertEqual(run.call_count, 2)
-
-    def test_ineligible_release_does_not_contact_hex(self):
-        with patch.object(Path, "read_text", return_value='name = "licence_audit"\nversion = "0.14.0"'), \
-                patch.object(hex_publish, "release_exists") as exists:
-            hex_publish.publish("v0.14.0")
-            exists.assert_not_called()
-            with self.assertRaises(ValueError):
-                hex_publish.publish("v1.0.0")
-            exists.assert_not_called()
 
     def test_package_inputs(self):
         with tempfile.TemporaryDirectory() as directory:

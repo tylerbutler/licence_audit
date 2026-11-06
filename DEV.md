@@ -353,20 +353,17 @@ publishes the same artifacts for candidates and stable releases.
 ### Hex publication
 
 After CI, binary packaging, and GitHub Release asset upload succeed,
-`publish.yml` publishes `licence_audit` to Hex. Eligible tags are exactly
-`vMAJOR.MINOR.PATCH` and `vMAJOR.MINOR.PATCH-rc.N`, with major version at
-least 1. This includes `v1.0.0-rc.0`, the `v1.0.0` promotion, and later
-stable releases and RCs. Numeric parts must not have leading zeros.
-Historical `0.x` tags, other prerelease labels, and build metadata are
-not published to Hex. The tag must match the version in its `gleam.toml`.
+`publish.yml` publishes each new release to Hex, including `0.x`, RCs,
+and other prerelease types. The tag must match `v{version}` from its
+`gleam.toml`. Gleam and Hex enforce their package version requirements.
 The workflow checks out an exact tag, not a branch.
 
-Before the first eligible release, a Hex package owner must create an API
+Before the first publication, a Hex package owner must create an API
 key with permission to publish `licence_audit` and store it as the repository
 Actions secret `HEXPM_API_KEY` (Settings > Secrets and variables > Actions).
 For the first publication, the key must permit package creation; after
 creation, restrict it to this package. Do not put the key in source files
-or workflow inputs. A missing key fails an unpublished eligible release.
+or workflow inputs. A missing key fails an unpublished release.
 
 The job checks the public Hex release endpoint before publishing. An existing
 version is left unchanged, even on manual retries. Only HTTP 404 means
@@ -384,8 +381,9 @@ gh workflow run publish.yml --ref main -f tag=v1.0.0-rc.0
 ```
 
 The dispatch uses the current publication helper with the tagged package.
-It does not backfill historical `0.x` releases or replace an existing Hex
-version. Hex publication does not run locally during validation:
+It does not backfill historical releases unless you dispatch their tags.
+It does not replace an existing Hex version. Hex publication does not run
+locally during validation:
 
 ```sh
 just test-hex-publish hex-package-check

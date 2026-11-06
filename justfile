@@ -47,7 +47,7 @@ test-release-notices:
 test-release-pr:
     mise exec -- python3 -B -m unittest discover -s test -p release_pr_test.py
 
-# Verify Hex publication eligibility and safe retries without publishing.
+# Verify Hex publication and safe retries without publishing.
 test-hex-publish:
     mise exec -- python3 -B -m unittest discover -s test -p hex_publish_test.py
 
