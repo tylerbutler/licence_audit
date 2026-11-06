@@ -166,18 +166,14 @@ allow = [\"MIT\"]
 deny = []
 vuln_severity = \"high\"
 vuln_block_unknown = true
-\"allow.licences\" = [\"Apache-2.0\"]
-custom.allow = [\"Apache-2.0\"]
 [tools.licence_audit.notices]
 exclude = [\"example\"]
-[tools.licence_audit.custom.deny]
-value = true
 [tools.other.allow]
 licences = [\"Apache-2.0\"]
-[tools.licence_audit.notices.empty]
-[[tools.licence_audit.custom.extra.allow]]
-[tools.licence_audit.\"deny.licences\".empty]
-[tools.licence_audit.\"exceptions.expires\"]
+[tools.other.empty]
+[[tools.other.extra.allow]]
+[tools.other.\"deny.licences\".empty]
+[tools.other.\"exceptions.expires\"]
 ",
     )
   should.equal(actual, expected)
@@ -241,7 +237,7 @@ pub fn parse_keeps_bom_crlf_and_unrelated_empty_headers_test() {
     config.parse(
       "\u{FEFF}"
       <> string.replace(tools_section, "\n", "\r\n")
-      <> "[tools.licence_audit.notices.empty]\r\n",
+      <> "[tools.other.empty]\r\n",
     ),
     Ok(expected),
   )
@@ -253,6 +249,7 @@ pub fn parse_ignores_table_headers_inside_comments_and_strings_test() {
     config.parse(
       tools_section
       <> "# [tools.licence_audit.allow.empty]\n"
+      <> "[tools.other]\n"
       <> "custom = \"\"\"\n[tools.licence_audit.deny.empty]\n\"\"\"\n"
       <> "more = '''\n[[tools.licence_audit.exceptions.expires]]\n'''\n"
       <> "arrays = [[\"[tools.licence_audit.vuln_severity.empty]\"]]\n",

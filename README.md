@@ -159,6 +159,18 @@ Policy settings must have their documented types. Nested tables or dotted
 subfields such as `allow.licences` are configuration errors, not absent settings.
 This includes empty descendant tables and nested exception fields.
 
+Unknown keys in `[tools.licence_audit]` or its `notices` table are errors with
+exit code 2. The policy keys are `allow`, `deny`, `vuln_severity`,
+`vuln_block_unknown`, `exceptions`, and `notices`; the notices keys are `include`
+and `exclude`. The error names the unknown key. An older binary therefore
+rejects keys added by a newer release instead of silently ignoring them.
+
+Every `allow` and `deny` entry, from config or CLI, must parse as an SPDX
+expression. Empty entries and malformed expressions such as `MIT/Apache-2.0`
+or `Apache 2.0` cause exit code 2. Validation checks syntax, not membership in
+the SPDX License List. Custom identifiers and `LicenseRef-`/`DocumentRef-`
+forms remain supported. Validation does not change the entry text.
+
 Deny takes precedence for each term. SPDX identifiers match without regard to
 case; custom `LicenseRef-` identifiers remain case-sensitive. Separate strings
 in a package's licence list must all pass. An exact expression in `allow`
