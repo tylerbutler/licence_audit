@@ -70,8 +70,13 @@ the gate.
 
 ## Ad-hoc and merged policy
 
-The command merges CLI `--allow` and `--deny` values with the configuration.
-Use these options to add restrictions for one run:
+CLI `--allow` and `--deny` values form a union with the corresponding
+configuration lists; duplicates are removed. `--allow` adds permitted licences
+for this run and can widen the gate. `--deny` adds denied licences for this run.
+Neither option replaces the configured list, and `deny` still takes precedence
+over `allow`.
+
+For example, add permitted and denied licences to the configured policy:
 
 ```sh
 licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
