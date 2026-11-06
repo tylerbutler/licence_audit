@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Explicit `--config` files without `[tools.licence_audit]` now fail with exit 2 and a file-specific error, even when CLI flags supply a policy."

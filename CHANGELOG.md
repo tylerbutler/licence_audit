@@ -1,5 +1,26 @@
 # licence_audit changelog
 
+## v0.15.0 - 2026-11-06
+
+### Added
+
+- Add `-q` for `--quiet` on every command, `--color`/`--colour` on `sbom` and `notices` with plain payloads, `--config`/`--ignore-config` on `notices`, and `--prod-only` on `vulns`.
+
+### Changed
+
+- Remove the ineffective `vulns --no-cache` flag before 1.0. The `vulns` command queries OSV directly and does not use an on-disk cache.
+- Require a non-empty `allow` list for `check`, including `check --vulns`. Keep `deny` as an exact-match override without licence variant equivalence. Warn when `update` saves an empty allow list.
+- Store the on-disk caches as one JSON file per entry, not as SQLite databases. The CLI no longer has native dependencies: escripts no longer need the `sqlite_native/` directory, and cache paths can contain non-ASCII characters and are no longer limited to 504 bytes on Linux. `--cache-path` now names the metadata cache directory, for example `.hex-cache/hex-v2`. The default caches are `hex-v2/` and `notices-v3/` below `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. The caches refill on first use; you can delete old `.sqlite3` files.
+
+### Fixed
+
+- Explicit `--config` files without `[tools.licence_audit]` now fail with exit 2 and a file-specific error, even when CLI flags supply a policy.
+- Fix `notices` for Gleam local path dependencies by recognizing `source = "local"` in the manifest; retain `source = "path"` as an alias.
+- Keep `check` gate verdicts on stdout without duplicate stderr errors, and send OSV request failure diagnostics to stderr even with `--quiet`.
+- Map unexpected Erlang exceptions to CLI exit code `2` with a diagnostic instead of a raw crash; keep policy and usage failures at exit code `1`.
+- Reject `check --vuln-severity` and `--vuln-block-unknown` without enabled `--vulns` as usage errors instead of silently skipping the vulnerability scan.
+- Reject unknown policy and notices configuration keys and malformed SPDX expressions in config and CLI allow/deny entries with exit code 2.
+
 ## v0.14.0 - 2026-10-29
 
 ### Added
