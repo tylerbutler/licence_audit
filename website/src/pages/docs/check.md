@@ -14,6 +14,9 @@ licence_audit check
 
 ## Define a policy
 
+See [configuration discovery](/docs/configuration#discovery) for how the
+command selects the policy file and handles explicit `--config` files.
+
 Add the policy to `[tools.licence_audit]` in `gleam.toml`:
 
 ```toml

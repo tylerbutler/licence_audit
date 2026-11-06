@@ -21,8 +21,8 @@ By default, `notices` includes only **production** dependencies. Use
 
 ## Dependency filters
 
-Set filters in the `gleam.toml` next to the manifest you select with
-`--manifest` (or next to the default `manifest.toml`):
+Set filters in the file selected by
+[configuration discovery](/docs/configuration#discovery):
 
 ```toml
 [tools.licence_audit.notices]

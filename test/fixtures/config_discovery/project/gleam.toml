@@ -1,0 +1,4 @@
+name = "project"
+
+[tools.licence_audit]
+deny = ["MIT"]

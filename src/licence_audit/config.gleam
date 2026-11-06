@@ -77,6 +77,7 @@ pub type LoadOptions {
 pub type Error {
   InvalidToml(String)
   MissingPolicy
+  MissingPolicySection(path: String)
   InvalidField(field: String, expected: String)
   InvalidLicenceIdentifier
   InvalidException(String)
@@ -169,7 +170,7 @@ fn load_file_policy(options: LoadOptions) -> Result(Option(Policy), Error) {
       use contents <- result.try(read_required(path))
       case parse(contents) {
         Ok(policy) -> Ok(Some(policy))
-        Error(MissingPolicy) -> Ok(None)
+        Error(MissingPolicy) -> Error(MissingPolicySection(path))
         Error(error) -> Error(error)
       }
     }

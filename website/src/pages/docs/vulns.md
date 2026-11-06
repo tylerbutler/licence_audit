@@ -41,7 +41,8 @@ to `check --vulns` and `sbom --vulns`.
 
 ## Reviewed advisory exceptions
 
-`vulns` reads `[tools.licence_audit]` from the project selected by `--manifest`.
+`vulns` uses [configuration discovery](/docs/configuration#discovery) to read
+`[tools.licence_audit]`.
 It shows matching advisory exceptions with their reasons and expiry dates,
 but keeps the advisories in the affected-package counts. An exception does
 not mean that a vulnerability has been fixed.
