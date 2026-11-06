@@ -276,7 +276,15 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
     licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
       panic as "invalid config must stop before fetching"
     })
-  [[], ["--allow=MIT", "--deny=GPL-3.0-only", "--vuln-severity=critical"]]
+  [
+    [],
+    [
+      "--allow=MIT",
+      "--deny=GPL-3.0-only",
+      "--vulns",
+      "--vuln-severity=critical",
+    ],
+  ]
   |> list.each(fn(overrides) {
     let #(result, _) =
       licence_audit.run_configured(
@@ -329,6 +337,7 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "--config=" <> path,
           "--allow=MIT",
           "--deny=GPL-3.0-only",
+          "--vulns",
           "--vuln-severity=critical",
           "--vuln-block-unknown",
         ],

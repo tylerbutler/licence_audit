@@ -25,6 +25,6 @@ licence_audit check [--flags]
 | `--prod-only` | `BOOL` | `false` | Only audit production dependencies; ignore dev-dependency violations |
 | `--quiet` | `BOOL` | `false` | Suppress progress output |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
-| `--vuln-block-unknown` | `BOOL` | `false` | Fail `check --vulns` on advisories whose severity is unknown |
-| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high) |
+| `--vuln-block-unknown` | `BOOL` |  | Fail `check --vulns` on advisories whose severity is unknown (default false; requires --vulns) |
+| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high; requires --vulns) |
 | `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |

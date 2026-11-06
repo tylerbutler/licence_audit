@@ -450,6 +450,11 @@ vuln_severity = "high"
 vuln_block_unknown = true
 ```
 
+The CLI flags `--vuln-severity` and `--vuln-block-unknown` require `--vulns`.
+Without it, they cause a usage error (exit 1), including an explicit
+`--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
+remain valid without `--vulns` and apply only when the scan is enabled.
+
 `--vuln-severity` overrides the configured threshold. `--vuln-block-unknown` is
 enable-only: omitting it preserves a configured `true`; there is no CLI flag that
 turns the setting off. Use `--ignore-config` to ignore both configured

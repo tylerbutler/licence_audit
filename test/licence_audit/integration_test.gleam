@@ -39,6 +39,62 @@ fn test_clients(
   licence_audit.Clients(..licence_audit.default_clients(), fetcher:)
 }
 
+pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
+  let clients =
+    licence_audit.Clients(
+      ..licence_audit.default_clients(),
+      fetcher: fn(_) { panic as "invalid flags must stop before Hex fetch" },
+      osv_batch_fetcher: fn(_) {
+        panic as "invalid flags must stop before OSV batch fetch"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "invalid flags must stop before OSV detail fetch"
+      },
+    )
+  use flags <- list.each([
+    ["--vuln-severity=critical"],
+    ["--vuln-block-unknown"],
+    ["--vuln-block-unknown=false"],
+    ["--vuln-severity=high", "--vuln-block-unknown"],
+  ])
+  let #(result, events) =
+    licence_audit.run_configured(
+      ["check", "--manifest=missing-manifest.toml", ..flags],
+      clients,
+      progress.disabled(),
+    )
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "require --vulns")
+  should.equal(events, [])
+}
+
+pub fn configured_vulnerability_defaults_without_scan_remain_valid_test() {
+  let path = "build/vulnerability-prerequisite-config.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      path,
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\nvuln_severity = \"critical\"\nvuln_block_unknown = true\n",
+    )
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fake_fetcher),
+      osv_batch_fetcher: fn(_) { panic as "config must not enable an OSV scan" },
+      osv_detail_fetcher: fn(_) { panic as "config must not fetch advisories" },
+    )
+  let #(result, _) =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> path,
+      ],
+      clients,
+      progress.disabled(),
+    )
+  let assert Ok(_) = simplifile.delete(path)
+  should.equal(result.exit_code, 0)
+}
+
 fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
     "argv" -> Error(hex.NotFound)
