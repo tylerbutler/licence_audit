@@ -30,6 +30,12 @@ them from the configuration.
 Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
 file read/write failures exit `2`.
 
+An empty `allow` selection is saved, including a deny-only policy. `update`
+warns that you must add allow rules before running `check` or `check --vulns`.
+Those commands require a non-empty allow list and otherwise exit `2`.
+Report-only use remains available. `--quiet` suppresses the warning with other
+progress output.
+
 ## Terminal requirement
 
 `update` is interactive and requires a TTY:

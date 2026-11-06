@@ -671,8 +671,96 @@ pub fn missing_policy_in_check_mode_exits_two_test() {
   should.equal(exit_code, 2)
   assert string.contains(
     output,
-    "No licence policy supplied for the `check` subcommand",
+    "The `check` subcommand requires a non-empty allow list",
   )
+}
+
+pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_test() {
+  let clients =
+    licence_audit.Clients(
+      ..licence_audit.default_clients(),
+      fetcher: fn(_) { panic as "Hex must not be called without allow" },
+      osv_batch_fetcher: fn(_) {
+        panic as "OSV must not be called without allow"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "OSV details must not be called without allow"
+      },
+    )
+  [
+    [],
+    ["--deny=GPL-3.0-only"],
+    ["--vulns"],
+    ["--vulns", "--vuln-severity=low"],
+    ["--vulns", "--vuln-block-unknown"],
+    ["--vulns", "--deny=GPL-3.0-only"],
+  ]
+  |> list.each(fn(flags) {
+    let result =
+      licence_audit.run_configured(
+        list.append(
+          [
+            "check",
+            "--ignore-config",
+            "--manifest=test/fixtures/missing_manifest.toml",
+          ],
+          flags,
+        ),
+        clients,
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "requires a non-empty allow list")
+    assert string.contains(result.output, "pass --allow")
+    assert !string.contains(result.output, "--allow/--deny")
+  })
+  let empty_identifier =
+    licence_audit.run_configured(
+      manifest_args(["check", "--allow="]),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(empty_identifier.exit_code, 2)
+  assert string.contains(
+    empty_identifier.output,
+    "Licence identifiers must not be empty",
+  )
+}
+
+pub fn check_requires_allow_after_config_and_cli_merge_test() {
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let path = "build/tmp/check_allow_requirement.toml"
+  [
+    "allow = []",
+    "deny = [\"GPL-3.0-only\"]",
+    "vuln_severity = \"low\"",
+    "vuln_block_unknown = true",
+  ]
+  |> list.each(fn(fields) {
+    let assert Ok(_) =
+      simplifile.write("[tools.licence_audit]\n" <> fields <> "\n", to: path)
+    let arguments = [
+      "check",
+      "--config=" <> path,
+      "--manifest=test/fixtures/manifest.toml",
+    ]
+    let result =
+      licence_audit.run_configured(
+        arguments,
+        test_clients(fn(_) { panic as "Hex must not be called without allow" }),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "requires a non-empty allow list")
+    let with_allow =
+      licence_audit.run_configured(
+        list.append(arguments, ["--allow=MIT,Apache-2.0"]),
+        test_clients(fake_fetcher),
+        progress.disabled(),
+      ).0
+    should.equal(with_allow.exit_code, 0)
+  })
+  let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn denied_dependency_fails_in_check_mode_with_report_test() {

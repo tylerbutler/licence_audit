@@ -218,6 +218,14 @@ fn write_selection(
     }
     Ok(_) -> {
       let reporter = progress.success(reporter, "Wrote " <> target)
+      let reporter = case allow {
+        [] ->
+          progress.warn(
+            reporter,
+            "The saved policy has an empty allow list. Add allow rules before running check, including check --vulns.",
+          )
+        _ -> reporter
+      }
       let reporter = warn_cache(reporter, cache_warning)
       #(
         UpdateResult(exit_code: 0, output: summary(target, allow, deny)),
