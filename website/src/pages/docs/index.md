@@ -14,7 +14,14 @@ CycloneDX SBOM, and checks for known vulnerabilities.
 Download the self-contained archive for your platform from the
 [releases][releases] page. Extract the archive and put `licence_audit` on your
 `PATH`. These Queso-built executables include the Erlang runtime. You do not
-have to install Erlang/OTP on the target machine.
+have to install Erlang/OTP on the target machine. Use these native binaries
+for CI to avoid a separate OTP requirement.
+
+The release also provides an escript for compatibility. **The escript needs
+Erlang/OTP 28 or later for all commands.** On OTP 27, the VM can fail to load
+it with `corrupt atom table` and exit `127`, before any command runs. This
+unsupported-runtime failure is outside the
+[CLI exit-code contract](/docs/compatibility#exit-codes-and-output-streams).
 
 With [mise][mise], install directly from the `github:` provider:
 
