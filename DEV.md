@@ -355,46 +355,40 @@ publishes the same artifacts for candidates and stable releases.
 After CI, binary packaging, and GitHub Release asset upload succeed,
 `publish.yml` publishes each new release to Hex, including `0.x`, RCs,
 and other prerelease types. The tag must match `v{version}` from its
-`gleam.toml`. Gleam and Hex enforce their package version requirements.
-The workflow checks out an exact tag, not a branch.
+`gleam.toml`. The workflow checks out an exact tag and runs the pinned
+`trellis publish --tag "$RELEASE_TAG"`.
 
 Before the first publication, a Hex package owner must create an API
 key with permission to publish `licence_audit` and store it as the repository
 Actions secret `HEXPM_API_KEY` (Settings > Secrets and variables > Actions).
 For the first publication, the key must permit package creation; after
 creation, restrict it to this package. Do not put the key in source files
-or workflow inputs. A missing key fails an unpublished release.
+or workflow inputs. A missing key fails the Hex job before publication.
 
-The job checks the public Hex release endpoint before publishing. An existing
-version is left unchanged, even on manual retries. Only HTTP 404 means
-unpublished; network, API, and publication errors fail the job.
-Publication jobs for the same tag run one at a time, and the command never
-uses `--replace`. If another publisher wins the race, rerun the failed job
-after its release is visible on Hex.
+Trellis checks the tag/version match, skips versions already on Hex, and
+retries Hex API, build, test, and publication failures. It runs Gleam
+format, strict build, and test checks before publishing. Publication jobs
+for the same tag run one at a time. Failed retries fail the job.
 
 To recover a failed Hex publication, fix the secret or reported error and
-rerun the failed Hex job. If the workflow or helper needs a fix, merge it
+rerun the failed Hex job. If the workflow needs a fix, merge it
 to `main`, then dispatch from `main` with the existing tag:
 
 ```sh
 gh workflow run publish.yml --ref main -f tag=v1.0.0-rc.0
 ```
 
-The dispatch uses the current publication helper with the tagged package.
-It does not backfill historical releases unless you dispatch their tags.
-It does not replace an existing Hex version. Hex publication does not run
-locally during validation:
+The dispatch uses the tagged package and its pinned toolchain. It does not
+backfill historical releases unless you dispatch their tags. Preview the
+publication plan without credentials or publication:
 
 ```sh
-just test-hex-publish hex-package-check
+mise exec -- trellis publish --tag v0.14.0 --dry-run
 ```
 
-The package check exports a tarball without credentials, then checks that
-all Gleam and Erlang source files, `gleam.toml`, `README.md`, `LICENSE`,
-and vendored `NOTICE` retain their source bytes. Development source trees
-must not be in the tarball. The pinned Gleam exporter already includes the
-required runtime native sources and licence notices; no custom file list
-is needed.
+Use a tag that matches the checked-out package version. The dry run reads
+the public Hex API. The Gleam exporter includes runtime native sources,
+`LICENSE`, and vendored `NOTICE`; no custom file list is needed.
 
 To recover a merged release that has no tag or GitHub Release, run the
 auto-tag workflow manually against the current version on `main`:

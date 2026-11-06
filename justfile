@@ -47,15 +47,6 @@ test-release-notices:
 test-release-pr:
     mise exec -- python3 -B -m unittest discover -s test -p release_pr_test.py
 
-# Verify Hex publication and safe retries without publishing.
-test-hex-publish:
-    mise exec -- python3 -B -m unittest discover -s test -p hex_publish_test.py
-
-# Export and check the package without credentials or publication.
-hex-package-check:
-    mise exec -- gleam export hex-tarball
-    mise exec -- python3 -B scripts/hex_publish.py --check-package
-
 # Verify toolchain pin consistency without a network.
 test-build-inputs:
     mise exec -- python3 -B -m unittest discover -s test -p build_inputs_test.py
@@ -287,6 +278,6 @@ website-build:
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test test-hex-publish hex-package-check format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
 
 alias pr := ci
