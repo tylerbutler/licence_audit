@@ -12,7 +12,7 @@ const optional_path_flags = [
   #(["check"], ["manifest", "config", "cache-path"]),
   #(["update"], ["manifest", "config", "cache-path"]),
   #(["sbom"], ["manifest", "cache-path", "output"]),
-  #(["notices"], ["manifest", "cache-path", "output"]),
+  #(["notices"], ["manifest", "config", "cache-path", "output"]),
   #(["vulns"], ["manifest", "config"]),
 ]
 
@@ -109,6 +109,7 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
     ]
     cli.RunNotices(options) -> [
       options.manifest_path,
+      options.config_path,
       options.cache_path,
       options.output,
     ]
@@ -514,10 +515,11 @@ pub fn notices_subcommand_rejects_quiet_and_verbose_test() {
   assert string.contains(message, "--verbose")
 }
 
-pub fn notices_subcommand_rejects_config_flag_test() {
-  let message = usage_error(["notices", "--config=gleam.toml"])
-
-  assert string.contains(message, "config")
+pub fn notices_subcommand_accepts_config_controls_test() {
+  let options =
+    parse_notices_options(["notices", "--config=custom.toml", "--ignore-config"])
+  should.equal(options.config_path, Some("custom.toml"))
+  should.equal(options.ignore_config, True)
 }
 
 pub fn invalid_color_value_returns_invalid_usage_action_test() {
@@ -576,4 +578,82 @@ pub fn sbom_subcommand_rejects_ignore_config_flag_test() {
   let message = usage_error(["sbom", "--ignore-config"])
 
   assert string.contains(message, "ignore-config")
+}
+
+const commands = [[], ["check"], ["update"], ["sbom"], ["vulns"], ["notices"]]
+
+pub fn shared_aliases_and_color_modes_work_on_all_commands_test() {
+  use command <- list.each(commands)
+  let help = help_text(list.append(command, ["-h"]))
+  assert string.contains(help, "--quiet")
+  assert string.contains(help, "-q")
+  assert string.contains(help, "--colour")
+  use verbosity <- list.each(["-q", "-v"])
+  use mode <- list.each(["auto", "always", "never"])
+  use spelling <- list.each(["--color=", "--colour="])
+  let assert Ok(glint.Out(action)) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(list.append(command, [verbosity, spelling <> mode])),
+    )
+  let #(actual_verbosity, actual_color) = case action {
+    cli.RunAudit(options) -> #(options.verbosity, options.color)
+    cli.UpdateConfig(options) -> #(options.verbosity, options.color)
+    cli.RunSbom(options) -> #(options.verbosity, options.color)
+    cli.RunVulns(options) -> #(options.verbosity, options.color)
+    cli.RunNotices(options) -> #(options.verbosity, options.color)
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected options"
+  }
+  should.equal(actual_verbosity, case verbosity {
+    "-q" -> progress.Quiet
+    _ -> progress.Verbose
+  })
+  should.equal(Ok(actual_color), color.mode_from_string(mode))
+}
+
+pub fn all_commands_reject_conflicting_aliases_and_invalid_colors_test() {
+  use command <- list.each(commands)
+  use flags <- list.each([["-q", "-v"], ["--colour=rainbow"]])
+  let assert Ok(glint.Out(cli.InvalidUsage(_))) =
+    glint.execute(cli.app(), cli.normalize_args(list.append(command, flags)))
+}
+
+pub fn command_specific_flag_matrix_test() {
+  use entry <- list.each([
+    #("--config=custom.toml", [True, True, True, False, True, True]),
+    #("--ignore-config", [True, True, True, False, True, True]),
+    #("--no-cache", [True, True, True, True, False, True]),
+    #("--cache-path=custom.cache", [True, True, True, True, False, True]),
+    #("--prod-only", [True, True, False, False, True, False]),
+    #("--include-dev", [False, False, False, False, False, True]),
+    #("--allow=MIT", [True, True, False, False, False, False]),
+    #("--deny=MIT", [True, True, False, False, False, False]),
+    #("--output=out", [False, False, False, True, False, True]),
+    #("--vulns", [False, True, False, True, False, False]),
+    #("--offline", [False, False, False, True, False, False]),
+    #("--reproducible", [False, False, False, True, False, False]),
+    #("--license-text", [False, False, False, True, False, False]),
+    #("--version", [True, False, False, False, False, False]),
+  ])
+  use command <- list.each(list.zip(commands, entry.1))
+  let result = glint.execute(cli.app(), list.append(command.0, [entry.0]))
+  case command.1 {
+    True -> {
+      let assert Ok(glint.Out(_)) = result
+    }
+    False -> {
+      let assert Error(_) = result
+    }
+  }
+}
+
+pub fn standalone_vulns_scope_defaults_and_flag_test() {
+  use prod_only <- list.each([False, True])
+  let flags = case prod_only {
+    False -> []
+    True -> ["--prod-only"]
+  }
+  let assert Ok(glint.Out(cli.RunVulns(options))) =
+    glint.execute(cli.app(), list.append(["vulns"], flags))
+  should.equal(options.prod_only, prod_only)
 }
