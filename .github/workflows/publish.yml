@@ -14,6 +14,33 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  publish-hex:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: hex-publication-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      # Use the dispatch workflow's helper when recovering an older tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+
+      - name: Preserve publication helper
+        run: cp scripts/hex_publish.py "$RUNNER_TEMP/hex_publish.py"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      - name: Publish eligible release to Hex
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+        run: mise exec -- python3 -B "$RUNNER_TEMP/hex_publish.py" "$RELEASE_TAG"
+
   test:
     uses: ./.github/workflows/ci.yml
     with:
