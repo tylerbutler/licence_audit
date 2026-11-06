@@ -30,6 +30,17 @@ them from the configuration.
 Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
 file read/write failures exit `2`.
 
+The command writes a complete temporary file in the configuration directory
+before an atomic replacement. It preserves file permissions and ownership.
+A failed write leaves the original intact; forced termination can leave a
+`*.licence-audit-*.tmp` file beside it.
+
+On Windows, replacement uses `MoveFileExW` through Windows PowerShell. Existing
+owner, group, and access rules apply to the temporary file from creation,
+before content is written. New policy files allow access only to the current
+user. Timed-out helpers are terminated and awaited before temporary-file cleanup.
+The command does not use OTP's non-atomic Windows rename.
+
 ## Terminal requirement
 
 `update` is interactive and requires a TTY:
@@ -37,22 +48,35 @@ file read/write failures exit `2`.
 - It exits `1` on non-interactive stdin (for example, in CI).
 - It exits `130` if you cancel.
 
-> **Note:** The interactive list requires Erlang/OTP **28.x or newer**.
-> Earlier releases cannot reattach stdin in raw mode. As a result, the list
-> does not receive keyboard input. If `update` does not respond to keyboard
-> input, check your OTP version.
+> **Note:** If you use the escript, Erlang/OTP **28 or later** is required
+> for all commands, not only interactive `update`. Unsupported OTP versions
+> can fail before any command runs. The self-contained native binaries bundle
+> the runtime. See the [installation requirements](/docs#install).
 
 After you create a policy, enforce it with [`licence_audit
 check`](/docs/check).
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration files when preselecting entries. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+<!-- cli-reference -->
+Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.
+
+**Usage:**
+
+```
+licence_audit update [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--cache-path` | `STRING` |  | Override the licence metadata cache location |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--quiet` | `BOOL` | `false` | Suppress progress output |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+<!-- cli-referencestop -->

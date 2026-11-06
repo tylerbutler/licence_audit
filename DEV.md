@@ -1,6 +1,7 @@
 # Developing `licence_audit`
 
-This document is for contributors. End-user docs live in [README.md](./README.md).
+This document is for contributors. The [website](https://licence-audit.tylerbutler.com/docs)
+is the canonical user documentation.
 
 ## Toolchain
 
@@ -159,6 +160,21 @@ The script rejects unreviewed licence changes and unsupported source files.
 Run these recipes with Python 3.11 or later.
 
 `dev/licence_audit/gen_docs.gleam` uses the development-only Markdown generator.
+`just docs` updates the `cli-reference` marker regions in
+`website/src/pages/docs/index.md` and each command guide. It derives usage,
+flags, types, defaults, and descriptions from `glint.document(cli.app())`.
+Edit surrounding guide prose directly; do not edit generated regions.
+`just docs-check` compares generated content without writing. Missing or
+malformed marker pairs are errors. The README and `docs/` command stubs link
+to the website and are not generator outputs.
+`just test-docs` tests read-only drift detection, regeneration, and missing
+pages/markers in isolated guide copies.
+
+Run `just website-deps website-check website-build` to install locked website
+dependencies, check Astro types and worker tests, and build the static site.
+These recipes use the Node and pnpm versions in `.mise.toml`; they do not deploy.
+`just ci` includes website validation.
+
 Production builds and Hex packages exclude `dev/` and its `glugify` dependency.
 Gleam compiles native files from `dev/` in production, so the sync script
 replaces the Markdown generator's exit shims with core-library calls. It

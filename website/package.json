@@ -21,6 +21,9 @@
     "astro-expressive-code": "^0.44.0"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
     "wrangler": "4.141.0"
   }
 }
