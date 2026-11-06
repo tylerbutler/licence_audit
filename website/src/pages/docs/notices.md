@@ -86,6 +86,11 @@ a later source only when the earlier sources give no licence text.
 If a temporary error occurs during a repository fallback, `notices` writes a
 warning and continues to the SPDX fallback.
 
+For local path dependencies, Gleam writes `source = "local"` in the manifest.
+`notices` reads licence files and declared licences from the local package.
+Relative paths resolve from the directory that contains the selected manifest.
+The older `source = "path"` spelling is also accepted.
+
 ## Failure conditions
 
 `notices` exits `2` if it cannot create a complete bundle. It fails in these

@@ -550,7 +550,7 @@ local_dep = { path = \"deps/local_dep\" }
     simplifile.write(
       to: manifest_path,
       contents: "packages = [
-  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"deps/local_dep\" },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"local\", path = \"deps/local_dep\" },
 ]
 
 [requirements]
@@ -769,7 +769,7 @@ pub fn path_and_git_packages_are_skipped_and_counted_test() {
   // graph is visible) but are still tallied in the skipped summary.
   assert string.contains(output, "local_dep")
   assert string.contains(output, "git_dep")
-  assert string.contains(output, "non-hex (path)")
+  assert string.contains(output, "non-hex (local)")
   assert string.contains(output, "non-hex (git)")
   // The skipped summary names the omitted non-Hex packages (issue #3).
   assert string.contains(
@@ -1157,7 +1157,7 @@ fn mixed_vuln_manifest(checksum: String) -> String {
     simplifile.write(to: root <> "/manifest.toml", contents: "packages = [
   { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\"" <> checksum <> " },
   { name = \"gluegun\", version = \"0.1.0\", source = \"git\", repo = \"https://github.com/tylerbutler/gluegun\", commit = \"fa4c8ee919138fc8ffddd2642165a89654e61999\", requirements = [\"gleam_stdlib\"] },
-  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"../local_dep\" },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"local\", path = \"../local_dep\" },
 ]
 [requirements]
 gleam_stdlib = \"1.0.0\"
@@ -2585,7 +2585,7 @@ pub fn notices_path_dep_uses_declared_licence_from_gleam_toml_test() {
     simplifile.write(
       to: manifest_path,
       contents: "packages = [
-  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"local_dep\" },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"local\", path = \"local_dep\" },
 ]
 
 [requirements]
