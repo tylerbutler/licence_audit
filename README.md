@@ -44,9 +44,10 @@ If you use [mise](https://mise.jdx.dev/), install `licence_audit` with the
 mise use -g github:tylerbutler/licence_audit@latest
 ```
 
-Replace `latest` with a release tag, such as `v0.6.0`, to pin a version. For a
-project-local install, omit `-g`. mise selects the self-contained archive for
-your operating system and architecture, so Erlang/OTP is not required.
+To pin a version, replace `latest` with an exact release tag (`vX.Y.Z`).
+Choose a tag from a [published release](https://github.com/tylerbutler/licence_audit/releases/latest).
+For a project-local install, omit `-g`. mise selects the self-contained archive
+for your operating system and architecture, so Erlang/OTP is not required.
 
 To build from source, see [DEV.md](./DEV.md).
 
@@ -541,13 +542,18 @@ continues the run. OSV advisories are not cached.
 
 ## Optional GitHub Actions usage
 
-If you want to wire `licence_audit` into GitHub Actions, use the shared setup
-action. For a Gleam project, set up Gleam first so `manifest.toml` exists:
+Use mise in GitHub Actions to install the same native binary as a local
+install. We recommend native binaries for CI because they include the Erlang
+runtime. For a Gleam project, set up Gleam first so `manifest.toml` exists.
+The example selects OTP 28 for the job instead of relying on the project's
+OTP version.
 
-The example targets the 1.0 release with an exact `v1.0.0` CLI pin.
-Until that tag is published, select an existing tag from the
-[releases page](https://github.com/tylerbutler/licence_audit/releases).
-Keep an exact tag in CI and update it after testing a newer release.
+Replace `vX.Y.Z` below with the tag from a
+[published release](https://github.com/tylerbutler/licence_audit/releases/latest).
+Keep an exact tag in CI and update it after testing a newer release. mise's
+[GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html#verification)
+checks release digests or published checksums and verifies available GitHub
+artifact attestations. It does not require a release to have attestations.
 
 ```yaml
 name: licence audit
@@ -563,11 +569,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: tylerbutler/actions/setup-gleam@v1
-      - uses: tylerbutler/actions/setup-licence-audit@v1
+      - uses: erlef/setup-beam@v1
         with:
-          version: v1.0.0
-          setup-beam: "false"
-      - run: licence_audit check
+          otp-version: "28"
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - run: mise exec github:tylerbutler/licence_audit@vX.Y.Z -- licence_audit check
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
 ```
 
 ## Compatibility

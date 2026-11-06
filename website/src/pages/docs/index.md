@@ -22,8 +22,9 @@ With [mise][mise], install directly from the `github:` provider:
 mise use -g github:tylerbutler/licence_audit@latest
 ```
 
-Replace `latest` with a tag such as `v0.7.0` to select a fixed version. mise
-selects the self-contained archive for your operating system and architecture.
+To pin a version, replace `latest` with an exact release tag (`vX.Y.Z`).
+Choose a tag from the [latest published release][latest-release]. mise selects
+the self-contained archive for your operating system and architecture.
 You do not need Erlang/OTP. For source build instructions, refer to [DEV.md][dev].
 
 ## Standard workflow
@@ -124,5 +125,6 @@ or TLS details for IPv4 and IPv6. Request timeout errors include the
 the message says so.
 
 [releases]: https://github.com/tylerbutler/licence_audit/releases
+[latest-release]: https://github.com/tylerbutler/licence_audit/releases/latest
 [mise]: https://mise.jdx.dev/
 [dev]: https://github.com/tylerbutler/licence_audit/blob/main/DEV.md
