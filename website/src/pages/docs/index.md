@@ -195,6 +195,10 @@ not a source inspection or a per-release licence conclusion.
 This section is generated from the CLI. Use `licence_audit --help` for the
 options available in your installed version.
 
+`--help` and `-h` show help for the root command or a subcommand, for example
+`licence_audit sbom -h`. `--version` belongs to the root command:
+use `licence_audit --version`, not `licence_audit sbom --version`.
+
 <!-- cli-reference -->
 Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy.
 

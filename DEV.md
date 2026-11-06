@@ -167,6 +167,8 @@ Edit surrounding guide prose directly; do not edit generated regions.
 `just docs-check` compares generated content without writing. Missing or
 malformed marker pairs are errors. The README and `docs/` command stubs link
 to the website and are not generator outputs.
+`just test-docs` tests read-only drift detection, regeneration, and missing
+pages/markers in isolated guide copies.
 
 Run `just website-deps website-check website-build` to install locked website
 dependencies, check Astro types and worker tests, and build the static site.

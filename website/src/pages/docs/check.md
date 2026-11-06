@@ -28,6 +28,19 @@ matching licences. To create the policy, use
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
 
+### 1.0 allow-list requirement
+
+For version 1.0, `check` requires a non-empty `allow` list. A deny-only policy
+returns exit code `2` and asks you to add `allow`. This also applies to
+`check --vulns`: it remains a combined licence and vulnerability gate, not a
+vulnerability-only check. This requirement replaces deny-only checks supported
+by earlier releases.
+
+`deny` is an exact-match override and wins over `allow`. Matching does not
+normalise deprecated identifiers, a trailing `+`, `-or-later` identifiers, or
+`WITH` terms into equivalent licences. List the complete identifiers or terms
+that you intend to allow or deny.
+
 ### SPDX expressions
 
 `AND` requires both terms to pass. `OR` needs one passing alternative.
@@ -50,7 +63,7 @@ Expression matching ignores whitespace between tokens and the case of SPDX
 identifiers. It keeps the case of custom references and the tokens of the
 expression.
 
-Malformed expressions fail the gate, even with a deny-only policy.
+Malformed expressions fail licence evaluation.
 For untrusted metadata, the parser limits each expression to 64 KiB,
 1024 tokens, and 64 nested parentheses. Expressions above these limits fail
 the gate.
