@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v1.0.0-rc.0 - 2026-11-07
+
+### Breaking
+
+- Declare the `licence_audit` CLI stable with the 1.0 release.
+
 ## v0.15.0 - 2026-11-06
 
 ### Added
