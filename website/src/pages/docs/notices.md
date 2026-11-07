@@ -130,6 +130,25 @@ conditions:
 Before use, `notices` compares each Hex tarball with its `outer_checksum`. The
 command stops if the download is corrupt or has changed.
 
+### Source archive limits
+
+The command accepts at most **64 MiB (67,108,864 bytes)** per archive download
+and **256 MiB (268,435,456 bytes)** of tar data per extraction. It accepts an
+archive at either limit and rejects one byte over. These fixed limits apply to
+Git archives, repository fallback archives, and Hex archives, including the
+inner `contents.tar.gz`. An unrelated member counts towards the tar limit even
+when the command reads only licence files.
+
+The command checks `Content-Length` before collecting the body and counts
+received bytes when it streams the download. It stops gzip inflation at the
+tar limit. A source fetch has a total 30-second deadline, including connection
+setup and an IPv6 probe. The command does not follow archive redirects.
+
+A download-size error reports the byte limit. An oversized, corrupt, or
+truncated gzip archive produces an `invalid archive` error. A package source
+failure stops notice generation; a repository fallback failure warns and
+continues to SPDX text. These limits bound archive sizes, not total VM memory.
+
 ## Caching
 
 In addition to the shared Hex metadata cache, `notices` keeps a cache of

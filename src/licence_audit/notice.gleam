@@ -3,7 +3,6 @@ import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
-import gleam/http/response.{type Response}
 import gleam/int
 import gleam/json
 import gleam/list
@@ -11,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/archive_download
 import licence_audit/cache_dir
 import licence_audit/config
 import licence_audit/hex
@@ -54,6 +54,7 @@ pub type FetchError {
   /// reports the actual configured duration rather than assuming 30s.
   FetchTimeoutAfter(seconds: Int)
   FetchUnexpectedResponse(status: Int)
+  FetchDownloadTooLarge(limit: Int)
 }
 
 pub type NoticePackage {
@@ -593,6 +594,8 @@ pub fn describe_fetch_error(error: FetchError) -> String {
       "timed out after " <> int.to_string(seconds) <> "s"
     FetchUnexpectedResponse(status) ->
       "unexpected HTTP response " <> int.to_string(status)
+    FetchDownloadTooLarge(limit) ->
+      "source archive download exceeds " <> int.to_string(limit) <> " bytes"
   }
 }
 
@@ -877,22 +880,16 @@ pub fn fetch_tarball(
   request: Request(BitArray),
 ) -> Result(BitArray, FetchError) {
   let request = request.set_header(request, "user-agent", "licence_audit")
-  case
-    httpc_adaptive.dispatch_bits(request, timeout_ms: source_fetch_timeout_ms)
-  {
-    Ok(response) -> decode_fetch_response(response)
-    Error(httpc_adaptive.ResponseTimeout) -> Error(FetchTimeout)
-    Error(_) -> Error(FetchNetworkFailure)
-  }
-}
-
-fn decode_fetch_response(
-  response: Response(BitArray),
-) -> Result(BitArray, FetchError) {
-  case response.status {
-    status if status >= 200 && status < 300 -> Ok(response.body)
-    status -> Error(FetchUnexpectedResponse(status))
-  }
+  archive_download.fetch(request, source_fetch_timeout_ms)
+  |> result.map_error(fn(error) {
+    case error {
+      archive_download.Timeout -> FetchTimeout
+      archive_download.NetworkFailure(_) -> FetchNetworkFailure
+      archive_download.UnexpectedResponse(status) ->
+        FetchUnexpectedResponse(status)
+      archive_download.DownloadTooLarge(limit) -> FetchDownloadTooLarge(limit)
+    }
+  })
 }
 
 fn hex_tarball_request(name: String, version: String) -> Request(BitArray) {

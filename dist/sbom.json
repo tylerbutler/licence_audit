@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:fc0316ec-7c3d-8bda-a9f1-0f7617e609ec",
+  "serialNumber": "urn:uuid:cc3db861-23f5-8231-b388-61305305efce",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -43,6 +43,30 @@
     }
   },
   "components": [
+    {
+      "bom-ref": "pkg:github/tylerbutler/gluegun@9b7e07d13cf52a13c762946daa5f645723097984",
+      "type": "library",
+      "name": "gluegun",
+      "purl": "pkg:github/tylerbutler/gluegun@9b7e07d13cf52a13c762946daa5f645723097984",
+      "version": "0.2.0",
+      "scope": "required",
+      "description": "A Gleam wrapper for the Erlang Gun HTTP client",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://github.com/tylerbutler/gluegun",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
     {
       "bom-ref": "pkg:hex/argv@1.1.0",
       "type": "library",
@@ -132,6 +156,57 @@
           "url": "https://codeberg.org/krig/casefold",
           "type": "vcs",
           "comment": "Repository"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:hex/cowlib@2.21.0",
+      "type": "library",
+      "name": "cowlib",
+      "purl": "pkg:hex/cowlib@2.21.0",
+      "version": "2.21.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/cowlib"
+        ]
+      },
+      "description": "Support library for manipulating Web protocols.",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0960248773762a5319b3c17285028bc76f54f58ef0f9451367401bdf67b46274"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/cowlib-2.21.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://ninenines.eu/docs/en/cowlib/2.21/manual/",
+          "type": "other",
+          "comment": "Function reference"
+        },
+        {
+          "url": "https://github.com/ninenines/cowlib",
+          "type": "vcs",
+          "comment": "GitHub"
+        },
+        {
+          "url": "https://github.com/sponsors/essen",
+          "type": "other",
+          "comment": "Sponsor"
         }
       ]
     },
@@ -663,6 +738,57 @@
       ]
     },
     {
+      "bom-ref": "pkg:hex/gleam_otp@1.3.0",
+      "type": "library",
+      "name": "gleam_otp",
+      "purl": "pkg:hex/gleam_otp@1.3.0",
+      "version": "1.3.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/gleam_otp"
+        ]
+      },
+      "description": "Fault tolerant multi-core programs with OTP, the BEAM actor framework.",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "de4ca6850842f0266ee95317a25dd6a0a0f20cdfab7c0adc2e63251d7c3c72ec"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/gleam_otp-1.3.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
+        },
+        {
+          "url": "https://github.com/sponsors/lpil",
+          "type": "other",
+          "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/gleam-lang/otp",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
       "bom-ref": "pkg:hex/gleam_regexp@1.1.1",
       "type": "library",
       "name": "gleam_regexp",
@@ -991,6 +1117,62 @@
           "url": "https://github.com/maxh213/glugify",
           "type": "vcs",
           "comment": "Repository"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:hex/gun@2.7.0",
+      "type": "library",
+      "name": "gun",
+      "purl": "pkg:hex/gun@2.7.0",
+      "version": "2.7.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/gun"
+        ]
+      },
+      "description": "HTTP/1.1, HTTP/2 and Websocket client for Erlang/OTP.",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2a90d073069e72654b6c9a91fae365b746ff5ce385a4a5bbf71ef53a8bf95d82"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/gun-2.7.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://ninenines.eu/docs/en/gun/2.7/manual/",
+          "type": "other",
+          "comment": "Function reference"
+        },
+        {
+          "url": "https://github.com/ninenines/gun",
+          "type": "vcs",
+          "comment": "GitHub"
+        },
+        {
+          "url": "https://github.com/sponsors/essen",
+          "type": "other",
+          "comment": "Sponsor"
+        },
+        {
+          "url": "https://ninenines.eu/docs/en/gun/2.7/guide/",
+          "type": "other",
+          "comment": "User guide"
         }
       ]
     },
@@ -1548,6 +1730,7 @@
     {
       "ref": "root",
       "dependsOn": [
+        "pkg:github/tylerbutler/gluegun@9b7e07d13cf52a13c762946daa5f645723097984",
         "pkg:hex/cvss@0.1.1",
         "pkg:hex/etch@1.3.3",
         "pkg:hex/filepath@1.1.2",
@@ -1571,6 +1754,15 @@
       ]
     },
     {
+      "ref": "pkg:github/tylerbutler/gluegun@9b7e07d13cf52a13c762946daa5f645723097984",
+      "dependsOn": [
+        "pkg:hex/gleam_erlang@1.3.0",
+        "pkg:hex/gleam_otp@1.3.0",
+        "pkg:hex/gleam_stdlib@1.0.5",
+        "pkg:hex/gun@2.7.0"
+      ]
+    },
+    {
       "ref": "pkg:hex/argv@1.1.0",
       "dependsOn": []
     },
@@ -1579,6 +1771,10 @@
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
+    },
+    {
+      "ref": "pkg:hex/cowlib@2.21.0",
+      "dependsOn": []
     },
     {
       "ref": "pkg:hex/cvss@0.1.1",
@@ -1652,6 +1848,13 @@
       ]
     },
     {
+      "ref": "pkg:hex/gleam_otp@1.3.0",
+      "dependsOn": [
+        "pkg:hex/gleam_erlang@1.3.0",
+        "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
       "ref": "pkg:hex/gleam_regexp@1.1.1",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
@@ -1695,6 +1898,12 @@
       "ref": "pkg:hex/glugify@3.1.1",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:hex/gun@2.7.0",
+      "dependsOn": [
+        "pkg:hex/cowlib@2.21.0"
       ]
     },
     {

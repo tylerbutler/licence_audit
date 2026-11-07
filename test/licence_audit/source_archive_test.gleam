@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/list
+import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit/notice
@@ -137,6 +138,319 @@ fn with_inflation_count(check: fn() -> a) -> #(a, Int)
 
 @external(erlang, "source_archive_test_ffi", "gunzip")
 fn gunzip(bytes: BitArray) -> BitArray
+
+@external(erlang, "source_archive_test_ffi", "gzip")
+fn gzip(bytes: BitArray) -> BitArray
+
+@external(erlang, "source_archive_test_ffi", "corrupt_crc")
+fn corrupt_crc(bytes: BitArray) -> BitArray
+
+@external(erlang, "source_archive_test_ffi", "incompressible_binary")
+fn incompressible_binary() -> BitArray
+
+@external(erlang, "source_archive_ffi", "extract_tar")
+fn extract_tar_with_limit(
+  bytes: BitArray,
+  limit: Int,
+) -> Result(List(#(String, BitArray)), source_archive.ArchiveError)
+
+@external(erlang, "source_archive_ffi", "extract_tar_gz")
+fn extract_tar_gz_with_limit(
+  bytes: BitArray,
+  limit: Int,
+) -> Result(List(#(String, BitArray)), source_archive.ArchiveError)
+
+@external(erlang, "source_archive_ffi", "extract_tar_selected")
+fn extract_tar_selected_with_limit(
+  bytes: BitArray,
+  select: fn(List(String)) -> List(#(String, String)),
+  limit: Int,
+) -> Result(List(#(String, BitArray)), source_archive.ArchiveError)
+
+@external(erlang, "source_archive_ffi", "extract_tar_gz_selected")
+fn extract_tar_gz_selected_with_limit(
+  bytes: BitArray,
+  select: fn(List(String)) -> List(#(String, String)),
+  limit: Int,
+) -> Result(List(#(String, BitArray)), source_archive.ArchiveError)
+
+@external(erlang, "source_archive_ffi", "extract_root_file_tar_gz")
+fn extract_root_with_limit(
+  bytes: BitArray,
+  filename: String,
+  limit: Int,
+) -> Result(BitArray, source_archive.ArchiveError)
+
+@external(erlang, "source_archive_ffi", "prepare_tar")
+fn prepare_tar(
+  bytes: BitArray,
+  limit: Int,
+) -> Result(BitArray, source_archive.ArchiveError)
+
+@external(erlang, "source_archive_test_ffi", "with_inflate_stats")
+fn with_inflate_stats(check: fn() -> a) -> #(a, Int, Int)
+
+pub fn tar_preparation_enforces_exact_byte_limit_test() {
+  list.each([63, 64, 65], fn(size) {
+    let bytes = bit_array.from_string(string.repeat("x", size))
+    let expected = case size > 64 {
+      True -> Error(source_archive.InvalidArchive)
+      False -> Ok(bytes)
+    }
+    should.equal(prepare_tar(bytes, 64), expected)
+    should.equal(prepare_tar(gzip(bytes), 64), expected)
+  })
+}
+
+pub fn gzip_bomb_stops_inflation_and_closes_resource_test() {
+  let bytes = gzip(large_binary())
+  let #(outcome, calls, closes) =
+    with_inflate_stats(fn() { prepare_tar(bytes, 64) })
+  should.equal(outcome, Error(source_archive.InvalidArchive))
+  should.equal(calls, 1)
+  should.equal(closes, 1)
+}
+
+pub fn concatenated_gzip_members_share_output_limit_test() {
+  let first = bit_array.from_string(string.repeat("x", 63))
+  let first_gzip = gzip(first)
+  list.each([0, 1, 2], fn(extra) {
+    let second = bit_array.from_string(string.repeat("y", extra))
+    let gzip = bit_array.concat([first_gzip, gzip(second)])
+    let expected = case extra > 1 {
+      True -> Error(source_archive.InvalidArchive)
+      False -> Ok(bit_array.concat([first, second]))
+    }
+    should.equal(prepare_tar(gzip, 64), expected)
+  })
+  let later = gzip(<<"second member":utf8>>)
+  let assert Ok(truncated) =
+    bit_array.slice(later, 0, bit_array.byte_size(later) - 1)
+  list.each([corrupt_crc(later), truncated], fn(later) {
+    let #(outcome, _, closes) =
+      with_inflate_stats(fn() {
+        prepare_tar(bit_array.concat([first_gzip, later]), 100)
+      })
+    should.equal(outcome, Error(source_archive.InvalidArchive))
+    should.equal(closes, 1)
+  })
+}
+
+pub fn concatenated_members_support_all_tar_and_hex_paths_test() {
+  with_tar_gz(
+    [
+      #("gleam.toml", <<"metadata":utf8>>),
+      #("LICENSE", <<"licence":utf8>>),
+      #("assets/random.bin", incompressible_binary()),
+    ],
+    fn(bytes) {
+      let plain = gunzip(bytes)
+      let size = bit_array.byte_size(plain)
+      list.each([512, 16_384], fn(split) {
+        let assert Ok(first) = bit_array.slice(plain, 0, split)
+        let assert Ok(rest) = bit_array.slice(plain, split, size - split)
+        let members = bit_array.concat([gzip(first), gzip(rest)])
+        assert bit_array.byte_size(members) > 16_384
+        should.equal(prepare_tar(members, size), Ok(plain))
+        should.equal(
+          prepare_tar(members, size - 1),
+          Error(source_archive.InvalidArchive),
+        )
+        should.equal(
+          source_archive.extract_tar_gz(members),
+          source_archive.extract_tar(plain),
+        )
+        should.equal(
+          source_archive.extract_tar_gz_selected(
+            members,
+            notice.selected_notice_paths,
+          ),
+          Ok([source_archive.ArchiveFile("LICENSE", <<"licence":utf8>>)]),
+        )
+        should.equal(
+          source_archive.extract_root_file_tar_gz(members, "gleam.toml"),
+          Ok(<<"metadata":utf8>>),
+        )
+        with_tar_gz([#("contents.tar.gz", members)], fn(outer) {
+          should.equal(
+            source_archive.extract_hex_contents(gunzip(outer)),
+            source_archive.extract_tar(plain),
+          )
+          should.equal(
+            source_archive.extract_hex_contents_selected(
+              gunzip(outer),
+              notice.selected_notice_paths,
+            ),
+            Ok([source_archive.ArchiveFile("LICENSE", <<"licence":utf8>>)]),
+          )
+        })
+      })
+    },
+  )
+}
+
+pub fn corrupt_and_truncated_gzip_close_resource_test() {
+  let bytes = gzip(<<"licence":utf8>>)
+  let assert Ok(truncated) =
+    bit_array.slice(bytes, 0, bit_array.byte_size(bytes) - 1)
+  list.each([truncated, corrupt_crc(bytes), <<31, 139, 0>>], fn(bytes) {
+    let #(outcome, _, closes) =
+      with_inflate_stats(fn() { prepare_tar(bytes, 64) })
+    should.equal(outcome, Error(source_archive.InvalidArchive))
+    should.equal(closes, 1)
+    should.equal(
+      source_archive.extract_tar_gz(bytes),
+      Error(source_archive.InvalidArchive),
+    )
+    should.equal(
+      source_archive.extract_tar_gz_selected(
+        bytes,
+        notice.selected_notice_paths,
+      ),
+      Error(source_archive.InvalidArchive),
+    )
+    should.equal(
+      source_archive.extract_root_file_tar_gz(bytes, "gleam.toml"),
+      Error(source_archive.InvalidArchive),
+    )
+  })
+}
+
+pub fn extraction_limits_include_unselected_members_test() {
+  should.equal(source_archive.max_decompressed_bytes, 268_435_456)
+  with_tar_gz(
+    [
+      #("gleam.toml", <<"metadata":utf8>>),
+      #("LICENSE", <<"licence":utf8>>),
+      #(
+        "assets/irrelevant.bin",
+        bit_array.from_string(string.repeat("x", 32_768)),
+      ),
+    ],
+    fn(bytes) {
+      let plain = gunzip(bytes)
+      let size = bit_array.byte_size(plain)
+      list.each([size - 1, size, size + 1], fn(limit) {
+        let expected = case limit < size {
+          True -> Error(source_archive.InvalidArchive)
+          False -> Ok([#("LICENSE", <<"licence":utf8>>)])
+        }
+        let expected_full = result.replace(expected, Nil)
+        should.equal(
+          extract_tar_with_limit(plain, limit) |> result.replace(Nil),
+          expected_full,
+        )
+        should.equal(
+          extract_tar_selected_with_limit(
+            plain,
+            notice.selected_notice_paths,
+            limit,
+          ),
+          expected,
+        )
+        list.each([bytes, plain], fn(data) {
+          should.equal(
+            extract_tar_gz_selected_with_limit(
+              data,
+              notice.selected_notice_paths,
+              limit,
+            ),
+            expected,
+          )
+          let expected_root = case limit < size {
+            True -> Error(source_archive.InvalidArchive)
+            False -> Ok(<<"metadata":utf8>>)
+          }
+          should.equal(
+            extract_root_with_limit(data, "gleam.toml", limit),
+            expected_root,
+          )
+          should.equal(
+            extract_tar_gz_with_limit(data, limit) |> result.replace(Nil),
+            expected_full,
+          )
+        })
+      })
+    },
+  )
+}
+
+pub fn hex_outer_and_inner_tar_limits_test() {
+  let assert Ok(outer) = simplifile.read_bits(fixture_dir <> "/hex.tar")
+  let outer_size = bit_array.byte_size(outer)
+  should.equal(
+    extract_tar_with_limit(outer, outer_size - 1),
+    Error(source_archive.InvalidArchive),
+  )
+  should.equal(
+    extract_tar_selected_with_limit(
+      outer,
+      fn(_) { [#("contents.tar.gz", "contents.tar.gz")] },
+      outer_size - 1,
+    ),
+    Error(source_archive.InvalidArchive),
+  )
+  let assert Ok(files) =
+    extract_tar_selected_with_limit(
+      outer,
+      fn(_) { [#("contents.tar.gz", "contents.tar.gz")] },
+      outer_size,
+    )
+  let assert Ok(contents) = list.key_find(files, "contents.tar.gz")
+  let inner_size = bit_array.byte_size(gunzip(contents))
+  should.equal(
+    extract_tar_gz_with_limit(contents, inner_size - 1),
+    Error(source_archive.InvalidArchive),
+  )
+  should.equal(
+    extract_tar_gz_selected_with_limit(
+      contents,
+      notice.selected_notice_paths,
+      inner_size - 1,
+    ),
+    Error(source_archive.InvalidArchive),
+  )
+  let assert Ok(_) =
+    extract_tar_gz_selected_with_limit(
+      contents,
+      notice.selected_notice_paths,
+      inner_size,
+    )
+}
+
+pub fn all_archive_paths_share_checked_preparation_test() {
+  with_tar_gz([#("gleam.toml", <<"name = \"fixture\"":utf8>>)], fn(bytes) {
+    let plain = gunzip(bytes)
+    let #(full, count) =
+      with_inflation_count(fn() { source_archive.extract_tar_gz(bytes) })
+    should.equal(count, 1)
+    should.equal(full, source_archive.extract_tar(plain))
+    let #(root, count) =
+      with_inflation_count(fn() {
+        source_archive.extract_root_file_tar_gz(bytes, "gleam.toml")
+      })
+    should.equal(count, 1)
+    should.equal(root, Ok(<<"name = \"fixture\"":utf8>>))
+    should.equal(
+      source_archive.extract_root_file_tar_gz(plain, "gleam.toml"),
+      root,
+    )
+  })
+  let assert Ok(outer) = simplifile.read_bits(fixture_dir <> "/hex.tar")
+  let #(full, count) =
+    with_inflation_count(fn() { source_archive.extract_hex_contents(outer) })
+  should.equal(count, 1)
+  let assert Ok(_) = full
+  let #(selected, count) =
+    with_inflation_count(fn() {
+      source_archive.extract_hex_contents_selected(
+        outer,
+        notice.selected_notice_paths,
+      )
+    })
+  should.equal(count, 1)
+  let assert Ok(_) = selected
+}
 
 pub fn selected_extraction_omits_large_unrelated_member_test() {
   with_tar_gz(

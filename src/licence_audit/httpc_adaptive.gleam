@@ -146,7 +146,8 @@ pub fn dispatch_bits_with(
   client(request, timeout_ms, family)
 }
 
-fn select_family(
+/// Reuse the command's family selection with a bounded transport for the probe.
+pub fn select_family(
   request: Request(BitArray),
   client: fn(Request(BitArray), Int, IpFamily) ->
     Result(Response(BitArray), Error),

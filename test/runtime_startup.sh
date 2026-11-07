@@ -6,6 +6,7 @@ timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
   undefined = whereis(httpc_manager),
   {ok, nil} = runtime_ffi:start(),
   true = is_pid(whereis(httpc_manager)),
+  true = is_pid(whereis(gun_conns_sup)),
   true = lists:keymember(ssl, 1, application:which_applications()),
   {ok, nil} = runtime_ffi:start(),
   {ok, nil} = runtime_ffi:run(fun() -> nil end),

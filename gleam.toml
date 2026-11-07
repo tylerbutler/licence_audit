@@ -26,6 +26,7 @@ gleam_crypto = ">= 1.6.0 and < 2.0.0"
 gleam_time = ">= 1.8.0 and < 2.0.0"
 cvss = ">= 0.1.1 and < 1.0.0"
 filepath = ">= 1.1.2 and < 2.0.0"
+gluegun = { git = "https://github.com/tylerbutler/gluegun.git", ref = "v0.2.0" }
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
