@@ -40,7 +40,6 @@ the lockfile, and review the versions, URLs, and hashes before committing:
 
 ```sh
 mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64
-just test-build-inputs
 just build-strict
 just test
 ```
