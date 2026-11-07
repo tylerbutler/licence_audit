@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Decode TOML string escapes in project metadata and preserve array comments when `update` edits policies, including exceptions-only and inline-table configurations."
