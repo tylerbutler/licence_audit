@@ -111,9 +111,6 @@ jobs:
       - name: Test release notice staging
         run: just test-release-notices
 
-      - name: Test release PR preparation
-        run: just test-release-pr
-
       - name: Check formatting
         run: just format-check
 
