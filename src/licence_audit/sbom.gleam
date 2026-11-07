@@ -1,6 +1,7 @@
 import gleam/list
 import gleam/option
 import gleam/string
+import gleam/uri
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
@@ -11,7 +12,24 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
     manifest.HexProvenance(_, _) ->
       Ok("pkg:hex/" <> string.lowercase(entry.name) <> "@" <> entry.version)
-    manifest.GitProvenance(repo, commit) ->
+    manifest.GitProvenance(repo, commit, path) -> {
+      use directory <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(error.UnsupportedSourceForSbom(
+          entry.name,
+          "git",
+          "invalid package path",
+        )),
+      )
+      let subpath = case directory {
+        "" -> ""
+        _ ->
+          "#"
+          <> string.join(
+            list.map(string.split(directory, "/"), uri.percent_encode),
+            "/",
+          )
+      }
       case repository.parse_github_source(repo) {
         Ok(repository.Repository(owner: owner, repo: name, ..)) ->
           Ok(
@@ -20,7 +38,8 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
             <> "/"
             <> string.lowercase(name)
             <> "@"
-            <> commit,
+            <> commit
+            <> subpath,
           )
         Error(_) ->
           Error(error.UnsupportedSourceForSbom(
@@ -29,6 +48,7 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
             detail: "repo: " <> repo,
           ))
       }
+    }
     manifest.PathProvenance(path) ->
       Error(error.UnsupportedSourceForSbom(
         package: entry.name,
@@ -437,7 +457,7 @@ fn append_supplier(
           ]),
         ),
       ])
-    manifest.GitProvenance(_, _)
+    manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
@@ -474,7 +494,7 @@ fn append_hashes(
           ]),
         ),
       ])
-    manifest.GitProvenance(_, _)
+    manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
@@ -560,7 +580,7 @@ fn append_properties(
         ),
       ])
     manifest.HexProvenance(_, option.None)
-    | manifest.GitProvenance(_, _)
+    | manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
@@ -587,7 +607,7 @@ fn external_references(
       hex_distribution_reference(entry),
       ..from_links
     ]
-    manifest.GitProvenance(_, _)
+    manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> from_links
   }

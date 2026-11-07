@@ -66,6 +66,74 @@ pub fn extract_tar_gz_selected(
   |> result.map(files_to_archive_files)
 }
 
+/// Scope the full inventory before selecting files or inferring package roots.
+pub fn package_paths(
+  paths: List(String),
+  directory: String,
+) -> List(#(String, String)) {
+  let normalized =
+    list.map(paths, fn(path) {
+      #(path, case string.starts_with(path, "./") {
+        True -> string.drop_start(path, 2)
+        False -> path
+      })
+    })
+  let has_root = case normalized {
+    [] -> False
+    [#(_, first), ..] -> {
+      let root = case string.split(first, "/") {
+        [root, _, ..] -> root
+        _ -> ""
+      }
+      root != ""
+      && list.all(normalized, fn(pair) {
+        string.starts_with(pair.1, root <> "/")
+      })
+    }
+  }
+  normalized
+  |> list.filter_map(fn(pair) {
+    let relative = case has_root {
+      True -> pair.1 |> string.split("/") |> list.drop(1) |> string.join("/")
+      False -> pair.1
+    }
+    case directory {
+      "" -> Ok(#(pair.0, relative))
+      _ ->
+        case string.starts_with(relative, directory <> "/") {
+          True ->
+            Ok(#(
+              pair.0,
+              string.drop_start(relative, string.length(directory) + 1),
+            ))
+          False -> Error(Nil)
+        }
+    }
+  })
+}
+
+pub fn extract_package_file_tar_gz(
+  data: BitArray,
+  directory: String,
+  filename: String,
+) -> Result(BitArray, ArchiveError) {
+  use files <- result.try(
+    extract_tar_gz_selected(data, fn(paths) {
+      let matches =
+        package_paths(paths, directory)
+        |> list.filter(fn(pair) { pair.1 == filename })
+      case matches {
+        [match] -> [match]
+        _ -> []
+      }
+    }),
+  )
+  case files {
+    [file] -> Ok(file.contents)
+    _ -> Error(MissingRootFile)
+  }
+}
+
 pub fn extract_hex_contents_selected(
   data: BitArray,
   select: fn(List(String)) -> List(#(String, String)),

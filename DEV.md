@@ -274,7 +274,9 @@ SBOMs useful.
 Reproducible mode does not use the mutable Hex package API. It reads component
 metadata from each checksum-verified Hex `metadata.config` and from each Git
 archive at the manifest commit. The immutable results use content-addressed,
-non-expiring cache entries. Hex publisher data is omitted because package
+non-expiring cache entries. For Git dependencies with a manifest `path`, metadata
+comes from that package subdirectory's `gleam.toml`, not the repository root.
+The cache key includes the package path. Hex publisher data is omitted because package
 owners can change after publication. `--vulns` is incompatible with
 `--reproducible` because OSV advisory data also changes over time.
 

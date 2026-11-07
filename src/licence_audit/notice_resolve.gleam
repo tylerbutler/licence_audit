@@ -34,6 +34,7 @@ import gleam/result
 import gleam/string
 
 import licence_audit/cache_dir
+import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/notice_cache
 import licence_audit/repository
@@ -178,8 +179,11 @@ fn source_identity(package: notice.NoticePackage) -> Result(String, Nil) {
   case package.source {
     notice.HexPackage(checksum) ->
       Ok(base <> "hex:" <> string.uppercase(checksum))
-    notice.GitPackage(repo, _url, commit) ->
-      Ok(base <> "git:" <> repository.describe(repo) <> "@" <> commit)
+    notice.GitPackage(repo, _url, commit, path) ->
+      Ok(
+        base
+        <> manifest.git_source_identity(repository.describe(repo), commit, path),
+      )
     notice.PathPackage(_) -> Error(Nil)
   }
 }
@@ -259,7 +263,10 @@ fn fallback(
   // the repository at an immutable commit, and path sources are local.
   use #(repo_files, warnings) <- cache_dir.with_warning(case package.source {
     notice.HexPackage(_) -> repository_fallback(cache, package, clients)
-    notice.GitPackage(_, _, _) | notice.PathPackage(_) -> #(#(None, []), None)
+    notice.GitPackage(_, _, _, _) | notice.PathPackage(_) -> #(
+      #(None, []),
+      None,
+    )
   })
 
   case repo_files {

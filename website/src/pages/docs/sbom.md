@@ -27,6 +27,13 @@ documentation. [Project configuration](/docs/configuration#discovery) supplies
 information for the root component. A `dependencies` graph represents the
 dependency tree.
 
+For a Git dependency with a manifest `path`, the purl includes the encoded
+package subpath, for example
+`pkg:github/example/beryl@<commit>#packages/beryl_protocol`.
+`--reproducible` reads `gleam.toml` only from that package subdirectory.
+Missing package metadata is an error; repository-root metadata is not a fallback.
+The immutable metadata cache key includes the package path.
+
 Each licence has the property `acknowledgement: "declared"` because the data
 comes from package metadata, not a source scan. If a package declares multiple
 licences, `sbom` creates one entry for each licence. Hex does not specify an

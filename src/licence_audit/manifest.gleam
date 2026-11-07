@@ -1,4 +1,5 @@
 import gleam/dict.{type Dict}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -61,7 +62,7 @@ pub type Provenance {
   /// record it, but the field is accepted for forward compatibility with
   /// future lockfile formats so the SBOM can surface both checksums.
   HexProvenance(outer_checksum: String, inner_checksum: Option(String))
-  GitProvenance(repo: String, commit: String)
+  GitProvenance(repo: String, commit: String, path: Option(String))
   PathProvenance(path: String)
   UnknownProvenance(source: String)
 }
@@ -175,7 +176,8 @@ fn decode_provenance(
     "git" -> {
       use repo <- result.try(required_string(table, "repo", package_name))
       use commit <- result.try(required_string(table, "commit", package_name))
-      Ok(GitProvenance(repo: repo, commit: commit))
+      use path <- result.try(git_path(table, package_name))
+      Ok(GitProvenance(repo: repo, commit: commit, path: path))
     }
     "local" | "path" -> {
       use path <- result.try(required_string(table, "path", package_name))
@@ -183,6 +185,68 @@ fn decode_provenance(
     }
     other -> Ok(UnknownProvenance(source: other))
   }
+}
+
+fn git_path(
+  table: toml.Entry,
+  package_name: String,
+) -> Result(Option(String), Error) {
+  use path <- result.try(case toml.field(table, "path") {
+    Error(_) -> Ok(None)
+    Ok(value) ->
+      toml.as_string(value)
+      |> result.map(Some)
+      |> result.replace_error(InvalidPackageField(
+        package_name,
+        "path",
+        "String",
+      ))
+  })
+  use _ <- result.try(
+    git_subdirectory(path)
+    |> result.replace_error(InvalidPackageField(
+      package_name,
+      "path",
+      "relative package directory without parent traversal",
+    )),
+  )
+  Ok(path)
+}
+
+/// Normalize only for lookup; Git provenance retains the manifest spelling.
+pub fn git_subdirectory(path: Option(String)) -> Result(String, Nil) {
+  case path {
+    None -> Ok("")
+    Some(path) -> {
+      let parts = string.split(path, "/")
+      case
+        string.starts_with(path, "/")
+        || string.contains(path, "\\")
+        || string.contains(path, ":")
+        || list.contains(parts, "..")
+      {
+        True -> Error(Nil)
+        False ->
+          Ok(
+            parts
+            |> list.filter(fn(part) { part != "" && part != "." })
+            |> string.join("/"),
+          )
+      }
+    }
+  }
+}
+
+pub fn git_source_identity(
+  repo: String,
+  commit: String,
+  path: Option(String),
+) -> String {
+  let directory = case path {
+    None -> ""
+    Some(path) -> ":path:" <> json.to_string(json.string(path))
+  }
+  "git:" <> repo <> "@" <> commit <> directory
 }
 
 type RawPackage {

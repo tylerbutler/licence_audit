@@ -862,6 +862,7 @@ pub fn git_source_skips_repository_fallback_test() {
         repository: repo,
         url: "https://github.com/owner/git_dep",
         commit: "sha",
+        path: None,
       ),
       scope: manifest.Prod,
     )
@@ -994,9 +995,138 @@ fn git_package(
     declared_licences: ["MIT"],
     // A parseable repo link is present, but git sources must never retry it.
     repo_links: [url],
-    source: notice.GitPackage(repository: repo, url: url, commit: commit),
+    source: notice.GitPackage(
+      repository: repo,
+      url: url,
+      commit: commit,
+      path: None,
+    ),
     scope: manifest.Prod,
   )
+}
+
+pub fn git_subdirectory_notice_caches_are_isolated_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let cache =
+      notice_cache.open(
+        notice_cache.Enabled(
+          Some(fresh_cache_path("git_subdirectory_isolation")),
+        ),
+      )
+    let repo = repository.Repository(repository.GitHub, "example", "beryl")
+    let original =
+      git_package(repo, "https://github.com/example/beryl", "abcdef")
+    list.each(
+      [
+        #(None, "Repository root licence"),
+        #(Some("packages/beryl_protocol"), "Protocol licence"),
+        #(Some("packages/beryl_sibling"), "Sibling licence"),
+      ],
+      fn(pair) {
+        let package =
+          notice.NoticePackage(
+            ..original,
+            source: notice.GitPackage(
+              repo,
+              "https://github.com/example/beryl",
+              "abcdef",
+              pair.0,
+            ),
+          )
+        let client =
+          clients(
+            panic_hex,
+            fn(_repo, _commit) { Ok(bytes) },
+            panic_resolve,
+            panic_archive,
+            panic_spdx,
+          )
+        let assert #(Ok(first), None) =
+          notice_resolve.resolve(cache, package, client)
+        let assert notice_resolve.Resolved(files) = first.outcome
+        assert list.contains(files, notice.NoticeFile("LICENSE", pair.1))
+        let identity =
+          "git_dep@1.0.0@"
+          <> manifest.git_source_identity(
+            repository.describe(repo),
+            "abcdef",
+            pair.0,
+          )
+        should.equal(notice_cache.get_files(cache, "source:v2:" <> identity), #(
+          Ok(files),
+          None,
+        ))
+        // Force a final-cache miss to verify the source cache independently.
+        let changed =
+          notice.NoticePackage(..package, declared_licences: ["Apache-2.0"])
+        let assert #(Ok(from_source), None) =
+          notice_resolve.resolve(
+            cache,
+            changed,
+            clients(
+              panic_hex,
+              panic_git,
+              panic_resolve,
+              panic_archive,
+              panic_spdx,
+            ),
+          )
+        should.equal(from_source.outcome, first.outcome)
+        let assert #(Ok(from_final), None) =
+          notice_resolve.resolve(
+            cache,
+            package,
+            clients(
+              panic_hex,
+              panic_git,
+              panic_resolve,
+              panic_archive,
+              panic_spdx,
+            ),
+          )
+        should.equal(from_final.outcome, first.outcome)
+      },
+    )
+    let assert None = notice_cache.close(cache)
+  })
+}
+
+pub fn git_subdirectory_without_licence_uses_spdx_not_repo_root_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let repo = repository.Repository(repository.GitHub, "example", "beryl")
+    let original =
+      git_package(repo, "https://github.com/example/beryl", "abcdef")
+    let package =
+      notice.NoticePackage(
+        ..original,
+        source: notice.GitPackage(
+          repo,
+          "https://github.com/example/beryl",
+          "abcdef",
+          Some("packages/notice_only"),
+        ),
+      )
+    let assert #(Ok(resolution), None) =
+      notice_resolve.resolve(
+        notice_cache.open(notice_cache.Disabled),
+        package,
+        clients(
+          panic_hex,
+          fn(_repo, _commit) { Ok(bytes) },
+          panic_resolve,
+          panic_archive,
+          fn(requirement) {
+            should.equal(requirement, spdx.LicenseRequirement("MIT"))
+            Ok(Some("Canonical MIT text"))
+          },
+        ),
+      )
+    let assert notice_resolve.Resolved(files) = resolution.outcome
+    should.equal(files, [
+      notice.NoticeFile("NOTICE", "Only package attribution"),
+      notice.NoticeFile("SPDX-License-List/MIT.txt", "Canonical MIT text"),
+    ])
+  })
 }
 
 /// Resolve a git package whose source ships a LICENSE, asserting the archive

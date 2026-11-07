@@ -57,7 +57,7 @@ fn locked_entries() -> List(manifest.SbomEntry) {
       "git_dep",
       "1.0.0",
       [],
-      manifest.GitProvenance("https://github.com/example/dep", "abc"),
+      manifest.GitProvenance("https://github.com/example/dep", "abc", None),
     ),
     manifest.SbomEntry(
       "path_dep",
