@@ -333,13 +333,27 @@ To prepare `1.0.0-rc.0`, dispatch the release workflow on `main`:
 gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
 ```
 
-After the candidate PR merges, dispatch with only `-f pre=rc` for the next
-candidate, or `-f pre=none` to promote it to `1.0.0`. Trellis keeps the
-fragments unreleased during the candidate cycle and consumes them on
-promotion. Leave both inputs empty for the normal stable release flow.
-Automatic pushes leave a pending prerelease PR unchanged and do not prepare
-releases while `main` contains a prerelease. Manual runs can replace the
-pending release request. Release preparation runs one job at a time.
+After the candidate PR merges, new or changed fragments on `main` open the
+next candidate PR automatically. Trellis keeps the fragments unreleased
+during the candidate cycle. To promote the candidate to `1.0.0`, dispatch:
+
+```sh
+gh workflow run release.yml --ref main -f pre=none
+```
+
+Promotion consumes the fragments. After the promotion PR merges, pushes
+resume the normal stable release flow. Manual dispatch is needed only to
+enter a candidate cycle or promote it; leave both inputs empty to manually
+prepare a normal stable release.
+
+Automatic pushes update an open release PR while preserving its target
+version and mode, including a pending promotion. Candidate updates include
+all retained fragments, but retained fragments alone do not open another
+PR after a candidate merges: preparation compares fragments with the commit
+that last changed the package version, not with a tag that might not exist
+yet. Closed release PRs and leftover release branches do not set the mode.
+Manual runs can replace the pending release request. Release preparation
+runs one job at a time.
 
 When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
 out its merge commit and runs `trellis tag create --github-release`. This

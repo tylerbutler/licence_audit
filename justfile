@@ -43,6 +43,10 @@ vendor-test:
 test-release-notices:
     mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
 
+# Verify automatic candidates and manual release-mode transitions.
+test-release-pr:
+    mise exec -- python3 -B -m unittest discover -s test -p release_pr_test.py
+
 # Check the production application and the shipped escript.
 test-vendor-production: build
     mise exec -- bash test/vendor_production.sh
@@ -270,6 +274,6 @@ website-build:
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test test-release-pr format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
 
 alias pr := ci

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pre:
-        description: "Prerelease label (rc), promotion (none), or empty for stable"
+        description: "Enter a candidate cycle (rc), promote (none), or prepare stable (empty)"
         type: string
         default: ""
       version:
