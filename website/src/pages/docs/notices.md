@@ -106,6 +106,16 @@ For local path dependencies, Gleam writes `source = "local"` in the manifest.
 Relative paths resolve from the directory that contains the selected manifest.
 The older `source = "path"` spelling is also accepted.
 
+For Git dependencies with a manifest `path`, the command searches only inside
+the selected package subdirectory at the locked commit. Package-root notice
+files take precedence over nested files. Licence files from the repository root
+or sibling packages are not included. If the selected package has no licence
+text, the command uses the existing SPDX fallback. The output preserves the
+manifest path, and source and final cache keys include it.
+
+An empty Git path or `.` selects the repository root. Absolute paths and paths
+with `..` components are rejected.
+
 ## Failure conditions
 
 `notices` exits `2` if it cannot create a complete bundle. It fails in these

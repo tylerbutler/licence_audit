@@ -169,12 +169,43 @@ pub fn purl_for_non_github_git_errors_test() {
       provenance: manifest.GitProvenance(
         repo: "https://gitlab.com/x/foo",
         commit: "abc",
+        path: None,
       ),
     )
   let assert Error(err) = sbom.purl_for(entry)
   let assert error.UnsupportedSourceForSbom(package, source, _) = err
   should.equal(package, "foo")
   should.equal(source, "git")
+}
+
+pub fn git_purl_includes_encoded_package_subpath_test() {
+  let entry = github_git_entry("https://github.com/example/beryl")
+  list.each(
+    [
+      #(Some("./packages/beryl_protocol/"), "#packages/beryl_protocol"),
+      #(
+        Some("packages/with space#%/中文"),
+        "#packages/with%20space%23%25/%E4%B8%AD%E6%96%87",
+      ),
+      #(Some("."), ""),
+      #(None, ""),
+    ],
+    fn(pair) {
+      let entry =
+        manifest.SbomEntry(
+          ..entry,
+          provenance: manifest.GitProvenance(
+            "https://github.com/example/beryl",
+            "abcdef",
+            pair.0,
+          ),
+        )
+      should.equal(
+        sbom.purl_for(entry),
+        Ok("pkg:github/example/beryl@abcdef" <> pair.1),
+      )
+    },
+  )
 }
 
 pub fn purl_for_path_dep_errors_test() {
@@ -212,6 +243,7 @@ fn github_git_entry(repo: String) -> manifest.SbomEntry {
     provenance: manifest.GitProvenance(
       repo: repo,
       commit: "fa4c8ee919138fc8ffddd2642165a89654e61999",
+      path: None,
     ),
   )
 }
@@ -554,6 +586,7 @@ pub fn render_omits_component_version_when_empty_test() {
       provenance: manifest.GitProvenance(
         repo: "https://github.com/TylerButler/GlueGun",
         commit: "fa4c8ee919138fc8ffddd2642165a89654e61999",
+        path: None,
       ),
     )
   let input =

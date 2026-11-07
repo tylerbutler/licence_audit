@@ -2,7 +2,7 @@ import gleam/bit_array
 import gleam/dict
 import gleam/http/request
 import gleam/list
-import gleam/option.{type Option, None}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit/hex
@@ -16,6 +16,80 @@ import licence_audit/spdx
 import simplifile
 
 const archive_fixture_dir = "test/fixtures/notices/archive_fixture"
+
+pub fn git_notices_select_only_package_local_files_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let clients =
+      notice.Clients(
+        ..notice.default_clients(),
+        fetch_git_archive: fn(_repo, _commit) { Ok(bytes) },
+      )
+    list.each(
+      [
+        #(Some("./packages/beryl_protocol/"), [
+          notice.NoticeFile("LICENSE", "Protocol licence"),
+          notice.NoticeFile("NOTICE", "Protocol attribution"),
+        ]),
+        #(Some("packages/beryl_sibling"), [
+          notice.NoticeFile("LICENSE", "Sibling licence"),
+        ]),
+        #(Some("packages/notice_only"), [
+          notice.NoticeFile("NOTICE", "Only package attribution"),
+        ]),
+        #(Some("packages/nested_only"), [
+          notice.NoticeFile("legal/LICENSE", "Nested package licence"),
+        ]),
+        #(Some("packages/blank_root"), [
+          notice.NoticeFile("NOTICE", "Blank-root package attribution"),
+          notice.NoticeFile("legal/COPYING", "Nested copying text"),
+        ]),
+        #(Some("packages/missing"), []),
+        #(Some("."), [notice.NoticeFile("LICENSE", "Repository root licence")]),
+        #(None, [notice.NoticeFile("LICENSE", "Repository root licence")]),
+      ],
+      fn(pair) {
+        let package =
+          package(
+            "beryl_protocol",
+            notice.GitPackage(
+              repository.Repository(repository.GitHub, "example", "beryl"),
+              "https://github.com/example/beryl",
+              "abcdef",
+              pair.0,
+            ),
+          )
+        should.equal(notice.read_source_notices(package, clients), Ok(pair.1))
+      },
+    )
+  })
+}
+
+pub fn git_notice_source_preserves_package_subdirectory_test() {
+  let entry =
+    manifest_entry(
+      "beryl_protocol",
+      "1.0.0",
+      manifest.GitProvenance(
+        "https://github.com/example/beryl",
+        "abcdef",
+        Some("./packages/beryl_protocol/"),
+      ),
+      [],
+    )
+  let assert Ok(source) = notice.package_source(entry)
+  let assert notice.GitPackage(_, _, _, path) = source
+  should.equal(path, Some("./packages/beryl_protocol/"))
+  let rendered =
+    notice.render(
+      [
+        notice.NoticeEntry(package("beryl_protocol", source), [
+          notice.NoticeFile("LICENSE", "Package licence"),
+        ]),
+      ],
+      manifest_path: "manifest.toml",
+    )
+  assert string.contains(rendered, "(path: ./packages/beryl_protocol/)")
+}
 
 const tmp_dir = "build/tmp/notices_test"
 
@@ -293,6 +367,7 @@ pub fn read_git_source_uses_fetcher_and_extracts_archive_test() {
         repository: repo,
         url: "https://github.com/example/git_dep.git",
         commit: "abc123",
+        path: None,
       ),
     )
   let fetch_git = fn(fetched_repo, commit) {
@@ -398,6 +473,7 @@ pub fn blank_root_licence_does_not_hide_nested_text_test() {
               repository.Repository(repository.GitHub, "owner", "dep"),
               "https://github.com/owner/dep",
               "commit",
+              None,
             ),
           ),
           clients,
@@ -448,6 +524,7 @@ pub fn blank_root_notice_does_not_hide_nested_licence_test() {
                 repository.Repository(repository.GitHub, "owner", "dep"),
                 "https://github.com/owner/dep",
                 "commit",
+                None,
               ),
             ),
             notice.Clients(
@@ -680,6 +757,7 @@ pub fn git_source_rejects_unsupported_repo_test() {
       manifest.GitProvenance(
         repo: "https://example.com/example/git_dep",
         commit: "abc",
+        path: None,
       ),
       [],
     )
@@ -694,6 +772,7 @@ pub fn git_source_rejects_unsupported_repo_test() {
       manifest.GitProvenance(
         repo: "git@github.com:example/git_dep.git",
         commit: "abc",
+        path: None,
       ),
       [],
     )
@@ -709,11 +788,12 @@ pub fn git_source_accepts_github_repo_test() {
       manifest.GitProvenance(
         repo: "https://github.com/example/git_dep.git",
         commit: "abc",
+        path: None,
       ),
       [],
     )
 
-  let assert Ok(notice.GitPackage(repo, url, commit)) =
+  let assert Ok(notice.GitPackage(repo, url, commit, None)) =
     notice.package_source(entry)
   should.equal(
     repo,
@@ -731,11 +811,12 @@ pub fn git_source_accepts_gitlab_repo_test() {
       manifest.GitProvenance(
         repo: "https://gitlab.com/example/git_dep",
         commit: "def",
+        path: None,
       ),
       [],
     )
 
-  let assert Ok(notice.GitPackage(repo, url, commit)) =
+  let assert Ok(notice.GitPackage(repo, url, commit, None)) =
     notice.package_source(entry)
   should.equal(
     repo,
@@ -753,11 +834,12 @@ pub fn git_source_accepts_codeberg_repo_test() {
       manifest.GitProvenance(
         repo: "https://codeberg.org/example/git_dep.git",
         commit: "ghi",
+        path: None,
       ),
       [],
     )
 
-  let assert Ok(notice.GitPackage(repo, url, commit)) =
+  let assert Ok(notice.GitPackage(repo, url, commit, None)) =
     notice.package_source(entry)
   should.equal(
     repo,
@@ -818,6 +900,7 @@ pub fn render_notice_entries_is_deterministic_test() {
           ),
           url: "https://github.com/example/alpha",
           commit: "abc123",
+          path: None,
         ),
       ),
       files: [

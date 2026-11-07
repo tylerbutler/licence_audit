@@ -647,7 +647,7 @@ fn notice_metadata_for_entry(
         None,
       )
     }
-    manifest.GitProvenance(repo, _commit) -> {
+    manifest.GitProvenance(repo, _commit, _path) -> {
       let repo_url = strip_git_suffix(repo)
       let path =
         project_root <> "/build/packages/" <> entry.name <> "/gleam.toml"
@@ -700,7 +700,7 @@ fn read_path_gleam_toml_metadata(
 fn describe_source(source: notice.PackageSource) -> String {
   case source {
     notice.HexPackage(_) -> "Hex"
-    notice.GitPackage(repo, _url, _commit) ->
+    notice.GitPackage(repo, _url, _commit, _path) ->
       "git " <> repository.describe(repo)
     notice.PathPackage(path) -> "local path " <> path
   }
@@ -716,7 +716,7 @@ fn package_for_source_read(
         ..package,
         source: notice.PathPackage(resolve_project_path(project_root, path)),
       )
-    notice.HexPackage(_) | notice.GitPackage(_, _, _) -> package
+    notice.HexPackage(_) | notice.GitPackage(_, _, _, _) -> package
   }
 }
 
@@ -905,8 +905,14 @@ fn immutable_metadata_key(entry: manifest.SbomEntry) -> Result(String, Nil) {
         <> "@hex:"
         <> string.uppercase(checksum),
       )
-    manifest.GitProvenance(repo, commit) ->
-      Ok(entry.name <> "@" <> entry.version <> "@git:" <> repo <> "@" <> commit)
+    manifest.GitProvenance(repo, commit, path) ->
+      Ok(
+        entry.name
+        <> "@"
+        <> entry.version
+        <> "@"
+        <> manifest.git_source_identity(repo, commit, path),
+      )
     manifest.PathProvenance(_) | manifest.UnknownProvenance(_) -> Error(Nil)
   }
 }
@@ -918,8 +924,8 @@ fn metadata_from_locked_source(
   case entry.provenance {
     manifest.HexProvenance(checksum, _) ->
       hex_metadata_from_locked_source(entry, checksum, clients)
-    manifest.GitProvenance(repo, _) ->
-      git_metadata_from_locked_source(entry, repo, clients)
+    manifest.GitProvenance(repo, commit, path) ->
+      git_metadata_from_locked_source(entry, repo, commit, path, clients)
     manifest.PathProvenance(_) | manifest.UnknownProvenance(_) ->
       Error(error.SbomMetadataFailed(entry.name, "unsupported package source"))
   }
@@ -967,6 +973,8 @@ fn hex_metadata_from_locked_source(
 fn git_metadata_from_locked_source(
   entry: manifest.SbomEntry,
   repo_url: String,
+  commit: String,
+  path: Option(String),
   clients: notice.Clients,
 ) -> Result(hex.PackageMetadata, error.Error) {
   use repo <- result.try(
@@ -976,7 +984,6 @@ fn git_metadata_from_locked_source(
       "unsupported Git repository URL",
     )),
   )
-  let assert manifest.GitProvenance(_, commit) = entry.provenance
   use archive <- result.try(
     clients.fetch_git_archive(repo, commit)
     |> result.map_error(fn(fetch_error) {
@@ -987,7 +994,22 @@ fn git_metadata_from_locked_source(
     }),
   )
   use contents <- result.try(
-    source_archive.extract_root_file_tar_gz(archive, "gleam.toml")
+    {
+      case path {
+        None -> source_archive.extract_root_file_tar_gz(archive, "gleam.toml")
+        Some(_) -> {
+          use directory <- result.try(
+            manifest.git_subdirectory(path)
+            |> result.replace_error(source_archive.InvalidArchive),
+          )
+          source_archive.extract_package_file_tar_gz(
+            archive,
+            directory,
+            "gleam.toml",
+          )
+        }
+      }
+    }
     |> result.map_error(fn(archive_error) {
       error.SbomMetadataFailed(
         entry.name,
@@ -1219,7 +1241,7 @@ fn fetch_package_metadata(
       // Git packages have no Hex metadata; enrich them from their locally
       // checked-out source tree instead. This is filesystem-only, so it runs
       // in offline mode too.
-      manifest.GitProvenance(repo, _commit) ->
+      manifest.GitProvenance(repo, _commit, _path) ->
         enrich_git_entry_metadata(entry, repo, project_root, metadata_acc, rep)
       manifest.PathProvenance(_) | manifest.UnknownProvenance(_) -> #(
         metadata_acc,

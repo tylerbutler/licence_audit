@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/list
 import gleam/option
+import gleam/string
 import gleeunit/should
 import licence_audit/manifest
 import simplifile
@@ -238,6 +239,7 @@ pub fn sbom_entries_returns_git_provenance_test() {
     manifest.GitProvenance(
       repo: "https://github.com/tylerbutler/gluegun",
       commit: "fa4c8ee919138fc8ffddd2642165a89654e61999",
+      path: option.None,
     ),
   )
 }
@@ -248,6 +250,73 @@ pub fn sbom_entries_exposes_root_requirements_test() {
   let assert Ok(parsed) = manifest.sbom_entries(contents)
 
   should.equal(parsed.root_requirements, ["gleam_stdlib", "gluegun"])
+}
+
+pub fn git_path_preserves_manifest_spelling_test() {
+  let assert Ok(contents) =
+    simplifile.read("test/fixtures/manifest_git_subdirectories.toml")
+  let assert Ok(parsed) = manifest.sbom_entries(contents)
+  let assert [entry, _] = parsed.entries
+  should.equal(
+    entry.provenance,
+    manifest.GitProvenance(
+      "https://github.com/example/beryl",
+      "abcdef",
+      option.Some("./packages/beryl_protocol/"),
+    ),
+  )
+  should.equal(
+    manifest.git_subdirectory(option.Some("./packages/beryl_protocol/")),
+    Ok("packages/beryl_protocol"),
+  )
+}
+
+pub fn git_path_rejects_wrong_type_and_unsafe_directories_test() {
+  list.each(
+    [
+      "123",
+      "\"../outside\"",
+      "\"packages/../sibling\"",
+      "\"/absolute\"",
+      "\"C:/absolute\"",
+      "\"packages\\\\\\\\dep\"",
+    ],
+    fn(path) {
+      let input =
+        "packages = [{ name = \"dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/dep\", commit = \"abc\", path = "
+        <> path
+        <> " }]"
+      let assert Error(manifest.InvalidPackageField("dep", "path", _)) =
+        manifest.sbom_entries(input)
+    },
+  )
+}
+
+pub fn git_root_directory_spellings_test() {
+  list.each(
+    [option.None, option.Some(""), option.Some("."), option.Some("./")],
+    fn(path) { should.equal(manifest.git_subdirectory(path), Ok("")) },
+  )
+}
+
+pub fn git_cache_identity_includes_original_subdirectory_test() {
+  let root = manifest.git_source_identity("repo", "commit", option.None)
+  let protocol =
+    manifest.git_source_identity(
+      "repo",
+      "commit",
+      option.Some("packages/beryl_protocol"),
+    )
+  let sibling =
+    manifest.git_source_identity(
+      "repo",
+      "commit",
+      option.Some("packages/beryl_sibling"),
+    )
+  should.equal(root, "git:repo@commit")
+  assert root != protocol
+  assert protocol != sibling
+  assert string.contains(protocol, "\"packages/beryl_protocol\"")
 }
 
 const scope_fixture =

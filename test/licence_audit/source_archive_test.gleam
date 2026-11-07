@@ -8,6 +8,121 @@ import simplifile
 
 const fixture_dir = "test/fixtures/notices/archive_fixture"
 
+pub fn with_beryl_archive(check: fn(BitArray) -> a) -> a {
+  with_tar_gz(
+    [
+      #("beryl-abcdef/gleam.toml", <<
+        "name = \"beryl\"\nversion = \"1.0.0\"\nlicences = [\"BSD-3-Clause\"]\ndescription = \"Repository root metadata\"\n":utf8,
+      >>),
+      #("beryl-abcdef/LICENSE", <<"Repository root licence":utf8>>),
+      #("beryl-abcdef/packages/beryl_protocol/gleam.toml", <<
+        "name = \"beryl_protocol\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]\ndescription = \"Selected protocol metadata\"\n":utf8,
+      >>),
+      #("beryl-abcdef/packages/beryl_protocol/LICENSE", <<
+        "Protocol licence":utf8,
+      >>),
+      #("beryl-abcdef/packages/beryl_protocol/NOTICE", <<
+        "Protocol attribution":utf8,
+      >>),
+      #("beryl-abcdef/packages/beryl_protocol/vendor/LICENSE", <<
+        "Vendored licence":utf8,
+      >>),
+      #("beryl-abcdef/packages/beryl_sibling/gleam.toml", <<
+        "name = \"beryl_sibling\"\nversion = \"1.0.0\"\nlicences = [\"Apache-2.0\"]\ndescription = \"Sibling package metadata\"\n":utf8,
+      >>),
+      #("beryl-abcdef/packages/beryl_sibling/LICENSE", <<
+        "Sibling licence":utf8,
+      >>),
+      #("beryl-abcdef/packages/beryl_protocol_extra/LICENSE", <<
+        "Prefix sibling licence":utf8,
+      >>),
+      #("beryl-abcdef/packages/notice_only/NOTICE", <<
+        "Only package attribution":utf8,
+      >>),
+      #("beryl-abcdef/packages/nested_only/legal/LICENSE", <<
+        "Nested package licence":utf8,
+      >>),
+      #("beryl-abcdef/packages/blank_root/LICENSE", <<" \t\n":utf8>>),
+      #("beryl-abcdef/packages/blank_root/NOTICE", <<
+        "Blank-root package attribution":utf8,
+      >>),
+      #("beryl-abcdef/packages/blank_root/legal/COPYING", <<
+        "Nested copying text":utf8,
+      >>),
+    ],
+    check,
+  )
+}
+
+pub fn package_metadata_lookup_respects_subdirectory_test() {
+  with_beryl_archive(fn(bytes) {
+    let assert Ok(contents) =
+      source_archive.extract_package_file_tar_gz(
+        bytes,
+        "packages/beryl_protocol",
+        "gleam.toml",
+      )
+    let assert Ok(text) = bit_array.to_string(contents)
+    assert string.contains(text, "Selected protocol metadata")
+    should.equal(
+      source_archive.extract_package_file_tar_gz(
+        bytes,
+        "packages/notice_only",
+        "gleam.toml",
+      ),
+      Error(source_archive.MissingRootFile),
+    )
+    should.equal(
+      source_archive.extract_package_file_tar_gz(
+        bytes,
+        "packages/beryl",
+        "gleam.toml",
+      ),
+      Error(source_archive.MissingRootFile),
+    )
+  })
+}
+
+pub fn package_paths_preserve_package_relative_directories_test() {
+  should.equal(
+    source_archive.package_paths(
+      ["./repo/packages/dep/legal/LICENSE", "./repo/packages/dep_extra/LICENSE"],
+      "packages/dep",
+    ),
+    [#("./repo/packages/dep/legal/LICENSE", "legal/LICENSE")],
+  )
+  should.equal(
+    source_archive.package_paths(
+      ["README.md", "packages/dep/LICENSE"],
+      "packages/dep",
+    ),
+    [#("packages/dep/LICENSE", "LICENSE")],
+  )
+}
+
+pub fn package_metadata_does_not_require_repository_root_metadata_test() {
+  let metadata = <<"name = \"beryl_protocol\"\nlicences = [\"MIT\"]\n":utf8>>
+  with_tar_gz(
+    [
+      #("beryl-abcdef/README.md", <<"Monorepo readme":utf8>>),
+      #("beryl-abcdef/packages/beryl_protocol/gleam.toml", metadata),
+      #("beryl-abcdef/packages/beryl_sibling/LICENSE", <<
+        "Sibling licence":utf8,
+      >>),
+    ],
+    fn(bytes) {
+      should.equal(
+        source_archive.extract_package_file_tar_gz(
+          bytes,
+          "packages/beryl_protocol",
+          "gleam.toml",
+        ),
+        Ok(metadata),
+      )
+    },
+  )
+}
+
 @external(erlang, "source_archive_test_ffi", "with_tar_gz")
 pub fn with_tar_gz(
   entries: List(#(String, BitArray)),

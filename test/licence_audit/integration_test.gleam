@@ -15,6 +15,7 @@ import licence_audit/path_test
 import licence_audit/progress
 import licence_audit/repository
 import licence_audit/source_archive
+import licence_audit/source_archive_test
 import licence_audit/spdx
 import licence_audit/toml
 import simplifile
@@ -2151,6 +2152,112 @@ fn reproducible_sbom_clients() -> notice.Clients {
     fetch_spdx_index: fn(_kind) { Error(notice.FetchNetworkFailure) },
     fetch_spdx: fn(_requirement) { Error(notice.FetchNetworkFailure) },
   )
+}
+
+pub fn git_subdirectory_sbom_and_notices_use_selected_package_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let root = "build/tmp/git-subdirectory-integration"
+    let manifest_path = root <> "/manifest.toml"
+    let assert Ok(Nil) = simplifile.create_directory_all(root)
+    let assert Ok(manifest_text) =
+      simplifile.read("test/fixtures/manifest_git_subdirectories.toml")
+    let assert Ok(Nil) =
+      simplifile.write(contents: manifest_text, to: manifest_path)
+    let assert Ok(Nil) =
+      simplifile.write(
+        contents: "name = \"fixture\"\nversion = \"1.0.0\"\n[dependencies]\nberyl_protocol = \"1.0.0\"\nberyl_sibling = \"1.0.0\"\n",
+        to: root <> "/gleam.toml",
+      )
+    let clients =
+      licence_audit.Clients(
+        ..test_clients(mutable_registry_metadata),
+        notice_clients: notice.Clients(
+          ..reproducible_sbom_clients(),
+          fetch_git_archive: fn(repo, commit) {
+            should.equal(
+              repo,
+              repository.Repository(repository.GitHub, "example", "beryl"),
+            )
+            should.equal(commit, "abcdef")
+            Ok(bytes)
+          },
+        ),
+      )
+    let sbom =
+      licence_audit.run_configured(
+        ["sbom", "--reproducible", "--manifest=" <> manifest_path],
+        clients,
+        progress.disabled(),
+      ).0
+    should.equal(sbom.exit_code, 0)
+    assert string.contains(sbom.output, "Selected protocol metadata")
+    assert string.contains(sbom.output, "Sibling package metadata")
+    assert string.contains(sbom.output, "\"id\": \"MIT\"")
+    assert string.contains(sbom.output, "\"id\": \"Apache-2.0\"")
+    assert !string.contains(sbom.output, "Repository root metadata")
+    assert string.contains(
+      sbom.output,
+      "pkg:github/example/beryl@abcdef#packages/beryl_protocol",
+    )
+    assert string.contains(
+      sbom.output,
+      "pkg:github/example/beryl@abcdef#packages/beryl_sibling",
+    )
+    should.equal(
+      licence_audit.run_configured(
+        ["sbom", "--reproducible", "--manifest=" <> manifest_path],
+        clients,
+        progress.disabled(),
+      ).0,
+      sbom,
+    )
+    let notices =
+      licence_audit.run_configured(
+        ["notices", "--manifest=" <> manifest_path],
+        clients,
+        progress.disabled(),
+      ).0
+    should.equal(notices.exit_code, 0)
+    assert string.contains(notices.output, "Protocol licence")
+    assert string.contains(notices.output, "Protocol attribution")
+    assert string.contains(notices.output, "Sibling licence")
+    assert !string.contains(notices.output, "Repository root licence")
+    assert !string.contains(notices.output, "Vendored licence")
+    assert !string.contains(notices.output, "Prefix sibling licence")
+  })
+}
+
+pub fn reproducible_git_subdirectory_missing_metadata_is_error_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let root = "build/tmp/git-subdirectory-missing-metadata"
+    let assert Ok(Nil) = simplifile.create_directory_all(root)
+    let assert Ok(Nil) =
+      simplifile.write(
+        contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+        to: root <> "/gleam.toml",
+      )
+    let assert Ok(Nil) =
+      simplifile.write(
+        contents: "packages = [{ name = \"notice_only\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/beryl\", commit = \"abcdef\", path = \"packages/notice_only\" }]\n[requirements]\nnotice_only = \"1.0.0\"\n",
+        to: root <> "/manifest.toml",
+      )
+    let output =
+      licence_audit.run_configured(
+        ["sbom", "--reproducible", "--manifest=" <> root <> "/manifest.toml"],
+        licence_audit.Clients(
+          ..test_clients(mutable_registry_metadata),
+          notice_clients: notice.Clients(
+            ..reproducible_sbom_clients(),
+            fetch_git_archive: fn(_repo, _commit) { Ok(bytes) },
+          ),
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(output.exit_code, 2)
+    assert string.contains(output.output, "notice_only")
+    assert string.contains(output.output, "archive missing root file")
+    assert !string.contains(output.output, "Repository root metadata")
+  })
 }
 
 fn mutable_registry_metadata(

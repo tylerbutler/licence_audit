@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Respect Git dependency package subdirectories in `sbom --reproducible` metadata and `notices` licence lookups, cache keys, and SBOM package URLs."

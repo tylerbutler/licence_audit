@@ -1,0 +1,8 @@
+packages = [
+  { name = "beryl_protocol", version = "1.0.0", source = "git", repo = "https://github.com/example/beryl", commit = "abcdef", path = "./packages/beryl_protocol/", requirements = [] },
+  { name = "beryl_sibling", version = "1.0.0", source = "git", repo = "https://github.com/example/beryl", commit = "abcdef", path = "packages/beryl_sibling", requirements = [] },
+]
+
+[requirements]
+beryl_protocol = { git = "https://github.com/example/beryl", path = "packages/beryl_protocol" }
+beryl_sibling = { git = "https://github.com/example/beryl", path = "packages/beryl_sibling" }

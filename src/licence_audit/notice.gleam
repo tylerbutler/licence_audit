@@ -33,7 +33,12 @@ pub type PackageSource {
   /// commit. `repository` is the normalized provider identity used to build the
   /// archive request; `url` is the original manifest-recorded source URL,
   /// preserved verbatim for rendering.
-  GitPackage(repository: repository.Repository, url: String, commit: String)
+  GitPackage(
+    repository: repository.Repository,
+    url: String,
+    commit: String,
+    path: Option(String),
+  )
   PathPackage(path: String)
 }
 
@@ -223,10 +228,23 @@ pub fn package_source(
   case entry.provenance {
     manifest.HexProvenance(outer_checksum, _) -> Ok(HexPackage(outer_checksum))
     manifest.PathProvenance(path) -> Ok(PathPackage(path))
-    manifest.GitProvenance(repo, commit) ->
+    manifest.GitProvenance(repo, commit, path) -> {
+      use _ <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(UnsupportedSource(
+          entry.name,
+          "git",
+          "invalid package path",
+        )),
+      )
       case repository.parse(repo) {
         Ok(repository_value) ->
-          Ok(GitPackage(repository: repository_value, url: repo, commit: commit))
+          Ok(GitPackage(
+            repository: repository_value,
+            url: repo,
+            commit: commit,
+            path: path,
+          ))
         Error(_) ->
           Error(UnsupportedSource(
             package: entry.name,
@@ -234,6 +252,7 @@ pub fn package_source(
             detail: "repo: " <> repo,
           ))
       }
+    }
     manifest.UnknownProvenance(source) ->
       Error(UnsupportedSource(
         package: entry.name,
@@ -345,14 +364,22 @@ pub fn read_remote_source(
         fetch_hex_tarball,
         source_archive.extract_hex_contents,
       )
-    GitPackage(repo, _url, commit) ->
-      read_git_source(
-        package,
-        repo,
-        commit,
-        fetch_git_archive,
-        source_archive.extract_tar_gz,
-      )
+    GitPackage(repo, _url, commit, path) ->
+      read_git_source(package, repo, commit, fetch_git_archive, fn(bytes) {
+        case path {
+          None -> source_archive.extract_tar_gz(bytes)
+          Some(_) -> {
+            use directory <- result.try(
+              manifest.git_subdirectory(path)
+              |> result.replace_error(source_archive.InvalidArchive),
+            )
+            source_archive.extract_tar_gz_selected(
+              bytes,
+              source_archive.package_paths(_, directory),
+            )
+          }
+        }
+      })
     PathPackage(path) -> read_path_source(package.name, path)
   }
 }
@@ -371,13 +398,13 @@ pub fn read_source_notices(
         clients.fetch_hex_tarball,
         extract_notices(_, source_archive.extract_hex_contents_selected),
       )
-    GitPackage(repo, _url, commit) ->
+    GitPackage(repo, _url, commit, path) ->
       read_git_source(
         package,
         repo,
         commit,
         clients.fetch_git_archive,
-        extract_notices(_, source_archive.extract_tar_gz_selected),
+        extract_git_notices(_, path),
       )
     PathPackage(path) -> read_path_notices(package.name, path)
   })
@@ -388,13 +415,41 @@ pub fn read_source_notices(
   })
 }
 
+fn extract_git_notices(
+  bytes: BitArray,
+  path: Option(String),
+) -> Result(List(source_archive.ArchiveFile), source_archive.ArchiveError) {
+  case path {
+    None -> extract_notices(bytes, source_archive.extract_tar_gz_selected)
+    Some(_) -> {
+      use directory <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(source_archive.InvalidArchive),
+      )
+      usable_notice_files(fn(include_nested) {
+        source_archive.extract_tar_gz_selected(bytes, fn(paths) {
+          source_archive.package_paths(paths, directory)
+          |> list.filter(fn(pair) { is_any_notice_file(pair.1) })
+          |> select_notice_candidates(include_nested)
+        })
+      })
+    }
+  }
+}
+
 pub fn selected_notice_paths(paths: List(String)) -> List(#(String, String)) {
-  let candidates = all_notice_paths(paths)
+  select_notice_candidates(all_notice_paths(paths), False)
+}
+
+fn select_notice_candidates(
+  candidates: List(#(String, String)),
+  include_nested: Bool,
+) -> List(#(String, String)) {
   let roots =
     list.filter(candidates, fn(candidate) { is_root_notice_file(candidate.1) })
-  case roots {
-    [] -> candidates
-    _ -> roots
+  case roots, include_nested {
+    [], _ | _, True -> candidates
+    _, False -> roots
   }
 }
 
@@ -1198,7 +1253,13 @@ fn normalized_file_contents(contents: String) -> String {
 fn source_text(source: PackageSource) -> String {
   case source {
     HexPackage(_) -> "hex"
-    GitPackage(_repo, url, commit) -> "git " <> url <> " @ " <> commit
+    GitPackage(_repo, url, commit, path) -> {
+      let directory = case path {
+        None -> ""
+        Some(path) -> " (path: " <> path <> ")"
+      }
+      "git " <> url <> " @ " <> commit <> directory
+    }
     PathPackage(path) -> "path " <> path
   }
 }

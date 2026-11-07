@@ -100,6 +100,39 @@ pub fn immutable_cache_ignores_incomplete_legacy_metadata_test() {
   let assert None = cache.close(handle)
 }
 
+pub fn immutable_git_metadata_cache_isolates_package_subdirectories_test() {
+  let handle =
+    cache.open(cache.Enabled(Some(fresh_path("immutable_git_paths"))))
+  list.each(
+    [
+      #(None, "BSD-3-Clause"),
+      #(Some("packages/beryl_protocol"), "MIT"),
+      #(Some("packages/beryl_sibling"), "Apache-2.0"),
+    ],
+    fn(pair) {
+      let key =
+        "dep@1.0.0@"
+        <> manifest.git_source_identity(
+          "https://github.com/example/beryl",
+          "abcdef",
+          pair.0,
+        )
+      let expected = hex.licences_only([pair.1])
+      should.equal(cache.fetch_immutable(handle, key, fn() { Ok(expected) }), #(
+        Ok(expected),
+        None,
+      ))
+      should.equal(
+        cache.fetch_immutable(handle, key, fn() {
+          panic as "immutable metadata must be cached per package subdirectory"
+        }),
+        #(Ok(expected), None),
+      )
+    },
+  )
+  let assert None = cache.close(handle)
+}
+
 pub fn disabled_cache_bypasses_storage_test() {
   let handle = cache.open(cache.Disabled)
   let warning = cache.close(handle)

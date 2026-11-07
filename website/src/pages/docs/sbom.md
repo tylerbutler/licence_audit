@@ -27,6 +27,13 @@ documentation. [Project configuration](/docs/configuration#discovery) supplies
 information for the root component. A `dependencies` graph represents the
 dependency tree.
 
+For a Git dependency with a manifest `path`, the purl includes the encoded
+package subpath, for example
+`pkg:github/example/beryl@<commit>#packages/beryl_protocol`.
+`--reproducible` reads `gleam.toml` only from that package subdirectory.
+Missing package metadata is an error; repository-root metadata is not a fallback.
+The immutable metadata cache key includes the package path.
+
 All locked dependencies remain in the document. Components reachable from
 `[dependencies]` in the project's `gleam.toml` have scope `required`; development-only
 components have scope `optional`. A valid file without `[dependencies]`, or
