@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `notices` use the same SPDX expression syntax as `check`: handle tabs and line breaks correctly and reject malformed expressions before requesting canonical licence text."

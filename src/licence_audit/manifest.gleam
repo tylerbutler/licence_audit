@@ -3,9 +3,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import licence_audit/toml
+import licence_audit/toml.{type Document, type Value}
 import simplifile
-import tomlet.{type Document, type Value}
 
 /// Whether a package is part of the production dependency tree (`Prod`) or only
 /// reachable through development dependencies (`Dev`). Prod wins: a package

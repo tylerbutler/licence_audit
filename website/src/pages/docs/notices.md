@@ -88,6 +88,12 @@ a later source only when the earlier sources give no licence text.
    supports expressions with `AND`, `OR`, `WITH`, parentheses, or a final `+`.
    For `OR`, the command includes each alternative.
 
+The SPDX fallback uses the same expression syntax as `check`. Operators must
+be uppercase; spaces, tabs, and line breaks can separate tokens. Licence
+identifiers are case-insensitive. Invalid expressions and custom
+`LicenseRef-` or `DocumentRef-` references cannot supply canonical text.
+They do not prevent use of licence text found in the source or repository.
+
 If a temporary error occurs during a repository fallback, `notices` writes a
 warning and continues to the SPDX fallback.
 
