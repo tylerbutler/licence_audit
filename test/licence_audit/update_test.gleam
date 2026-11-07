@@ -460,6 +460,52 @@ reason = \"Reviewed affected code\"
   let assert Ok(_) = simplifile.delete(path)
 }
 
+pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test() {
+  let cases = [
+    #(
+      "array_comments",
+      "[tools.licence_audit]\nallow = [\n  \"MIT\", # needed by foo\n  \"Zlib\",\n]\n",
+      "# needed by foo",
+    ),
+    #(
+      "implicit_parent",
+      "[[tools.licence_audit.exceptions]]\npurl = \"pkg:hex/lib_b@2.0.0\"\nfinding = \"unallowed-licence\"\nlicence = \"Apache-2.0\"\nreason = \"Reviewed\" # keep review\n",
+      "# keep review",
+    ),
+    #(
+      "inline_table",
+      "[tools]\nlicence_audit = { allow = [\"MIT\"] } # keep policy\n",
+      "# keep policy",
+    ),
+  ]
+  list.each(cases, fn(test_case) {
+    let #(name, original, comment) = test_case
+    let path = fresh_path(name)
+    let assert Ok(_) = simplifile.write(to: path, contents: original)
+    let assert Ok(original_policy) = config.parse(original)
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(path),
+        False,
+        True,
+        None,
+        successful_fetcher,
+        selected_pick,
+        reporter(),
+      )
+    should.equal(result.exit_code, 0)
+    let assert Ok(contents) = simplifile.read(path)
+    let assert Ok(policy) = config.parse(contents)
+    should.equal(policy.allow, ["MIT"])
+    should.equal(policy.deny, ["BSD-3-Clause"])
+    should.equal(policy.exceptions, original_policy.exceptions)
+    assert string.contains(contents, comment)
+    let assert Ok(_) = simplifile.delete(path)
+  })
+}
+
 @external(erlang, "update_test_ffi", "partial_write")
 fn partial_write(path: String, interrupt: Bool) -> Result(Nil, Nil)
 

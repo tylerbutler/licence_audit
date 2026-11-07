@@ -1875,7 +1875,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 Products using this licence:
-  tomlet 1.4.1
+  tomlet 1.5.0
     Source: hex
     Declared licences: Apache-2.0, MIT
     Licence files: LICENSE-APACHE
@@ -2084,7 +2084,7 @@ Products using this licence:
 
 ================================================================================
 Products using this licence:
-  tomlet 1.4.1
+  tomlet 1.5.0
     Source: hex
     Declared licences: Apache-2.0, MIT
     Licence files: LICENSE-MIT
