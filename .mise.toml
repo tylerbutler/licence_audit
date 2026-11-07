@@ -7,7 +7,7 @@ node = "24.21.0"
 pnpm = "11.9.0"
 "github:jtdowney/queso" = "0.3.0"
 "github:EmbarkStudios/cargo-about" = "0.9.2"
-"github:tylerbutler/trellis" = "1.2.1"
+"github:tylerbutler/trellis" = "1.2.2"
 
 # SBOM validation/scoring tooling (installed from GitHub releases)
 "github:CycloneDX/cyclonedx-cli" = "0.32.0"
