@@ -7,7 +7,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
-import tomlet.{type Value}
+import tomlet
 import william
 
 pub type Error {
@@ -18,6 +18,9 @@ pub type Error {
 /// wrapper rather than importing `tomlet` directly.
 pub type Document =
   tomlet.Document
+
+pub type Value =
+  tomlet.Value
 
 /// A table's entries as tomlet exposes them: an ordered assoc list of
 /// `#(dotted_key_path, value)`.

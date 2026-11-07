@@ -515,8 +515,7 @@ fn spdx_fallback(
   clients: notice.Clients,
 ) -> #(Result(List(notice.NoticeFile), notice.Error), Option(String)) {
   case spdx.required_identifiers(package.declared_licences) {
-    // A `LicenseRef-`/`DocumentRef-` custom licence has no canonical text and
-    // cannot be synthesized: treat the package as missing.
+    // Invalid syntax and custom references cannot supply canonical text.
     Error(_) -> #(Ok([]), None)
     Ok(requirements) -> {
       use canonical <- cache_dir.try_with_warning(
