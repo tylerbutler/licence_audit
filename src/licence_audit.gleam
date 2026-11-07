@@ -285,15 +285,26 @@ fn run_sbom_options(
   let reporter = progress.phase(reporter, "Generating SBOM")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
-  case manifest.load_sbom(manifest_path) {
-    Error(manifest_error) -> #(
-      diagnostic(error.from_manifest_error(manifest_error)),
-      reporter,
+  let selection = {
+    use sbom_manifest <- result.try(
+      manifest.load_sbom(manifest_path)
+      |> result.map_error(error.from_manifest_error),
     )
-    Ok(sbom_manifest) ->
+    use root <- result.try(read_root_component(project_root))
+    use prod_seed <- result.try(resolve_prod_seed(
+      project_root,
+      sbom_manifest.root_requirements,
+    ))
+    Ok(#(sbom_manifest, root, manifest.sbom_scopes(sbom_manifest, prod_seed)))
+  }
+  case selection {
+    Error(selection_error) -> #(diagnostic(selection_error), reporter)
+    Ok(#(sbom_manifest, root, scopes)) ->
       run_sbom_for_manifest(
         options,
         sbom_manifest,
+        root,
+        scopes,
         project_root,
         fetcher,
         osv_batch_fetcher,
@@ -328,14 +339,11 @@ fn run_notices_options(
       manifest.load_sbom(manifest_path)
       |> result.map_error(error.from_manifest_error),
     )
-    let scopes =
-      manifest.sbom_scopes(
-        sbom_manifest,
-        resolve_filtered_prod_seed(
-          project_root,
-          sbom_manifest.root_requirements,
-        ),
-      )
+    use prod_seed <- result.try(resolve_prod_seed(
+      project_root,
+      sbom_manifest.root_requirements,
+    ))
+    let scopes = manifest.sbom_scopes(sbom_manifest, prod_seed)
     use selected <- result.try(
       notice.selected_entries(
         sbom_manifest,
@@ -752,6 +760,8 @@ fn write_notice_output(
 fn run_sbom_for_manifest(
   options: cli.SbomOptions,
   sbom_manifest: manifest.SbomManifest,
+  root: sbom.RootComponent,
+  scopes: dict.Dict(String, manifest.Scope),
   project_root: String,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
@@ -830,7 +840,8 @@ fn run_sbom_for_manifest(
           render_sbom(
             options,
             sbom_manifest,
-            project_root,
+            scopes,
+            root,
             package_metadata,
             vulnerabilities,
             source_clients,
@@ -1003,18 +1014,13 @@ fn git_metadata_from_locked_source(
 fn render_sbom(
   options: cli.SbomOptions,
   sbom_manifest: manifest.SbomManifest,
-  project_root: String,
+  scopes: dict.Dict(String, manifest.Scope),
+  root: sbom.RootComponent,
   package_metadata: dict.Dict(String, hex.PackageMetadata),
   vulnerabilities: List(sbom.EmbeddedVulnerability),
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
-  let root = read_root_component(project_root)
-  let scopes =
-    manifest.sbom_scopes(
-      sbom_manifest,
-      resolve_prod_seed(project_root, sbom_manifest.root_requirements),
-    )
   // Reproducible metadata comes from locked source archives. The serial number
   // is derived from that content and the timestamp comes from SOURCE_DATE_EPOCH.
   let serial_and_timestamp = case options.reproducible {
@@ -1027,10 +1033,9 @@ fn render_sbom(
       |> result.replace_error(error.SbomSerialNumberFailed)
   }
 
-  case root, serial_and_timestamp {
-    Error(root_error), _ -> #(diagnostic(root_error), reporter)
-    _, Error(serial_error) -> #(diagnostic(serial_error), reporter)
-    Ok(root), Ok(#(serial_number, timestamp)) -> {
+  case serial_and_timestamp {
+    Error(serial_error) -> #(diagnostic(serial_error), reporter)
+    Ok(#(serial_number, timestamp)) -> {
       let #(texts_result, reporter) =
         gather_sbom_license_texts(
           options,
@@ -1512,7 +1517,10 @@ fn prepare_audit(
         #(diagnostic(error.from_manifest_error(e)), reporter)
       })
   })
-  let scopes = compute_scopes(project_root, locked)
+  use scopes <- result.try(
+    compute_scopes(project_root, locked)
+    |> result.map_error(fn(scope_error) { #(diagnostic(scope_error), reporter) }),
+  )
   Ok(#(config_policy, audit_policy, locked, sbom_manifest, scopes, reporter))
 }
 
@@ -1922,49 +1930,34 @@ fn build_skipped_rows(
 fn compute_scopes(
   project_root: String,
   locked: manifest.LockedPackages,
-) -> dict.Dict(String, manifest.Scope) {
-  manifest.dep_scopes(
-    locked,
-    resolve_prod_seed(project_root, locked.direct_names),
-  )
+) -> Result(dict.Dict(String, manifest.Scope), error.Error) {
+  resolve_prod_seed(project_root, locked.direct_names)
+  |> result.map(manifest.dep_scopes(locked, _))
 }
 
 /// Production direct dependency names from `<project_root>/gleam.toml`, or
-/// `all_direct` (so everything classifies as prod) when it is missing,
-/// unreadable, or has no `[dependencies]` table.
+/// `all_direct` when the file is missing. Invalid or unreadable files fail.
 fn resolve_prod_seed(
   project_root: String,
   all_direct: List(String),
-) -> List(String) {
-  case simplifile.read(from: project_root <> "/gleam.toml") {
+) -> Result(List(String), error.Error) {
+  let path = project_root <> "/gleam.toml"
+  case simplifile.read(from: path) {
     Ok(contents) ->
-      case manifest.prod_direct_names(contents) {
-        Ok(names) -> names
-        Error(_) -> all_direct
-      }
-    Error(_) -> all_direct
-  }
-}
-
-fn resolve_filtered_prod_seed(
-  project_root: String,
-  all_direct: List(String),
-) -> List(String) {
-  let document =
-    simplifile.read(from: project_root <> "/gleam.toml")
-    |> result.replace_error(Nil)
-    |> result.try(toml.parse)
-  case document {
-    Error(_) -> all_direct
-    Ok(document) ->
-      case toml.get_table(document, ["dependencies"]) {
-        // A valid project without production dependencies is not missing config.
-        Error(toml.TableLookupMissing) -> []
-        Error(toml.TableLookupNotTable) -> all_direct
-        Ok(_) ->
-          toml.table_keys(document, ["dependencies"])
-          |> result.unwrap(all_direct)
-      }
+      manifest.prod_direct_names(contents)
+      |> result.replace_error(error.Config(
+        "Invalid production dependency configuration in "
+        <> path
+        <> ": expected valid TOML with a dependencies table when present",
+      ))
+    Error(simplifile.Enoent) -> Ok(all_direct)
+    Error(reason) ->
+      Error(error.Input(
+        "Could not read production dependency configuration from "
+        <> path
+        <> ": "
+        <> simplifile.describe_error(reason),
+      ))
   }
 }
 
@@ -2113,14 +2106,13 @@ fn run_vulns_options(
         #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
       }),
     )
-    let scopes =
-      manifest.sbom_scopes(
-        sbom_manifest,
-        resolve_filtered_prod_seed(
-          project_root,
-          sbom_manifest.root_requirements,
-        ),
-      )
+    use prod_seed <- result.try(
+      resolve_prod_seed(project_root, sbom_manifest.root_requirements)
+      |> result.map_error(fn(scope_error) {
+        #(diagnostic(scope_error), reporter)
+      }),
+    )
+    let scopes = manifest.sbom_scopes(sbom_manifest, prod_seed)
     let #(all_purl_pairs, _) = build_purl_pairs(sbom_manifest)
     let active_entries =
       list.filter(sbom_manifest.entries, fn(entry) {

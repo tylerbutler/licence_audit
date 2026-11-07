@@ -27,6 +27,12 @@ documentation. [Project configuration](/docs/configuration#discovery) supplies
 information for the root component. A `dependencies` graph represents the
 dependency tree.
 
+All locked dependencies remain in the document. Components reachable from
+`[dependencies]` in the project's `gleam.toml` have scope `required`; development-only
+components have scope `optional`. A valid file without `[dependencies]`, or
+with an empty table, makes all dependency components `optional`. Invalid TOML
+or a `dependencies` value that is not a table causes exit code `2`.
+
 Each licence has the property `acknowledgement: "declared"` because the data
 comes from package metadata, not a source scan. If a package declares multiple
 licences, `sbom` creates one entry for each licence. Hex does not specify an
