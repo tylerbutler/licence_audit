@@ -2,3 +2,9 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+
+# astro2tsx needs the 1.x runtime used by its @emnapi/core dependency.
+packageExtensions:
+  "@astrojs/astro2tsx@0.1.3":
+    dependencies:
+      "@emnapi/runtime": "1.11.3"
