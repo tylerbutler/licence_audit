@@ -286,6 +286,35 @@ url = "https://github.com/sbom-tool/sbom-tools/releases/download/v0.1.21/sbom-to
 url_api = "https://api.github.com/repos/sbom-tool/sbom-tools/releases/assets/428083846"
 provenance = "github-attestations"
 
+[[tools."github:tylerbutler/licence_audit"]]
+version = "0.13.1"
+backend = "github:tylerbutler/licence_audit"
+specifiers = ["latest"]
+
+[tools."github:tylerbutler/licence_audit"."platforms.linux-arm64"]
+checksum = "sha256:211973dc802276664fb6a2d61706df0205c8badcaed739946b609ed39629e673"
+url = "https://github.com/tylerbutler/licence_audit/releases/download/v0.13.1/licence_audit-v0.13.1-aarch64-linux-glibc.tar.gz"
+url_api = "https://api.github.com/repos/tylerbutler/licence_audit/releases/assets/662908001"
+provenance = "github-attestations"
+
+[tools."github:tylerbutler/licence_audit"."platforms.linux-x64"]
+checksum = "sha256:c3a419f40d141a7f36fbd875b40bd4331db6148eb5e81484ac3f6411310db539"
+url = "https://github.com/tylerbutler/licence_audit/releases/download/v0.13.1/licence_audit-v0.13.1-x86_64-linux-glibc.tar.gz"
+url_api = "https://api.github.com/repos/tylerbutler/licence_audit/releases/assets/662908032"
+provenance = "github-attestations"
+
+[tools."github:tylerbutler/licence_audit"."platforms.macos-arm64"]
+checksum = "sha256:f92a1ab1e843d80f05243ce4e9fdf26bf8f44bbe8c0e72dc3029f5dc165fa225"
+url = "https://github.com/tylerbutler/licence_audit/releases/download/v0.13.1/licence_audit-v0.13.1-aarch64-macos.tar.gz"
+url_api = "https://api.github.com/repos/tylerbutler/licence_audit/releases/assets/662908024"
+provenance = "github-attestations"
+
+[tools."github:tylerbutler/licence_audit"."platforms.macos-x64"]
+checksum = "sha256:9a33f53eb4d093c56c4b3be4ca398e3f7ba0662c3602562ecf3d9161195ec1d0"
+url = "https://github.com/tylerbutler/licence_audit/releases/download/v0.13.1/licence_audit-v0.13.1-x86_64-macos.tar.gz"
+url_api = "https://api.github.com/repos/tylerbutler/licence_audit/releases/assets/662908056"
+provenance = "github-attestations"
+
 [[tools."github:tylerbutler/trellis"]]
 version = "1.2.1"
 backend = "github:tylerbutler/trellis"
