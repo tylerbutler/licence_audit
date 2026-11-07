@@ -19,6 +19,10 @@ By default, `notices` includes only **production** dependencies. Use
 `--include-dev` to add development dependencies. A valid project without a
 `[dependencies]` table has no production dependencies.
 
+A missing `gleam.toml` uses all lockfile direct dependencies as production
+roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
+table causes exit code `2`, including with `--ignore-config` or `--include-dev`.
+
 ## Dependency filters
 
 Set filters in the file selected by

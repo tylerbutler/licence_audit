@@ -269,8 +269,16 @@ pub fn prod_direct_names_reads_dependencies_table_test() {
   should.equal(manifest.prod_direct_names(input), Ok(["app_a"]))
 }
 
-pub fn prod_direct_names_missing_table_is_error_test() {
-  should.equal(manifest.prod_direct_names("name = \"x\"\n"), Error(Nil))
+pub fn prod_direct_names_missing_table_is_empty_test() {
+  should.equal(manifest.prod_direct_names("name = \"x\"\n"), Ok([]))
+}
+
+pub fn prod_direct_names_empty_table_is_empty_test() {
+  should.equal(manifest.prod_direct_names("[dependencies]\n"), Ok([]))
+}
+
+pub fn prod_direct_names_non_table_is_error_test() {
+  should.equal(manifest.prod_direct_names("dependencies = []\n"), Error(Nil))
 }
 
 pub fn prod_direct_names_malformed_is_error_test() {
