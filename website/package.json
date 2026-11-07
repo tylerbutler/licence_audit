@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "private": true,
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "pnpm build:og && astro dev",
     "build": "pnpm build:og && astro build",
@@ -15,14 +15,14 @@
     "test": "node --test worker.test.js scripts/*.test.js"
   },
   "dependencies": {
-    "@fontsource-variable/fraunces": "^5.2.9",
-    "@fontsource-variable/hanken-grotesk": "^5.2.8",
-    "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "astro": "^7.2.8",
-    "astro-expressive-code": "^0.44.0"
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/hanken-grotesk": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "astro": "^7.4.7",
+    "astro-expressive-code": "^0.44.3"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.9",
+    "@astrojs/check": "^0.9.12",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^24.0.0",
     "fontkit": "^2.0.4",
