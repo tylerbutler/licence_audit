@@ -119,6 +119,16 @@ Use `--prod-only` when your gate should consider only production dependencies.
 The command then ignores licence violations in development dependencies. This
 option prevents tooling-only packages from causing a CI failure.
 
+Production dependencies are the packages reachable from `[dependencies]` in
+the `gleam.toml` beside the selected manifest. A valid file without that table,
+or with an empty table, has no production dependencies. This rule also applies
+to `check --vulns --prod-only`.
+
+A missing `gleam.toml` uses all lockfile direct dependencies as production
+roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
+table causes exit code `2`. `--ignore-config` skips policy settings, not this
+scope validation.
+
 ## Also fail on vulnerabilities
 
 Add `--vulns` to run the licence audit and query OSV.dev. The command fails

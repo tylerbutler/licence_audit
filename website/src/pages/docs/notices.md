@@ -19,6 +19,10 @@ By default, `notices` includes only **production** dependencies. Use
 `--include-dev` to add development dependencies. A valid project without a
 `[dependencies]` table has no production dependencies.
 
+A missing `gleam.toml` uses all lockfile direct dependencies as production
+roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
+table causes exit code `2`, including with `--ignore-config` or `--include-dev`.
+
 ## Dependency filters
 
 Set filters in the file selected by
@@ -87,6 +91,12 @@ a later source only when the earlier sources give no licence text.
    labels these entries with synthetic `SPDX-License-List/<id>.txt` paths. It
    supports expressions with `AND`, `OR`, `WITH`, parentheses, or a final `+`.
    For `OR`, the command includes each alternative.
+
+The SPDX fallback uses the same expression syntax as `check`. Operators must
+be uppercase; spaces, tabs, and line breaks can separate tokens. Licence
+identifiers are case-insensitive. Invalid expressions and custom
+`LicenseRef-` or `DocumentRef-` references cannot supply canonical text.
+They do not prevent use of licence text found in the source or repository.
 
 If a temporary error occurs during a repository fallback, `notices` writes a
 warning and continues to the SPDX fallback.

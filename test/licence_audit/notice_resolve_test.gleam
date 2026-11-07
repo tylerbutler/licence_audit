@@ -801,6 +801,120 @@ pub fn partial_spdx_expression_is_missing_test() {
   should.equal(resolution.outcome, notice_resolve.Missing)
 }
 
+pub fn invalid_spdx_syntax_is_missing_without_requests_test() {
+  let source = read_bytes("notice_only_hex.tar")
+  list.each(["MIT or Apache-2.0", "MIT AND", ""], fn(expression) {
+    let package =
+      hex_package("invalid_spdx", checksum_of(source), [expression], [])
+    let client =
+      clients(
+        fn(_, _) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        panic_spdx,
+      )
+    let client =
+      notice.Clients(..client, fetch_spdx_index: fn(_) {
+        panic as "SPDX index must not be requested"
+      })
+    let assert #(Ok(resolution), None) =
+      notice_resolve.resolve(
+        notice_cache.open(notice_cache.Disabled),
+        package,
+        client,
+      )
+    should.equal(resolution.outcome, notice_resolve.Missing)
+  })
+}
+
+pub fn invalid_spdx_syntax_does_not_discard_source_licence_test() {
+  let source = read_bytes("hex.tar")
+  let package =
+    hex_package("source_invalid_spdx", checksum_of(source), ["MIT AND"], [])
+  let assert #(Ok(resolution), None) =
+    notice_resolve.resolve(
+      notice_cache.open(notice_cache.Disabled),
+      package,
+      clients(
+        fn(_, _) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        panic_spdx,
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = resolution.outcome
+  should.equal(paths(files), ["./LICENSE", "./NOTICE.txt"])
+}
+
+pub fn invalid_spdx_syntax_cannot_revive_synthetic_final_cache_test() {
+  let source = read_bytes("notice_only_hex.tar")
+  let package =
+    hex_package(
+      "cached_invalid_spdx",
+      checksum_of(source),
+      ["MIT or Apache-2.0"],
+      [],
+    )
+  let cache =
+    notice_cache.open(
+      notice_cache.Enabled(Some(fresh_cache_path("cached_invalid_spdx"))),
+    )
+  let identity = package.name <> "@1.0.0@hex:" <> checksum_of(source)
+  notice_cache.put_files(cache, final_cache_key(package, identity), [
+    notice.spdx_file(spdx.LicenseRequirement("MIT"), "Old MIT text"),
+    notice.spdx_file(spdx.LicenseRequirement("Apache-2.0"), "Old Apache text"),
+  ])
+  let client =
+    clients(
+      fn(_, _) { Ok(source) },
+      panic_git,
+      panic_resolve,
+      panic_archive,
+      panic_spdx,
+    )
+  let client =
+    notice.Clients(..client, fetch_spdx_index: fn(_) {
+      panic as "SPDX index must not be requested"
+    })
+  let assert #(Ok(resolution), None) =
+    notice_resolve.resolve(cache, package, client)
+  should.equal(resolution.outcome, notice_resolve.Missing)
+  let assert None = notice_cache.close(cache)
+}
+
+pub fn shared_spdx_whitespace_and_compounds_resolve_all_materials_test() {
+  let source = read_bytes("notice_only_hex.tar")
+  let package =
+    hex_package(
+      "compound_spdx",
+      checksum_of(source),
+      ["(mit\tOR\napache-2.0)\rAND GPL-2.0+ WITH llvm-exception"],
+      [],
+    )
+  let assert #(Ok(resolution), None) =
+    notice_resolve.resolve(
+      notice_cache.open(notice_cache.Disabled),
+      package,
+      clients(
+        fn(_, _) { Ok(source) },
+        panic_git,
+        panic_resolve,
+        panic_archive,
+        fn(requirement) { Ok(Some(spdx.synthetic_path(requirement))) },
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = resolution.outcome
+  should.equal(paths(files), [
+    "./NOTICE.txt",
+    "SPDX-License-List/Apache-2.0.txt",
+    "SPDX-License-List/GPL-2.0.txt",
+    "SPDX-License-List/MIT.txt",
+    "SPDX-License-List/exceptions/LLVM-exception.txt",
+  ])
+}
+
 pub fn spdx_identifier_case_is_canonicalized_test() {
   let source = read_bytes("notice_only_hex.tar")
   let package = hex_package("notice_only", checksum_of(source), ["mit"], [])

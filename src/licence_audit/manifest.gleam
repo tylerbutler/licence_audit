@@ -4,9 +4,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import licence_audit/toml
+import licence_audit/toml.{type Document, type Value}
 import simplifile
-import tomlet.{type Document, type Value}
 
 /// Whether a package is part of the production dependency tree (`Prod`) or only
 /// reachable through development dependencies (`Dev`). Prod wins: a package
@@ -362,13 +361,15 @@ pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
 }
 
 /// Parse the names of direct production dependencies from `gleam.toml` source:
-/// the keys of the `[dependencies]` table. `Error(Nil)` when the TOML cannot be
-/// parsed or has no `[dependencies]` table — callers treat that as "cannot
-/// determine" and fall back to classifying everything as production.
+/// the keys of the `[dependencies]` table, or an empty list if it is absent.
+/// Return `Error(Nil)` for invalid TOML or a dependencies value that is not a
+/// table.
 pub fn prod_direct_names(gleam_toml: String) -> Result(List(String), Nil) {
-  case toml.parse(gleam_toml) {
-    Error(_) -> Error(Nil)
-    Ok(document) -> toml.table_keys(document, ["dependencies"])
+  use document <- result.try(toml.parse(gleam_toml))
+  case toml.get_table(document, ["dependencies"]) {
+    Error(toml.TableLookupMissing) -> Ok([])
+    Error(toml.TableLookupNotTable) -> Error(Nil)
+    Ok(_) -> toml.table_keys(document, ["dependencies"])
   }
 }
 

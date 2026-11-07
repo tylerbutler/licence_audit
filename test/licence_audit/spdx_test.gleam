@@ -1,3 +1,5 @@
+import gleam/list
+import gleam/string
 import gleeunit/should
 import licence_audit/spdx
 
@@ -60,9 +62,63 @@ pub fn nested_expression_collects_all_ids_test() {
   )
 }
 
+pub fn shared_syntax_preserves_identifier_case_and_order_test() {
+  should.equal(
+    spdx.identifiers_of(
+      "\t(mit\tOR\nApache-2.0)\rAND(GPL-2.0+ WITH llvm-exception) ",
+    ),
+    Ok([
+      spdx.LicenseRequirement("mit"),
+      spdx.LicenseRequirement("Apache-2.0"),
+      spdx.LicenseRequirement("GPL-2.0"),
+      spdx.ExceptionRequirement("llvm-exception"),
+    ]),
+  )
+  should.equal(
+    spdx.identifiers_of("Unknown-1.0"),
+    Ok([spdx.LicenseRequirement("Unknown-1.0")]),
+  )
+}
+
+pub fn shared_syntax_rejects_malformed_declarations_test() {
+  [
+    "", " \t\r\n", "MIT or Apache-2.0", "MIT and Apache-2.0",
+    "MIT with LLVM-exception", "MIT AND", "OR MIT", "MIT Apache-2.0", "(MIT",
+    "MIT)", "()", "MIT OR OR Apache-2.0", "MIT WITH", "MIT WITH AND",
+    "(MIT OR Apache-2.0) WITH LLVM-exception", "GPL-2.0++",
+    "(MIT OR Apache-2.0) AND BSD:3- Clause",
+  ]
+  |> list.each(fn(expression) {
+    should.equal(spdx.identifiers_of(expression), Error(Nil))
+    should.equal(spdx.required_identifiers(["MIT", expression]), Error(Nil))
+  })
+}
+
+pub fn shared_syntax_limits_apply_to_notices_test() {
+  [
+    string.repeat("a", 65_537),
+    string.repeat("MIT OR ", 512) <> "MIT",
+    string.repeat("(", 65) <> "MIT" <> string.repeat(")", 65),
+  ]
+  |> list.each(fn(expression) {
+    should.equal(spdx.identifiers_of(expression), Error(Nil))
+  })
+  let assert Ok(requirements) =
+    spdx.identifiers_of(string.repeat("MIT OR ", 511) <> "MIT")
+  should.equal(list.length(requirements), 512)
+}
+
 pub fn license_ref_is_unresolvable_test() {
   should.equal(spdx.identifiers_of("LicenseRef-My-Custom"), Error(Nil))
   should.equal(spdx.identifiers_of("MIT OR LicenseRef-X"), Error(Nil))
+  should.equal(
+    spdx.identifiers_of("DocumentRef-project:LicenseRef-Custom"),
+    Error(Nil),
+  )
+  should.equal(
+    spdx.identifiers_of("LicenseRef-Custom WITH LLVM-exception"),
+    Error(Nil),
+  )
 }
 
 pub fn required_identifiers_unions_and_dedupes_test() {
