@@ -1,6 +1,8 @@
 -module(sbom_json_ffi).
 -export([pretty_print/1]).
 
+%% gleam_json serializes compact JSON, not pretty JSON. Use OTP's formatter
+%% without another runtime dependency; preserve field order instead of maps.
 pretty_print(Json) when is_binary(Json) ->
     Decoders = #{
         object_finish => fun(Acc, OldAcc) ->

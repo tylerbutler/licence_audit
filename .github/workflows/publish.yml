@@ -14,6 +14,30 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  publish-hex:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: hex-publication-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      - name: Publish release to Hex
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+        run: |
+          set -euo pipefail
+          : "${HEXPM_API_KEY:?Set the repository Actions secret HEXPM_API_KEY before publishing.}"
+          mise exec -- trellis publish --tag "$RELEASE_TAG"
+
   test:
     uses: ./.github/workflows/ci.yml
     with:
@@ -47,11 +71,19 @@ jobs:
             x86_64-pc-windows-gnu \
             x86_64-unknown-linux-musl
           mise exec -- queso --version
+          mise exec -- cargo about --version
           python3 -m ziglang version
           cargo-zigbuild --version
 
       - name: Build escript
         run: just build-strict
+
+      - name: Embed required notices in bare escript
+        run: |
+          set -euo pipefail
+          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
+          mise exec -- python3 -B scripts/release_notices.py check licence_audit
+          ./licence_audit --help
 
       - name: Generate CycloneDX SBOM
         env:
@@ -62,7 +94,16 @@ jobs:
           ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
 
       - name: Build Queso executables
-        run: just build-queso
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export XDG_CACHE_HOME="$PWD/build/release-cache"
+          mkdir -p build/release-tmp
+          export TMPDIR="$PWD/build/release-tmp"
+          rustup component add rust-docs
+          just build-queso 2>&1 | tee build/queso-build.log
+          mise exec -- python3 -B scripts/runtime_notices.py --build-log build/queso-build.log
 
       - name: Stage release artifacts
         env:
@@ -72,17 +113,21 @@ jobs:
           mkdir -p dist
 
           version="${REF_NAME#v}"
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt dist/
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
-          cp LICENSE "$escript_stage/"
+          mise exec -- python3 -B scripts/release_notices.py stage "$escript_stage"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
           (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
+          mise exec -- python3 -B scripts/release_notices.py check "dist/${escript_stage}.tar.gz"
+          mise exec -- python3 -B scripts/release_notices.py check "dist/${escript_stage}.zip"
 
           # Ship the bare escript alongside the archives so it can be attested
           # and downloaded directly.
           cp licence_audit dist/
+          mise exec -- python3 -B scripts/release_notices.py check dist/licence_audit
 
           targets=(
             aarch64-linux-glibc
@@ -111,13 +156,15 @@ jobs:
               chmod +x "$archive_stage/licence_audit"
             fi
 
-            cp LICENSE "$archive_stage/"
+            mise exec -- python3 -B scripts/release_notices.py stage "$archive_stage" --target "$target"
             [ -f README.md ] && cp README.md "$archive_stage/" || true
 
             if [[ "$target" == *-windows ]]; then
               (cd "$archive_stage" && zip -qr "../dist/${archive_stage}.zip" .)
+              mise exec -- python3 -B scripts/release_notices.py check "dist/${archive_stage}.zip" --target "$target"
             else
               tar -czf "dist/${archive_stage}.tar.gz" "$archive_stage"
+              mise exec -- python3 -B scripts/release_notices.py check "dist/${archive_stage}.tar.gz" --target "$target"
             fi
           done
 
@@ -125,30 +172,34 @@ jobs:
           test -f "dist/licence_audit-${REF_NAME}.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-windows.zip"
           test -f "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz"
-          tar -tzf "dist/licence_audit-${REF_NAME}.tar.gz" |
-            grep -qx "licence_audit-${REF_NAME}/LICENSE"
-          unzip -Z1 "dist/licence_audit-${REF_NAME}-x86_64-windows.zip" |
-            grep -qx "LICENSE"
-          tar -tzf "dist/licence_audit-${REF_NAME}-x86_64-linux-glibc.tar.gz" |
-            grep -qx "licence_audit-${REF_NAME}-x86_64-linux-glibc/LICENSE"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-windows.zip"
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
-          (cd dist && sha256sum licence_audit *.tar.gz *.zip *.cdx.json > checksums.txt)
+          (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt *.tar.gz *.zip *.cdx.json > checksums.txt)
           ls -la dist
 
-      - name: Test packaged native HTTP without system Erlang
+      - name: Test packaged cache and HTTPS without system Erlang
         timeout-minutes: 5
         env:
           REF_NAME: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           archive="licence_audit-${REF_NAME}-x86_64-linux-glibc"
-          extracted=$(mktemp -d)
-          trap 'rm -rf -- "$extracted"' EXIT
+          extracted="$PWD/build/release-smoke"
+          mkdir -p "$extracted"
+          tar -xzf "dist/licence_audit-${REF_NAME}.tar.gz" -C "$extracted"
+          mise exec -- python3 -B test/native_cache_smoke.py \
+            "$extracted/licence_audit-${REF_NAME}/licence_audit" --escript
+          mise exec -- python3 -B test/native_cache_smoke.py dist/licence_audit --escript
           tar -xzf "dist/${archive}.tar.gz" -C "$extracted"
-          just smoke-native-http "$extracted/$archive/licence_audit"
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            debian:bookworm-slim sh -ec '
+              apt-get update -qq
+              apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
+              exec python3 -B test/native_cache_smoke.py "$1"
+            ' sh "build/release-smoke/$archive/licence_audit"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
@@ -222,7 +273,7 @@ jobs:
           # Idempotent: skip if a previous run already appended the section
           # (e.g. when the publish workflow is re-run for the same tag).
           body="$(gh release view "$REF_NAME" --json body --jq .body)"
-          if printf '%s' "$body" | grep -qF "$marker"; then
+          if printf '%s' "$body" | grep -F "$marker" > /dev/null; then
             echo "Install instructions already present; nothing to do."
             exit 0
           fi

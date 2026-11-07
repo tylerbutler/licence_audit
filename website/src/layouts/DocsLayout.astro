@@ -19,6 +19,7 @@ const nav = [
     label: "Overview",
     items: [
       { href: "/docs", text: "Quick start", mono: false },
+      { href: "/docs/configuration", text: "Configuration", mono: false },
       { href: "/docs/compatibility", text: "Compatibility policy", mono: false },
     ],
   },
@@ -81,9 +82,9 @@ const nav = [
       </div>
 
       <footer class="docs__foot">
-        <a href={`${repo}/blob/main/README.md`} rel="noopener" class="docs__edit">
+        <a href={`${repo}/tree/main/website/src/pages/docs`} rel="noopener" class="docs__edit">
           <Icon name="arrowRight" size={15} />
-          Read the full reference in README.md
+          Read the documentation source
         </a>
       </footer>
     </article>

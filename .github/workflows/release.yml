@@ -4,6 +4,19 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      pre:
+        description: "Prerelease label (rc), promotion (none), or empty for stable"
+        type: string
+        default: ""
+      version:
+        description: "Target version before the prerelease suffix (for example, 1.0.0)"
+        type: string
+        default: ""
+
+concurrency:
+  group: trellis-release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -18,6 +31,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
+          ref: main
+          fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup environment
@@ -27,16 +42,20 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
         with:
           path: .hex-cache
-          key: hex-licence-v3-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+          key: hex-licence-v4-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
           restore-keys: |
-            hex-licence-v3-${{ runner.os }}-
+            hex-licence-v4-${{ runner.os }}-
 
       - name: Create or update release PR
+        id: prepare
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: mise exec -- trellis release pr --base main --branch release/pending
+          INPUT_PRE: ${{ inputs.pre }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: mise exec -- python3 -B scripts/release_pr.py
 
       - name: Refresh generated release files
+        if: steps.prepare.outputs.prepared == 'true'
         run: |
           set -euo pipefail
           if ! git ls-remote --exit-code --heads origin release/pending >/dev/null; then

@@ -1,0 +1,12 @@
+packages = [
+  { name = "denied", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "AAAA" },
+  { name = "fetch_root", version = "1.0.0", source = "hex", requirements = ["fetch_leaf"], outer_checksum = "BBBB" },
+  { name = "fetch_leaf", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "CCCC" },
+  { name = "allowed_root", version = "1.0.0", source = "hex", requirements = ["allowed_leaf"], outer_checksum = "DDDD" },
+  { name = "allowed_leaf", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "EEEE" },
+]
+
+[requirements]
+denied = "1.0.0"
+fetch_root = "1.0.0"
+allowed_root = "1.0.0"

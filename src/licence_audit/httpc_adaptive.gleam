@@ -7,7 +7,6 @@
 //// before IPv4 succeeds. The same endpoint responds promptly over IPv4.
 
 import gleam/bit_array
-import gleam/dynamic.{type Dynamic}
 import gleam/http.{type Method}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response, Response}
@@ -23,7 +22,10 @@ pub type Error {
   InvalidUtf8Response
   ResponseTimeout
   FailedToConnect(reason: String)
+  RequestFailed(reason: String)
 }
+
+type HttpcError
 
 type SelectedFamily {
   Unknown
@@ -63,7 +65,7 @@ type InetFamily {
 }
 
 @external(erlang, "httpc_adaptive_ffi", "normalise_error")
-fn normalise_error(error: Dynamic) -> Error
+fn normalise_error(error: HttpcError) -> Error
 
 @external(erlang, "httpc_adaptive_ffi", "selected_family")
 fn selected_family() -> SelectedFamily
@@ -80,13 +82,17 @@ fn fallback_to_ipv4(warning: String) -> Nil
 @external(erlang, "httpc_adaptive_ffi", "take_warning")
 pub fn take_warning() -> Option(String)
 
+// OTP expects URL/header charlists rather than Gleam strings. URL bytes are
+// already encoded; response headers need Unicode conversion back to strings.
 @external(erlang, "erlang", "binary_to_list")
 fn charlist_from_string(value: String) -> Charlist
 
 @external(erlang, "unicode", "characters_to_binary")
 fn charlist_to_string(value: Charlist) -> String
 
-@external(erlang, "httpc", "request")
+// Call OTP through the exception boundary to select inet/inet6 and bound timeouts;
+// gleam_httpc's automatic fallback does not preserve the probe behavior above.
+@external(erlang, "httpc_adaptive_ffi", "request")
 fn erl_request(
   method: Method,
   request: #(Charlist, List(#(Charlist, Charlist)), Charlist, BitArray),
@@ -94,10 +100,11 @@ fn erl_request(
   options: List(ErlOption),
 ) -> Result(
   #(#(Charlist, Int, Charlist), List(#(Charlist, Charlist)), BitArray),
-  Dynamic,
+  HttpcError,
 )
 
-@external(erlang, "httpc", "request")
+// OTP requires a different request tuple for methods without a request body.
+@external(erlang, "httpc_adaptive_ffi", "request")
 fn erl_request_no_body(
   method: Method,
   request: #(Charlist, List(#(Charlist, Charlist))),
@@ -105,7 +112,7 @@ fn erl_request_no_body(
   options: List(ErlOption),
 ) -> Result(
   #(#(Charlist, Int, Charlist), List(#(Charlist, Charlist)), BitArray),
-  Dynamic,
+  HttpcError,
 )
 
 pub fn dispatch(
@@ -113,16 +120,19 @@ pub fn dispatch(
   timeout_ms timeout_ms: Int,
 ) -> Result(Response(String), Error) {
   let request = request.map(request, bit_array.from_string)
-  use response <- result.try(dispatch_bits_with(
-    request,
-    timeout_ms,
-    dispatch_with_family,
-  ))
+  use response <- result.try(dispatch_bits(request, timeout_ms: timeout_ms))
 
   case bit_array.to_string(response.body) {
     Ok(body) -> Ok(response.set_body(response, body))
     Error(_) -> Error(InvalidUtf8Response)
   }
+}
+
+pub fn dispatch_bits(
+  request: Request(BitArray),
+  timeout_ms timeout_ms: Int,
+) -> Result(Response(BitArray), Error) {
+  dispatch_bits_with(request, timeout_ms, dispatch_with_family)
 }
 
 /// Inject the transport so fallback behavior can be tested without network I/O.
@@ -175,6 +185,7 @@ fn ipv6_fallback_warning(error: Error) -> String {
     ResponseTimeout ->
       "probe timed out after " <> int.to_string(ipv6_probe_timeout_ms) <> "ms"
     FailedToConnect(reason) -> "connection failed: " <> reason
+    RequestFailed(reason) -> "request failed: " <> reason
     InvalidUtf8Response -> "probe returned an invalid response"
   }
   "IPv6 " <> reason <> "; using IPv4 for the remaining Hex and OSV requests"

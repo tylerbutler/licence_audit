@@ -195,7 +195,7 @@
     ],
     "rules": [
       { "name": "The Report-Truth Rule", "body": "Status colours mean exactly what they mean in the CLI. Never use deny-red decoratively or pass-green for a non-passing thing; the palette is documentation, so keep it honest.", "section": "colors" },
-      { "name": "The Pink-Nod Rule", "body": "Pink signals kinship with Gleam, never identity theft. It carries accents, one CTA field, and the mark — never a drenched surface.", "section": "colors" },
+      { "name": "The Pink-Nod Rule", "body": "Pink signals kinship with Gleam, never identity theft. It appears in accents, one CTA field, and the mark — never across a drenched surface.", "section": "colors" },
       { "name": "The One-Terminal Rule", "body": "There is exactly one family of dark surface: the terminal (hero, Expressive Code blocks). Everything else is flat and light.", "section": "colors" },
       { "name": "The Mono-Is-Real Rule", "body": "Monospace is reserved for things that are literally code or terminal output. If it's brand copy, it's the sans.", "section": "typography" },
       { "name": "The Two-Voice Rule", "body": "Bricolage speaks (display, personality); Hanken reads (body, UI). They never swap roles.", "section": "typography" },
@@ -212,7 +212,7 @@
     ],
     "donts": [
       "Don't build a generic SaaS landing page: no gradient hero, no three identical feature cards, no big-number stat band, no purple-blue gradients.",
-      "Don't reach for the corporate enterprise-security look: no navy-and-gold compliance theatre, no stock photos of locks or shields, no fear-based selling.",
+      "Don't use the corporate enterprise-security look: no navy-and-gold compliance theatre, no stock photos of locks or shields, no fear-based selling.",
       "Don't let pink drench the surface or impersonate Gleam's identity — it's an accent and a nod.",
       "Don't use a warm-tinted cream/sand background; the ground is a calm, true off-white (oklch(0.985 0.004 340)).",
       "Don't use monospace as shorthand for 'technical.' If it isn't real code or output, it's the sans.",

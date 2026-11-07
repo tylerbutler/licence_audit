@@ -1,5 +1,83 @@
 # licence_audit changelog
 
+## v0.15.0 - 2026-11-06
+
+### Added
+
+- Add `-q` for `--quiet` on every command, `--color`/`--colour` on `sbom` and `notices` with plain payloads, `--config`/`--ignore-config` on `notices`, and `--prod-only` on `vulns`.
+
+### Changed
+
+- Remove the ineffective `vulns --no-cache` flag before 1.0. The `vulns` command queries OSV directly and does not use an on-disk cache.
+- Require a non-empty `allow` list for `check`, including `check --vulns`. Keep `deny` as an exact-match override without licence variant equivalence. Warn when `update` saves an empty allow list.
+- Store the on-disk caches as one JSON file per entry, not as SQLite databases. The CLI no longer has native dependencies: escripts no longer need the `sqlite_native/` directory, and cache paths can contain non-ASCII characters and are no longer limited to 504 bytes on Linux. `--cache-path` now names the metadata cache directory, for example `.hex-cache/hex-v2`. The default caches are `hex-v2/` and `notices-v3/` below `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. The caches refill on first use; you can delete old `.sqlite3` files.
+
+### Fixed
+
+- Explicit `--config` files without `[tools.licence_audit]` now fail with exit 2 and a file-specific error, even when CLI flags supply a policy.
+- Fix `notices` for Gleam local path dependencies by recognizing `source = "local"` in the manifest; retain `source = "path"` as an alias.
+- Keep `check` gate verdicts on stdout without duplicate stderr errors, and send OSV request failure diagnostics to stderr even with `--quiet`.
+- Map unexpected Erlang exceptions to CLI exit code `2` with a diagnostic instead of a raw crash; keep policy and usage failures at exit code `1`.
+- Reject `check --vuln-severity` and `--vuln-block-unknown` without enabled `--vulns` as usage errors instead of silently skipping the vulnerability scan.
+- Reject unknown policy and notices configuration keys and malformed SPDX expressions in config and CLI allow/deny entries with exit code 2.
+
+## v0.14.0 - 2026-10-29
+
+### Added
+
+- Add `sbom --license-text` to embed canonical SPDX licence text for recognised IDs without changing default output.
+- Add `include` and `exclude` filters under `[tools.licence_audit.notices]`. Apply them before metadata, source, and cache access, and reject names absent from the lockfile. Projects without a `[dependencies]` table now require `notices --include-dev` to include development dependencies.
+
+### Changed
+
+- Replace the on-disk metadata and notice caches with SQLite WAL, storing metadata and its timestamp in one atomic write. New `.sqlite3` caches refill on first use; the command does not import or change existing DETS files. Cache paths must be ASCII; Linux absolute database paths must not exceed 504 bytes (#168). Escript caching requires `sqlite_native/` beside the executable. Busy cache operations report a deferred warning without discarding fetched results. Bare escripts and installations with missing or unloadable SQLite native libraries run without caching and report a deferred warning. Use `--no-cache` to skip native-library loading.
+
+## v0.13.2 - 2026-10-25
+
+### Fixed
+
+- Fix `sbom --reproducible` metadata decoding for quoted UTF-8 and numeric Hex binary literals; reject unsupported literals and ignore incomplete legacy immutable cache entries.
+- Include application dependency notices and complete Slate attribution in release archives and the bare escript. Generate native runtime attribution from the built OTP, Queso, and toolchain inputs, and verify required notice contents in staged archives.
+- Keep metadata-fetch failure trees visible beside policy failures in `check`, including with `--quiet`.
+- Keep valid Git vulnerability queries in `check --vulns` when an unrelated Hex checksum is missing or malformed.
+- Make `update` replace policy files atomically so interrupted writes leave the original configuration intact, while preserving permissions, ownership, comments, and unrelated TOML.
+- Preserve Unicode in `XDG_CACHE_HOME` and `HOME` when the CLI resolves its cache directory, and handle environment conversion failures without crashing.
+- Prevent repeated cache lock waits across dependency fetches; skip busy caches with a nonfatal warning.
+- Ignore blank licence files and attribution-only files in SPDX-like paths in `notices`; use usable fallbacks and refresh stale material caches.
+- Reject nested or dotted subfields for reserved policy settings, including empty descendant tables and nested exception expiry settings, instead of silently treating them as absent.
+- Return exit code `2` for incomplete licence reports and `update` TOML edit/write failures. Report-only findings still exit `0`; optional advisory details and default SBOM enrichment remain non-fatal. Scripts must handle the changed report (`0` to `2`) and update (`1` to `2`) failure codes.
+- Send fatal CLI diagnostics to stderr while keeping gate-failure reports on stdout and failed SBOM output empty.
+
+## v0.13.1 - 2026-10-20
+
+### Fixed
+
+- Evaluate SPDX licence expressions in policy checks, preserve scoped exceptions for required terms, and reject malformed expressions even with a deny-only policy.
+- Use OSV commit queries for GitHub dependencies in `vulns`, `check --vulns`, and `sbom --vulns` so affected commits do not appear clean.
+
+## v0.13.0 - 2026-10-16
+
+### Changed
+
+- Bundle the CLI argument parser instead of downloading it from Git, and exclude Markdown documentation tooling from production builds.
+- Change the on-disk cache format while preserving safe sharing between concurrent CLI runs. In CI, save the parent cache directory (for example, `.hex-cache/`) instead of a `*.entries/` subdirectory. Keep the bundled `slate_native/` directory beside the escript when you install or move it.
+
+### Fixed
+
+- Remove internal sentinel defaults from CLI documentation and preserve literal optional path values with native glint optional flags.
+
+## v0.12.2 - 2026-10-11
+
+### Fixed
+
+- Extract only selected licence and notice members from source archives, preserving root priority and nested fallback. Gzip archives are decompressed once before selection and extraction instead of twice.
+- HTTP disconnects and other transport failures return normal diagnostics instead of crashing licence audits, OSV checks, or notice generation. TLS verification and the bounded IPv6 fallback remain enabled.
+- `notices` reads only selected licence and notice files from local dependencies. Unreadable unrelated files and directories no longer block packages with root licence files, and symlink targets remain excluded.
+- Prevent concurrent CLI processes from losing shared cache entries by publishing per-entry files atomically under `<cache-path>.entries`. Legacy DETS files remain untouched; invalid UTF-8 cache entries produce warnings and are refetched.
+- Resolve Windows manifest, dependency, and cache paths with the Hex `filepath` package, including drive-qualified and network-share paths, without custom path FFI.
+- `update` preserves existing project configuration when a file read fails, including after policy selection and with `--ignore-config`. Read failures return exit code 2 instead of replacing the file with an empty policy.
+- `vulns` fetches each shared OSV advisory once per command, including failed lookups, while preserving per-package findings and exception decisions.
+
 ## v0.12.1 - 2026-09-15
 
 ### Fixed
@@ -104,7 +182,7 @@ and is generated by [Trellis](https://trellis.tylerbutler.com).
 * SBOM output now emits canonical (lowercased) `pkg:hex` and `pkg:github` purls, recognises the SPDX licence identifiers supported by CycloneDX 1.6 (emitting `license.id` only for schema-valid identifiers), adds `$schema`, adds a primary-component identifier when available, omits empty component versions, and de-duplicates declared licences.
 * The `spruce` dependency now resolves to the published Hex package instead of a Git revision.
 ### Fixed
-* Prevent `update` from silently corrupting `gleam.toml` when an existing `allow`/`deny` array line carries a trailing comment containing a quote, or when a key of the same name exists in another table. The array rewrite is now scoped to the `[tools.licence_audit]` table and fails loudly instead of writing a bogus value.
+* Prevent `update` from silently corrupting `gleam.toml` when an existing `allow`/`deny` array line has a trailing comment containing a quote, or when a key of the same name exists in another table. The array rewrite is now scoped to the `[tools.licence_audit]` table and returns an error instead of writing a bogus value.
 * `check --prod-only --vulns` now restricts the vulnerability gate to production dependencies, so dev-only advisories no longer fail the gate or appear in output. The prod-only skipped-package summary now matches the rendered tree.
 * OSV vulnerability queries now follow `next_page_token` pagination with a page-count guard so vulnerabilities are no longer under-reported for heavily-affected packages without risking unbounded pagination, and CVSS 4.0 plus bare CVSS 2.0 vectors are now mapped to a severity bucket instead of Unknown.
 * The on-disk Hex cache no longer serves a stale `publisher` value indefinitely; cached enrichment entries now expire after 24 hours.

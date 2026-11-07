@@ -25,6 +25,46 @@ pub fn encode_batch_body_emits_querybatch_shape_test() {
   assert string.contains(body, "purl")
 }
 
+pub fn git_commit_queries_preserve_mixed_batch_order_and_pagination_test() {
+  let commit = "6879efc2c1596d11a6a6ad296f80063b558d5e0f"
+  let github = "pkg:github/harfbuzz/harfbuzz@" <> commit
+  let client = fn(req: request.Request(String)) {
+    let body = case string.contains(req.body, "page_token") {
+      False -> {
+        should.equal(
+          req.body,
+          "{\"queries\":[{\"package\":{\"purl\":\"pkg:hex/first@1.0.0\"}},"
+            <> "{\"commit\":\""
+            <> commit
+            <> "\"},{\"package\":{\"purl\":\"pkg:hex/last@2.0.0\"}}]}",
+        )
+        "{\"results\":[{},{\"vulns\":[{\"id\":\"OSV-1\"}],\"next_page_token\":\"next\"},{\"vulns\":[{\"id\":\"OSV-hex\"}]}]}"
+      }
+      True -> {
+        should.equal(
+          req.body,
+          "{\"queries\":[{\"page_token\":\"next\",\"commit\":\""
+            <> commit
+            <> "\"}]}",
+        )
+        "{\"results\":[{\"vulns\":[{\"id\":\"OSV-2\"}]}]}"
+      }
+    }
+    Ok(Response(status: 200, headers: [], body:))
+  }
+  should.equal(
+    osv.query_batch(
+      ["pkg:hex/first@1.0.0", github, "pkg:hex/last@2.0.0"],
+      client,
+    ),
+    Ok([
+      osv.BatchEntry("pkg:hex/first@1.0.0", []),
+      osv.BatchEntry(github, ["OSV-1", "OSV-2"]),
+      osv.BatchEntry("pkg:hex/last@2.0.0", ["OSV-hex"]),
+    ]),
+  )
+}
+
 pub fn empty_purls_short_circuits_without_calling_client_test() {
   let client = fn(_req) {
     panic as "client should not be invoked for empty purls"
@@ -97,6 +137,27 @@ pub fn batch_response_follows_next_page_token_for_truncated_result_test() {
   let assert [entry] = entries
   should.equal(entry.purl, "pkg:hex/affected@1.0.0")
   should.equal(entry.vuln_ids, ["OSV-1", "OSV-2"])
+}
+
+pub fn paginated_entries_stop_at_first_error_test() {
+  let client = fn(req: request.Request(String)) {
+    case string.contains(req.body, "page_token") {
+      False ->
+        Ok(Response(
+          status: 200,
+          headers: [],
+          body: "{\"results\":[{\"next_page_token\":\"first\"},{\"next_page_token\":\"second\"}]}",
+        ))
+      True -> {
+        assert string.contains(req.body, "\"page_token\":\"first\"")
+        Ok(Response(status: 500, headers: [], body: "failure"))
+      }
+    }
+  }
+  should.equal(
+    osv.query_batch(["pkg:hex/a@1", "pkg:hex/b@1"], client),
+    Error(osv.UnexpectedResponse(500)),
+  )
 }
 
 pub fn batch_response_rejects_excessive_pagination_test() {
@@ -205,6 +266,32 @@ pub fn decode_vuln_response_uses_score_type_for_bare_cvss_v2_vector_test() {
     )
 
   should.equal(vuln.severity, osv.High)
+}
+
+pub fn decode_vuln_response_uses_highest_score_regardless_of_order_test() {
+  let scores = [
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N\"}",
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}",
+    "{\"type\":\"UNKNOWN\",\"score\":\"invalid\"}",
+  ]
+  list.each([scores, list.reverse(scores)], fn(scores) {
+    let assert Ok(vuln) =
+      osv.decode_vuln_body(
+        "{\"id\":\"OSV-max\",\"severity\":[" <> string.join(scores, ",") <> "]}",
+        "OSV-max",
+      )
+    should.equal(vuln.severity, osv.Critical)
+  })
+}
+
+pub fn severity_rank_orders_unknown_below_known_severities_test() {
+  should.equal(
+    list.map(
+      [osv.UnknownSeverity, osv.Low, osv.Medium, osv.High, osv.Critical],
+      osv.severity_rank,
+    ),
+    [0, 1, 2, 3, 4],
+  )
 }
 
 pub fn parse_severity_label_recognises_common_labels_test() {

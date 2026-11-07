@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:ed28e4c5-53ef-8245-970b-de74b17ec8ca",
+  "serialNumber": "urn:uuid:72a0f6c4-bdc5-89a3-9bb3-2d4ee1216363",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -13,7 +13,7 @@
       {
         "vendor": "tylerbutler",
         "name": "licence_audit",
-        "version": "0.12.1"
+        "version": "0.15.0"
       }
     ],
     "authors": [
@@ -23,7 +23,7 @@
       "bom-ref": "root",
       "type": "application",
       "name": "licence_audit",
-      "version": "0.12.1",
+      "version": "0.15.0",
       "purl": "pkg:github/tylerbutler/licence_audit",
       "description": "Audit licences of locked Hex dependencies in Gleam projects.",
       "licenses": [
@@ -43,94 +43,6 @@
     }
   },
   "components": [
-    {
-      "bom-ref": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
-      "type": "library",
-      "name": "glint",
-      "purl": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
-      "version": "1.3.0",
-      "scope": "required",
-      "description": "Gleam command-line argument parsing with flags and automated help text generation.",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://hex.pm/packages/glint",
-          "type": "other",
-          "comment": "Hex"
-        },
-        {
-          "url": "https://hexdocs.pm/glint/",
-          "type": "documentation",
-          "comment": "Docs"
-        },
-        {
-          "url": "https://github.com/tylerbutler/glint",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-      "type": "library",
-      "name": "glint_markdown",
-      "purl": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-      "version": "0.0.0",
-      "scope": "required",
-      "description": "Auto-generate Markdown reference documentation from a glint CLI.",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://github.com/tylerbutler/glint_markdown",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:github/tylerbutler/spruce@bc7daff38e2506923f4496ef14937786e1223c42",
-      "type": "library",
-      "name": "spruce",
-      "purl": "pkg:github/tylerbutler/spruce@bc7daff38e2506923f4496ef14937786e1223c42",
-      "version": "1.0.1",
-      "scope": "required",
-      "description": "A terminal-UI kit for Gleam: styled text, boxes, semantic messages, icons, and aligned/grouped output (Erlang + JavaScript)",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT",
-            "acknowledgement": "declared"
-          }
-        },
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://github.com/tylerbutler/spruce",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
     {
       "bom-ref": "pkg:hex/argv@1.1.0",
       "type": "library",
@@ -183,11 +95,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/casefold@2.1.0",
+      "bom-ref": "pkg:hex/casefold@2.2.0",
       "type": "library",
       "name": "casefold",
-      "purl": "pkg:hex/casefold@2.1.0",
-      "version": "2.1.0",
+      "purl": "pkg:hex/casefold@2.2.0",
+      "version": "2.2.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -199,7 +111,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "6e1ebb01b945448ee43be5618f122341f9d876442e65f28fd3948009c31ce3e5"
+          "content": "6d097acb08037dba523199d9c8a3875d9f67fa35e06fc384bf3be247a0658b6d"
         }
       ],
       "licenses": [
@@ -212,7 +124,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/casefold-2.1.0.tar",
+          "url": "https://repo.hex.pm/tarballs/casefold-2.2.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -598,11 +510,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleam_http@4.3.0",
+      "bom-ref": "pkg:hex/gleam_http@4.5.0",
       "type": "library",
       "name": "gleam_http",
-      "purl": "pkg:hex/gleam_http@4.3.0",
-      "version": "4.3.0",
+      "purl": "pkg:hex/gleam_http@4.5.0",
+      "version": "4.5.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -614,7 +526,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "82ea6a717c842456188c190afb372665ea56ce13d8559bf3b1dd9e40f619ee0c"
+          "content": "38d7e5698759d44f21436f365259f7015104f6fafa23181cd0b2bb0e5b67be2b"
         }
       ],
       "licenses": [
@@ -627,7 +539,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/gleam_http-4.3.0.tar",
+          "url": "https://repo.hex.pm/tarballs/gleam_http-4.5.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -643,57 +555,6 @@
         },
         {
           "url": "https://github.com/gleam-lang/http",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:hex/gleam_httpc@5.0.0",
-      "type": "library",
-      "name": "gleam_httpc",
-      "purl": "pkg:hex/gleam_httpc@5.0.0",
-      "version": "5.0.0",
-      "scope": "required",
-      "supplier": {
-        "name": "Hex",
-        "url": [
-          "https://hex.pm/packages/gleam_httpc"
-        ]
-      },
-      "description": "Gleam bindings to Erlang's built in HTTP client, httpc",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "c545172618d07811494e97aaa4a0fb34da6f6d0061fdc8041c2f8e3be2b2e48f"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://repo.hex.pm/tarballs/gleam_httpc-5.0.0.tar",
-          "type": "distribution",
-          "comment": "Hex package tarball"
-        },
-        {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
-        },
-        {
-          "url": "https://github.com/sponsors/lpil",
-          "type": "other",
-          "comment": "Sponsor"
-        },
-        {
-          "url": "https://github.com/gleam-lang/httpc",
           "type": "vcs",
           "comment": "Repository"
         }
@@ -899,11 +760,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/gleam_time@1.10.0",
+      "bom-ref": "pkg:hex/gleam_time@1.11.0",
       "type": "library",
       "name": "gleam_time",
-      "purl": "pkg:hex/gleam_time@1.10.0",
-      "version": "1.10.0",
+      "purl": "pkg:hex/gleam_time@1.11.0",
+      "version": "1.11.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -915,7 +776,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "56539216e4c4b1748714652ab38f0bd16b9101f61db62769fdc7cd42a8e5e833"
+          "content": "3ab789c3ed4eb9dda7283f46c3cf83a5487c9cfb790dc3ff8f8acb5bf7b7a6c1"
         }
       ],
       "licenses": [
@@ -928,7 +789,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/gleam_time-1.10.0.tar",
+          "url": "https://repo.hex.pm/tarballs/gleam_time-1.11.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -939,57 +800,6 @@
         },
         {
           "url": "https://github.com/gleam-lang/time",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:hex/gleescript@1.5.2",
-      "type": "library",
-      "name": "gleescript",
-      "purl": "pkg:hex/gleescript@1.5.2",
-      "version": "1.5.2",
-      "scope": "optional",
-      "supplier": {
-        "name": "Hex",
-        "url": [
-          "https://hex.pm/packages/gleescript"
-        ]
-      },
-      "description": "Bundle your Gleam-on-Erlang project into an escript, a single executable file!",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "27ac58481742ed29d9b37c506f78958a8ad798750a79ed08c8f8afba8f23563b"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://repo.hex.pm/tarballs/gleescript-1.5.2.tar",
-          "type": "distribution",
-          "comment": "Hex package tarball"
-        },
-        {
-          "url": "https://gleam.run/",
-          "type": "website",
-          "comment": "Website"
-        },
-        {
-          "url": "https://github.com/sponsors/lpil",
-          "type": "other",
-          "comment": "Sponsor"
-        },
-        {
-          "url": "https://github.com/lpil/gleescript",
           "type": "vcs",
           "comment": "Repository"
         }
@@ -1129,12 +939,12 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/glugify@2.0.3",
+      "bom-ref": "pkg:hex/glugify@3.1.1",
       "type": "library",
       "name": "glugify",
-      "purl": "pkg:hex/glugify@2.0.3",
-      "version": "2.0.3",
-      "scope": "required",
+      "purl": "pkg:hex/glugify@3.1.1",
+      "version": "3.1.1",
+      "scope": "optional",
       "supplier": {
         "name": "Hex",
         "url": [
@@ -1145,7 +955,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "03ad4c205d43cb055f03137173af8e94b4d98e8047a8fe51d7ed14512a797065"
+          "content": "335fdf5b353557a53bb0ffe5acfa01d7a52c4e7239f43f0c0a28f9c3ac7cbd71"
         }
       ],
       "licenses": [
@@ -1158,7 +968,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/glugify-2.0.3.tar",
+          "url": "https://repo.hex.pm/tarballs/glugify-3.1.1.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1166,6 +976,11 @@
           "url": "https://hexdocs.pm/glugify",
           "type": "documentation",
           "comment": "Documentation"
+        },
+        {
+          "url": "https://maxh213.github.io/glugify/",
+          "type": "other",
+          "comment": "Live Playground"
         },
         {
           "url": "https://github.com/maxh213/glugify/blob/main/CHANGELOG.md",
@@ -1221,11 +1036,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/mork@1.12.1",
+      "bom-ref": "pkg:hex/mork@1.12.3",
       "type": "library",
       "name": "mork",
-      "purl": "pkg:hex/mork@1.12.1",
-      "version": "1.12.1",
+      "purl": "pkg:hex/mork@1.12.3",
+      "version": "1.12.3",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -1237,7 +1052,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "73ceb1dbf2c4e827d420970729eee8931d324d23612869938f729deffedbb820"
+          "content": "a82e60876cf037ecd8d21cdd226831c8f6e9d9d0f6f7f6b7a53bad993a9188ce"
         }
       ],
       "licenses": [
@@ -1250,7 +1065,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/mork-1.12.1.tar",
+          "url": "https://repo.hex.pm/tarballs/mork-1.12.3.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1312,47 +1127,6 @@
         },
         {
           "url": "https://github.com/bcpeinhardt/simplifile",
-          "type": "vcs",
-          "comment": "Repository"
-        }
-      ]
-    },
-    {
-      "bom-ref": "pkg:hex/slate@1.0.0",
-      "type": "library",
-      "name": "slate",
-      "purl": "pkg:hex/slate@1.0.0",
-      "version": "1.0.0",
-      "scope": "required",
-      "supplier": {
-        "name": "Hex",
-        "url": [
-          "https://hex.pm/packages/slate"
-        ]
-      },
-      "description": "Type-safe Gleam wrapper for Erlang DETS (Disk Erlang Term Storage)",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "07c509e87a1f7b95903250c1f14fe336f0aaf0cfd6f247a059f08032b4f64a40"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "url": "https://repo.hex.pm/tarballs/slate-1.0.0.tar",
-          "type": "distribution",
-          "comment": "Hex package tarball"
-        },
-        {
-          "url": "https://github.com/tylerbutler/slate",
           "type": "vcs",
           "comment": "Repository"
         }
@@ -1456,11 +1230,11 @@
       ]
     },
     {
-      "bom-ref": "pkg:hex/splitter@1.2.0",
+      "bom-ref": "pkg:hex/splitter@1.3.0",
       "type": "library",
       "name": "splitter",
-      "purl": "pkg:hex/splitter@1.2.0",
-      "version": "1.2.0",
+      "purl": "pkg:hex/splitter@1.3.0",
+      "version": "1.3.0",
       "scope": "required",
       "supplier": {
         "name": "Hex",
@@ -1472,7 +1246,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "3dfd6b6c49e61edaf6f7b27a42054a17cff6ca2135ff553d0cb61c234d281dd0"
+          "content": "8f1485306e0d59168a39e12ed8844f9f616ec59c3c63afcfdae04dbd68690cbc"
         }
       ],
       "licenses": [
@@ -1485,7 +1259,7 @@
       ],
       "externalReferences": [
         {
-          "url": "https://repo.hex.pm/tarballs/splitter-1.2.0.tar",
+          "url": "https://repo.hex.pm/tarballs/splitter-1.3.0.tar",
           "type": "distribution",
           "comment": "Hex package tarball"
         },
@@ -1496,6 +1270,53 @@
         },
         {
           "url": "https://github.com/lpil/splitter",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:hex/spruce@2.0.1",
+      "type": "library",
+      "name": "spruce",
+      "purl": "pkg:hex/spruce@2.0.1",
+      "version": "2.0.1",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/spruce"
+        ]
+      },
+      "description": "A terminal-UI kit for Gleam: styled text, boxes, semantic messages, icons, and aligned/grouped output (Erlang + JavaScript)",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0b3030154171f803c223a9cdf7e62785f7b59a8dec456d998c1c66f12ff4e796"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        },
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/spruce-2.0.1.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://github.com/tylerbutler/spruce",
           "type": "vcs",
           "comment": "Repository"
         }
@@ -1727,53 +1548,26 @@
     {
       "ref": "root",
       "dependsOn": [
-        "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
-        "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-        "pkg:github/tylerbutler/spruce@bc7daff38e2506923f4496ef14937786e1223c42",
         "pkg:hex/cvss@0.1.1",
         "pkg:hex/etch@1.3.3",
-        "pkg:hex/gleam_crypto@1.6.0",
-        "pkg:hex/gleam_erlang@1.3.0",
-        "pkg:hex/gleam_http@4.3.0",
-        "pkg:hex/gleam_httpc@5.0.0",
-        "pkg:hex/gleam_json@3.1.0",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/gleam_time@1.10.0",
-        "pkg:hex/gleescript@1.5.2",
-        "pkg:hex/gleeunit@1.11.0",
-        "pkg:hex/glinter@2.19.2",
-        "pkg:hex/simplifile@2.7.0",
-        "pkg:hex/slate@1.0.0",
-        "pkg:hex/tomlet@1.4.1",
-        "pkg:hex/tty@1.1.1"
-      ]
-    },
-    {
-      "ref": "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
-      "dependsOn": [
+        "pkg:hex/filepath@1.1.2",
         "pkg:hex/gleam_community_ansi@1.5.0",
         "pkg:hex/gleam_community_colour@2.0.4",
+        "pkg:hex/gleam_crypto@1.6.0",
+        "pkg:hex/gleam_erlang@1.3.0",
+        "pkg:hex/gleam_http@4.5.0",
+        "pkg:hex/gleam_json@3.1.0",
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/snag@1.2.0"
-      ]
-    },
-    {
-      "ref": "pkg:github/tylerbutler/glint_markdown@ec5065feb4993c95dd1bf4ad1094ee262743d8bf",
-      "dependsOn": [
-        "pkg:github/tylerbutler/glint@c082b4afef5dc35bacaf03a2921284c527e6afeb",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/glugify@2.0.3",
-        "pkg:hex/simplifile@2.7.0"
-      ]
-    },
-    {
-      "ref": "pkg:github/tylerbutler/spruce@bc7daff38e2506923f4496ef14937786e1223c42",
-      "dependsOn": [
-        "pkg:hex/gleam_community_ansi@1.5.0",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/mork@1.12.1",
-        "pkg:hex/smalto@3.0.0",
-        "pkg:hex/tty@1.1.1"
+        "pkg:hex/gleam_time@1.11.0",
+        "pkg:hex/gleeunit@1.11.0",
+        "pkg:hex/glinter@2.19.2",
+        "pkg:hex/glugify@3.1.1",
+        "pkg:hex/simplifile@2.7.0",
+        "pkg:hex/snag@1.2.0",
+        "pkg:hex/spruce@2.0.1",
+        "pkg:hex/tomlet@1.4.1",
+        "pkg:hex/tty@1.1.1",
+        "pkg:hex/william@1.0.1"
       ]
     },
     {
@@ -1781,7 +1575,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:hex/casefold@2.1.0",
+      "ref": "pkg:hex/casefold@2.2.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
@@ -1839,17 +1633,10 @@
       ]
     },
     {
-      "ref": "pkg:hex/gleam_http@4.3.0",
+      "ref": "pkg:hex/gleam_http@4.5.0",
       "dependsOn": [
-        "pkg:hex/gleam_stdlib@1.0.5"
-      ]
-    },
-    {
-      "ref": "pkg:hex/gleam_httpc@5.0.0",
-      "dependsOn": [
-        "pkg:hex/gleam_erlang@1.3.0",
-        "pkg:hex/gleam_http@4.3.0",
-        "pkg:hex/gleam_stdlib@1.0.5"
+        "pkg:hex/gleam_stdlib@1.0.5",
+        "pkg:hex/splitter@1.3.0"
       ]
     },
     {
@@ -1875,21 +1662,9 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:hex/gleam_time@1.10.0",
+      "ref": "pkg:hex/gleam_time@1.11.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
-      ]
-    },
-    {
-      "ref": "pkg:hex/gleescript@1.5.2",
-      "dependsOn": [
-        "pkg:hex/argv@1.1.0",
-        "pkg:hex/filepath@1.1.2",
-        "pkg:hex/gleam_erlang@1.3.0",
-        "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/simplifile@2.7.0",
-        "pkg:hex/snag@1.2.0",
-        "pkg:hex/tom@2.1.0"
       ]
     },
     {
@@ -1902,7 +1677,7 @@
       "ref": "pkg:hex/glexer@2.5.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/splitter@1.2.0"
+        "pkg:hex/splitter@1.3.0"
       ]
     },
     {
@@ -1917,7 +1692,7 @@
       ]
     },
     {
-      "ref": "pkg:hex/glugify@2.0.3",
+      "ref": "pkg:hex/glugify@3.1.1",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
@@ -1927,25 +1702,18 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:hex/mork@1.12.1",
+      "ref": "pkg:hex/mork@1.12.3",
       "dependsOn": [
-        "pkg:hex/casefold@2.1.0",
+        "pkg:hex/casefold@2.2.0",
         "pkg:hex/gleam_regexp@1.1.1",
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/splitter@1.2.0"
+        "pkg:hex/splitter@1.3.0"
       ]
     },
     {
       "ref": "pkg:hex/simplifile@2.7.0",
       "dependsOn": [
         "pkg:hex/filepath@1.1.2",
-        "pkg:hex/gleam_stdlib@1.0.5"
-      ]
-    },
-    {
-      "ref": "pkg:hex/slate@1.0.0",
-      "dependsOn": [
-        "pkg:hex/gleam_erlang@1.3.0",
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
     },
@@ -1964,16 +1732,26 @@
       ]
     },
     {
-      "ref": "pkg:hex/splitter@1.2.0",
+      "ref": "pkg:hex/splitter@1.3.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:hex/spruce@2.0.1",
+      "dependsOn": [
+        "pkg:hex/gleam_community_ansi@1.5.0",
+        "pkg:hex/gleam_stdlib@1.0.5",
+        "pkg:hex/mork@1.12.3",
+        "pkg:hex/smalto@3.0.0",
+        "pkg:hex/tty@1.1.1"
       ]
     },
     {
       "ref": "pkg:hex/tom@2.1.0",
       "dependsOn": [
         "pkg:hex/gleam_stdlib@1.0.5",
-        "pkg:hex/gleam_time@1.10.0"
+        "pkg:hex/gleam_time@1.11.0"
       ]
     },
     {
@@ -1995,7 +1773,7 @@
         "pkg:hex/gleam_community_ansi@1.5.0",
         "pkg:hex/gleam_stdlib@1.0.5",
         "pkg:hex/houdini@1.2.1",
-        "pkg:hex/splitter@1.2.0"
+        "pkg:hex/splitter@1.3.0"
       ]
     }
   ],

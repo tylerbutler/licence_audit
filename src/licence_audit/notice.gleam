@@ -4,7 +4,6 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
 import gleam/http/response.{type Response}
-import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
@@ -12,7 +11,10 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/cache_dir
+import licence_audit/config
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import licence_audit/manifest
 import licence_audit/repository
 import licence_audit/source_archive
@@ -43,7 +45,7 @@ pub type FetchError {
   FetchTimeout
   /// A request timed out at a duration other than the 30s source-archive
   /// default (e.g. the 10s metadata fetches used by the repository/SPDX
-  /// fallback). Carries the timeout in seconds so `describe_fetch_error`
+  /// fallback). Includes the timeout in seconds so `describe_fetch_error`
   /// reports the actual configured duration rather than assuming 30s.
   FetchTimeoutAfter(seconds: Int)
   FetchUnexpectedResponse(status: Int)
@@ -86,7 +88,7 @@ pub type Clients {
   Clients(
     fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
     /// Fetch a git package's source archive at its immutable manifest commit.
-    /// Provider-agnostic: the `repository.Repository` carries the parsed
+    /// Provider-agnostic: the `repository.Repository` contains the parsed
     /// provider (GitHub, GitLab, or Codeberg) so the correct archive endpoint
     /// is used. Never resolves tags or HEAD — the commit is fixed.
     fetch_git_archive: fn(repository.Repository, String) ->
@@ -118,6 +120,7 @@ pub fn default_clients() -> Clients {
 }
 
 pub type Error {
+  UnknownPackages(packages: List(String))
   MissingLicenceText(packages: List(String))
   MetadataFailed(package: String, reason: String)
   UnsupportedSource(package: String, source: String, detail: String)
@@ -144,23 +147,58 @@ pub fn selected_entries(
   })
 }
 
+pub fn filter_entries(
+  selected: List(manifest.SbomEntry),
+  locked: List(manifest.SbomEntry),
+  configuration: config.Notices,
+) -> Result(List(manifest.SbomEntry), Error) {
+  let names = list.map(locked, fn(entry) { entry.name })
+  let unknown =
+    list.append(configuration.include, configuration.exclude)
+    |> list.unique
+    |> list.filter(fn(name) { !list.contains(names, name) })
+  case unknown {
+    [] ->
+      Ok(
+        list.filter(selected, fn(entry) {
+          {
+            configuration.include == []
+            || list.contains(configuration.include, entry.name)
+          }
+          && !list.contains(configuration.exclude, entry.name)
+        }),
+      )
+    _ -> Error(UnknownPackages(unknown))
+  }
+}
+
 pub fn packages_from_entries(
   entries: List(manifest.SbomEntry),
   scopes: Dict(String, manifest.Scope),
-  metadata_for: fn(manifest.SbomEntry) -> Result(hex.PackageMetadata, Error),
-) -> Result(List(NoticePackage), Error) {
-  list.try_map(entries, fn(entry) {
-    use source <- result.try(package_source(entry))
-    use metadata <- result.try(metadata_for(entry))
-    Ok(NoticePackage(
-      name: entry.name,
-      version: entry.version,
-      declared_licences: metadata.licences,
-      repo_links: repo_link_urls(metadata.links),
-      source: source,
-      scope: scope_for(scopes, entry.name),
-    ))
-  })
+  metadata_for: fn(manifest.SbomEntry) ->
+    #(Result(hex.PackageMetadata, Error), Option(String)),
+) -> #(Result(List(NoticePackage), Error), Option(String)) {
+  let #(packages, warning) =
+    list.fold(entries, #(Ok([]), None), fn(acc, entry) {
+      use packages <- cache_dir.try_with_warning(acc)
+      use source <- cache_dir.try_with_warning(#(package_source(entry), None))
+      use metadata <- cache_dir.try_with_warning(metadata_for(entry))
+      #(
+        Ok([
+          NoticePackage(
+            name: entry.name,
+            version: entry.version,
+            declared_licences: metadata.licences,
+            repo_links: repo_link_urls(metadata.links),
+            source: source,
+            scope: scope_for(scopes, entry.name),
+          ),
+          ..packages
+        ]),
+        None,
+      )
+    })
+  #(result.map(packages, list.reverse), warning)
 }
 
 /// Extract the URL of each metadata link, preserving order and de-duplicating.
@@ -168,13 +206,8 @@ pub fn packages_from_entries(
 fn repo_link_urls(links: List(#(String, String))) -> List(String) {
   links
   |> list.filter(fn(pair) { is_repository_link_label(pair.0) })
-  |> list.fold([], fn(seen, pair) {
-    case list.contains(seen, pair.1) {
-      True -> seen
-      False -> [pair.1, ..seen]
-    }
-  })
-  |> list.reverse
+  |> list.map(fn(pair) { pair.1 })
+  |> list.unique
 }
 
 fn is_repository_link_label(label: String) -> Bool {
@@ -213,24 +246,56 @@ pub fn package_source(
 pub fn licence_files(
   files: List(source_archive.ArchiveFile),
 ) -> Result(List(NoticeFile), source_archive.ArchiveError) {
-  files
-  |> strip_common_archive_root
-  |> matched_archive_files
-  |> list.try_map(to_notice_file)
+  let files = strip_common_archive_root(files)
+  use selected <- result.try(
+    usable_notice_files(fn(include_nested) {
+      Ok(case include_nested {
+        True -> list.filter(files, fn(file) { is_any_notice_file(file.path) })
+        False -> matched_archive_files(files)
+      })
+    }),
+  )
+  list.try_map(selected, to_notice_file)
 }
 
-/// Filter raw archive files down to the matched notice/licence files, mapping
-/// any extraction failure into a `notice.Error` tagged with `package_name`.
-pub fn notice_files_of(
-  package_name: String,
-  files: List(source_archive.ArchiveFile),
-) -> Result(List(NoticeFile), Error) {
-  licence_files(files)
-  |> result.map_error(fn(error) {
-    ArchiveFailed(
-      package: package_name,
-      reason: source_archive.describe_error(error),
-    )
+fn usable_notice_files(
+  read: fn(Bool) -> Result(List(source_archive.ArchiveFile), error),
+) -> Result(List(source_archive.ArchiveFile), error) {
+  use files <- result.try(read(False))
+  let usable = list.filter(files, fn(file) { !blank_archive_file(file) })
+  let discarded_blank = list.any(files, blank_archive_file)
+  let usable_licence =
+    list.any(usable, fn(file) { is_licence_basename(basename(file.path)) })
+  case discarded_blank && !usable_licence {
+    True ->
+      read(True)
+      |> result.map(list.filter(_, fn(file) { !blank_archive_file(file) }))
+    False -> Ok(usable)
+  }
+}
+
+fn blank_archive_file(file: source_archive.ArchiveFile) -> Bool {
+  case source_archive.text_contents(file) {
+    Ok(contents) -> !has_text(contents)
+    // Keep invalid text so the normal decoder reports the existing error.
+    Error(_) -> False
+  }
+}
+
+/// Check Unicode whitespace too: `string.trim` leaves spaces such as NBSP.
+@external(erlang, "notice_ffi", "has_text")
+pub fn has_text(contents: String) -> Bool
+
+fn extract_notices(
+  bytes: BitArray,
+  extract: fn(BitArray, fn(List(String)) -> List(#(String, String))) ->
+    Result(List(source_archive.ArchiveFile), source_archive.ArchiveError),
+) -> Result(List(source_archive.ArchiveFile), source_archive.ArchiveError) {
+  usable_notice_files(fn(include_nested) {
+    extract(bytes, case include_nested {
+      True -> all_notice_paths
+      False -> selected_notice_paths
+    })
   })
 }
 
@@ -248,23 +313,22 @@ pub fn encode_notice_files(files: List(NoticeFile)) -> String {
 }
 
 /// Parse notice files written by `encode_notice_files`. Returns `Error(Nil)` on
-/// any malformed entry so the caller can treat it as a cache miss.
+/// any malformed or blank entry so old blank results become cache misses.
 pub fn decode_notice_files(encoded: String) -> Result(List(NoticeFile), Nil) {
-  json.parse(encoded, decode.list(notice_file_decoder()))
-  |> result.replace_error(Nil)
+  use files <- result.try(
+    json.parse(encoded, decode.list(notice_file_decoder()))
+    |> result.replace_error(Nil),
+  )
+  case list.any(files, fn(file) { !has_text(file.contents) }) {
+    True -> Error(Nil)
+    False -> Ok(files)
+  }
 }
 
 fn notice_file_decoder() -> decode.Decoder(NoticeFile) {
   use path <- decode.field("path", decode.string)
   use contents <- decode.field("contents", decode.string)
   decode.success(NoticeFile(path: path, contents: contents))
-}
-
-pub fn entries_from_sources(
-  packages: List(NoticePackage),
-  read_source: fn(NoticePackage) -> Result(List(NoticeFile), Error),
-) -> Result(List(NoticeEntry), Error) {
-  entries_from_sources_loop(packages, read_source, [], [])
 }
 
 pub fn read_remote_source(
@@ -275,11 +339,74 @@ pub fn read_remote_source(
 ) -> Result(List(source_archive.ArchiveFile), Error) {
   case package.source {
     HexPackage(outer_checksum) ->
-      read_hex_source(package, outer_checksum, fetch_hex_tarball)
+      read_hex_source(
+        package,
+        outer_checksum,
+        fetch_hex_tarball,
+        source_archive.extract_hex_contents,
+      )
     GitPackage(repo, _url, commit) ->
-      read_git_source(package, repo, commit, fetch_git_archive)
+      read_git_source(
+        package,
+        repo,
+        commit,
+        fetch_git_archive,
+        source_archive.extract_tar_gz,
+      )
     PathPackage(path) -> read_path_source(package.name, path)
   }
+}
+
+/// Read only the selected notice files, preserving selection against the full
+/// source inventory rather than inferring an archive root from a subset.
+pub fn read_source_notices(
+  package: NoticePackage,
+  clients: Clients,
+) -> Result(List(NoticeFile), Error) {
+  use files <- result.try(case package.source {
+    HexPackage(checksum) ->
+      read_hex_source(
+        package,
+        checksum,
+        clients.fetch_hex_tarball,
+        extract_notices(_, source_archive.extract_hex_contents_selected),
+      )
+    GitPackage(repo, _url, commit) ->
+      read_git_source(
+        package,
+        repo,
+        commit,
+        clients.fetch_git_archive,
+        extract_notices(_, source_archive.extract_tar_gz_selected),
+      )
+    PathPackage(path) -> read_path_notices(package.name, path)
+  })
+  files
+  |> list.try_map(to_notice_file)
+  |> result.map_error(fn(error) {
+    ArchiveFailed(package.name, source_archive.describe_error(error))
+  })
+}
+
+pub fn selected_notice_paths(paths: List(String)) -> List(#(String, String)) {
+  let candidates = all_notice_paths(paths)
+  let roots =
+    list.filter(candidates, fn(candidate) { is_root_notice_file(candidate.1) })
+  case roots {
+    [] -> candidates
+    _ -> roots
+  }
+}
+
+fn all_notice_paths(paths: List(String)) -> List(#(String, String)) {
+  let candidates = case common_archive_root(paths) {
+    Ok(_) ->
+      list.map(paths, fn(path) { #(path, strip_archive_root_path(path)) })
+    Error(Nil) -> list.map(paths, fn(path) { #(path, path) })
+  }
+  candidates
+  |> list.filter(fn(candidate) { is_any_notice_file(candidate.1) })
+  |> list.sort(fn(a, b) { string.compare(a.1, b.1) })
 }
 
 fn fetch_hex_tarball_from_hex(
@@ -390,15 +517,13 @@ pub fn spdx_response(
 
 /// Dispatch a small JSON GET, returning `#(status, body)` or a transport
 /// error mapped onto `FetchError`.
-fn fetch_json(request: Request(String)) -> Result(#(Int, String), FetchError) {
+pub fn fetch_json(
+  request: Request(String),
+) -> Result(#(Int, String), FetchError) {
   let request = request.set_header(request, "user-agent", "licence_audit")
-  case
-    httpc.configure()
-    |> httpc.timeout(metadata_fetch_timeout_ms)
-    |> httpc.dispatch(request)
-  {
+  case httpc_adaptive.dispatch(request, timeout_ms: metadata_fetch_timeout_ms) {
     Ok(response) -> Ok(#(response.status, response.body))
-    Error(httpc.ResponseTimeout) ->
+    Error(httpc_adaptive.ResponseTimeout) ->
       Error(FetchTimeoutAfter(metadata_fetch_timeout_ms / 1000))
     Error(_) -> Error(FetchNetworkFailure)
   }
@@ -444,6 +569,9 @@ pub fn render(
 
 pub fn describe_error(error: Error) -> String {
   case error {
+    UnknownPackages(packages) ->
+      "Unknown locked package names in notices configuration: "
+      <> string.join(list.sort(packages, by: string.compare), ", ")
     MissingLicenceText(packages) ->
       "Missing licence text for packages: "
       <> string.join(list.sort(packages, by: string.compare), ", ")
@@ -501,6 +629,8 @@ fn read_hex_source(
   package: NoticePackage,
   expected_checksum: String,
   fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+  extract: fn(BitArray) ->
+    Result(List(source_archive.ArchiveFile), source_archive.ArchiveError),
 ) -> Result(List(source_archive.ArchiveFile), Error) {
   use bytes <- result.try(fetch_verified_hex_tarball(
     package.name,
@@ -508,7 +638,7 @@ fn read_hex_source(
     expected_checksum,
     fetch_hex_tarball,
   ))
-  source_archive.extract_hex_contents(bytes)
+  extract(bytes)
   |> result.map_error(fn(error) {
     ArchiveFailed(package.name, source_archive.describe_error(error))
   })
@@ -546,6 +676,8 @@ fn read_git_source(
   commit: String,
   fetch_git_archive: fn(repository.Repository, String) ->
     Result(BitArray, FetchError),
+  extract: fn(BitArray) ->
+    Result(List(source_archive.ArchiveFile), source_archive.ArchiveError),
 ) -> Result(List(source_archive.ArchiveFile), Error) {
   use bytes <- result.try(
     fetch_git_archive(repo, commit)
@@ -553,10 +685,62 @@ fn read_git_source(
       FetchFailed(package.name, describe_fetch_error(error))
     }),
   )
-  source_archive.extract_tar_gz(bytes)
+  extract(bytes)
   |> result.map_error(fn(error) {
     ArchiveFailed(package.name, source_archive.describe_error(error))
   })
+}
+
+fn read_path_notices(
+  package_name: String,
+  root: String,
+) -> Result(List(source_archive.ArchiveFile), Error) {
+  use roots <- result.try(read_root_notice_paths(package_name, root))
+  usable_notice_files(fn(include_nested) {
+    use paths <- result.try(case roots, include_nested {
+      [], _ | _, True -> read_path_files(package_name, root)
+      _, False -> Ok(roots)
+    })
+    let relative_paths = list.map(paths, relative_path(_, root))
+    let candidates = case include_nested {
+      True -> all_notice_paths(relative_paths)
+      False -> selected_notice_paths(relative_paths)
+    }
+    list.try_map(candidates, fn(candidate) {
+      let #(original, selected) = candidate
+      use file <- result.try(read_path_file(
+        package_name,
+        root,
+        join_path(root, original),
+      ))
+      Ok(source_archive.ArchiveFile(..file, path: selected))
+    })
+  })
+}
+
+fn read_root_notice_paths(
+  package_name: String,
+  root: String,
+) -> Result(List(String), Error) {
+  use children <- result.try(
+    simplifile.read_directory(at: root)
+    |> result.map_error(fn(error) {
+      PathReadFailed(package_name, root, simplifile.describe_error(error))
+    }),
+  )
+  let candidates = list.filter(children, is_root_notice_file)
+  use paths, child <- list.try_fold(candidates, [])
+  let path = join_path(root, child)
+  use info <- result.try(
+    simplifile.link_info(path)
+    |> result.map_error(fn(error) {
+      PathReadFailed(package_name, path, simplifile.describe_error(error))
+    }),
+  )
+  case simplifile.file_info_type(info) {
+    simplifile.File -> Ok([path, ..paths])
+    simplifile.Directory | simplifile.Symlink | simplifile.Other -> Ok(paths)
+  }
 }
 
 fn read_path_source(
@@ -634,15 +818,15 @@ fn relative_path(file_path: String, root: String) -> String {
   }
 }
 
-fn fetch_tarball(request: Request(BitArray)) -> Result(BitArray, FetchError) {
+pub fn fetch_tarball(
+  request: Request(BitArray),
+) -> Result(BitArray, FetchError) {
   let request = request.set_header(request, "user-agent", "licence_audit")
   case
-    httpc.configure()
-    |> httpc.timeout(source_fetch_timeout_ms)
-    |> httpc.dispatch_bits(request)
+    httpc_adaptive.dispatch_bits(request, timeout_ms: source_fetch_timeout_ms)
   {
     Ok(response) -> decode_fetch_response(response)
-    Error(httpc.ResponseTimeout) -> Error(FetchTimeout)
+    Error(httpc_adaptive.ResponseTimeout) -> Error(FetchTimeout)
     Error(_) -> Error(FetchNetworkFailure)
   }
 }
@@ -669,37 +853,6 @@ fn hex_tarball_request(name: String, version: String) -> Request(BitArray) {
   )
 }
 
-fn entries_from_sources_loop(
-  packages: List(NoticePackage),
-  read_source: fn(NoticePackage) -> Result(List(NoticeFile), Error),
-  entries: List(NoticeEntry),
-  missing: List(String),
-) -> Result(List(NoticeEntry), Error) {
-  case packages {
-    [] ->
-      case list.reverse(missing) {
-        [] -> Ok(list.reverse(entries))
-        missing_packages -> Error(MissingLicenceText(missing_packages))
-      }
-    [package, ..rest] ->
-      case read_source(package) {
-        Error(error) -> Error(error)
-        Ok([]) ->
-          entries_from_sources_loop(rest, read_source, entries, [
-            package.name,
-            ..missing
-          ])
-        Ok(notice_files) ->
-          entries_from_sources_loop(
-            rest,
-            read_source,
-            [NoticeEntry(package: package, files: notice_files), ..entries],
-            missing,
-          )
-      }
-  }
-}
-
 fn matched_archive_files(
   files: List(source_archive.ArchiveFile),
 ) -> List(source_archive.ArchiveFile) {
@@ -720,22 +873,20 @@ fn matched_archive_files(
 fn strip_common_archive_root(
   files: List(source_archive.ArchiveFile),
 ) -> List(source_archive.ArchiveFile) {
-  case common_archive_root(files) {
+  case common_archive_root(list.map(files, fn(file) { file.path })) {
     Ok(_) -> list.map(files, strip_archive_root)
     Error(Nil) -> files
   }
 }
 
-fn common_archive_root(
-  files: List(source_archive.ArchiveFile),
-) -> Result(String, Nil) {
-  case files {
+fn common_archive_root(paths: List(String)) -> Result(String, Nil) {
+  case paths {
     [] -> Error(Nil)
     [first, ..rest] ->
-      case archive_root_path(first.path) {
+      case archive_root_path(first) {
         ArchiveRootPath(root: root, path: _) -> {
           use <- bool.guard(
-            when: !list.all(rest, fn(file) { shares_archive_root(file, root) }),
+            when: !list.all(rest, fn(path) { shares_archive_root(path, root) }),
             return: Error(Nil),
           )
           Ok(root)
@@ -745,8 +896,8 @@ fn common_archive_root(
   }
 }
 
-fn shares_archive_root(file: source_archive.ArchiveFile, root: String) -> Bool {
-  case archive_root_path(file.path) {
+fn shares_archive_root(path: String, root: String) -> Bool {
+  case archive_root_path(path) {
     ArchiveRootPath(root: other, path: _) -> other == root
     NoArchiveRootPath -> False
   }
@@ -755,10 +906,13 @@ fn shares_archive_root(file: source_archive.ArchiveFile, root: String) -> Bool {
 fn strip_archive_root(
   file: source_archive.ArchiveFile,
 ) -> source_archive.ArchiveFile {
-  case archive_root_path(file.path) {
-    ArchiveRootPath(root: _, path: path) ->
-      source_archive.ArchiveFile(path: path, contents: file.contents)
-    NoArchiveRootPath -> file
+  source_archive.ArchiveFile(..file, path: strip_archive_root_path(file.path))
+}
+
+fn strip_archive_root_path(path: String) -> String {
+  case archive_root_path(path) {
+    ArchiveRootPath(root: _, path: path) -> path
+    NoArchiveRootPath -> path
   }
 }
 
@@ -842,26 +996,20 @@ fn matches_basename(name: String, bases: List(String)) -> Bool {
 
 /// Whether `files` already contain an actual licence-text file (LICENSE,
 /// LICENCE, or COPYING). A package whose source ships only a NOTICE file — or
-/// nothing — returns `False` and must obtain its licence via the fallback.
+/// nothing, or blank licence files — returns `False` and must use the fallback.
 pub fn has_licence_file(files: List(NoticeFile)) -> Bool {
-  list.any(files, fn(file) {
-    file.path
-    |> drop_optional_current_dir
-    |> basename
-    |> is_licence_basename
-  })
+  list.any(files, is_source_licence_file)
 }
 
 /// Keep only the licence-text files from a list, dropping ancillary NOTICE
 /// files. Used to lift a licence out of a fallback repository archive without
 /// pulling in that repo's own NOTICE.
 pub fn licence_files_only(files: List(NoticeFile)) -> List(NoticeFile) {
-  list.filter(files, fn(file) {
-    file.path
-    |> drop_optional_current_dir
-    |> basename
-    |> is_licence_basename
-  })
+  list.filter(files, is_source_licence_file)
+}
+
+fn is_source_licence_file(file: NoticeFile) -> Bool {
+  is_licence_basename(basename(file.path)) && has_text(file.contents)
 }
 
 /// Extract the licence-text files from a fallback repository's gzip tar
@@ -873,12 +1021,17 @@ pub fn repo_licence_files(
   bytes: BitArray,
 ) -> Result(List(NoticeFile), Error) {
   use files <- result.try(
-    source_archive.extract_tar_gz(bytes)
+    extract_notices(bytes, source_archive.extract_tar_gz_selected)
     |> result.map_error(fn(error) {
       ArchiveFailed(package_name, source_archive.describe_error(error))
     }),
   )
-  use notices <- result.try(notice_files_of(package_name, files))
+  use notices <- result.try(
+    list.try_map(files, to_notice_file)
+    |> result.map_error(fn(error) {
+      ArchiveFailed(package_name, source_archive.describe_error(error))
+    }),
+  )
   Ok(licence_files_only(notices))
 }
 
@@ -974,8 +1127,10 @@ fn ancillary_notice_entries(entries: List(NoticeEntry)) -> List(NoticeEntry) {
 
 fn is_licence_file(file: NoticeFile) -> Bool {
   let path = drop_optional_current_dir(file.path)
-  string.starts_with(path, "SPDX-License-List/")
-  || path |> basename |> is_licence_basename
+  is_source_licence_file(file)
+  || string.starts_with(path, "SPDX-License-List/")
+  && string.ends_with(path, ".txt")
+  && !matches_basename(basename(path), ["notice"])
 }
 
 fn render_licence_group(group: LicenceGroup) -> String {

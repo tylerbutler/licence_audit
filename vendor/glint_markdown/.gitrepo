@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/tylerbutler/glint_markdown.git
+	branch = main
+	commit = 9c66ec3a62e43c639b06c3dfa582f223fc2fef14
+	parent = b4f62c34adf8aa73465e6a3c25c4fb3869779414
+	method = merge
+	cmdver = 0.4.9

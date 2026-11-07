@@ -1,8 +1,8 @@
 # Gleam licence audit command-line tool
 
-# Persisted Hex licence metadata cache (DETS file). Kept in-repo so CI can
-# restore it between runs via actions/cache, cutting calls to the Hex API.
-hex_cache := ".hex-cache/hex-v2.dets"
+# Persisted package metadata cache path. Kept in-repo so CI can restore
+# .hex-cache/ between runs via actions/cache and avoid repeated downloads.
+hex_cache := ".hex-cache/hex-v2"
 
 # OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
@@ -26,17 +26,45 @@ default:
 deps:
     mise exec -- gleam deps download
 
+# === VENDORED SOURCES ===
+
+# Regenerate committed source copies after a git-subrepo update.
+vendor-sync:
+    mise exec -- python3 -B scripts/vendor_sync.py
+
+# Check source drift without changing files or fetching upstream repositories.
+vendor-check:
+    mise exec -- python3 -B scripts/vendor_sync.py --check
+
+vendor-test:
+    mise exec -- python3 -B -m unittest discover -s test -p vendor_sync_test.py
+
+# Verify notice staging, archive contents, and missing-material failures.
+test-release-notices:
+    mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
+
+# Verify release candidate preparation and automatic-push guards.
+test-release-pr:
+    mise exec -- python3 -B -m unittest discover -s test -p release_pr_test.py
+
+# Verify toolchain pin consistency without a network.
+test-build-inputs:
+    mise exec -- python3 -B -m unittest discover -s test -p build_inputs_test.py
+
+# Check the production application and the shipped escript.
+test-vendor-production: build
+    mise exec -- bash test/vendor_production.sh
+
 # === STANDARD RECIPES ===
 
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
-    mise exec -- gleam build
-    mise exec -- gleam run -m gleescript
+    mise exec -- gleam export escript
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
     mise exec -- gleam build --warnings-as-errors
-    mise exec -- gleam run -m gleescript
+    mise exec -- gleam export escript
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:
@@ -58,10 +86,29 @@ smoke-native-http binary:
 test:
     mise exec -- gleam test
 
+# Check notices filtering with real CLI cache settings in fresh Erlang VMs.
+test-notices-filter:
+    mise exec -- gleam build
+    mise exec -- bash test/notices_filter.sh
+
 # Test CLI application startup and failure diagnostics in fresh Erlang VMs.
 test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
+
+# Reproduce an interrupted update write in a fresh VM (Linux only).
+test-update-atomic:
+    mise exec -- gleam build
+    mise exec -- python3 -B test/update_atomic_write.py
+
+# Capture report and diagnostic streams from the built CLI independently.
+test-cli-streams: build
+    mise exec -- python3 -B test/cli_stream_test.py
+
+# Test Unicode environment conversion and ASCII cache paths in fresh VMs.
+test-env-cache-paths: build
+    mise exec -- gleam build
+    mise exec -- bash test/env_cache_paths.sh
 
 # Type check without producing artifacts
 check:
@@ -69,11 +116,11 @@ check:
 
 # Format code
 format:
-    mise exec -- gleam format src test
+    mise exec -- gleam format src test dev
 
 # Check formatting without making changes
 format-check:
-    mise exec -- gleam format --check src test
+    mise exec -- gleam format --check src test dev
 
 # Run the glinter linter (exits non-zero only on error-level rules)
 glint:
@@ -199,18 +246,38 @@ ort-clean:
 
 # === DOCS ===
 
-# Generate Markdown reference docs into ./docs and inject the topics index
-# into README.md between the <!-- commands --> sentinels.
-docs: build
-    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md
+_docs-ffi: build
+    mise exec -- gleam build
+    mise exec -- erlc -o build/dev/erlang/licence_audit/ebin native/dev/licence_audit/internal/vendor/licence_audit_vendor_glint_markdown_filesystem_ffi.erl
+
+# Generate marked CLI reference sections in the canonical website guides.
+docs: _docs-ffi
+    mise exec -- gleam run -m licence_audit/gen_docs
 
 # Fail if `just docs` would change anything on disk (use in CI to catch drift).
-docs-check: build
-    mise exec -- gleam run -m licence_audit/gen_docs -- --mode=multi --out=docs --readme=README.md --check
+docs-check: _docs-ffi
+    mise exec -- gleam run -m licence_audit/gen_docs -- --check
+
+# Exercise generator drift and failure handling in isolated guide copies.
+test-docs: _docs-ffi
+    mise exec -- python3 -B test/docs_generation.py
+
+# Install the website's locked dependencies.
+website-deps:
+    mise exec -- pnpm --dir website install --frozen-lockfile
+
+# Check Astro types and the website routing worker.
+website-check:
+    mise exec -- pnpm --dir website check
+    mise exec -- pnpm --dir website test
+
+# Build the static website without deploying it.
+website-build:
+    mise exec -- pnpm --dir website build
 
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor format-check glint check test test-runtime-startup build-strict docs-check sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
 
 alias pr := ci

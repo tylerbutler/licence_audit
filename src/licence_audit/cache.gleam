@@ -2,16 +2,12 @@
 ////
 //// Mutable Hex API entries are keyed by `name@version` and expire after seven
 //// days. Reproducible SBOM entries are keyed by an archive checksum or commit
-//// and never expire. The cache is purely an optimisation: any failure to open,
-//// read, or write falls back to the source fetcher and records a deferred
-//// warning so the caller can surface it after the audit finishes.
+//// and never expire. Returned storage errors fall back to the source fetcher
+//// and record a deferred warning. Use `--no-cache` to bypass the cache.
 
-import gleam/dynamic/decode
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/time/timestamp
-import slate
-import slate/set as dets_set
 
 import licence_audit/cache_dir
 import licence_audit/hex
@@ -26,71 +22,48 @@ pub type Mode {
   Disabled
 }
 
-/// Opaque cache handle. May or may not hold an open DETS table.
+/// Opaque cache handle. Holds a store when caching is enabled and available.
 pub opaque type Cache {
-  Cache(table: Option(dets_set.Set(String, String)), warning: Option(String))
+  Cache(table: Option(cache_dir.Store), warning: Option(String))
 }
 
 const cache_entry_ttl_seconds = 604_800
 
-const cached_at_prefix = "$cached_at:"
-
 /// On-disk cache format version. Bump on any incompatible change to the cached
 /// value shape (see `hex.encode_cache_entry`). The version is encoded into the
-/// cache filename so a file written by an older format is simply ignored rather
-/// than read back with the wrong decoder. `hex.decode_cache_entry` also treats
-/// any unparseable entry as a miss, so minor/forward-compatible drift self-heals
-/// without a bump — reserve bumps for changes that would mis-decode old data
-/// (v1 was a bare `List(String)` of licences; v2 is a JSON metadata object).
+/// cache directory name so data written by an older format is ignored
+/// rather than read back with the wrong decoder. `hex.decode_cache_entry` also
+/// treats any unparseable entry as a miss, so minor/forward-compatible drift
+/// self-heals without a bump — reserve bumps for changes that would mis-decode
+/// old data (v1 was a bare `List(String)` of licences; v2 is a JSON metadata
+/// object).
 const cache_format_version = 2
 
-fn cache_filename() -> String {
-  "hex-v" <> int.to_string(cache_format_version) <> ".dets"
+fn cache_directory() -> String {
+  "hex-v" <> int.to_string(cache_format_version)
 }
 
 /// Open a cache according to `mode`.
 ///
-/// Never returns an error. If the cache file can't be opened or the parent
-/// directory can't be created, the returned `Cache` is in a passthrough
-/// state and carries a deferred warning message accessible via `close`.
+/// Returns no error value. If the cache path cannot be prepared, the returned
+/// `Cache` bypasses storage and includes a deferred warning accessible via
+/// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
-      case cache_dir.resolve_path(path, cache_filename()) {
+      case cache_dir.open_table(path, cache_directory(), "licence") {
+        Ok(table) -> Cache(table: Some(table), warning: None)
         Error(error) ->
-          Cache(
-            table: None,
-            warning: Some(cache_dir.describe_path_error(error)),
-          )
-        Ok(resolved) ->
-          case cache_dir.ensure_parent_dir(resolved) {
-            Error(error) ->
-              Cache(
-                table: None,
-                warning: Some(cache_dir.describe_path_error(error)),
-              )
-            Ok(_) -> open_table(resolved)
-          }
+          Cache(table: None, warning: Some(cache_dir.describe_error(error)))
       }
   }
 }
 
-/// Close the cache (if open) and return any deferred warning.
-///
-/// The warning, if `Some`, describes the most recent non-fatal cache
-/// failure (open, write, or close). Callers should surface it as the
-/// last log entry of the run.
+/// Return the warning from opening the cache. Operations return their own
+/// warnings explicitly; no file remains open between operations.
 pub fn close(cache: Cache) -> Option(String) {
-  case cache.table {
-    None -> cache.warning
-    Some(table) ->
-      case dets_set.close(table) {
-        Ok(_) -> cache.warning
-        Error(error) ->
-          Some("Failed to close licence cache: " <> slate.error_message(error))
-      }
-  }
+  cache.warning
 }
 
 /// Build a fetcher that consults the cache before falling through to
@@ -113,8 +86,10 @@ pub fn wrap(
           )
         #(fetcher(package.name), reporter)
       }
-      Some(table) ->
-        case lookup_entry(table, key) {
+      Some(table) -> {
+        let #(cached, warning) = lookup_entry(table, key)
+        let reporter = defer_warning(reporter, warning)
+        case cached {
           Ok(metadata) -> {
             let reporter = progress.detail(reporter, "Cache hit for " <> key)
             #(Ok(metadata), reporter)
@@ -128,6 +103,7 @@ pub fn wrap(
             fetch_and_store(table, key, fetcher(package.name), reporter)
           }
         }
+      }
     }
   }
 }
@@ -137,20 +113,21 @@ pub fn wrap(
 /// A variant of `wrap` for callers that have no progress reporter to thread
 /// (e.g. the `notices` metadata lookup). Consults the cache, falls through to
 /// `fetcher` on a miss, best-effort writes successful results back, and falls
-/// back to a stale entry when the upstream fetch fails. All cache failures are
-/// silent: the cache is purely an optimisation.
+/// back to a stale entry when the upstream fetch fails. Storage failures return
+/// an optional warning without replacing the fetch result.
 pub fn fetch_cached_quiet(
   cache: Cache,
   name: String,
   version: String,
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-) -> Result(hex.PackageMetadata, hex.Error) {
+) -> #(Result(hex.PackageMetadata, hex.Error), Option(String)) {
   case cache.table {
-    None -> fetcher(name)
+    None -> #(fetcher(name), None)
     Some(table) -> {
       let key = name <> "@" <> version
-      case lookup_entry(table, key) {
-        Ok(metadata) -> Ok(metadata)
+      use cached <- cache_dir.with_warning(lookup_entry(table, key))
+      case cached {
+        Ok(metadata) -> #(Ok(metadata), None)
         Error(_) -> fetch_and_store_quiet(table, key, fetcher(name))
       }
     }
@@ -160,32 +137,31 @@ pub fn fetch_cached_quiet(
 /// Fetch immutable package metadata under a content-addressed key.
 ///
 /// Unlike normal Hex package metadata, these entries never expire because the
-/// key identifies a locked archive checksum or commit.
+/// key identifies a locked archive checksum or commit. The namespace version
+/// invalidates entries produced by the old, incomplete archive decoder.
 pub fn fetch_immutable(
   cache: Cache,
   key: String,
   fetcher: fn() -> Result(hex.PackageMetadata, error),
-) -> Result(hex.PackageMetadata, error) {
-  let key = "$immutable:" <> key
+) -> #(Result(hex.PackageMetadata, error), Option(String)) {
+  let key = "$immutable:v2:" <> key
   case cache.table {
-    None -> fetcher()
-    Some(table) ->
-      case lookup_stale(table, key) {
-        Ok(metadata) -> Ok(metadata)
+    None -> #(fetcher(), None)
+    Some(table) -> {
+      use cached <- cache_dir.with_warning(lookup_stale(table, key))
+      case cached {
+        Ok(metadata) -> #(Ok(metadata), None)
         Error(_) ->
           case fetcher() {
-            Error(error) -> Error(error)
+            Error(error) -> #(Error(error), None)
             Ok(metadata) -> {
-              let _ =
-                dets_set.insert(
-                  into: table,
-                  key: key,
-                  value: hex.encode_cache_entry(metadata),
-                )
-              Ok(metadata)
+              let stored =
+                cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
+              #(Ok(metadata), write_warning(stored))
             }
           }
       }
+    }
   }
 }
 
@@ -193,68 +169,62 @@ pub fn fetch_immutable(
 /// result and, on success, best-effort write it back to `table`. On failure,
 /// fall back to a stale cached entry if one is still present and decodable.
 fn fetch_and_store_quiet(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
   fetched: Result(hex.PackageMetadata, hex.Error),
-) -> Result(hex.PackageMetadata, hex.Error) {
+) -> #(Result(hex.PackageMetadata, hex.Error), Option(String)) {
   case fetched {
     Ok(metadata) -> {
-      store_quiet(table, key, metadata)
-      Ok(metadata)
+      #(Ok(metadata), write_warning(store_quiet(table, key, metadata)))
     }
-    Error(error) ->
-      case lookup_stale(table, key) {
-        Ok(metadata) -> Ok(metadata)
-        Error(_) -> Error(error)
+    Error(error) -> {
+      use cached <- cache_dir.with_warning(lookup_stale(table, key))
+      case cached {
+        Ok(metadata) -> #(Ok(metadata), None)
+        Error(_) -> #(Error(error), None)
       }
+    }
   }
 }
 
 fn store_quiet(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
   metadata: hex.PackageMetadata,
-) -> Nil {
-  let _ =
-    dets_set.insert(
-      into: table,
-      key: key,
-      value: hex.encode_cache_entry(metadata),
-    )
-  let _ =
-    dets_set.insert(
-      into: table,
-      key: cached_at_key(key),
-      value: int.to_string(now_seconds()),
-    )
-  Nil
+) -> Result(Nil, cache_dir.Error) {
+  cache_dir.insert_at(
+    table,
+    key,
+    hex.encode_cache_entry(metadata),
+    Some(now_seconds()),
+  )
 }
 
-/// Handle a cache miss: record the fetch result and, on success, best-effort
-/// write it back to `table`. Write failures are surfaced as a verbose detail
-/// event but never fail the fetch.
 fn lookup_entry(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
-) -> Result(hex.PackageMetadata, Nil) {
+) -> #(Result(hex.PackageMetadata, Nil), Option(String)) {
   // A stored value that no longer parses (e.g. partial format drift) is
   // reported as a miss so the caller refetches rather than failing.
-  case dets_set.lookup(from: table, key: key) {
-    Ok(encoded) ->
-      case hex.decode_cache_entry(encoded) {
+  case cache_dir.lookup_entry(table, key) {
+    Ok(entry) -> {
+      let metadata = case hex.decode_cache_entry(entry.value) {
         Error(_) -> Error(Nil)
         Ok(metadata) ->
-          case cache_entry_expired(table, key) {
+          case cache_entry_expired(entry.cached_at) {
             True -> Error(Nil)
             False -> Ok(metadata)
           }
       }
-    Error(_) -> Error(Nil)
+      #(metadata, None)
+    }
+    Error(error) -> #(Error(Nil), cache_dir.access_warning(error, "licence"))
   }
 }
 
+/// Record successful fetches without failing them on cache storage errors.
 fn fetch_and_store(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
   fetched: Result(hex.PackageMetadata, hex.Error),
   reporter: progress.Reporter,
@@ -262,29 +232,19 @@ fn fetch_and_store(
   case fetched {
     Error(error) -> fall_back_to_stale(table, key, error, reporter)
     Ok(metadata) -> {
-      let reporter = case
-        dets_set.insert(
-          into: table,
-          key: key,
-          value: hex.encode_cache_entry(metadata),
-        )
-      {
-        Ok(_) -> {
-          let _ =
-            dets_set.insert(
-              into: table,
-              key: cached_at_key(key),
-              value: int.to_string(now_seconds()),
-            )
+      let reporter = case store_quiet(table, key, metadata) {
+        Ok(_) ->
           progress.detail(reporter, "Cached licence metadata for " <> key)
-        }
         Error(error) ->
-          progress.detail(
-            reporter,
-            "Failed to write cache entry for "
-              <> key
-              <> ": "
-              <> slate.error_message(error),
+          defer_warning(
+            progress.detail(
+              reporter,
+              "Failed to write cache entry for "
+                <> key
+                <> ": "
+                <> cache_dir.describe_error(error),
+            ),
+            cache_dir.access_warning(error, "licence"),
           )
       }
       #(Ok(metadata), reporter)
@@ -299,12 +259,14 @@ fn fetch_and_store(
 /// makes the fallback visible. If no usable stale entry exists, the original
 /// fetch error is returned so the caller can surface its own warning.
 fn fall_back_to_stale(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
   error: hex.Error,
   reporter: progress.Reporter,
 ) -> #(Result(hex.PackageMetadata, hex.Error), progress.Reporter) {
-  case lookup_stale(table, key) {
+  let #(cached, warning) = lookup_stale(table, key)
+  let reporter = defer_warning(reporter, warning)
+  case cached {
     Ok(metadata) -> {
       let reporter =
         progress.defer_warn(
@@ -324,37 +286,37 @@ fn fall_back_to_stale(
 /// Read a cached entry ignoring its TTL. Returns `Error(Nil)` when the entry is
 /// absent or no longer decodable.
 fn lookup_stale(
-  table: dets_set.Set(String, String),
+  table: cache_dir.Store,
   key: String,
-) -> Result(hex.PackageMetadata, Nil) {
-  case dets_set.lookup(from: table, key: key) {
-    Ok(encoded) -> hex.decode_cache_entry(encoded)
-    Error(_) -> Error(Nil)
+) -> #(Result(hex.PackageMetadata, Nil), Option(String)) {
+  case cache_dir.lookup(table, key) {
+    Ok(encoded) -> #(hex.decode_cache_entry(encoded), None)
+    Error(error) -> #(Error(Nil), cache_dir.access_warning(error, "licence"))
   }
 }
 
-fn cache_entry_expired(
-  table: dets_set.Set(String, String),
-  key: String,
-) -> Bool {
-  case cached_at_seconds(table, key) {
-    Error(_) -> True
-    Ok(cached_at) -> now_seconds() - cached_at > cache_entry_ttl_seconds
+fn write_warning(result: Result(Nil, cache_dir.Error)) -> Option(String) {
+  case result {
+    Ok(Nil) -> None
+    Error(error) -> cache_dir.access_warning(error, "licence")
   }
 }
 
-fn cached_at_seconds(
-  table: dets_set.Set(String, String),
-  key: String,
-) -> Result(Int, Nil) {
-  case dets_set.lookup(from: table, key: cached_at_key(key)) {
-    Error(_) -> Error(Nil)
-    Ok(raw) -> int.parse(raw)
+fn defer_warning(
+  reporter: progress.Reporter,
+  warning: Option(String),
+) -> progress.Reporter {
+  case warning {
+    None -> reporter
+    Some(message) -> progress.defer_warn(reporter, message)
   }
 }
 
-fn cached_at_key(key: String) -> String {
-  cached_at_prefix <> key
+fn cache_entry_expired(cached_at: Option(Int)) -> Bool {
+  case cached_at {
+    None -> True
+    Some(seconds) -> now_seconds() - seconds > cache_entry_ttl_seconds
+  }
 }
 
 fn now_seconds() -> Int {
@@ -362,26 +324,6 @@ fn now_seconds() -> Int {
     timestamp.system_time()
     |> timestamp.to_unix_seconds_and_nanoseconds
   seconds
-}
-
-fn open_table(path: String) -> Cache {
-  let key_decoder = decode.string
-  let value_decoder = decode.string
-  case
-    dets_set.open(path, key_decoder: key_decoder, value_decoder: value_decoder)
-  {
-    Ok(table) -> Cache(table: Some(table), warning: None)
-    Error(error) ->
-      Cache(
-        table: None,
-        warning: Some(
-          "Unable to open licence cache at "
-          <> path
-          <> ": "
-          <> slate.error_message(error),
-        ),
-      )
-  }
 }
 
 fn cache_key(package: manifest.Package) -> String {

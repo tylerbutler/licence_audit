@@ -12,7 +12,7 @@ GHSA / CVE identifiers, a severity bucket, and a one-line summary. It does
 licence_audit vulns
 ```
 
-## What it reports
+## Report contents
 
 For each affected package, `vulns` shows its identifiers, severity, and a short
 summary. Severity is `critical`, `high`, `medium`, `low`, or `unknown`. The
@@ -20,14 +20,29 @@ command first reads `database_specific.severity` from OSV. If this value is not
 available, it uses the CVSS vector. The report ends with the numbers of checked,
 affected, and clean packages.
 
-The presence of a vulnerability does not cause `vulns` to fail. I/O, manifest,
-and network errors cause a failure. The command queries Hex and GitHub
-dependencies. It skips other sources and lists them at the end. The command
-gets advisories through HTTPS and does **not** cache them.
+A vulnerability does not make `vulns` fail. Exit codes:
+
+- `0`: the scan completes, with or without findings.
+- `2`: an input, configuration, manifest, or OSV batch network or decode
+  error.
+
+If the request for one advisory fails, the report keeps the advisory ID with
+unknown severity and a warning. The command still exits `0`. The severity is
+then incomplete.
+
+The command queries Hex and GitHub dependencies. It skips other sources and
+lists them at the end. It gets advisories through HTTPS and does **not** cache
+them.
+
+Hex queries identify the package and locked version. GitHub queries send the
+locked commit through OSV's `commit` field. Reports, scoped exceptions, and
+SBOM component references keep the GitHub purl. These query rules also apply
+to `check --vulns` and `sbom --vulns`.
 
 ## Reviewed advisory exceptions
 
-`vulns` reads `[tools.licence_audit]` from the project selected by `--manifest`.
+`vulns` uses [configuration discovery](/docs/configuration#discovery) to read
+`[tools.licence_audit]`.
 It shows matching advisory exceptions with their reasons and expiry dates,
 but keeps the advisories in the affected-package counts. An exception does
 not mean that a vulnerability has been fixed.
@@ -65,13 +80,30 @@ for configuration and override rules.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration, including advisory exceptions. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+`vulns` includes development dependencies by default. Use `--prod-only` to
+exclude them. OSV advisories are not cached; this command does not accept
+`--no-cache` or `--cache-path`.
+
+<!-- cli-reference -->
+Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --prod-only is set. Queries OSV directly and uses no on-disk cache.
+
+**Usage:**
+
+```
+licence_audit vulns [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+<!-- cli-referencestop -->
 
 [osv]: https://osv.dev/

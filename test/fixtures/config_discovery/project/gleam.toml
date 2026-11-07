@@ -1,0 +1,5 @@
+name = "project"
+
+[tools.licence_audit]
+allow = ["Apache-2.0"]
+deny = ["MIT"]

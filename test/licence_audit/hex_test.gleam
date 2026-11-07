@@ -4,6 +4,7 @@ import gleam/http/request
 import gleam/http/response.{Response}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleam/time/duration
 import gleam/time/timestamp
 import gleam/uri
@@ -13,11 +14,14 @@ import licence_audit/hex
 import licence_audit/httpc_adaptive
 import simplifile
 
-const british_licences_json = "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
+const british_licences_json =
+  "{\"name\":\"example\",\"meta\":{\"licences\":[\"BSD-3-Clause\"]}}"
 
-const missing_licences_json = "{\"name\":\"example\",\"meta\":{\"description\":\"Example package\"}}"
+const missing_licences_json =
+  "{\"name\":\"example\",\"meta\":{\"description\":\"Example package\"}}"
 
-const invalid_metadata_json = "{\"name\":\"example\",\"meta\":{\"licences\":\"MIT\"}}"
+const invalid_metadata_json =
+  "{\"name\":\"example\",\"meta\":{\"licences\":\"MIT\"}}"
 
 fn package_fixture() -> String {
   let assert Ok(contents) =
@@ -62,7 +66,7 @@ pub fn decode_archive_metadata_uses_immutable_fields_test() {
   should.equal(metadata.licences, ["Apache-2.0"])
   should.equal(
     metadata.description,
-    Some("Metadata from the locked Hex archive"),
+    Some("Metadata from the locked Hex archive 中文"),
   )
   should.equal(metadata.links, [
     #("Documentation", "https://hexdocs.pm/hex_dep"),
@@ -72,10 +76,25 @@ pub fn decode_archive_metadata_uses_immutable_fields_test() {
 }
 
 pub fn decode_archive_metadata_rejects_invalid_terms_test() {
-  should.equal(
-    hex.package_metadata_from_archive(<<"not erlang terms":utf8>>),
-    Error(Nil),
-  )
+  list.each([<<"not erlang terms":utf8>>, <<1:size(1)>>], fn(input) {
+    should.equal(hex.package_metadata_from_archive(input), Error(Nil))
+  })
+}
+
+pub fn decode_archive_metadata_preserves_source_link_order_test() {
+  let input =
+    "{<<\"licenses\">>, [<<\"MIT\">>]}.\n"
+    <> "{<<\"links\">>, ["
+    <> "{<<\"Website\">>, <<\"https://example.com\">>},"
+    <> "{<<\"Repository\">>, <<\"https://github.com/example/package\">>}"
+    <> "]}.\n"
+  let assert Ok(metadata) =
+    hex.package_metadata_from_archive(bit_array.from_string(input))
+
+  should.equal(metadata.links, [
+    #("Website", "https://example.com"),
+    #("Repository", "https://github.com/example/package"),
+  ])
 }
 
 pub fn decode_archive_metadata_converts_latin1_strings_test() {
@@ -86,6 +105,181 @@ pub fn decode_archive_metadata_converts_latin1_strings_test() {
   let assert Some(description) = metadata.description
 
   should.equal(bit_array.from_string(description), <<67, 97, 102, 195, 169>>)
+}
+
+pub fn decode_archive_metadata_preserves_binary_literals_test() {
+  list.each(
+    [
+      #("<<\"\\x{4E2D}\\x{6587}\"/utf8>>", "中文"),
+      #("<<\"中文\"/utf8>>", "中文"),
+      #("<<228,184,173,230,150,135>>", "中文"),
+      #("<<\"M\",73,\"T\">>", "MIT"),
+      #("<<67,97,102,233>>", "Café"),
+      #("<<\"Caf\\351\"/utf8>>", "Café"),
+      #("<<\"\\x4D\\111\\^T\">>", "MI\u{14}"),
+      #(
+        "<<\"\\b\\d\\e\\f\\n\\r\\s\\t\\v\">>",
+        "\u{8}\u{7F}\u{1B}\u{C}\n\r \t\u{B}",
+      ),
+      #("<<\"\\^@\\^a\\^Z\\^?\">>", "\u{0}\u{1}\u{1A}\u{7F}"),
+      #("<<\"\\a\\8\\\\\">>", "a8\\"),
+      #("<<195,169,233>>", "Ã©é"),
+      #("<<>>", ""),
+      #("<<\"a]}.b,\\\"c\">>", "a]}.b,\"c"),
+    ],
+    fn(test_case) {
+      let #(literal, expected) = test_case
+      let input =
+        "{<<\"licenses\">>, ["
+        <> literal
+        <> "]}.\n"
+        <> "{<<\"description\">>, "
+        <> literal
+        <> "}.\n"
+        <> "{<<\"links\">>, [{"
+        <> literal
+        <> ", "
+        <> literal
+        <> "}]}.\n"
+      let assert Ok(metadata) =
+        hex.package_metadata_from_archive(bit_array.from_string(input))
+      should.equal(metadata.licences, [expected])
+      should.equal(metadata.description, Some(expected))
+      should.equal(metadata.links, [#(expected, expected)])
+    },
+  )
+}
+
+pub fn decode_archive_metadata_rejects_unsupported_binary_forms_test() {
+  list.each(
+    [
+      "<<256>>",
+      "<<1:16>>",
+      "<<65/integer>>",
+      "<<65/utf8>>",
+      "<<\"MIT\"/utf16>>",
+      "<<\"\\x{4E2D}\">>",
+      "<<\"\\x{D800}\"/utf8>>",
+      "<<\"\\x{FFFE}\"/utf8>>",
+      "<<\"\\x{FFFF}\"/utf8>>",
+      "<<\"\\x{110000}\"/utf8>>",
+      "<<\"\\x{}\"/utf8>>",
+      "<<\"\\x4\"/utf8>>",
+      "<<\"\\xGG\"/utf8>>",
+      "<<\"\\^1\">>",
+      "<<\"\\^`\">>",
+      "<<\"\\400\">>",
+      "<<\"MIT\",>>",
+      "<<16#4D,16#49,16#54>>",
+      "<<unknown_atom>>",
+      "not_a_binary",
+    ],
+    fn(literal) {
+      list.each(["licenses", "description", "links"], fn(field) {
+        let value = case field {
+          "licenses" -> "[" <> literal <> "]"
+          "links" -> "[{<<\"Repository\">>, " <> literal <> "}]"
+          _ -> literal
+        }
+        let input = case field {
+          "licenses" -> ""
+          _ -> "{<<\"licenses\">>, [<<\"MIT\">>]}.\n"
+        }
+        should.equal(
+          hex.package_metadata_from_archive(bit_array.from_string(
+            input <> "{<<\"" <> field <> "\">>, " <> value <> "}.\n",
+          )),
+          Error(Nil),
+        )
+      })
+    },
+  )
+}
+
+pub fn decode_archive_metadata_validates_unused_terms_and_comments_test() {
+  let input =
+    "% before fields
+{<<\"licenses\">>, [% before licence
+<<\"MIT\">>]}.
+{<<\"description\">>, <<\"not % a comment\">>}.
+{<<\"unused\">>, [an_atom@host, 123, {[], \"\\777\"}]}.
+% final comment without a newline"
+  should.equal(
+    hex.package_metadata_from_archive(bit_array.from_string(input)),
+    Ok(hex.PackageMetadata(
+      licences: ["MIT"],
+      description: Some("not % a comment"),
+      links: [],
+      publisher: None,
+    )),
+  )
+  list.each(["[1,]", "\"\\x{D800}\"", "-1", "1.5", "'quoted_atom'"], fn(value) {
+    should.equal(
+      hex.package_metadata_from_archive(bit_array.from_string(
+        "{<<\"licenses\">>, []}.{<<\"unused\">>, " <> value <> "}.",
+      )),
+      Error(Nil),
+    )
+  })
+}
+
+pub fn decode_archive_metadata_enforces_resource_limits_test() {
+  let fields = "{<<\"licenses\">>, []}.\n"
+  should.equal(
+    hex.package_metadata_from_archive(bit_array.from_string(
+      fields <> string.repeat(" ", 1_048_576 - string.byte_size(fields)),
+    )),
+    Ok(hex.licences_only([])),
+  )
+  should.equal(
+    hex.package_metadata_from_archive(bit_array.from_string(
+      fields
+      <> "{<<\"nested\">>, "
+      <> string.repeat("[", 64)
+      <> string.repeat("]", 64)
+      <> "}.\n",
+    )),
+    Ok(hex.licences_only([])),
+  )
+  list.each(
+    [
+      fields <> string.repeat(" ", 1_048_577 - string.byte_size(fields)),
+      "{<<\"licenses\">>, []}.\n{<<\"nested\">>, "
+        <> string.repeat("[", 65)
+        <> string.repeat("]", 65)
+        <> "}.\n",
+    ],
+    fn(input) {
+      should.equal(
+        hex.package_metadata_from_archive(bit_array.from_string(input)),
+        Error(Nil),
+      )
+    },
+  )
+}
+
+pub fn decode_archive_metadata_does_not_extract_partial_fields_test() {
+  list.each(
+    [
+      "{<<\"licenses\">>, [<<\"MIT\">>, unsupported]}.\n",
+      "{<<\"licenses\">>, [<<\"MIT\">>,]}.\n",
+      "{<<\"licenses\">>, []}.\n{<<\"description\">>, <<\"ok\">>, extra}.\n",
+      "{<<\"licenses\">>, []}.\n{<<\"links\">>, [{<<\"ok\">>, <<\"url\">>}, unsupported]}.\n",
+      "{<<\"licenses\">>, []}.\n{<<\"licenses\">>, [<<\"MIT\">>]}.\n",
+      "{<<\"licenses\">>, []}. trailing",
+      "{<<\"licenses\">>, []}",
+      "{<<\"licenses\">>, []}.{<<\"links\">>, [{<<\"url\">>}]}.\n",
+      "{<<\"licenses\">>, []}.{<<\"description\">>, \"not a binary\"}.\n",
+      "{<<\"licenses\">>, []}.{<<\"links\">>, {}}.\n",
+      "{<<\"licenses\">>, []}.{\"not a binary key\", []}.\n",
+    ],
+    fn(input) {
+      should.equal(
+        hex.package_metadata_from_archive(bit_array.from_string(input)),
+        Error(Nil),
+      )
+    },
+  )
 }
 
 pub fn cache_entry_round_trips_full_metadata_test() {
@@ -202,6 +396,10 @@ pub fn http_failures_include_request_and_connection_details_test() {
         "HTTP request timed out after 5000 ms (HTTP client did not report which stage timed out)",
       ),
       #(httpc_adaptive.InvalidUtf8Response, "response body was not valid UTF-8"),
+      #(
+        httpc_adaptive.RequestFailed("socket_closed_remotely"),
+        "HTTP request failed: socket_closed_remotely",
+      ),
       #(
         httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)"),
         "connection setup failed: IPv4: DNS lookup failed (nxdomain)",

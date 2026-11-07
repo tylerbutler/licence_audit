@@ -184,7 +184,7 @@ dark terminal palette. All values are OKLCH; hues stay in the plum/pink band
 - **Border / Border-strong** (`oklch(0.905 0.008 340)` / `0.83`): hairlines and stronger dividers.
 
 ### Terminal palette
-- **Terminal BG / Bar / Border** (`oklch(0.215 0.022 320)` / `0.275` / `0.33`): the dark surface, its title bar, and its edges — a deep plum-near-black, the brand hue carried into the dark.
+- **Terminal BG / Bar / Border** (`oklch(0.215 0.022 320)` / `0.275` / `0.33`): the dark surface, its title bar, and its edges — a deep plum-near-black that extends the brand hue into the dark.
 - **Terminal FG / Dim** (`oklch(0.925 0.008 320)` / `0.68`): main output text and tree lines / comments.
 
 ### Named Rules
@@ -193,7 +193,7 @@ CLI. Never use deny-red decoratively or pass-green for a non-passing thing; the
 palette is documentation, so keep it honest.
 
 **The Pink-Nod Rule.** Pink signals kinship with Gleam, never identity theft. It
-carries accents, one CTA field, and the mark — never a drenched surface.
+appears in accents, one CTA field, and the mark — never across a drenched surface.
 
 **The One-Terminal Rule.** There is exactly one family of dark surface: the
 terminal (hero, Expressive Code blocks). Everything else is flat and light.
@@ -205,7 +205,7 @@ terminal (hero, Expressive Code blocks). Everything else is flat and light.
 **Mono Font:** JetBrains Mono Variable (with `ui-monospace` fallback)
 
 **Character:** A soft, characterful display serif (Fraunces — with its `opsz`,
-`SOFT`, and `WONK` axes) carries the brand voice and headings; a clean, neutral
+`SOFT`, and `WONK` axes) expresses the brand voice in headings; a clean, neutral
 humanist sans (Hanken) does the reading work — a deliberate expressive-serif /
 neutral-sans contrast that reads crafted and honest, not generic-SaaS. Monospace
 appears only where output, commands, and code are literal — it is honest here,
@@ -289,7 +289,7 @@ single sanctioned exception; depth elsewhere is tone and spacing, not shadow.
 
 ### Don't:
 - **Don't** build a generic SaaS landing page: no gradient hero, no three identical feature cards, no big-number stat band, no purple-blue gradients.
-- **Don't** reach for the corporate enterprise-security look: no navy-and-gold compliance theatre, no stock photos of locks or shields, no fear-based selling.
+- **Don't** use the corporate enterprise-security look: no navy-and-gold compliance theatre, no stock photos of locks or shields, no fear-based selling.
 - **Don't** let pink drench the surface or impersonate Gleam's identity — it's an accent and a nod.
 - **Don't** use a warm-tinted cream/sand background; the ground is a calm, true off-white (`oklch(0.985 0.004 340)`).
 - **Don't** use monospace as shorthand for "technical." If it isn't real code or output, it's the sans.

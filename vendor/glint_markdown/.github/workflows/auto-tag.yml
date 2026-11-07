@@ -1,0 +1,37 @@
+name: Auto-tag release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trellis-release-tags
+  cancel-in-progress: false
+
+jobs:
+  auto-tag:
+    if: >-
+      github.event.pull_request.merged == true
+      && github.event.pull_request.head.ref == 'release/pending'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Setup mise
+        uses: jdx/mise-action@5083fe46898c414b2475087cc79da59e7da859e8 # ratchet:jdx/mise-action@v3
+
+      - name: Check release configuration
+        run: just doctor
+
+      - name: Create tags and GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mise exec -- trellis tag create --github-release

@@ -211,7 +211,7 @@ fn api_request(host: String, path: String) -> Request(String) {
 }
 
 /// Decode a commit-resolution response body into a commit SHA. Returns
-/// `Error(Nil)` when the body does not carry the provider's SHA field (e.g. a
+/// `Error(Nil)` when the body does not contain the provider's SHA field (e.g. a
 /// 404 body or malformed JSON), which the caller treats as "tag not found".
 pub fn decode_commit(repo: Repository, body: String) -> Result(String, Nil) {
   json.parse(body, commit_decoder(repo.provider))

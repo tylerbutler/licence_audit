@@ -4,7 +4,7 @@
 Download the self-contained archive for your platform, extract it, and place
 `licence_audit` somewhere on your `PATH`. These Queso-built executables bundle
 the Erlang runtime, so Erlang/OTP does not need to be installed on the target
-machine.
+machine. Use these native binaries for CI to avoid a separate OTP requirement.
 
 Windows ARM64 (`aarch64-windows`) is not published yet because Queso requires an
 explicit Windows ARM64 ERTS and there is no trustworthy pinned prebuilt OTP 28
@@ -33,7 +33,17 @@ Expand-Archive licence_audit.zip -DestinationPath .
 ### Escript compatibility install
 
 The release also keeps the original escript archive and bare `licence_audit`
-escript. The escript runs on any platform with Erlang/OTP 28.x or newer.
+escript. **The escript needs Erlang/OTP 28 or later for all commands.** On
+OTP 27, the VM can fail to load it with `corrupt atom table` and exit `127`,
+before any command runs. This unsupported-runtime failure is outside the
+[CLI exit-code contract](https://licence-audit.tylerbutler.com/docs/compatibility#exit-codes-and-output-streams).
+
+The bare download embeds `LICENSE`, `NOTICE`, and dependency notices under
+`META-INF/licenses/` in its ZIP payload. It does not bundle Erlang/OTP.
+
+Keep the licence and notice files when you redistribute an extracted archive.
+Native archives also include `runtime-notices/` for the bundled OTP runtime,
+Queso launcher, and native components.
 
 ```sh
 curl -fsSL -o licence_audit-escript.tar.gz \

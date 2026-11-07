@@ -97,7 +97,8 @@ note = \"leave me alone\"
   should.be_true(string.contains(after_both, "\"GPL-3.0\""))
 }
 
-const packages_doc = "packages = [
+const packages_doc =
+  "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
   { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [] },
 ]

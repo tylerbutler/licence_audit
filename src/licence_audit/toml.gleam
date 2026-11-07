@@ -5,8 +5,10 @@
 
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
 import tomlet.{type Value}
+import william
 
 pub type Error {
   TomlError(message: String)
@@ -34,18 +36,65 @@ pub type TableLookupError {
 
 /// Parse TOML source, collapsing tomlet's rich parse error to `Error(Nil)`.
 pub fn parse(input: String) -> Result(Document, Nil) {
-  case tomlet.parse(input) {
-    Ok(doc) -> Ok(doc)
-    Error(_) -> Error(Nil)
+  tomlet.parse(input) |> result.replace_error(Nil)
+}
+
+/// Read a value at a document path, including tables.
+pub fn get(doc: Document, path: List(String)) -> Result(Value, Nil) {
+  tomlet.get(doc, path) |> result.replace_error(Nil)
+}
+
+/// Enumerate explicit table paths, including empty descendants hidden by get.
+pub fn table_headers(doc: Document) -> Result(List(List(String)), Nil) {
+  // Use Tomlet's lexer so comments, strings, and arrays cannot become headers.
+  william.tokenise(william.new(), tomlet.to_string(doc))
+  |> collect_table_headers
+}
+
+fn collect_table_headers(
+  tokens: List(william.Token),
+) -> Result(List(List(String)), Nil) {
+  case tokens {
+    [] -> Ok([])
+    [william.OpenTable, ..rest] | [william.OpenArrayTable, ..rest] -> {
+      use #(path, rest) <- result.try(table_header_path(rest, []))
+      use headers <- result.try(collect_table_headers(rest))
+      Ok([path, ..headers])
+    }
+    [_, ..rest] -> collect_table_headers(rest)
+  }
+}
+
+fn table_header_path(
+  tokens: List(william.Token),
+  reversed: List(String),
+) -> Result(#(List(String), List(william.Token)), Nil) {
+  case tokens {
+    [william.CloseTable, ..rest] | [william.CloseArrayTable, ..rest] ->
+      Ok(#(list.reverse(reversed), rest))
+    [william.BareKey(key), ..rest] -> table_header_path(rest, [key, ..reversed])
+    [william.String(_, _) as token, ..rest] -> {
+      use quoted <- result.try(
+        tomlet.parse("[header]\n" <> william.to_source([token]) <> " = true\n")
+        |> result.replace_error(Nil),
+      )
+      use keys <- result.try(
+        tomlet.table_keys(quoted, ["header"]) |> result.replace_error(Nil),
+      )
+      case keys {
+        [key] -> table_header_path(rest, [key, ..reversed])
+        _ -> Error(Nil)
+      }
+    }
+    [william.Dot, ..rest] | [william.Whitespace(_), ..rest] ->
+      table_header_path(rest, reversed)
+    _ -> Error(Nil)
   }
 }
 
 /// Read a top-level (or path-addressed) string scalar.
 pub fn get_string(doc: Document, path: List(String)) -> Result(String, Nil) {
-  case tomlet.get_string(doc, path) {
-    Ok(value) -> Ok(value)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.get_string(doc, path) |> result.replace_error(Nil)
 }
 
 /// Read the array at `path` as its item values.
@@ -69,11 +118,7 @@ pub fn get_table(
 ) -> Result(Entry, TableLookupError) {
   case tomlet.get(doc, path) {
     Error(_) -> Error(TableLookupMissing)
-    Ok(value) ->
-      case as_table(value) {
-        Ok(entries) -> Ok(entries)
-        Error(_) -> Error(TableLookupNotTable)
-      }
+    Ok(value) -> as_table(value) |> result.replace_error(TableLookupNotTable)
   }
 }
 
@@ -83,34 +128,22 @@ pub fn table_keys(
   doc: Document,
   path: List(String),
 ) -> Result(List(String), Nil) {
-  case tomlet.table_keys(doc, path) {
-    Ok(keys) -> Ok(keys)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.table_keys(doc, path) |> result.replace_error(Nil)
 }
 
 /// Look up a simple (single-segment) field within a table's entries.
 pub fn field(entry: Entry, name: String) -> Result(Value, Nil) {
-  case list.find(entry, fn(pair) { pair.0 == [name] }) {
-    Ok(pair) -> Ok(pair.1)
-    Error(_) -> Error(Nil)
-  }
+  list.key_find(entry, [name])
 }
 
 /// Value -> String.
 pub fn as_string(value: Value) -> Result(String, Nil) {
-  case tomlet.as_string(value) {
-    Ok(s) -> Ok(s)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.as_string(value) |> result.replace_error(Nil)
 }
 
 /// Value -> Bool.
 pub fn as_bool(value: Value) -> Result(Bool, Nil) {
-  case tomlet.as_bool(value) {
-    Ok(value) -> Ok(value)
-    Error(_) -> Error(Nil)
-  }
+  tomlet.as_bool(value) |> result.replace_error(Nil)
 }
 
 /// Value -> array item list.

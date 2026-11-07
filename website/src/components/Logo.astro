@@ -3,18 +3,17 @@
  * licence_audit logo.
  * The mark: a rounded "package" with a checkmark — a verified dependency.
  * Warm pink (a nod to Gleam) with a round-capped, slightly jaunty check.
- * variant="full" adds the wordmark, with the underscore picked out in pink
+ * The wordmark has the underscore picked out in pink
  * (the name is a literal command, so the mono-flavoured underscore is honest).
  */
 interface Props {
   size?: number;
-  variant?: "mark" | "full";
   class?: string;
 }
-const { size = 30, variant = "full", class: klass } = Astro.props;
+const { size = 30, class: klass } = Astro.props;
 ---
 
-<span class:list={["logo", klass]} data-variant={variant}>
+<span class:list={["logo", klass]}>
   <svg
     class="logo__mark"
     width={size}
@@ -22,8 +21,7 @@ const { size = 30, variant = "full", class: klass } = Astro.props;
     viewBox="0 0 32 32"
     fill="none"
     role="img"
-    aria-label={variant === "mark" ? "licence_audit" : undefined}
-    aria-hidden={variant === "full" ? "true" : undefined}
+    aria-hidden="true"
   >
     <rect x="2" y="2" width="28" height="28" rx="8.5" fill="var(--pink)"></rect>
     <path
@@ -34,13 +32,9 @@ const { size = 30, variant = "full", class: klass } = Astro.props;
       stroke-linejoin="round"
     ></path>
   </svg>
-  {
-    variant === "full" && (
-      <span class="logo__word">
-        licence<span class="logo__us">_</span>audit
-      </span>
-    )
-  }
+  <span class="logo__word">
+    licence<span class="logo__us">_</span>audit
+  </span>
 </span>
 
 <style>

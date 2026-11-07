@@ -67,6 +67,9 @@ type WorkerMessage {
   WorkerDown
 }
 
+// process.spawn links failures to the caller; spawn_unlinked then monitor can
+// miss the worker's exit reason. Create the unlinked worker and monitor together
+// so terminal cleanup still runs if the worker fails.
 @external(erlang, "erlang", "spawn_monitor")
 fn spawn_monitor(running: fn() -> anything) -> #(process.Pid, process.Monitor)
 

@@ -10,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri
+import licence_audit/hex_metadata
 import licence_audit/httpc_adaptive
 
 const request_timeout_ms = 5000
@@ -30,7 +31,7 @@ pub type PackageMetadata {
   )
 }
 
-/// Construct metadata carrying only licences, with no description, links, or
+/// Construct metadata that contains only licences, with no description, links, or
 /// publisher. Used where only licence policy matters (the `check`/`update`
 /// paths) and by tests that don't exercise SBOM enrichment.
 pub fn licences_only(licences: List(String)) -> PackageMetadata {
@@ -46,18 +47,15 @@ pub type Error {
   NetworkFailure(reason: String)
 }
 
-@external(erlang, "hex_metadata_ffi", "decode")
-fn decode_archive_metadata(
-  input: BitArray,
-) -> Result(#(List(String), Option(String), List(#(String, String))), Nil)
-
 /// Decode the immutable `metadata.config` stored in a Hex package tarball.
+/// Accept byte strings, quoted `/utf8` strings, decimal byte segments, and
+/// mixtures of these binary segments. Reject unsupported literals or malformed
+/// fields instead of omitting metadata. Input is limited to 1 MiB and 64 nested
+/// containers; atoms are never interned.
 pub fn package_metadata_from_archive(
   input: BitArray,
 ) -> Result(PackageMetadata, Nil) {
-  use #(licences, description, links) <- result.try(decode_archive_metadata(
-    input,
-  ))
+  use #(licences, description, links) <- result.try(hex_metadata.decode(input))
   Ok(PackageMetadata(licences:, description:, links:, publisher: None))
 }
 
@@ -137,6 +135,7 @@ fn describe_http_error(error: httpc_adaptive.Error) -> String {
       <> " ms (HTTP client did not report which stage timed out)"
     httpc_adaptive.FailedToConnect(reason) ->
       "connection setup failed: " <> reason
+    httpc_adaptive.RequestFailed(reason) -> "HTTP request failed: " <> reason
   }
 }
 
