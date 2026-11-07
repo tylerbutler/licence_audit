@@ -117,6 +117,12 @@ locked commit. It omits mutable Hex publisher data, uses a content hash for
 the variable is not set. The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
 
+Locked source archives use the same [archive limits as `notices`](/docs/notices#source-archive-limits):
+64 MiB per download and 256 MiB of tar data per extraction, including Hex's
+outer and inner archives. Archives at the limits are accepted. An oversized
+download or invalid archive exits `2` when locked metadata is required.
+The limits apply to archive sizes, not total VM memory.
+
 The command reuses the shared [metadata cache](/docs/#caching). Entries from
 locked archives do not expire. Use `--cache-path=DIR` to override the cache
 directory, or `--no-cache` to fetch the metadata again.

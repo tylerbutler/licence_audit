@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Limit source archives used by `notices` and reproducible `sbom` metadata to 64 MiB per download and 256 MiB of tar data per extraction. Stop oversized downloads and gzip inflation before collecting the full archive."
