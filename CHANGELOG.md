@@ -1,5 +1,19 @@
 # licence_audit changelog
 
+## v1.0.0-rc.1 - 2026-11-08
+
+### Breaking
+
+- Declare the `licence_audit` CLI stable with the 1.0 release.
+
+### Fixed
+
+- Correct production dependency scope in check, SBOM, notices, and vulns when gleam.toml has no dependencies table; reject invalid or unreadable scope configuration while retaining the missing-file fallback.
+- Decode TOML string escapes in project metadata and preserve array comments when `update` edits policies, including exceptions-only and inline-table configurations.
+- Limit source archives used by `notices` and reproducible `sbom` metadata to 64 MiB per download and 256 MiB of tar data per extraction. Stop oversized downloads and gzip inflation before collecting the full archive.
+- Make `notices` use the same SPDX expression syntax as `check`: handle tabs and line breaks correctly and reject malformed expressions before requesting canonical licence text.
+- Respect Git dependency package subdirectories in `sbom --reproducible` metadata and `notices` licence lookups, cache keys, and SBOM package URLs.
+
 ## v1.0.0-rc.0 - 2026-11-07
 
 ### Breaking
