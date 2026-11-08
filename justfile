@@ -43,6 +43,10 @@ vendor-test:
 test-release-notices:
     mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
 
+# Check native release preparation against local Git and a mock GitHub API.
+test-release-pr:
+    mise exec -- python3 -B -m unittest discover -s test -p release_pr_test.py
+
 # Check the production application and the shipped escript.
 test-vendor-production: build
     mise exec -- bash test/vendor_production.sh
@@ -136,12 +140,19 @@ change kind body:
     mise exec -- trellis changelog new --kind {{quote(kind)}} --body {{quote(body)}}
 
 # Preview pending version changes
-changelog-preview:
-    mise exec -- trellis version plan
+[positional-arguments]
+changelog-preview *args:
+    mise exec -- trellis version plan "$@"
 
 # Apply pending versions and regenerate CHANGELOG.md
-changelog:
-    mise exec -- trellis version apply
+[positional-arguments]
+changelog *args:
+    mise exec -- trellis version apply "$@"
+
+# Prepare or resume release/pending (pushes a branch and creates/updates its PR).
+[positional-arguments]
+release-pr *args:
+    mise exec -- trellis release pr --base main --branch release/pending "$@"
 
 # Check Trellis workspace, changelog, version, and tag invariants
 doctor:
