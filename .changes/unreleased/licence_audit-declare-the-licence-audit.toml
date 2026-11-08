@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Breaking"
-body = "Declare the `licence_audit` CLI stable with the 1.0 release."
