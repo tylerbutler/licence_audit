@@ -52,15 +52,33 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           INPUT_PRE: ${{ inputs.pre }}
           INPUT_VERSION: ${{ inputs.version }}
-        run: mise exec -- python3 -B scripts/release_pr.py
-
-      - name: Refresh generated release files
-        if: steps.prepare.outputs.prepared == 'true'
         run: |
           set -euo pipefail
-          if ! git ls-remote --exit-code --heads origin release/pending >/dev/null; then
-            exit 0
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "Run release preparation on main." >&2
+            exit 1
           fi
+          args=(--base main --branch release/pending --github-output)
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            shopt -s extglob
+            INPUT_PRE="${INPUT_PRE##+([[:space:]])}"
+            INPUT_PRE="${INPUT_PRE%%+([[:space:]])}"
+            INPUT_VERSION="${INPUT_VERSION##+([[:space:]])}"
+            INPUT_VERSION="${INPUT_VERSION%%+([[:space:]])}"
+            args+=(--no-resume --no-auto-pre --no-skip-unchanged)
+            if [[ -n "$INPUT_PRE" ]]; then
+              args+=(--pre "$INPUT_PRE")
+            fi
+            if [[ -n "$INPUT_VERSION" ]]; then
+              args+=(--set "licence_audit=$INPUT_VERSION")
+            fi
+          fi
+          mise exec -- trellis release pr "${args[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh generated release files
+        if: steps.prepare.outputs.outcome == 'prepared'
+        run: |
+          set -euo pipefail
           git fetch origin release/pending
           git switch -C release/pending origin/release/pending
           just sbom-generate notices

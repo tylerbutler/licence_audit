@@ -323,6 +323,7 @@ just change Fixed "Fix ..."                # create a changelog fragment
 just changelog-preview                    # preview pending version changes
 just changelog                            # apply versions and regenerate changelogs
 just doctor                               # check workspace and release invariants
+just test-release-pr                      # check release tooling without GitHub writes
 ```
 
 Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
@@ -335,27 +336,71 @@ To prepare `1.0.0-rc.0`, dispatch the release workflow on `main`:
 gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
 ```
 
-After the candidate PR merges, new or changed fragments on `main` open the
-next candidate PR automatically. Trellis keeps the fragments unreleased
-during the candidate cycle. To promote the candidate to `1.0.0`, dispatch:
+After the candidate PR merges, new or changed fragments and release-owned
+source changes on `main` can open the next candidate PR. Trellis 1.3.0 archives
+candidate fragments in `.changes/licence_audit/v<prerelease>.toml` and removes
+them from `unreleased`. Each later candidate includes only new changes.
+To promote the candidate to `1.0.0`, dispatch:
 
 ```sh
 gh workflow run release.yml --ref main -f pre=none
 ```
 
-Promotion consumes the fragments. After the promotion PR merges, pushes
-resume the normal stable release flow. Manual dispatch is needed only to
-enter a candidate cycle or promote it; leave both inputs empty to manually
-prepare a normal stable release.
+Promotion combines the target version's candidate archives with any remaining
+fragments into the stable release notes. Keep the generated archives and
+`.changes/release.toml` intent file committed with release files. After the
+promotion PR merges, pushes resume the normal stable release flow. Use manual
+dispatch to enter a candidate cycle or promote it. Leave both inputs empty to
+prepare a normal stable release when `main` is stable. Empty inputs on a
+candidate fail with a request to use `pre=none`; they do not promote it.
 
-Automatic pushes update an open release PR while preserving its target
-version and mode, including a pending promotion. Candidate updates include
-all retained fragments, but retained fragments alone do not open another
-PR after a candidate merges: preparation compares fragments with the commit
-that last changed the package version, not with a tag that might not exist
-yet. Closed release PRs and leftover release branches do not set the mode.
-Manual runs can replace the pending release request. Release preparation
-runs one job at a time.
+The `[tools.trellis.release]` defaults enable `resume`, `auto_pre`, and
+`skip_unchanged`. Automatic pushes preserve an open release PR's original target
+and mode, including a pending promotion. Without a pending PR, Trellis continues
+the committed candidate label and skips unchanged release content. Its content
+check includes pending fragments and release-owned `gleam.toml`, `src/`, and
+`priv/` files. Unrelated docs and excluded examples do not trigger a candidate.
+Closed PRs and leftover release branches do not supply pending intent.
+
+Manual runs disable those defaults and replace the pending request with the
+supplied inputs. Release preparation runs one job at a time. The workflow
+appends Trellis's `--github-output` records to `$GITHUB_OUTPUT` and refreshes
+the SBOM and notices only for `outcome=prepared`. `unchanged` and `no_changes`
+skip that work; invalid intent and other errors fail the job.
+
+Preview candidate or promotion plans without GitHub writes:
+
+```sh
+just changelog-preview --pre rc --set licence_audit=1.0.0
+just changelog-preview --pre none
+```
+
+`just release-pr` uses the same native defaults as automatic pushes. It pushes
+`release/pending` and creates or updates its PR. To replace a request locally,
+pass `--no-resume --no-auto-pre --no-skip-unchanged` and the desired `--pre` and
+`--set` options. Direct `just changelog` applies versions to the local checkout;
+it does not use release-PR continuation defaults.
+
+### Migrating a pending Trellis 1.2 release
+
+Trellis 1.3.0 cannot resume an open PR created without native release intent.
+Automatic preparation fails until an operator replaces that request or
+merges/closes its PR. At upgrade time, release PR
+[#239](https://github.com/tylerbutler/licence_audit/pull/239) targeted
+`1.0.0-rc.1` without `.changes/release.toml`. Check the current PR and target
+before using this one-time replacement:
+
+```sh
+gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
+```
+
+The manual workflow disables resume and unchanged-content skipping, then writes
+native intent for subsequent pushes. Do not edit the intent file by hand.
+The first native candidate can include retained legacy fragments; Trellis does
+not split historical cumulative notes into incremental archives. Later
+candidates use new fragments, and stable promotion includes the archived
+rollup. An invalid or stale native intent also fails; use an explicit manual
+replacement after checking the requested release mode and target.
 
 When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
 out its merge commit and runs `trellis tag create --github-release`. This

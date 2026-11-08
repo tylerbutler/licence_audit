@@ -310,32 +310,32 @@ url_api = "https://api.github.com/repos/tylerbutler/licence_audit/releases/asset
 provenance = "github-attestations"
 
 [[tools."github:tylerbutler/trellis"]]
-version = "1.2.2"
+version = "1.3.0"
 backend = "github:tylerbutler/trellis"
-specifiers = ["1.2.2"]
+specifiers = ["1.3.0"]
 
 [tools."github:tylerbutler/trellis"."platforms.linux-arm64"]
-checksum = "sha256:3eeca4ccdbd8670ca5bfd5a93b086c56fb25903b1b63df1bd733825e44733291"
-url = "https://github.com/tylerbutler/trellis/releases/download/v1.2.2/trellis-gleam-aarch64-unknown-linux-gnu.tar.xz"
-url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/719273381"
+checksum = "sha256:5ef93a7233e17b02f9696777cd356971ff52ba474af7c443f001148ac5df54e6"
+url = "https://github.com/tylerbutler/trellis/releases/download/v1.3.0/trellis-gleam-aarch64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/722353258"
 provenance = "github-attestations"
 
 [tools."github:tylerbutler/trellis"."platforms.linux-x64"]
-checksum = "sha256:a568b24ca169938b2b6437f76072b87510d95a5ff2edcdfd4031bafbe085212d"
-url = "https://github.com/tylerbutler/trellis/releases/download/v1.2.2/trellis-gleam-x86_64-unknown-linux-gnu.tar.xz"
-url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/719273406"
+checksum = "sha256:902e7380a5d697a31f4b4257986e8b2ada681c59f1b4f25ddb8d7a1f29a7745f"
+url = "https://github.com/tylerbutler/trellis/releases/download/v1.3.0/trellis-gleam-x86_64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/722353290"
 provenance = "github-attestations"
 
 [tools."github:tylerbutler/trellis"."platforms.macos-arm64"]
-checksum = "sha256:5b82343fe553081b76380bc8d49f4fb54e0d49d23a4faa7457dfeea5c588c5ec"
-url = "https://github.com/tylerbutler/trellis/releases/download/v1.2.2/trellis-gleam-aarch64-apple-darwin.tar.xz"
-url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/719273354"
+checksum = "sha256:755721b1e17b355e9972f13a5f34c166b867f439a4c0d6c8777a6cd5740f4eee"
+url = "https://github.com/tylerbutler/trellis/releases/download/v1.3.0/trellis-gleam-aarch64-apple-darwin.tar.xz"
+url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/722353244"
 provenance = "github-attestations"
 
 [tools."github:tylerbutler/trellis"."platforms.macos-x64"]
-checksum = "sha256:6e2f777b37c0cafd154acbe70cab244345839d52330251e0933476e39277075c"
-url = "https://github.com/tylerbutler/trellis/releases/download/v1.2.2/trellis-gleam-x86_64-apple-darwin.tar.xz"
-url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/719273393"
+checksum = "sha256:fd863bb3a0b49f88ff5442e943ac4d22bb0154c6c08fd4a11fdfb2f921034144"
+url = "https://github.com/tylerbutler/trellis/releases/download/v1.3.0/trellis-gleam-x86_64-apple-darwin.tar.xz"
+url_api = "https://api.github.com/repos/tylerbutler/trellis/releases/assets/722353267"
 provenance = "github-attestations"
 
 [[tools.gleam]]
