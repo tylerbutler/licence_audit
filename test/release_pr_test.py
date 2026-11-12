@@ -62,6 +62,8 @@ class ReleaseTest(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.origin))
         self.pending = False
         self.requests = []
+        self.previous_head = None
+        self.post_push_responses = []
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -143,12 +145,18 @@ class ReleaseTest(unittest.TestCase):
         self.commit()
 
     def pr(self):
-        return {
+        head = self.git("rev-parse", "origin/release/pending")
+        response = {
             "number": 7, "state": "open", "html_url": "https://github.com/example/repo/pull/7",
-            "head": {"ref": "release/pending", "sha": self.git("rev-parse", "origin/release/pending"),
+            "head": {"ref": "release/pending", "sha": head,
                      "repo": {"full_name": "example/repo"}},
             "base": {"ref": "main", "repo": {"full_name": "example/repo"}},
         }
+        if self.previous_head is not None and head != self.previous_head and self.post_push_responses:
+            changes = self.post_push_responses.pop(0)
+            response["head"]["sha"] = changes.get("head", head)
+            response["state"] = changes.get("state", "open")
+        return response
 
     def workflow(self, pre="", version="", event="workflow_dispatch", success=True):
         self.env.update(INPUT_PRE=pre, INPUT_VERSION=version, GITHUB_EVENT_NAME=event)
@@ -213,7 +221,49 @@ class ReleaseTest(unittest.TestCase):
         records, _ = self.workflow(event="push")
         self.assertEqual(json.loads(records["bumped"])[0]["next"], "1.0.0-rc.1")
 
-    def test_legacy_pending_requires_manual_replacement(self):
+    def prepare_pending_update(self):
+        self.fragment("first", "first fix")
+        self.workflow(pre="rc", version="1.0.0")
+        self.previous_head = self.git("rev-parse", "origin/release/pending")
+        self.fragment("second", "second fix")
+        self.requests.clear()
+
+    def test_delayed_post_push_head_finishes_preparation(self):
+        self.prepare_pending_update()
+        self.post_push_responses = [{"head": self.previous_head}] * 2
+        records, _ = self.workflow(event="push")
+        self.assertEqual(records["outcome"], "prepared")
+        self.assertEqual(records["pr_action"], "updated")
+        self.assertEqual(self.post_push_responses, [])
+        self.assertNotEqual(self.git("rev-parse", "origin/release/pending"), self.previous_head)
+        self.assertIn(("PATCH", "/repos/example/repo/pulls/7"), self.requests)
+
+    def assert_incomplete_update(self, message):
+        _, result = self.workflow(event="push", success=False)
+        self.assertIn(message, result.stderr)
+        self.assertIn("was pushed successfully, but PR finalization remains incomplete", result.stderr)
+        self.assertNotEqual(self.git("rev-parse", "origin/release/pending"), self.previous_head)
+        self.assertNotIn(("PATCH", "/repos/example/repo/pulls/7"), self.requests)
+
+    def test_persistent_stale_head_fails_without_finalizing(self):
+        self.prepare_pending_update()
+        self.post_push_responses = [{"head": self.previous_head}] * 6
+        self.assert_incomplete_update("still reports the previous head")
+        self.assertEqual(self.post_push_responses, [])
+
+    def test_concurrent_head_change_during_retry_fails(self):
+        self.prepare_pending_update()
+        self.post_push_responses = [{"head": self.previous_head}, {"head": "f" * 40}]
+        self.assert_incomplete_update("release PR changed during preparation")
+        self.assertEqual(self.post_push_responses, [])
+
+    def test_closed_pr_during_retry_fails(self):
+        self.prepare_pending_update()
+        self.post_push_responses = [{"head": self.previous_head}, {"state": "closed"}]
+        self.assert_incomplete_update("closed, merged, or retargeted")
+        self.assertEqual(self.post_push_responses, [])
+
+    def test_legacy_pending_resumes_from_history_and_allows_manual_replacement(self):
         self.fragment("first", "legacy fix")
         manifest = (self.root / "gleam.toml").read_text()
         self.write("gleam.toml", manifest.replace("0.9.0", "1.0.0-rc.0"))
@@ -222,18 +272,20 @@ class ReleaseTest(unittest.TestCase):
         self.git("switch", "-c", "release/pending")
         self.write("gleam.toml", manifest.replace("0.9.0", "1.0.0-rc.1"))
         self.write(".changes/licence_audit/v1.0.0-rc.1.md", "## 1.0.0-rc.1\n\n- legacy fix\n")
+        self.write(".changes/release.toml", 'schema = "trellis.release_intent/1"\n')
         self.commit()
         self.git("push", "origin", "HEAD:release/pending")
         self.git("switch", "main")
         self.pending = True
         before = self.git("rev-parse", "origin/release/pending")
-        records, result = self.workflow(event="push", success=False)
-        self.assertIn("no native release intent", result.stderr)
+        records, _ = self.workflow(event="push")
+        self.assertEqual(records["outcome"], "unchanged")
         self.assertEqual(self.git("rev-parse", "origin/release/pending"), before)
         records, _ = self.workflow(pre="rc", version="1.0.0")
         self.assertEqual(records["outcome"], "prepared")
         self.assertEqual(json.loads(records["bumped"])[0]["next"], "1.0.0-rc.1")
-        self.assertIn("pre = \"rc\"", self.git("show", "origin/release/pending:.changes/release.toml"))
+        self.assertEqual(self.git("ls-tree", "--name-only", "origin/release/pending",
+                                  "--", ".changes/release.toml"), "")
         self.assertEqual(self.workflow(event="push")[0]["outcome"], "unchanged")
         self.merge()
         self.assertIn("legacy fix", (self.root / ".changes/licence_audit/v1.0.0-rc.1.toml").read_text())
@@ -244,7 +296,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("legacy fix", (self.root / ".changes/licence_audit/v1.0.0.md").read_text())
 
     def test_no_changes_main_guard_and_artifact_condition(self):
-        self.assertEqual(self.run_command(self.binary, "--version").stdout.strip(), "trellis 1.3.0")
+        self.assertEqual(self.run_command(self.binary, "--version").stdout.strip(), "trellis 1.5.0")
         self.assertEqual(self.workflow()[0]["outcome"], "no_changes")
         result = self.run_command(
             "just", "--justfile", str(REPO / "justfile"), "--working-directory", str(self.root),

@@ -43,7 +43,7 @@ vendor-test:
 test-release-notices:
     mise exec -- python3 -B -m unittest discover -s test -p release_notices_test.py
 
-# Check native release preparation against local Git and a mock GitHub API.
+# Check release preparation against local Git and a mock GitHub API.
 test-release-pr:
     mise exec -- python3 -B -m unittest discover -s test -p release_pr_test.py
 
