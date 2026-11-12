@@ -323,7 +323,6 @@ just change Fixed "Fix ..."                # create a changelog fragment
 just changelog-preview                    # preview pending version changes
 just changelog                            # apply versions and regenerate changelogs
 just doctor                               # check workspace and release invariants
-just test-release-pr                      # check release tooling without GitHub writes
 ```
 
 Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
@@ -337,7 +336,7 @@ gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
 ```
 
 After the candidate PR merges, new or changed fragments and release-owned
-source changes on `main` can open the next candidate PR. Trellis 1.3.0 archives
+source changes on `main` can open the next candidate PR. Trellis archives
 candidate fragments in `.changes/licence_audit/v<prerelease>.toml` and removes
 them from `unreleased`. Each later candidate includes only new changes.
 To promote the candidate to `1.0.0`, dispatch:
@@ -347,9 +346,9 @@ gh workflow run release.yml --ref main -f pre=none
 ```
 
 Promotion combines the target version's candidate archives with any remaining
-fragments into the stable release notes. Keep the generated archives and
-`.changes/release.toml` intent file committed with release files. After the
-promotion PR merges, pushes resume the normal stable release flow. Use manual
+fragments into the stable release notes. Keep the generated archives committed
+with release files. After the promotion PR merges, pushes resume the normal
+stable release flow. Use manual
 dispatch to enter a candidate cycle or promote it. Leave both inputs empty to
 prepare a normal stable release when `main` is stable. Empty inputs on a
 candidate fail with a request to use `pre=none`; they do not promote it.
@@ -366,7 +365,12 @@ Manual runs disable those defaults and replace the pending request with the
 supplied inputs. Release preparation runs one job at a time. The workflow
 appends Trellis's `--github-output` records to `$GITHUB_OUTPUT` and refreshes
 the SBOM and notices only for `outcome=prepared`. `unchanged` and `no_changes`
-skip that work; invalid intent and other errors fail the job.
+skip that work; invalid release state and other errors fail the job.
+
+Trellis 1.5.0 retries delayed GitHub head metadata after a successful branch
+push. If the previous head persists, preparation fails without updating the
+PR description or emitting success records. Concurrent head changes and
+closed, merged, or retargeted PRs still fail.
 
 Preview candidate or promotion plans without GitHub writes:
 
@@ -381,26 +385,19 @@ pass `--no-resume --no-auto-pre --no-skip-unchanged` and the desired `--pre` and
 `--set` options. Direct `just changelog` applies versions to the local checkout;
 it does not use release-PR continuation defaults.
 
-### Migrating a pending Trellis 1.2 release
+### Release history and older PRs
 
-Trellis 1.3.0 cannot resume an open PR created without native release intent.
-Automatic preparation fails until an operator replaces that request or
-merges/closes its PR. At upgrade time, release PR
-[#239](https://github.com/tylerbutler/licence_audit/pull/239) targeted
-`1.0.0-rc.1` without `.changes/release.toml`. Check the current PR and target
-before using this one-time replacement:
+Trellis 1.5.0 reads proposed versions and release inputs from Git history.
+Full history is required; the release workflow uses `fetch-depth: 0`.
+Older PRs do not need `.changes/release.toml` to resume. Preparation removes
+that obsolete file from its next generated release commit.
 
-```sh
-gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
-```
-
-The manual workflow disables resume and unchanged-content skipping, then writes
-native intent for subsequent pushes. Do not edit the intent file by hand.
-The first native candidate can include retained legacy fragments; Trellis does
-not split historical cumulative notes into incremental archives. Later
-candidates use new fragments, and stable promotion includes the archived
-rollup. An invalid or stale native intent also fails; use an explicit manual
-replacement after checking the requested release mode and target.
+The legacy migration for
+[#239](https://github.com/tylerbutler/licence_audit/pull/239) is complete:
+the PR merged and `1.0.0-rc.1` was published. Do not repeat its recovery.
+Stale or ambiguous history still fails preparation. Check the current PR,
+release mode, and target before using a manual replacement. A candidate
+must remain in its version series; promote it before starting another series.
 
 When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
 out its merge commit and runs `trellis tag create --github-release`. This
