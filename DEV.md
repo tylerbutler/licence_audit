@@ -323,7 +323,6 @@ just change Fixed "Fix ..."                # create a changelog fragment
 just changelog-preview                    # preview pending version changes
 just changelog                            # apply versions and regenerate changelogs
 just doctor                               # check workspace and release invariants
-just test-release-pr                      # check release tooling without GitHub writes
 ```
 
 Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
