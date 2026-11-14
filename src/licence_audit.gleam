@@ -2543,9 +2543,10 @@ fn resolve_vuln_threshold(
         None -> "high"
       }
   }
-  case osv.parse_severity_label(raw) {
-    osv.UnknownSeverity -> osv.High
-    severity -> severity
+  let severity = osv.parse_severity_label(raw)
+  case severity {
+    osv.NoSeverity | osv.UnknownSeverity -> osv.High
+    osv.Low | osv.Medium | osv.High | osv.Critical -> severity
   }
 }
 
@@ -2984,6 +2985,7 @@ fn advisory_blocks(
   block_unknown: Bool,
 ) -> Bool {
   case actual {
+    osv.NoSeverity -> False
     osv.UnknownSeverity -> block_unknown
     osv.Low | osv.Medium | osv.High | osv.Critical ->
       osv.severity_rank(actual) >= osv.severity_rank(threshold)

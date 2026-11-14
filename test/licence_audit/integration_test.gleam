@@ -1220,6 +1220,106 @@ fn vulnerability_with_severity(
   }
 }
 
+fn zero_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
+  let assert Ok(body) = simplifile.read("test/fixtures/osv_vuln_none.json")
+  osv.decode_vuln_body(body, id)
+}
+
+pub fn zero_cvss_never_blocks_low_threshold_with_unknown_blocking_test() -> Nil {
+  list.each([[], ["--vuln-block-unknown"]], fn(flags) {
+    let result =
+      licence_audit.run_configured(
+        manifest_args(list.append(
+          [
+            "check",
+            "--allow=MIT,Apache-2.0",
+            "--vulns",
+            "--vuln-severity=low",
+          ],
+          flags,
+        )),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: one_vuln_batch,
+          osv_detail_fetcher: zero_vuln_detail,
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "[NONE    ]  CVE-2024-0001")
+    assert string.contains(
+      result.output,
+      "0 advisory/advisories at or above low",
+    )
+    assert !string.contains(result.output, "[LOW")
+    assert !string.contains(result.output, "[UNKNOWN")
+  })
+}
+
+pub fn zero_cvss_is_reported_as_none_in_vulns_and_sbom_test() -> Nil {
+  list.each([["vulns"], ["sbom", "--vulns"]], fn(args) {
+    let result =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=test/fixtures/manifest_github_git.toml"]),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: one_vuln_batch,
+          osv_detail_fetcher: zero_vuln_detail,
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "CVE-2024-0001")
+    case args {
+      ["sbom", ..] -> {
+        assert string.contains(result.output, "\"severity\": \"none\"")
+        assert string.contains(result.output, "\"method\": \"CVSSv31\"")
+        assert string.contains(result.output, "C:N/I:N/A:N")
+      }
+      _ -> {
+        assert string.contains(result.output, "[NONE    ]")
+        assert string.contains(result.output, "No impact")
+      }
+    }
+  })
+}
+
+pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
+  let result =
+    licence_audit.run_configured(
+      manifest_args([
+        "check",
+        "--allow=MIT,Apache-2.0",
+        "--vulns",
+        "--vuln-severity=none",
+      ]),
+      test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "low")
+  let config_path = "build/none-threshold-config.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      config_path,
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\nvuln_severity = \"none\"\n",
+    )
+  let configured =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--vulns",
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> config_path,
+      ],
+      test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
+      progress.disabled(),
+    ).0
+  let assert Ok(_) = simplifile.delete(config_path)
+  should.equal(configured.exit_code, 2)
+  assert string.contains(configured.output, "vuln_severity")
+}
+
 fn github_only_vuln_batch(
   purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
