@@ -21,14 +21,19 @@ class CliStreamTest(unittest.TestCase):
             'name = "stream_fixture"\nversion = "1.0.0"\n'
         )
 
-    def run_cli(self, *arguments):
+    def run_cli(self, *arguments, environment=None):
+        env = {**os.environ, "NO_COLOR": "1"}
+        if environment is not None:
+            for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
+                env.pop(name, None)
+            env.update(environment)
         return subprocess.run(
             [str(ROOT / "licence_audit"), *arguments],
             cwd=self.project,
             capture_output=True,
             text=True,
             timeout=30,
-            env={**os.environ, "NO_COLOR": "1"},
+            env=env,
         )
 
     def assert_diagnostic(self, result, status=2):
@@ -104,6 +109,101 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(written.returncode, 0, written.stderr)
                 self.assertEqual(destination.read_text(), plain.stdout)
 
+    def test_progress_color_mode_on_every_command(self):
+        cases = (
+            ("never", {"FORCE_COLOR": "1"}, False),
+            ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True),
+            ("auto", {"NO_COLOR": "1", "FORCE_COLOR": "1"}, False),
+            ("auto", {"FORCE_COLOR": "1"}, True),
+            ("auto", {"TERM": "dumb"}, False),
+        )
+        for command in ("", "check", "sbom", "vulns", "notices", "update"):
+            for mode, environment, colored in cases:
+                with self.subTest(command=command, mode=mode, env=environment):
+                    arguments = [command] if command else []
+                    if command == "check":
+                        arguments += ["--allow=MIT"]
+                    result = self.run_cli(
+                        *arguments, "--verbose", f"--color={mode}",
+                        environment=environment,
+                    )
+                    self.assert_diagnostic(result)
+                    lines = result.stderr.splitlines()
+                    progress = [line for line in lines if " | " in line]
+                    self.assertTrue(progress, result.stderr)
+                    for line in progress:
+                        self.assertEqual("\x1b[" in line, colored, line)
+
+    def test_deferred_diagnostics_respect_color_mode(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        blocker = self.project / "cache"
+        blocker.write_text("not a directory")
+        for command in ("check", "sbom"):
+            for mode, environment, colored in (
+                ("never", {"FORCE_COLOR": "1"}, False),
+                ("always", {"NO_COLOR": "1"}, True),
+                ("auto", {"NO_COLOR": "1"}, False),
+            ):
+                with self.subTest(command=command, mode=mode):
+                    arguments = (
+                        ["--allow=MIT"] if command == "check"
+                        else ["--offline", "--reproducible"]
+                    )
+                    result = self.run_cli(
+                        command, *arguments, f"--color={mode}",
+                        environment={
+                            **environment, "XDG_CACHE_HOME": str(blocker),
+                        },
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    warning = next(
+                        line for line in result.stderr.splitlines()
+                        if "Unable to open licence cache" in line
+                    )
+                    self.assertEqual("\x1b[" in warning, colored, warning)
+                    self.assertEqual("\x1b[" in result.stdout, False)
+                    if command == "sbom":
+                        self.assertEqual(
+                            json.loads(result.stdout)["bomFormat"], "CycloneDX"
+                        )
+                    if command == "check":
+                        success = next(
+                            line for line in result.stderr.splitlines()
+                            if "Licence audit completed" in line
+                        )
+                        self.assertEqual("\x1b[" in success, colored, success)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "requires POSIX terminals")
+    def test_auto_detects_stderr_independently_of_stdout(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        blocker = self.project / "cache"
+        blocker.write_text("not a directory")
+        env = dict(os.environ)
+        for name in ("NO_COLOR", "FORCE_COLOR", "CI", "COLORTERM"):
+            env.pop(name, None)
+        env.update(TERM="xterm-256color", XDG_CACHE_HOME=str(blocker))
+        for mode, colored in (("auto", True), ("never", False)):
+            with self.subTest(mode=mode):
+                master, slave = os.openpty()
+                try:
+                    result = subprocess.run(
+                        [
+                            str(ROOT / "licence_audit"), "check", "--allow=MIT",
+                            f"--color={mode}",
+                        ],
+                        cwd=self.project, stdout=subprocess.PIPE, stderr=slave,
+                        text=True, env=env, timeout=30,
+                    )
+                    os.set_blocking(master, False)
+                    stderr = os.read(master, 65536).decode()
+                finally:
+                    os.close(slave)
+                    os.close(master)
+                self.assertEqual(result.returncode, 0, stderr)
+                self.assertNotIn("\x1b[", result.stdout)
+                self.assertIn("Unable to open licence cache", stderr)
+                self.assertEqual("\x1b[" in stderr, colored, stderr)
+
     def test_invalid_sbom_manifest_is_a_diagnostic(self):
         (self.project / "manifest.toml").write_text("packages = [")
         self.assert_diagnostic(
@@ -156,6 +256,95 @@ class CliStreamTest(unittest.TestCase):
                 "sbom", "--offline", "--quiet", "--no-cache", "--output=."
             )
         )
+
+    def test_sbom_license_text_uses_default_notice_cache_with_metadata_override(self):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "example", version = "1.0.0", '
+            'source = "hex", outer_checksum = "ABC" }]\n'
+            '[requirements]\nexample = "1.0.0"\n'
+        )
+        metadata_path = self.project / "metadata.sqlite3"
+        cache_home = self.project / "cache"
+        evaluation = """
+            Mode = os:getenv("SBOM_CACHE_MODE"),
+            Metadata = 'licence_audit@hex':licences_only([<<"Apache-2.0">>]),
+            Text = case Mode of
+                "no_cache" -> <<"Uncached SPDX text">>;
+                _ -> <<"Cached SPDX text">>
+            end,
+            HexResult = case Mode of
+                "warm" -> {error, not_found};
+                _ -> {ok, Metadata}
+            end,
+            TextResult = case Mode of
+                "warm" -> {error, fetch_network_failure};
+                _ -> {ok, {some, Text}}
+            end,
+            lists:foreach(fun({Module, Function, Result}) ->
+                {ok, {Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                    beam_lib:chunks(code:which(Module), [abstract_code]),
+                Replaced = lists:map(fun
+                    ({function, Line, Name, 1, _}) when Name =:= Function ->
+                        {function, Line, Name, 1, [
+                            {clause, Line, [{var, Line, '_'}], [],
+                                [erl_parse:abstract(Result)]}
+                        ]};
+                    (Form) -> Form
+                end, Forms),
+                {ok, Module, Binary} = compile:forms(Replaced, [binary]),
+                {module, Module} = code:load_binary(Module, "cache_fixture", Binary)
+            end, [
+                {'licence_audit@hex', fetch_package_metadata_from_hex, HexResult},
+                {'licence_audit@notice', fetch_spdx_text, TextResult}
+            ]),
+            licence_audit:main().
+        """
+        for mode in ("cold", "warm", "no_cache"):
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    [
+                        "erl", "-noshell", "-pa",
+                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                        "-eval", evaluation, "-extra", "sbom", "--license-text",
+                        "--quiet", f"--cache-path={metadata_path}",
+                        *(["--no-cache"] if mode == "no_cache" else []),
+                    ],
+                    cwd=self.project, capture_output=True, text=True, timeout=30,
+                    env={
+                        **os.environ, "NO_COLOR": "1",
+                        "XDG_CACHE_HOME": str(cache_home), "SBOM_CACHE_MODE": mode,
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stderr, "")
+                component = json.loads(result.stdout)["components"][0]
+                licence = component["licenses"][0]["license"]
+                self.assertEqual(licence["id"], "Apache-2.0")
+                self.assertEqual(licence["text"]["contentType"], "text/plain")
+                self.assertEqual(
+                    licence["text"]["content"],
+                    "Uncached SPDX text" if mode == "no_cache" else "Cached SPDX text",
+                )
+                metadata_files = list(metadata_path.glob("*.json"))
+                self.assertEqual(len(metadata_files), 1)
+                self.assertEqual(
+                    json.loads(metadata_files[0].read_text())["key"], "example@1.0.0"
+                )
+                notice_files = list((cache_home / "licence_audit").glob("notices-v*/*.json"))
+                self.assertEqual(len(notice_files), 1)
+                entry = json.loads(notice_files[0].read_text())
+                self.assertTrue(entry["key"].startswith("spdx:"))
+                self.assertTrue(entry["key"].endswith(":license:Apache-2.0"))
+                self.assertEqual(entry["value"], "Cached SPDX text")
+                if mode == "cold":
+                    cached_files = {
+                        file: file.read_bytes() for file in metadata_files + notice_files
+                    }
+                else:
+                    self.assertEqual(
+                        {file: file.read_bytes() for file in metadata_files + notice_files},
+                        cached_files,
+                    )
 
     def test_gate_failure_keeps_report_on_stdout(self):
         (self.project / "manifest.toml").write_text(
@@ -380,20 +569,32 @@ class CliStreamTest(unittest.TestCase):
             {module, Module} = code:load_binary(Module, "stream_fixture", Binary),
             licence_audit:main().
         """
-        for command in ([], ["check", "--allow=MIT"]):
-            with self.subTest(command=command):
+        for command, mode, environment, colored in (
+            (command, mode, environment, colored)
+            for command in ([], ["check", "--allow=MIT"])
+            for mode, environment, colored in (
+                ("never", {"FORCE_COLOR": "1"}, False),
+                ("always", {"NO_COLOR": "1"}, True),
+                ("auto", {"NO_COLOR": "1"}, False),
+            )
+        ):
+            with self.subTest(command=command, mode=mode):
+                env = dict(os.environ)
+                for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
+                    env.pop(name, None)
+                env.update(environment)
                 result = subprocess.run(
                     [
                         "erl", "-noshell", "-pa",
                         *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
                         "-eval", evaluation, "-extra",
-                        *command, "--quiet", "--no-cache",
+                        *command, "--no-cache", f"--color={mode}",
                     ],
                     cwd=self.project,
                     capture_output=True,
                     text=True,
                     timeout=30,
-                    env={**os.environ, "NO_COLOR": "1"},
+                    env=env,
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn("healthy", result.stdout)
@@ -402,6 +603,15 @@ class CliStreamTest(unittest.TestCase):
                 self.assertIn("fixture metadata failure", result.stdout)
                 self.assertIn("package metadata could not be fetched", result.stderr)
                 self.assertNotIn("healthy", result.stderr)
+                for message in (
+                    "Failed to fetch package metadata",
+                    "package metadata could not be fetched",
+                ):
+                    line = next(
+                        line for line in result.stderr.splitlines()
+                        if message in line
+                    )
+                    self.assertEqual("\x1b[" in line, colored, line)
 
     def test_unexpected_cli_exceptions_exit_two_without_raw_trace(self):
         evaluation = """

@@ -125,7 +125,10 @@ status symbol:
 
 Use `--color` or `--colour` to control colour. The permitted values are `auto`,
 `always`, and `never`. The `auto` value uses `NO_COLOR`, `FORCE_COLOR`, `TERM`,
-`CI`, and `COLORTERM`.
+`CI`, and `COLORTERM`, and detects terminal support separately for stdout and
+stderr. Explicit `always` and `never` values override environment settings for
+report colours and stderr progress messages, including warnings and deferred
+errors, on every command.
 
 SBOM JSON and notice payloads stay plain in every color mode, including
 `always`. Use `--help` or `-h` with any command. `--version` is available only
@@ -158,6 +161,10 @@ integration interfaces.
 `licence_audit` caches Hex licence metadata on disk between runs in the
 `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2/` directory. Override it
 with `--cache-path=DIR`, or bypass the caches with `--no-cache`.
+When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
+the default is `%LOCALAPPDATA%\licence_audit\Cache\hex-v2\`, as resolved
+by Erlang/OTP's user cache directory. A nonempty `XDG_CACHE_HOME` takes
+precedence over `HOME` on all platforms.
 `licence_audit` reuses Hex API entries for 7 days, so metadata changes on Hex
 can take up to 7 days to appear. Use `--no-cache` when you need fresh data.
 

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix `sbom` output: omit false BOM author attribution, preserve single SPDX expressions, and include the timestamp in reproducible serial numbers."

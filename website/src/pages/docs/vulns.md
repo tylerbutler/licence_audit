@@ -15,10 +15,15 @@ licence_audit vulns
 ## Report contents
 
 For each affected package, `vulns` shows its identifiers, severity, and a short
-summary. Severity is `critical`, `high`, `medium`, `low`, or `unknown`. The
+summary. Severity is `critical`, `high`, `medium`, `low`, `none`, or `unknown`. The
 command first reads `database_specific.severity` from OSV. If this value is not
 available, it uses the CVSS vector. The report ends with the numbers of checked,
 affected, and clean packages.
+
+A valid CVSS score of `0.0` has severity `none`, not `low` or `unknown`.
+It remains in the report but never blocks `check --vulns`, even with
+`--vuln-block-unknown`. When OSV supplies multiple vectors, the highest known
+severity applies. A recognised `database_specific.severity` remains authoritative.
 
 A vulnerability does not make `vulns` fail. Exit codes:
 

@@ -139,6 +139,7 @@ pub fn boxed(palette: Palette, title: String, content: String) -> String {
 /// align with or without ANSI codes.
 pub fn severity(palette: Palette, label: osv.Severity) -> String {
   let text = case label {
+    osv.NoSeverity -> "[NONE    ]"
     osv.Critical -> "[CRITICAL]"
     osv.High -> "[HIGH    ]"
     osv.Medium -> "[MEDIUM  ]"
@@ -146,7 +147,7 @@ pub fn severity(palette: Palette, label: osv.Severity) -> String {
     osv.UnknownSeverity -> "[UNKNOWN ]"
   }
   case label {
-    osv.UnknownSeverity -> text
+    osv.NoSeverity | osv.UnknownSeverity -> text
     osv.Critical | osv.High -> fg(palette, style.Red, text)
     osv.Medium | osv.Low -> fg(palette, style.Yellow, text)
   }

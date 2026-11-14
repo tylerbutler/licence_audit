@@ -39,7 +39,7 @@ pub fn parse(input: String) -> Result(Expression, ParseError) {
 }
 
 /// Split syntax tokens without validating the expression or its identifiers.
-pub fn tokenize(input: String) -> List(String) {
+fn tokenize(input: String) -> List(String) {
   input
   |> string.replace("(", " ( ")
   |> string.replace(")", " ) ")
@@ -48,6 +48,18 @@ pub fn tokenize(input: String) -> List(String) {
   |> string.replace("\n", " ")
   |> string.split(" ")
   |> list.filter(fn(token) { token != "" })
+}
+
+/// Normalize matching tokens while preserving custom reference case and syntax.
+pub fn matching_tokens(expression: String) -> List(String) {
+  expression
+  |> tokenize
+  |> list.map(fn(token) {
+    case token {
+      "LicenseRef-" <> _ | "DocumentRef-" <> _ -> token
+      _ -> string.lowercase(token)
+    }
+  })
 }
 
 fn parse_or(

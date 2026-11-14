@@ -5,6 +5,7 @@
     normalise_error/1,
     request/4,
     remember_ipv6_host/1,
+    select_ipv4/0,
     selected_family/0,
     take_warning/0
 ]).
@@ -39,8 +40,12 @@ remember_ipv6_host(Host) ->
     nil.
 
 fallback_to_ipv4(Warning) ->
-    erlang:put(?FAMILY_KEY, ipv4),
+    select_ipv4(),
     erlang:put(?WARNING_KEY, Warning),
+    nil.
+
+select_ipv4() ->
+    erlang:put(?FAMILY_KEY, ipv4),
     nil.
 
 take_warning() ->
@@ -68,6 +73,7 @@ normalise_error(Error = {failed_connect, Options}) ->
             {failed_to_connect, <<"IPv4: ", (describe_connect_error(Reason))/binary>>};
         false ->
             case lists:keyfind(inet6, 1, Options) of
+                {inet6, _, nxdomain} -> no_ipv6_address;
                 {inet6, _, Reason} ->
                     {failed_to_connect, <<"IPv6: ", (describe_connect_error(Reason))/binary>>};
                 false -> {failed_to_connect, describe_error(Error)}

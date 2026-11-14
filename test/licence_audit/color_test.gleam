@@ -61,6 +61,7 @@ pub fn enabled_palette_emits_ansi_for_text_emphasis_test() {
 pub fn enabled_palette_emits_ansi_for_severity_test() {
   let palette = color.for_enabled(True)
 
+  should.equal(color.severity(palette, osv.NoSeverity), "[NONE    ]")
   assert string.contains(color.severity(palette, osv.Critical), "\u{1b}[31m")
   assert string.contains(color.severity(palette, osv.Medium), "\u{1b}[33m")
   assert !string.contains(

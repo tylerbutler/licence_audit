@@ -97,9 +97,10 @@ test-update-atomic:
 test-cli-streams: build
     mise exec -- python3 -B test/cli_stream_test.py
 
-# Test Unicode environment conversion and ASCII cache paths in fresh VMs.
+# Test Unicode environment conversion and default cache paths in fresh VMs.
 test-env-cache-paths: build
     mise exec -- gleam build
+    mise exec -- python3 -B test/cache_default_paths.py
     mise exec -- bash test/env_cache_paths.sh
 
 # Type check without producing artifacts

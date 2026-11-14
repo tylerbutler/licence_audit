@@ -1,16 +1,40 @@
 import gleam/string
 import gleeunit/should
+import licence_audit/color
 import licence_audit/progress
 import tty
 
 pub fn stderr_color_enabled_rejects_no_color_test() {
-  should.equal(progress.stderr_color_enabled(tty.NoColor), False)
+  should.equal(progress.stderr_color_enabled(color.Auto, tty.NoColor), False)
 }
 
 pub fn stderr_color_enabled_accepts_any_color_level_test() {
-  should.equal(progress.stderr_color_enabled(tty.Basic), True)
-  should.equal(progress.stderr_color_enabled(tty.Ansi256), True)
-  should.equal(progress.stderr_color_enabled(tty.TrueColor), True)
+  should.equal(progress.stderr_color_enabled(color.Auto, tty.Basic), True)
+  should.equal(progress.stderr_color_enabled(color.Auto, tty.Ansi256), True)
+  should.equal(progress.stderr_color_enabled(color.Auto, tty.TrueColor), True)
+}
+
+pub fn stderr_color_mode_overrides_detected_level_test() {
+  should.equal(progress.stderr_color_enabled(color.Never, tty.TrueColor), False)
+  should.equal(progress.stderr_color_enabled(color.Always, tty.NoColor), True)
+}
+
+pub fn deferred_events_keep_reporter_color_and_order_test() {
+  let reporter = progress.capturing(progress.Normal, "check")
+  let reporter =
+    progress.Reporter(..reporter, color: color.Never)
+    |> progress.warn("Immediate warning")
+    |> progress.defer_warn("Deferred warning")
+    |> progress.defer_error("Deferred error")
+    |> progress.flush
+
+  should.equal(reporter.color, color.Never)
+  should.equal(reporter.deferred, [])
+  should.equal(progress.events(reporter), [
+    progress.Event(progress.Warning, "Immediate warning"),
+    progress.Event(progress.Warning, "Deferred warning"),
+    progress.Event(progress.Error, "Deferred error"),
+  ])
 }
 
 pub fn minimal_level_formatter_is_plain_for_non_error_levels_test() {

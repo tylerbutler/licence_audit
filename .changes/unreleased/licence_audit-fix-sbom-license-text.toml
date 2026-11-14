@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix `sbom --license-text --cache-path` to keep SPDX text in the default versioned notice cache and apply the custom path only to metadata."

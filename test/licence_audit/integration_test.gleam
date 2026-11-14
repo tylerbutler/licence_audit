@@ -233,6 +233,89 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
     sbom.output,
     "Invalid manifest package gleam_stdlib field outer_checksum: expected String",
   )
+
+  [[], ["CVE-2024-0001"]]
+  |> list.each(fn(ids) {
+    [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+    |> list.each(fn(args) {
+      let result =
+        licence_audit.run_configured(
+          list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, ["pkg:hex/gleam_stdlib@1.0.0"])
+              Ok(
+                list.map(purls, fn(purl) {
+                  osv.BatchEntry(purl: purl, vuln_ids: ids)
+                }),
+              )
+            },
+            osv_detail_fetcher: vulnerability_with_severity(osv.Low),
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 0)
+      case ids {
+        [] -> {
+          assert string.contains(
+            result.output,
+            "No known vulnerabilities reported by OSV.dev.",
+          )
+        }
+        _ -> {
+          assert string.contains(result.output, "CVE-2024-0001")
+        }
+      }
+    })
+  })
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn vulnerability_commands_reject_invalid_required_manifest_fields_test() {
+  let path = "build/tmp/vulns-invalid-fields.toml"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) { panic as "invalid manifest must stop Hex fetch" }),
+      osv_batch_fetcher: fn(_) {
+        panic as "invalid manifest must stop OSV batch fetch"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "invalid manifest must stop OSV detail fetch"
+      },
+    )
+  ["name", "version", "source"]
+  |> list.each(fn(field) {
+    ["", field <> " = 42,"]
+    |> list.each(fn(invalid_field) {
+      let valid_fields =
+        [#("name", "gleam_stdlib"), #("version", "1.0.0"), #("source", "hex")]
+        |> list.filter(fn(pair) { pair.0 != field })
+        |> list.map(fn(pair) { pair.0 <> " = \"" <> pair.1 <> "\"" })
+        |> string.join(", ")
+      let assert Ok(_) =
+        simplifile.write(
+          to: path,
+          contents: "packages = [{ " <> invalid_field <> valid_fields <> " }]",
+        )
+      [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+      |> list.each(fn(args) {
+        let result =
+          licence_audit.run_configured(
+            list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+            clients,
+            progress.disabled(),
+          ).0
+        should.equal(result.exit_code, 2)
+        assert string.contains(
+          result.output,
+          "field " <> field <> ": expected String",
+        )
+      })
+    })
+  })
+  let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn notices_subcommand_prints_release_notice_text_test() {
@@ -1220,6 +1303,106 @@ fn vulnerability_with_severity(
   }
 }
 
+fn zero_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
+  let assert Ok(body) = simplifile.read("test/fixtures/osv_vuln_none.json")
+  osv.decode_vuln_body(body, id)
+}
+
+pub fn zero_cvss_never_blocks_low_threshold_with_unknown_blocking_test() -> Nil {
+  list.each([[], ["--vuln-block-unknown"]], fn(flags) {
+    let result =
+      licence_audit.run_configured(
+        manifest_args(list.append(
+          [
+            "check",
+            "--allow=MIT,Apache-2.0",
+            "--vulns",
+            "--vuln-severity=low",
+          ],
+          flags,
+        )),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: one_vuln_batch,
+          osv_detail_fetcher: zero_vuln_detail,
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "[NONE    ]  CVE-2024-0001")
+    assert string.contains(
+      result.output,
+      "0 advisory/advisories at or above low",
+    )
+    assert !string.contains(result.output, "[LOW")
+    assert !string.contains(result.output, "[UNKNOWN")
+  })
+}
+
+pub fn zero_cvss_is_reported_as_none_in_vulns_and_sbom_test() -> Nil {
+  list.each([["vulns"], ["sbom", "--vulns"]], fn(args) {
+    let result =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=test/fixtures/manifest_github_git.toml"]),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: one_vuln_batch,
+          osv_detail_fetcher: zero_vuln_detail,
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "CVE-2024-0001")
+    case args {
+      ["sbom", ..] -> {
+        assert string.contains(result.output, "\"severity\": \"none\"")
+        assert string.contains(result.output, "\"method\": \"CVSSv31\"")
+        assert string.contains(result.output, "C:N/I:N/A:N")
+      }
+      _ -> {
+        assert string.contains(result.output, "[NONE    ]")
+        assert string.contains(result.output, "No impact")
+      }
+    }
+  })
+}
+
+pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
+  let result =
+    licence_audit.run_configured(
+      manifest_args([
+        "check",
+        "--allow=MIT,Apache-2.0",
+        "--vulns",
+        "--vuln-severity=none",
+      ]),
+      test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "low")
+  let config_path = "build/none-threshold-config.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      config_path,
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\nvuln_severity = \"none\"\n",
+    )
+  let configured =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--vulns",
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> config_path,
+      ],
+      test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
+      progress.disabled(),
+    ).0
+  let assert Ok(_) = simplifile.delete(config_path)
+  should.equal(configured.exit_code, 2)
+  assert string.contains(configured.output, "vuln_severity")
+}
+
 fn github_only_vuln_batch(
   purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
@@ -1259,40 +1442,41 @@ fn github_only_vuln_batch(
   })
 }
 
-pub fn check_vulns_gates_affected_github_dependency_test() {
+pub fn vulnerability_commands_preserve_mixed_source_identities_test() {
   ["", ", outer_checksum = \"AAAA\"", ", outer_checksum = 42"]
   |> list.each(fn(checksum) {
     let manifest_path = mixed_vuln_manifest(checksum)
-    let result =
-      licence_audit.run_configured(
-        [
-          "--manifest=" <> manifest_path,
-          "--ignore-config",
-          "check",
-          "--allow=MIT",
-          "--vulns",
-        ],
-        licence_audit.Clients(
-          ..test_clients(fake_fetcher),
-          osv_batch_fetcher: fn(purls) {
-            should.equal(purls, [
-              "pkg:hex/gleam_stdlib@1.0.0",
-              "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
-            ])
-            github_only_vuln_batch(purls)
-          },
-          osv_detail_fetcher: vulnerability_with_severity(osv.High),
-        ),
-        progress.disabled(),
-      ).0
+    [#(["vulns"], 0), #(["check", "--allow=MIT", "--vulns"], 1)]
+    |> list.each(fn(command) {
+      let #(args, expected_exit) = command
+      let result =
+        licence_audit.run_configured(
+          list.append(args, [
+            "--manifest=" <> manifest_path,
+            "--ignore-config",
+          ]),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, [
+                "pkg:hex/gleam_stdlib@1.0.0",
+                "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+              ])
+              github_only_vuln_batch(purls)
+            },
+            osv_detail_fetcher: vulnerability_with_severity(osv.High),
+          ),
+          progress.disabled(),
+        ).0
 
-    should.equal(result.exit_code, 1)
-    assert string.contains(result.output, "CVE-GITHUB-0001")
-    assert string.contains(result.output, "gluegun@0.1.0")
-    assert string.contains(
-      result.output,
-      "Skipped 1 unsupported source(s): local_dep",
-    )
+      should.equal(result.exit_code, expected_exit)
+      assert string.contains(result.output, "CVE-GITHUB-0001")
+      assert string.contains(result.output, "gluegun")
+      assert string.contains(
+        result.output,
+        "Skipped 1 unsupported source(s): local_dep",
+      )
+    })
   })
 }
 

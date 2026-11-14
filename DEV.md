@@ -185,6 +185,11 @@ The test checks `é` and `中` in `XDG_CACHE_HOME` and `HOME` with caching
 disabled. It then writes cache entries, runs the cache-enabled
 CLI, and checks for cache hits. It also checks conversion failures and the
 deferred warning when neither environment variable is set.
+The isolated Python checks also cover Unicode paths with caching enabled,
+empty values, explicit metadata overrides, and notice cache persistence.
+The Windows CI job runs these checks with `HOME` and `XDG_CACHE_HOME` removed
+and a scratch `LOCALAPPDATA`. Its relocated escript smoke test checks the
+default metadata and notice caches through real CLI commands.
 
 ## File cache
 

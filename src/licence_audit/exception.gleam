@@ -8,6 +8,7 @@ import gleam/string
 import gleam/time/calendar
 import gleam/time/timestamp
 import licence_audit/semver
+import licence_audit/spdx_expression
 import licence_audit/toml
 
 pub type Finding {
@@ -224,12 +225,26 @@ pub fn validate_unique(entries: List(Exception)) -> Result(Nil, Error) {
     [entry, ..rest] ->
       case
         list.find(rest, fn(other) {
-          entry.purl == other.purl && entry.finding == other.finding
+          entry.purl == other.purl
+          && findings_match(entry.finding, other.finding)
         })
       {
         Ok(other) -> Error(OverlappingEntries(entry, other))
         Error(_) -> validate_unique(rest)
       }
+  }
+}
+
+fn findings_match(first: Finding, second: Finding) -> Bool {
+  case first, second {
+    DeniedLicence(first), DeniedLicence(second)
+    | UnallowedLicence(first), UnallowedLicence(second)
+    ->
+      spdx_expression.matching_tokens(first)
+      == spdx_expression.matching_tokens(second)
+    DeniedLicence(_), _ | UnallowedLicence(_), _ -> False
+    InvalidLicenceExpression(_), _ | NoLicencesDeclared, _ | Advisory(_), _ ->
+      first == second
   }
 }
 
@@ -258,7 +273,7 @@ pub fn decide(
       && case entry.finding, finding {
         Advisory(configured), Advisory(id) ->
           configured == id || list.contains(aliases, configured)
-        _, _ -> entry.finding == finding
+        _, _ -> findings_match(entry.finding, finding)
       }
     })
   case matches {

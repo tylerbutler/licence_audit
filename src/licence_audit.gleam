@@ -147,14 +147,22 @@ fn handle_action(action: cli.CliAction) -> Nil {
 fn reporter_for_action(action: cli.CliAction) -> progress.Reporter {
   case action {
     cli.RunAudit(options) ->
-      progress.enabled(options.verbosity, case options.check {
-        True -> "check"
-        False -> "report"
-      })
-    cli.UpdateConfig(options) -> progress.enabled(options.verbosity, "update")
-    cli.RunSbom(options) -> progress.enabled(options.verbosity, "sbom")
-    cli.RunVulns(options) -> progress.enabled(options.verbosity, "vulns")
-    cli.RunNotices(options) -> progress.enabled(options.verbosity, "notices")
+      progress.enabled(
+        options.verbosity,
+        case options.check {
+          True -> "check"
+          False -> "report"
+        },
+        options.color,
+      )
+    cli.UpdateConfig(options) ->
+      progress.enabled(options.verbosity, "update", options.color)
+    cli.RunSbom(options) ->
+      progress.enabled(options.verbosity, "sbom", options.color)
+    cli.RunVulns(options) ->
+      progress.enabled(options.verbosity, "vulns", options.color)
+    cli.RunNotices(options) ->
+      progress.enabled(options.verbosity, "notices", options.color)
     cli.ShowVersion | cli.InvalidUsage(_) -> progress.disabled()
   }
 }
@@ -1110,13 +1118,13 @@ fn gather_sbom_license_texts(
     |> list.filter_map(fn(entry) {
       case entry {
         sbom.LicenseId(id) -> Ok(id)
-        sbom.LicenseName(_) -> Error(Nil)
+        sbom.LicenseName(_) | sbom.LicenseExpression(_) -> Error(Nil)
       }
     })
     |> list.sort(by: string.compare)
   let mode = case options.no_cache {
     True -> notice_cache.Disabled
-    False -> notice_cache.Enabled(options.cache_path)
+    False -> notice_cache.Enabled(path: None)
   }
   let text_cache = notice_cache.open(mode)
   let #(texts, warning) =
@@ -2123,7 +2131,7 @@ fn run_vulns_options(
     let reporter = progress.detail(reporter, "Loading package manifest")
 
     use sbom_manifest <- result.try(
-      manifest.load_sbom(manifest_path)
+      manifest.load_vulns(manifest_path)
       |> result.map_error(fn(manifest_error) {
         #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
       }),
@@ -2543,9 +2551,10 @@ fn resolve_vuln_threshold(
         None -> "high"
       }
   }
-  case osv.parse_severity_label(raw) {
-    osv.UnknownSeverity -> osv.High
-    severity -> severity
+  let severity = osv.parse_severity_label(raw)
+  case severity {
+    osv.NoSeverity | osv.UnknownSeverity -> osv.High
+    osv.Low | osv.Medium | osv.High | osv.Critical -> severity
   }
 }
 
@@ -2984,6 +2993,7 @@ fn advisory_blocks(
   block_unknown: Bool,
 ) -> Bool {
   case actual {
+    osv.NoSeverity -> False
     osv.UnknownSeverity -> block_unknown
     osv.Low | osv.Medium | osv.High | osv.Critical ->
       osv.severity_rank(actual) >= osv.severity_rank(threshold)
