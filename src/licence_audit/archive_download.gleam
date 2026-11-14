@@ -167,7 +167,7 @@ fn receive_response(
   use stream <- result.try(
     request.request(
       socket,
-      request.Custom(http.method_to_string(request.method)),
+      request.method,
       path,
       request.headers,
       request.body,
