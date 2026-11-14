@@ -129,6 +129,7 @@ pub fn from_http_error(
 fn describe_http_error(error: httpc_adaptive.Error) -> String {
   case error {
     httpc_adaptive.InvalidUtf8Response -> "response body was not valid UTF-8"
+    httpc_adaptive.NoIpv6Address -> "IPv6 DNS lookup found no address"
     httpc_adaptive.ResponseTimeout ->
       "HTTP request timed out after "
       <> int.to_string(request_timeout_ms)

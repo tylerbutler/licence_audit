@@ -396,6 +396,7 @@ pub fn http_failures_include_request_and_connection_details_test() {
         "HTTP request timed out after 5000 ms (HTTP client did not report which stage timed out)",
       ),
       #(httpc_adaptive.InvalidUtf8Response, "response body was not valid UTF-8"),
+      #(httpc_adaptive.NoIpv6Address, "IPv6 DNS lookup found no address"),
       #(
         httpc_adaptive.RequestFailed("socket_closed_remotely"),
         "HTTP request failed: socket_closed_remotely",
