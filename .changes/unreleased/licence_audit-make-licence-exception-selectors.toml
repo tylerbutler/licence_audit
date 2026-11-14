@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Make licence exception selectors ignore ordinary SPDX identifier case and token whitespace, matching licence policy rules. Reject duplicate selectors after normalization while preserving custom reference case and exact package scope."

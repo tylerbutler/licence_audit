@@ -1,5 +1,18 @@
 # licence_audit changelog
 
+## v1.0.0-rc.2 - 2026-11-14
+
+### Fixed
+
+- Fix `sbom --license-text --cache-path` to keep SPDX text in the default versioned notice cache and apply the custom path only to metadata.
+- Fix `sbom` output: omit false BOM author attribution, preserve single SPDX expressions, and include the timestamp in reproducible serial numbers.
+- Fix `vulns` rejecting Hex manifest entries without `outer_checksum`; use the same identity loader as `check --vulns` while keeping SBOM checksum validation.
+- Make `--color` and `--colour` control stderr progress and diagnostics on every command. Explicit `never` suppresses color even with `FORCE_COLOR`; `always` forces color even with `NO_COLOR`. JSON and notice payloads remain plain.
+- Make licence exception selectors ignore ordinary SPDX identifier case and token whitespace, matching licence policy rules. Reject duplicate selectors after normalization while preserving custom reference case and exact package scope.
+- Network-backed commands use IPv4 without a warning when the IPv6 DNS lookup finds no AAAA record; connection failures and timeouts still produce warnings.
+- Report valid CVSS scores of `0.0` as `none` in `vulns`, `check --vulns`, and `sbom --vulns`; never block these ratings, even with a low threshold and unknown-severity blocking.
+- Use the Windows user cache directory for CLI metadata and notices when `XDG_CACHE_HOME` and `HOME` are unset or empty. Preserve `--cache-path` and existing environment overrides.
+
 ## v1.0.0-rc.1 - 2026-11-08
 
 ### Breaking
