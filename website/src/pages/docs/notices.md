@@ -159,6 +159,10 @@ operations:
 ${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3/
 ```
 
+When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
+the default is `%LOCALAPPDATA%\licence_audit\Cache\notices-v3\`, as resolved
+by Erlang/OTP's user cache directory.
+
 Immutable content addresses are the cache keys. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
 licence files from repositories, and canonical SPDX records. Packages that

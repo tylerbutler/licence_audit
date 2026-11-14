@@ -50,7 +50,7 @@ def smoke(binary, escript=False):
         env = dict(os.environ)
         for name in ("ERL_LIBS", "ERL_FLAGS", "ERL_AFLAGS", "ERL_ZFLAGS"):
             env.pop(name, None)
-        home = work / "home"
+        home = work / "home-é中"
         home.mkdir()
         scratch = work / "scratch"
         scratch.mkdir()
@@ -60,6 +60,8 @@ def smoke(binary, escript=False):
             ERL_FLAGS="+S 2:2 +SDcpu 1 +SDio 1",
         )
         if os.name == "nt":
+            env.pop("HOME", None)
+            env.pop("XDG_CACHE_HOME", None)
             # Queso verifies Windows known folders before creating its cache.
             for name, folder in (("LOCALAPPDATA", "Local"), ("APPDATA", "Roaming")):
                 path = home / "AppData" / folder
@@ -75,18 +77,34 @@ def smoke(binary, escript=False):
         command = [str(relocated)]
         if escript and os.name == "nt":
             command.insert(0, shutil.which("escript") or "escript")
-        cache = work / "cache" / "metadata"
-        args = ["check", "--verbose", "--color=never", f"--cache-path={cache}"]
-        first = run(command + args, work, env, "fresh")
-        assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first
-        key = "gleam_stdlib@1.0.5"
-        entry_file = cache / (hashlib.sha256(key.encode()).hexdigest() + ".json")
-        entry = json.loads(entry_file.read_text(encoding="utf-8"))
-        assert entry["key"] == key, entry
-        assert "Apache-2.0" in entry["value"] and isinstance(entry["cached_at"], int), entry
-        assert not list(cache.glob("*.tmp")), "Temporary cache files were left behind"
-        second = run(command + args, work, env, "cached")
-        assert "Cache hit for gleam_stdlib@1.0.5" in second, second
+        default_root = (
+            Path(env["LOCALAPPDATA"]) / "licence_audit" / "Cache" if os.name == "nt"
+            else home / ".cache" / "licence_audit"
+        )
+        for name, cache, overrides in (
+            ("default", default_root / "hex-v2", []),
+            ("override", work / "cache" / "metadata",
+             [f"--cache-path={work / 'cache' / 'metadata'}"]),
+        ):
+            args = ["check", "--verbose", "--color=never", *overrides]
+            first = run(command + args, work, env, f"{name}-fresh")
+            assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first
+            key = "gleam_stdlib@1.0.5"
+            entry_file = cache / (hashlib.sha256(key.encode()).hexdigest() + ".json")
+            entry = json.loads(entry_file.read_text(encoding="utf-8"))
+            assert entry["key"] == key, entry
+            assert "Apache-2.0" in entry["value"] and isinstance(entry["cached_at"], int), entry
+            assert not list(cache.glob("*.tmp")), "Temporary cache files were left behind"
+            second = run(command + args, work, env, f"{name}-cached")
+            assert "Cache hit for gleam_stdlib@1.0.5" in second, second
+        notices_args = ["notices", "--output=smoke-notices.txt", "--color=never"]
+        run(command + notices_args, work, env, "notices-fresh")
+        notices = (work / "smoke-notices.txt").read_bytes()
+        notices_cache = default_root / "notices-v3"
+        assert list(notices_cache.glob("*.json")), "Default notices cache is empty"
+        assert not list(notices_cache.glob("*.tmp")), "Temporary notice cache files were left behind"
+        run(command + notices_args, work, env, "notices-cached")
+        assert (work / "smoke-notices.txt").read_bytes() == notices
         run(command + ["sbom", "--reproducible", "--offline", "--output=smoke-sbom.json"],
             work, env, "sbom")
         assert "pkg:hex/gleam_stdlib@1.0.5" in (work / "smoke-sbom.json").read_text()
