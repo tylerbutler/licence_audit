@@ -129,6 +129,10 @@ warns and retains its ID with unknown severity; generation still exits `0`.
 In contrast, `check --vulns` exits `2` when details are unavailable because it
 cannot evaluate the severity gate.
 
+Ratings use the advisory's resolved severity, including `none` for a valid
+CVSS score of `0.0`. A recognised OSV `database_specific.severity` overrides
+the vectors. Raw vectors and their CVSS methods remain in the document.
+
 ## Reproducible output
 
 By default, `sbom` uses a random `serialNumber` and the current time for

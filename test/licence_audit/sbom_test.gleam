@@ -973,6 +973,36 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
   assert !string.contains(out, "\"method\":")
 }
 
+pub fn render_none_rating_without_vector_test() -> Nil {
+  let vuln =
+    osv.Vulnerability(
+      id: "OSV-none",
+      aliases: [],
+      summary: "",
+      severity: osv.NoSeverity,
+      scores: [],
+    )
+  let output =
+    render(
+      sbom.SbomInput(..minimal_input(), vulnerabilities: [
+        sbom.EmbeddedVulnerability(vuln, ["pkg:hex/birch@0.2.1"]),
+      ]),
+    )
+  let assert Ok(ratings) =
+    json.parse(
+      output,
+      decode.at(
+        ["vulnerabilities"],
+        decode.list(decode.at(
+          ["ratings"],
+          decode.list(decode.at(["severity"], decode.string)),
+        )),
+      ),
+    )
+  should.equal(ratings, [["none"]])
+  assert !string.contains(output, "\"method\":")
+}
+
 pub fn render_emits_optional_scope_for_dev_dependencies_test() {
   let input =
     sbom.SbomInput(

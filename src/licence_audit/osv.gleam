@@ -24,6 +24,7 @@ import licence_audit/cvss
 import licence_audit/httpc_adaptive
 
 pub type Severity {
+  NoSeverity
   Low
   Medium
   High
@@ -411,7 +412,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
   let severity = case database_severity {
     UnknownSeverity ->
       highest_severity_from_vectors(list.map(scores, severity_from_score))
-    known -> known
+    NoSeverity | Low | Medium | High | Critical -> database_severity
   }
 
   decode.success(Vulnerability(
@@ -435,9 +436,10 @@ fn score_decoder() -> decode.Decoder(Score) {
 }
 
 fn severity_from_score(score: Score) -> Severity {
-  case severity_from_cvss_vector(score.vector) {
+  let severity = severity_from_cvss_vector(score.vector)
+  case severity {
     UnknownSeverity -> severity_from_cvss_kind(score.kind, score.vector)
-    severity -> severity
+    NoSeverity | Low | Medium | High | Critical -> severity
   }
 }
 
@@ -462,7 +464,8 @@ fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {
 
 pub fn severity_rank(severity: Severity) -> Int {
   case severity {
-    UnknownSeverity -> 0
+    UnknownSeverity -> -1
+    NoSeverity -> 0
     Low -> 1
     Medium -> 2
     High -> 3
@@ -474,6 +477,7 @@ pub fn severity_rank(severity: Severity) -> Int {
 /// Treats "moderate" as `Medium` to match GHSA terminology.
 pub fn parse_severity_label(raw: String) -> Severity {
   case string.lowercase(string.trim(raw)) {
+    "none" -> NoSeverity
     "low" -> Low
     "medium" -> Medium
     "moderate" -> Medium
@@ -525,7 +529,7 @@ fn is_cvss_v2_vector(vector: String) -> Bool {
 
 fn severity_from_supported_vector(vector: String) -> Severity {
   case cvss.rating(vector) {
-    Ok(cvss.None) -> Low
+    Ok(cvss.None) -> NoSeverity
     Ok(cvss.Low) -> Low
     Ok(cvss.Medium) -> Medium
     Ok(cvss.High) -> High
@@ -536,6 +540,7 @@ fn severity_from_supported_vector(vector: String) -> Severity {
 
 pub fn severity_to_string(severity: Severity) -> String {
   case severity {
+    NoSeverity -> "none"
     Low -> "low"
     Medium -> "medium"
     High -> "high"

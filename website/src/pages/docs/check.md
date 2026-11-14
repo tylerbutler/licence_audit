@@ -141,6 +141,8 @@ licence_audit check --vulns --vuln-block-unknown
 ```
 
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
+Advisories with severity `none` (a valid CVSS score of `0.0`) never cause a
+failure, even with `--vuln-block-unknown`. `none` is not a gate threshold.
 The command reports advisories with unknown severity. By default, these
 advisories do not cause a failure. Use `--vuln-block-unknown` to make these
 advisories cause a failure. OSV batch or advisory-detail failures exit `2`,
