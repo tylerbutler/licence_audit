@@ -1110,7 +1110,7 @@ fn gather_sbom_license_texts(
     |> list.filter_map(fn(entry) {
       case entry {
         sbom.LicenseId(id) -> Ok(id)
-        sbom.LicenseName(_) -> Error(Nil)
+        sbom.LicenseName(_) | sbom.LicenseExpression(_) -> Error(Nil)
       }
     })
     |> list.sort(by: string.compare)
