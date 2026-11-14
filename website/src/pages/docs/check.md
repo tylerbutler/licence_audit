@@ -198,7 +198,13 @@ Put global settings such as `allow`, `deny`, and `vuln_severity` in
 | `advisory` | `advisory = "CVE-2026-12345"` | An OSV advisory ID or a direct alias in the fetched record. |
 
 Use the licence term from the finding in the report, rather than the full
-declared expression. A denied term takes precedence over an unallowed term.
+declared expression. Licence selectors use the same token matching as `allow`
+and `deny`: ordinary SPDX identifier case and whitespace between tokens do not
+affect the match. For example, `gpl-3.0-only` matches `GPL-3.0-only`.
+Custom `LicenseRef-` and `DocumentRef-` references remain case-sensitive.
+Parentheses and licence variants remain distinct.
+
+A denied term takes precedence over an unallowed term.
 An exception for one selector cannot accept another selector, a second
 required term, or another advisory. For `OR`, an accepted alternative is
 sufficient. The report prefers an alternative that passes global policy over
@@ -227,8 +233,9 @@ Advisory IDs are case-sensitive. Match only the record's primary ID or its
 explicit `aliases`; related IDs, text mentions, and alias chains do not
 match. The same advisory on another package still uses the normal gate.
 Two entries that select the same scoped finding cause a configuration error,
-including entries that overlap through advisory aliases. Remove one entry
-instead of relying on file order.
+including licence selectors that differ only in ordinary identifier case or
+token whitespace, and entries that overlap through advisory aliases. Remove
+one entry instead of relying on file order.
 
 ### Precedence and expiry
 

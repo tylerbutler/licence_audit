@@ -168,15 +168,122 @@ pub fn exact_scope_and_finding_match_test() {
     #("pkg:hex/example@1.2.4", waiver.finding),
     #("pkg:hex/other@1.2.3", waiver.finding),
     #(waiver.purl, exception.UnallowedLicence("GPL-3.0-only")),
+    #(waiver.purl, exception.InvalidLicenceExpression("GPL-3.0-only")),
     #(waiver.purl, exception.DeniedLicence("MIT")),
     #(waiver.purl, exception.Advisory("GPL-3.0-only")),
   ]
   |> list.each(fn(pair) {
     should.equal(
+      exception.validate_unique([
+        waiver,
+        exception.Exception(..waiver, number: 2, purl: pair.0, finding: pair.1),
+      ]),
+      Ok(Nil),
+    )
+    should.equal(
       exception.decide([waiver], pair.0, pair.1, [], "2026-12-01"),
       Ok(exception.Unaccepted),
     )
   })
+}
+
+pub fn licence_selectors_use_policy_token_normalization_test() {
+  use constructor <- list.each([
+    exception.DeniedLicence,
+    exception.UnallowedLicence,
+  ])
+  use pair <- list.each([
+    #("gpl-3.0-only", "GPL-3.0-only"),
+    #(" (mit) OR apache-2.0 ", "(MIT)\tOR\nApache-2.0"),
+    #(
+      "LicenseRef-Custom WITH classpath-exception-2.0",
+      "LicenseRef-Custom WITH Classpath-exception-2.0",
+    ),
+    #(
+      "mit AND DocumentRef-Project:LicenseRef-Custom",
+      "MIT AND DocumentRef-Project:LicenseRef-Custom",
+    ),
+  ])
+  let waiver = entry(constructor(pair.0))
+  should.equal(
+    exception.decide(
+      [waiver],
+      waiver.purl,
+      constructor(pair.1),
+      [],
+      "2026-12-01",
+    ),
+    Ok(exception.Excepted(waiver)),
+  )
+}
+
+pub fn normalized_licence_duplicates_fail_validation_and_decision_test() {
+  use kind <- list.each(["denied-licence", "unallowed-licence"])
+  use pair <- list.each([
+    #("gpl-3.0-only", "GPL-3.0-only"),
+    #(" (mit) OR apache-2.0 ", "(MIT) OR Apache-2.0"),
+  ])
+  let fields =
+    "purl = \"pkg:hex/example@1.2.3\"\nfinding = \""
+    <> kind
+    <> "\"\nreason = \"Reviewed\"\nlicence = \""
+  let assert Error(config.InvalidException(message)) =
+    parse(
+      fields
+      <> pair.0
+      <> "\"\n[[tools.licence_audit.exceptions]]\n"
+      <> fields
+      <> pair.1
+      <> "\"\n",
+    )
+  assert string.contains(message, "exceptions[1] and exceptions[2]")
+  let constructor = case kind {
+    "denied-licence" -> exception.DeniedLicence
+    _ -> exception.UnallowedLicence
+  }
+  let first = entry(constructor(pair.0))
+  let second =
+    exception.Exception(..first, number: 2, finding: constructor(pair.1))
+  should.equal(
+    exception.decide(
+      [first, second],
+      first.purl,
+      second.finding,
+      [],
+      "2026-12-01",
+    ),
+    Error(exception.OverlappingEntries(first, second)),
+  )
+}
+
+pub fn licence_normalization_preserves_reference_case_and_token_identity_test() {
+  use constructor <- list.each([
+    exception.DeniedLicence,
+    exception.UnallowedLicence,
+  ])
+  use pair <- list.each([
+    #("LicenseRef-Custom", "LicenseRef-custom"),
+    #(
+      "DocumentRef-Project:LicenseRef-Custom",
+      "DocumentRef-project:LicenseRef-Custom",
+    ),
+    #(
+      "DocumentRef-Project:LicenseRef-Custom",
+      "DocumentRef-Project:LicenseRef-custom",
+    ),
+    #("MIT OR Apache-2.0", "(MIT OR Apache-2.0)"),
+    #("GPL-3.0-only", "GPL-3.0-or-later"),
+    #("GPL-3.0-only", "GPL-3.0-only+"),
+    #("MIT", "M IT"),
+  ])
+  let first = entry(constructor(pair.0))
+  let second =
+    exception.Exception(..first, number: 2, finding: constructor(pair.1))
+  should.equal(exception.validate_unique([first, second]), Ok(Nil))
+  should.equal(
+    exception.decide([first], first.purl, second.finding, [], "2026-12-01"),
+    Ok(exception.Unaccepted),
+  )
 }
 
 pub fn advisory_matching_uses_only_direct_aliases_test() {
@@ -208,6 +315,27 @@ pub fn advisory_matching_uses_only_direct_aliases_test() {
       "2026-12-01",
     ),
     Ok(exception.Unaccepted),
+  )
+  should.equal(
+    exception.decide(
+      [waiver],
+      waiver.purl,
+      exception.Advisory("GHSA-example"),
+      ["cve-2026-12345"],
+      "2026-12-01",
+    ),
+    Ok(exception.Unaccepted),
+  )
+  should.equal(
+    exception.validate_unique([
+      waiver,
+      exception.Exception(
+        ..waiver,
+        number: 2,
+        finding: exception.Advisory("cve-2026-12345"),
+      ),
+    ]),
+    Ok(Nil),
   )
 }
 

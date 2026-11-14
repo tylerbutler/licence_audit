@@ -1,5 +1,4 @@
 import gleam/list
-import gleam/string
 import licence_audit/config
 import licence_audit/exception
 import licence_audit/spdx_expression
@@ -176,18 +175,9 @@ fn licence_failures(policy: Policy, licence: String) -> List(AuditStatus) {
 }
 
 fn matches(licences: List(String), licence: String) -> Bool {
-  let tokens = matching_tokens(licence)
-  list.any(licences, fn(configured) { matching_tokens(configured) == tokens })
-}
-
-fn matching_tokens(expression: String) -> List(String) {
-  expression
-  |> spdx_expression.tokenize
-  |> list.map(fn(token) {
-    case token {
-      "LicenseRef-" <> _ | "DocumentRef-" <> _ -> token
-      _ -> string.lowercase(token)
-    }
+  let tokens = spdx_expression.matching_tokens(licence)
+  list.any(licences, fn(configured) {
+    spdx_expression.matching_tokens(configured) == tokens
   })
 }
 
