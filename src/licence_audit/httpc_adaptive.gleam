@@ -1,6 +1,7 @@
 //// Keep this client until a replacement provides a bounded IPv6 probe and
 //// remembers IPv4 fallback for the rest of the command. These are required
 //// behaviors, not redundant wrappers around `gleam_httpc`.
+//// An IPv6-only DNS `nxdomain` selects IPv4 silently; other probe failures warn.
 ////
 //// #43 fixed repeated IPv6 timeouts. Removing this client in #61 brought them
 //// back: `gleam_httpc`'s `inet6fb4` path can exhaust the five-second Hex timeout
@@ -21,6 +22,7 @@ const ipv6_probe_timeout_ms = 1000
 pub type Error {
   InvalidUtf8Response
   ResponseTimeout
+  NoIpv6Address
   FailedToConnect(reason: String)
   RequestFailed(reason: String)
 }
@@ -78,6 +80,9 @@ fn remember_ipv6_host(host: String) -> Nil
 
 @external(erlang, "httpc_adaptive_ffi", "fallback_to_ipv4")
 fn fallback_to_ipv4(warning: String) -> Nil
+
+@external(erlang, "httpc_adaptive_ffi", "select_ipv4")
+fn select_ipv4() -> Nil
 
 @external(erlang, "httpc_adaptive_ffi", "take_warning")
 pub fn take_warning() -> Option(String)
@@ -174,6 +179,10 @@ fn probe_ipv6(
       remember_ipv6_host(request.host)
       Ipv6
     }
+    Error(NoIpv6Address) -> {
+      select_ipv4()
+      Ipv4
+    }
     Error(error) -> {
       fallback_to_ipv4(ipv6_fallback_warning(error))
       Ipv4
@@ -186,6 +195,7 @@ fn ipv6_fallback_warning(error: Error) -> String {
     ResponseTimeout ->
       "probe timed out after " <> int.to_string(ipv6_probe_timeout_ms) <> "ms"
     FailedToConnect(reason) -> "connection failed: " <> reason
+    NoIpv6Address -> "DNS lookup found no IPv6 address"
     RequestFailed(reason) -> "request failed: " <> reason
     InvalidUtf8Response -> "probe returned an invalid response"
   }
