@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:6c5a4fe3-6676-8213-b5a0-7a812204c1b5",
+  "serialNumber": "urn:uuid:814dfa1b-f08e-855b-8f55-5ebaae245763",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -15,9 +15,6 @@
         "name": "licence_audit",
         "version": "1.0.0-rc.1"
       }
-    ],
-    "authors": [
-      { "name": "tylerbutler" }
     ],
     "component": {
       "bom-ref": "root",

@@ -27,6 +27,9 @@ documentation. [Project configuration](/docs/configuration#discovery) supplies
 information for the root component. A `dependencies` graph represents the
 dependency tree.
 
+The tool vendor identifies `licence_audit`'s publisher. The document omits
+`metadata.authors` because the tool does not know who created the BOM.
+
 For a Git dependency with a manifest `path`, the purl includes the encoded
 package subpath, for example
 `pkg:github/example/beryl@<commit>#packages/beryl_protocol`.
@@ -40,10 +43,17 @@ components have scope `optional`. A valid file without `[dependencies]`, or
 with an empty table, makes all dependency components `optional`. Invalid TOML
 or a `dependencies` value that is not a table causes exit code `2`.
 
-Each licence has the property `acknowledgement: "declared"` because the data
-comes from package metadata, not a source scan. If a package declares multiple
-licences, `sbom` creates one entry for each licence. Hex does not specify an
-`AND` or `OR` relationship, so `sbom` does not create an SPDX expression.
+Each licence choice has the property `acknowledgement: "declared"` because the
+data comes from package metadata, not a source scan. A single valid compound
+SPDX declaration with `AND`, `OR`, or `WITH` becomes an `expression` choice.
+Plain recognised IDs remain `license.id` entries. Custom names and malformed
+expressions remain `license.name` entries.
+
+If a package declares multiple licences, `sbom` creates one independent
+`license` entry for each declaration, even if an entry contains an expression.
+Hex does not specify an `AND` or `OR` relationship between entries, so `sbom`
+does not combine them. Expression parsing is limited to 64 KiB, 1024 tokens,
+and 64 nested parentheses; declarations above these limits remain names.
 
 These are **declared** licences, not **concluded** licences from a source scan.
 `licence_audit` does not inspect dependency source to conclude licences or
@@ -64,9 +74,9 @@ not package-specific copyright or attribution evidence. Default output does
 not include this text.
 
 IDs match without regard to case. Each declared ID receives its own text.
-Expressions with `AND`, `OR`, or `WITH`, custom `LicenseRef-*` references,
-and unknown names remain `name` entries without text. The command does not
-select an expression alternative or combine texts.
+Expression choices and `name` entries have no embedded text. Custom
+`LicenseRef-*` references and unknown names remain names. The command does
+not select an expression alternative or combine texts.
 
 This flag requires network access on a cache miss and **conflicts with
 `--offline`**. It works with `--reproducible` because the SPDX revision is
@@ -129,6 +139,8 @@ locked commit. It omits mutable Hex publisher data, uses a content hash for
 `serialNumber`, and gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
 the variable is not set. The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
+The resolved timestamp is part of the serial hash. A different timestamp
+therefore produces a different `serialNumber`.
 
 Locked source archives use the same [archive limits as `notices`](/docs/notices#source-archive-limits):
 64 MiB per download and 256 MiB of tar data per extraction, including Hex's
