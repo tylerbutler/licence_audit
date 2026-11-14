@@ -125,7 +125,10 @@ status symbol:
 
 Use `--color` or `--colour` to control colour. The permitted values are `auto`,
 `always`, and `never`. The `auto` value uses `NO_COLOR`, `FORCE_COLOR`, `TERM`,
-`CI`, and `COLORTERM`.
+`CI`, and `COLORTERM`, and detects terminal support separately for stdout and
+stderr. Explicit `always` and `never` values override environment settings for
+report colours and stderr progress messages, including warnings and deferred
+errors, on every command.
 
 SBOM JSON and notice payloads stay plain in every color mode, including
 `always`. Use `--help` or `-h` with any command. `--version` is available only
