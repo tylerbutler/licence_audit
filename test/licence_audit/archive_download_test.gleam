@@ -159,9 +159,12 @@ pub fn tls_setup_stall_stops_at_total_deadline_test() {
 
 pub fn source_download_preserves_tls_peer_verification_test() {
   with_untrusted_tls(fn(url) {
-    let assert Error(archive_download.NetworkFailure(error.ConnectionError(
-      reason,
-    ))) = fetch(url, 2000, 64)
+    let reason = case fetch(url, 2000, 64) {
+      Error(archive_download.NetworkFailure(error.ConnectionError(reason)))
+      | Error(archive_download.NetworkFailure(error.ConnectionDown(reason))) ->
+        reason
+      _ -> panic as "expected TLS connection failure"
+    }
     assert string.contains(string.lowercase(reason), "unknownca")
       || string.contains(string.lowercase(reason), "unknown_ca")
   })
