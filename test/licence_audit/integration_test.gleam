@@ -233,6 +233,89 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
     sbom.output,
     "Invalid manifest package gleam_stdlib field outer_checksum: expected String",
   )
+
+  [[], ["CVE-2024-0001"]]
+  |> list.each(fn(ids) {
+    [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+    |> list.each(fn(args) {
+      let result =
+        licence_audit.run_configured(
+          list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, ["pkg:hex/gleam_stdlib@1.0.0"])
+              Ok(
+                list.map(purls, fn(purl) {
+                  osv.BatchEntry(purl: purl, vuln_ids: ids)
+                }),
+              )
+            },
+            osv_detail_fetcher: vulnerability_with_severity(osv.Low),
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 0)
+      case ids {
+        [] -> {
+          assert string.contains(
+            result.output,
+            "No known vulnerabilities reported by OSV.dev.",
+          )
+        }
+        _ -> {
+          assert string.contains(result.output, "CVE-2024-0001")
+        }
+      }
+    })
+  })
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn vulnerability_commands_reject_invalid_required_manifest_fields_test() {
+  let path = "build/tmp/vulns-invalid-fields.toml"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) { panic as "invalid manifest must stop Hex fetch" }),
+      osv_batch_fetcher: fn(_) {
+        panic as "invalid manifest must stop OSV batch fetch"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "invalid manifest must stop OSV detail fetch"
+      },
+    )
+  ["name", "version", "source"]
+  |> list.each(fn(field) {
+    ["", field <> " = 42,"]
+    |> list.each(fn(invalid_field) {
+      let valid_fields =
+        [#("name", "gleam_stdlib"), #("version", "1.0.0"), #("source", "hex")]
+        |> list.filter(fn(pair) { pair.0 != field })
+        |> list.map(fn(pair) { pair.0 <> " = \"" <> pair.1 <> "\"" })
+        |> string.join(", ")
+      let assert Ok(_) =
+        simplifile.write(
+          to: path,
+          contents: "packages = [{ " <> invalid_field <> valid_fields <> " }]",
+        )
+      [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+      |> list.each(fn(args) {
+        let result =
+          licence_audit.run_configured(
+            list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+            clients,
+            progress.disabled(),
+          ).0
+        should.equal(result.exit_code, 2)
+        assert string.contains(
+          result.output,
+          "field " <> field <> ": expected String",
+        )
+      })
+    })
+  })
+  let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn notices_subcommand_prints_release_notice_text_test() {
@@ -1259,40 +1342,41 @@ fn github_only_vuln_batch(
   })
 }
 
-pub fn check_vulns_gates_affected_github_dependency_test() {
+pub fn vulnerability_commands_preserve_mixed_source_identities_test() {
   ["", ", outer_checksum = \"AAAA\"", ", outer_checksum = 42"]
   |> list.each(fn(checksum) {
     let manifest_path = mixed_vuln_manifest(checksum)
-    let result =
-      licence_audit.run_configured(
-        [
-          "--manifest=" <> manifest_path,
-          "--ignore-config",
-          "check",
-          "--allow=MIT",
-          "--vulns",
-        ],
-        licence_audit.Clients(
-          ..test_clients(fake_fetcher),
-          osv_batch_fetcher: fn(purls) {
-            should.equal(purls, [
-              "pkg:hex/gleam_stdlib@1.0.0",
-              "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
-            ])
-            github_only_vuln_batch(purls)
-          },
-          osv_detail_fetcher: vulnerability_with_severity(osv.High),
-        ),
-        progress.disabled(),
-      ).0
+    [#(["vulns"], 0), #(["check", "--allow=MIT", "--vulns"], 1)]
+    |> list.each(fn(command) {
+      let #(args, expected_exit) = command
+      let result =
+        licence_audit.run_configured(
+          list.append(args, [
+            "--manifest=" <> manifest_path,
+            "--ignore-config",
+          ]),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, [
+                "pkg:hex/gleam_stdlib@1.0.0",
+                "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+              ])
+              github_only_vuln_batch(purls)
+            },
+            osv_detail_fetcher: vulnerability_with_severity(osv.High),
+          ),
+          progress.disabled(),
+        ).0
 
-    should.equal(result.exit_code, 1)
-    assert string.contains(result.output, "CVE-GITHUB-0001")
-    assert string.contains(result.output, "gluegun@0.1.0")
-    assert string.contains(
-      result.output,
-      "Skipped 1 unsupported source(s): local_dep",
-    )
+      should.equal(result.exit_code, expected_exit)
+      assert string.contains(result.output, "CVE-GITHUB-0001")
+      assert string.contains(result.output, "gluegun")
+      assert string.contains(
+        result.output,
+        "Skipped 1 unsupported source(s): local_dep",
+      )
+    })
   })
 }
 
