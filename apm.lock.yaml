@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-11-14T05:41:32.353437+00:00'
+generated_at: '2026-11-14T05:43:38.788786+00:00'
 apm_version: 0.35.1
 dependencies:
 - repo_url: tylerbutler/agent-marketplace
@@ -90,6 +90,14 @@ dependencies:
   depth: 2
   resolved_by: tylerbutler/apm-base
   package_type: claude_skill
+  deployed_files:
+  - .agents/skills/unslop
+  - .agents/skills/unslop/SKILL.md
+  - .claude/skills/unslop
+  - .claude/skills/unslop/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/unslop/SKILL.md: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
+    .claude/skills/unslop/SKILL.md: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
   content_hash: sha256:eca0ad9fa3a3867c83f3aaf3a058e247a569c8976a68ca423a569b93eb86de5d
   is_dev: true
 - repo_url: dietrichgebert/ponytail
@@ -599,6 +607,24 @@ deployments:
   active_owner: hardikpandya/stop-slop
   content_hash: sha256:ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58
 - kind: project-relative
+  target: claude
+  value: .claude/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
+- kind: project-relative
   target: copilot
   value: .agents/skills/caveman-commit
   runtime: null
@@ -949,6 +975,24 @@ deployments:
   - hardikpandya/stop-slop
   active_owner: hardikpandya/stop-slop
   content_hash: sha256:ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
 - kind: project-relative
   target: copilot
   value: .github/agents/beam-vm-reviewer.agent.md
