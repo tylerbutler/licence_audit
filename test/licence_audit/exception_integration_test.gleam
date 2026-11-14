@@ -128,12 +128,18 @@ fn run(
 }
 
 pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test() {
-  let root = project("licence_match", licence_rules <> licence_waiver(""))
+  let root =
+    project(
+      "licence_match",
+      licence_rules
+        <> string.replace(licence_waiver(""), "GPL-3.0-only", "gpl-3.0-only"),
+    )
   let result = run(root, ["check"], licences, batch, detail)
   should.equal(result.exit_code, 0)
   assert string.contains(result.output, "denied: GPL-3.0-only [excepted #1")
   assert string.contains(result.output, "Reviewed scope (no expiry)")
   assert string.contains(result.output, "Policy exceptions:")
+  assert !string.contains(result.output, "unused #1")
   assert string.contains(result.output, "local_dep")
   let preview = run(root, [], licences, batch, detail)
   should.equal(preview.exit_code, 0)
@@ -148,6 +154,60 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
     )
   should.equal(ignored.exit_code, 1)
   assert !string.contains(ignored.output, "Policy exceptions:")
+}
+
+pub fn whole_expression_exception_ignores_token_whitespace_test() {
+  let root =
+    project(
+      "normalized_expression",
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"MIT OR Apache-2.0\"]\n"
+        <> waiver(
+        "pkg:hex/first@1.0.0",
+        "denied-licence",
+        "licence = \" mit  OR  apache-2.0 \"",
+      ),
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(name) {
+        Ok(
+          hex.licences_only(case name {
+            "first" -> ["MIT\tOR\nApache-2.0"]
+            _ -> ["MIT"]
+          }),
+        )
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 0)
+  assert string.contains(
+    result.output,
+    "denied: MIT\tOR\nApache-2.0 [excepted #1",
+  )
+  assert !string.contains(result.output, "unused #1")
+}
+
+pub fn normalized_duplicate_licence_exceptions_fail_before_fetching_test() {
+  let root =
+    project(
+      "normalized_duplicates",
+      licence_rules
+        <> licence_waiver("")
+        <> string.replace(licence_waiver(""), "GPL-3.0-only", " gpl-3.0-only "),
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(_) { panic as "must reject duplicates before fetching" },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "exceptions[1] and exceptions[2]")
 }
 
 pub fn accepted_licence_cannot_hide_a_second_finding_or_tree_test() {
