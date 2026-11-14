@@ -157,6 +157,95 @@ class CliStreamTest(unittest.TestCase):
             )
         )
 
+    def test_sbom_license_text_uses_default_notice_cache_with_metadata_override(self):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "example", version = "1.0.0", '
+            'source = "hex", outer_checksum = "ABC" }]\n'
+            '[requirements]\nexample = "1.0.0"\n'
+        )
+        metadata_path = self.project / "metadata.sqlite3"
+        cache_home = self.project / "cache"
+        evaluation = """
+            Mode = os:getenv("SBOM_CACHE_MODE"),
+            Metadata = 'licence_audit@hex':licences_only([<<"Apache-2.0">>]),
+            Text = case Mode of
+                "no_cache" -> <<"Uncached SPDX text">>;
+                _ -> <<"Cached SPDX text">>
+            end,
+            HexResult = case Mode of
+                "warm" -> {error, not_found};
+                _ -> {ok, Metadata}
+            end,
+            TextResult = case Mode of
+                "warm" -> {error, fetch_network_failure};
+                _ -> {ok, {some, Text}}
+            end,
+            lists:foreach(fun({Module, Function, Result}) ->
+                {ok, {Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                    beam_lib:chunks(code:which(Module), [abstract_code]),
+                Replaced = lists:map(fun
+                    ({function, Line, Name, 1, _}) when Name =:= Function ->
+                        {function, Line, Name, 1, [
+                            {clause, Line, [{var, Line, '_'}], [],
+                                [erl_parse:abstract(Result)]}
+                        ]};
+                    (Form) -> Form
+                end, Forms),
+                {ok, Module, Binary} = compile:forms(Replaced, [binary]),
+                {module, Module} = code:load_binary(Module, "cache_fixture", Binary)
+            end, [
+                {'licence_audit@hex', fetch_package_metadata_from_hex, HexResult},
+                {'licence_audit@notice', fetch_spdx_text, TextResult}
+            ]),
+            licence_audit:main().
+        """
+        for mode in ("cold", "warm", "no_cache"):
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    [
+                        "erl", "-noshell", "-pa",
+                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
+                        "-eval", evaluation, "-extra", "sbom", "--license-text",
+                        "--quiet", f"--cache-path={metadata_path}",
+                        *(["--no-cache"] if mode == "no_cache" else []),
+                    ],
+                    cwd=self.project, capture_output=True, text=True, timeout=30,
+                    env={
+                        **os.environ, "NO_COLOR": "1",
+                        "XDG_CACHE_HOME": str(cache_home), "SBOM_CACHE_MODE": mode,
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stderr, "")
+                component = json.loads(result.stdout)["components"][0]
+                licence = component["licenses"][0]["license"]
+                self.assertEqual(licence["id"], "Apache-2.0")
+                self.assertEqual(licence["text"]["contentType"], "text/plain")
+                self.assertEqual(
+                    licence["text"]["content"],
+                    "Uncached SPDX text" if mode == "no_cache" else "Cached SPDX text",
+                )
+                metadata_files = list(metadata_path.glob("*.json"))
+                self.assertEqual(len(metadata_files), 1)
+                self.assertEqual(
+                    json.loads(metadata_files[0].read_text())["key"], "example@1.0.0"
+                )
+                notice_files = list((cache_home / "licence_audit").glob("notices-v*/*.json"))
+                self.assertEqual(len(notice_files), 1)
+                entry = json.loads(notice_files[0].read_text())
+                self.assertTrue(entry["key"].startswith("spdx:"))
+                self.assertTrue(entry["key"].endswith(":license:Apache-2.0"))
+                self.assertEqual(entry["value"], "Cached SPDX text")
+                if mode == "cold":
+                    cached_files = {
+                        file: file.read_bytes() for file in metadata_files + notice_files
+                    }
+                else:
+                    self.assertEqual(
+                        {file: file.read_bytes() for file in metadata_files + notice_files},
+                        cached_files,
+                    )
+
     def test_gate_failure_keeps_report_on_stdout(self):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "example", version = "1.0.0", '

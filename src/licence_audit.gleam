@@ -1116,7 +1116,7 @@ fn gather_sbom_license_texts(
     |> list.sort(by: string.compare)
   let mode = case options.no_cache {
     True -> notice_cache.Disabled
-    False -> notice_cache.Enabled(options.cache_path)
+    False -> notice_cache.Enabled(path: None)
   }
   let text_cache = notice_cache.open(mode)
   let #(texts, warning) =
