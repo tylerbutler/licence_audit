@@ -147,14 +147,22 @@ fn handle_action(action: cli.CliAction) -> Nil {
 fn reporter_for_action(action: cli.CliAction) -> progress.Reporter {
   case action {
     cli.RunAudit(options) ->
-      progress.enabled(options.verbosity, case options.check {
-        True -> "check"
-        False -> "report"
-      })
-    cli.UpdateConfig(options) -> progress.enabled(options.verbosity, "update")
-    cli.RunSbom(options) -> progress.enabled(options.verbosity, "sbom")
-    cli.RunVulns(options) -> progress.enabled(options.verbosity, "vulns")
-    cli.RunNotices(options) -> progress.enabled(options.verbosity, "notices")
+      progress.enabled(
+        options.verbosity,
+        case options.check {
+          True -> "check"
+          False -> "report"
+        },
+        options.color,
+      )
+    cli.UpdateConfig(options) ->
+      progress.enabled(options.verbosity, "update", options.color)
+    cli.RunSbom(options) ->
+      progress.enabled(options.verbosity, "sbom", options.color)
+    cli.RunVulns(options) ->
+      progress.enabled(options.verbosity, "vulns", options.color)
+    cli.RunNotices(options) ->
+      progress.enabled(options.verbosity, "notices", options.color)
     cli.ShowVersion | cli.InvalidUsage(_) -> progress.disabled()
   }
 }
