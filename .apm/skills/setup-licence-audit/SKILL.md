@@ -24,19 +24,70 @@ use the project's existing dependency-download command (otherwise
 
 Use the [documentation](https://licence-audit.tylerbutler.com/docs/) and
 [repository README](https://github.com/tylerbutler/licence_audit#readme) to
-confirm current behavior. Once installed, consult `licence_audit --help` and
-`licence_audit check --help`; an older installed release may lack newer flags.
+confirm current behavior. Consult `--help` and `check --help` through the
+selected invocation below; an older installed release may lack newer flags.
 
 ## 2. Install a pinned CLI
 
-Reuse a compatible project pin. Otherwise, resolve a published stable release
+Reuse a compatible project installation and pin. Otherwise, resolve a
+published stable release
 from [GitHub Releases](https://github.com/tylerbutler/licence_audit/releases)
 and record its exact tag. Do not leave `latest` in committed configuration.
 For example, `gh release view --repo tylerbutler/licence_audit --json tagName,assets`
 shows the release and its assets. Check that the selected release supports the
 required commands before using it.
 
-Prefer the project's existing installation method:
+### Gleam module for compatible projects
+
+Prefer running the CLI as a Gleam module when the project has a compatible
+Gleam compiler and Erlang/OTP, supports Git dependencies, and can compile its
+source and dependencies for the Erlang target. This uses the project's
+toolchain without a separate CLI installation. Do not change the project's
+default target or upgrade its compiler, OTP, or unrelated dependencies to
+make this work. For a JavaScript-only project, an incompatible dependency
+graph, or an environment without the required build tools, use a standalone
+release below.
+
+Add `licence_audit` to the existing `[dev_dependencies]` table in `gleam.toml`.
+Reuse an existing dependency instead of adding it to both dependency tables.
+The package is not currently published on Hex; do not assume
+`gleam add --dev licence_audit` will work. Use a Git dependency pinned to the
+commit for the selected stable release. Resolve the tag through GitHub's Git
+refs API, then follow an annotated tag's object until you reach its commit;
+do not use a branch name or an annotated tag object's SHA as the commit pin.
+
+For example, this pin is the commit for the published `v0.15.0` release.
+Replace it with the verified commit for the selected version:
+
+```toml
+[dev_dependencies]
+licence_audit = { git = "https://github.com/tylerbutler/licence_audit", ref = "b522f53cc67d2accc0c7931ff1358a6e8eff1085" }
+```
+
+Use the project's dependency-download command (otherwise `gleam deps download`)
+and retain the resulting `manifest.toml` changes with the dependency pin.
+Review new dependencies and any resolver conflicts; use a standalone release
+if setup would require unrelated dependency upgrades. No application imports
+or extra `[erlang]` settings are needed in the target project.
+
+From the Gleam project directory, run:
+
+```sh
+gleam run --target erlang -m licence_audit -- --version
+gleam run --target erlang -m licence_audit -- --help
+gleam run --target erlang -m licence_audit -- check --help
+```
+
+The `--` separates Gleam options from CLI arguments. Use the explicit Erlang
+target even if the project defaults to JavaScript; module execution requires
+an Erlang-compatible project. This invokes the CLI entry point, not a
+supported library API. Keep the dev dependency available when running audits.
+
+### Standalone release
+
+Preserve an existing standalone installation, or use one when module execution
+is unsuitable or the user requests a separate executable. Prefer the project's
+existing installation method:
 
 - **mise:** add a project-local pin. The following example uses a published
   release; replace its tag with the selected version.
@@ -94,12 +145,19 @@ The settings do not enable OSV checks on their own; the command needs `--vulns`.
 
 ## 4. Add local commands
 
-| Purpose | Command |
-| --- | --- |
-| Licence report or policy preview | `licence_audit` |
-| Vulnerability report | `licence_audit vulns` |
-| Enforce licence policy | `licence_audit check` |
-| Enforce licences and vulnerability threshold | `licence_audit check --vulns` |
+Use the column for the selected installation:
+
+| Purpose | Gleam module | Standalone |
+| --- | --- | --- |
+| Licence report or policy preview | `gleam run --target erlang -m licence_audit` | `licence_audit` |
+| Vulnerability report | `gleam run --target erlang -m licence_audit -- vulns` | `licence_audit vulns` |
+| Enforce licence policy | `gleam run --target erlang -m licence_audit -- check` | `licence_audit check` |
+| Enforce licences and vulnerability threshold | `gleam run --target erlang -m licence_audit -- check --vulns` | `licence_audit check --vulns` |
+
+For the manual policy picker, use
+`gleam run --target erlang -m licence_audit -- update` with a module setup,
+or `licence_audit update` with a standalone setup. Put policy flags such as
+`--config` after `--` in module commands.
 
 Report commands do not fail because they find violations or vulnerabilities.
 Use the combined `check --vulns` command for enforcement. It returns `1` for
@@ -118,6 +176,9 @@ and GitHub dependencies; other sources are skipped and reported. Surface
 skipped packages rather than claiming complete dependency coverage. Hex
 metadata can be cached; OSV advisories require network access and are not
 cached. An unavailable OSV service is an incomplete check, not a clean result.
+Adding the tool as a dev dependency also adds it and its dependencies to the
+lockfile being audited. Do not hide these packages or add `--prod-only` to
+remove them unless the user requests production-only coverage.
 
 ## 5. Add CI only on request
 
@@ -137,6 +198,7 @@ For CI, check the workflow syntax using the project's existing tools and
 confirm that dependency preparation precedes enforcement. If network access,
 installation, or policy decisions block a step, state what remains.
 
-Summarize the changed files, pinned version, local commands, and whether CI
-was added. Distinguish successful setup from a clean audit: report gate
+Summarize the changed files, selected invocation, pinned version (and source
+commit for a Git dependency), local commands, and whether CI was added.
+Distinguish successful setup from a clean audit: report gate
 failures and incomplete checks without weakening the policy.

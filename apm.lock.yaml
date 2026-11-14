@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-10-10T19:43:24.897566+00:00'
-apm_version: 0.32.0
+generated_at: '2026-11-14T05:43:38.788786+00:00'
+apm_version: 0.35.1
 dependencies:
 - repo_url: tylerbutler/agent-marketplace
   name: gleam
@@ -79,6 +79,26 @@ dependencies:
     .github/prompts/create-pr.prompt.md: sha256:5fcb1b64247130aec3a0ebd114ae6d127de44f7e824087033c468d8debb593a2
     .github/prompts/merge-upstream.prompt.md: sha256:bf990755d11f1e73610d9cde3b656aa175c7f63cdd8d069158302c6496a5b77e
   content_hash: sha256:b79cb18c0a888d9c830388493ae241334ccfa4af00a2851a1c4c002d9de0ac21
+  is_dev: true
+- repo_url: cursor/plugins
+  name: unslop
+  host: github.com
+  resolved_commit: 3dbd22ff12742fb28c9700b9760baa29ed41dc13
+  version: unknown
+  virtual_path: pstack/skills/unslop
+  is_virtual: true
+  depth: 2
+  resolved_by: tylerbutler/apm-base
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/unslop
+  - .agents/skills/unslop/SKILL.md
+  - .claude/skills/unslop
+  - .claude/skills/unslop/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/unslop/SKILL.md: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
+    .claude/skills/unslop/SKILL.md: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
+  content_hash: sha256:eca0ad9fa3a3867c83f3aaf3a058e247a569c8976a68ca423a569b93eb86de5d
   is_dev: true
 - repo_url: dietrichgebert/ponytail
   materialization_repo_url: DietrichGebert/ponytail
@@ -495,7 +515,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:6e06c8f730fe08477abeb9eb8cb0265bde5f0ce9fa6d9f276eae42fa1aedc87b
+  content_hash: sha256:d121ba2f527e23717333c0e0e8e9bf4354e30a65efd139164ce7199f08cc90b4
 - kind: project-relative
   target: claude
   value: .claude/skills/setup-licence-audit/evals/evals.json
@@ -504,7 +524,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:0261bb796861492c791f951d6dbd7791b5a9473b4d370c846d0a1d55070f34dc
+  content_hash: sha256:70734dd4c0c6c1546b247ebb4076e819c10d46302c4245239cf0ff657ae0f609
 - kind: project-relative
   target: claude
   value: .claude/skills/setup-licence-audit/references/ci.md
@@ -513,7 +533,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:ee55a08db6549f22f40cf0e256ca1d01b975c1b48d1315da3d9d1c39ad68dd4f
+  content_hash: sha256:8dfe4fbe97c195de47f9c1e718970e5d5632ea8514dd8a4b4f15c6158186e59f
 - kind: project-relative
   target: claude
   value: .claude/skills/stop-slop
@@ -586,6 +606,24 @@ deployments:
   - hardikpandya/stop-slop
   active_owner: hardikpandya/stop-slop
   content_hash: sha256:ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
 - kind: project-relative
   target: copilot
   value: .agents/skills/caveman-commit
@@ -831,6 +869,42 @@ deployments:
   content_hash: sha256:48330781d0d69dc91cf4ef295fadc04d6d14f5a195d82b293d31677829e6f2b0
 - kind: project-relative
   target: copilot
+  value: .agents/skills/setup-licence-audit
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/setup-licence-audit/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:d121ba2f527e23717333c0e0e8e9bf4354e30a65efd139164ce7199f08cc90b4
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/setup-licence-audit/evals/evals.json
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:70734dd4c0c6c1546b247ebb4076e819c10d46302c4245239cf0ff657ae0f609
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/setup-licence-audit/references/ci.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:8dfe4fbe97c195de47f9c1e718970e5d5632ea8514dd8a4b4f15c6158186e59f
+- kind: project-relative
+  target: copilot
   value: .agents/skills/stop-slop
   runtime: null
   scope: project
@@ -903,6 +977,24 @@ deployments:
   content_hash: sha256:ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58
 - kind: project-relative
   target: copilot
+  value: .agents/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: sha256:ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f
+- kind: project-relative
+  target: copilot
   value: .github/agents/beam-vm-reviewer.agent.md
   runtime: null
   scope: project
@@ -946,42 +1038,6 @@ deployments:
   - tylerbutler/apm-base
   active_owner: tylerbutler/apm-base
   content_hash: sha256:bf990755d11f1e73610d9cde3b656aa175c7f63cdd8d069158302c6496a5b77e
-- kind: project-relative
-  target: legacy
-  value: .agents/skills/setup-licence-audit
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: legacy
-  value: .agents/skills/setup-licence-audit/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:6e06c8f730fe08477abeb9eb8cb0265bde5f0ce9fa6d9f276eae42fa1aedc87b
-- kind: project-relative
-  target: legacy
-  value: .agents/skills/setup-licence-audit/evals/evals.json
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:0261bb796861492c791f951d6dbd7791b5a9473b4d370c846d0a1d55070f34dc
-- kind: project-relative
-  target: legacy
-  value: .agents/skills/setup-licence-audit/references/ci.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:ee55a08db6549f22f40cf0e256ca1d01b975c1b48d1315da3d9d1c39ad68dd4f
 local_deployed_files:
 - .agents/skills/setup-licence-audit
 - .agents/skills/setup-licence-audit/SKILL.md
@@ -992,9 +1048,9 @@ local_deployed_files:
 - .claude/skills/setup-licence-audit/evals/evals.json
 - .claude/skills/setup-licence-audit/references/ci.md
 local_deployed_file_hashes:
-  .agents/skills/setup-licence-audit/SKILL.md: sha256:6e06c8f730fe08477abeb9eb8cb0265bde5f0ce9fa6d9f276eae42fa1aedc87b
-  .agents/skills/setup-licence-audit/evals/evals.json: sha256:0261bb796861492c791f951d6dbd7791b5a9473b4d370c846d0a1d55070f34dc
-  .agents/skills/setup-licence-audit/references/ci.md: sha256:ee55a08db6549f22f40cf0e256ca1d01b975c1b48d1315da3d9d1c39ad68dd4f
-  .claude/skills/setup-licence-audit/SKILL.md: sha256:6e06c8f730fe08477abeb9eb8cb0265bde5f0ce9fa6d9f276eae42fa1aedc87b
-  .claude/skills/setup-licence-audit/evals/evals.json: sha256:0261bb796861492c791f951d6dbd7791b5a9473b4d370c846d0a1d55070f34dc
-  .claude/skills/setup-licence-audit/references/ci.md: sha256:ee55a08db6549f22f40cf0e256ca1d01b975c1b48d1315da3d9d1c39ad68dd4f
+  .agents/skills/setup-licence-audit/SKILL.md: sha256:d121ba2f527e23717333c0e0e8e9bf4354e30a65efd139164ce7199f08cc90b4
+  .agents/skills/setup-licence-audit/evals/evals.json: sha256:70734dd4c0c6c1546b247ebb4076e819c10d46302c4245239cf0ff657ae0f609
+  .agents/skills/setup-licence-audit/references/ci.md: sha256:8dfe4fbe97c195de47f9c1e718970e5d5632ea8514dd8a4b4f15c6158186e59f
+  .claude/skills/setup-licence-audit/SKILL.md: sha256:d121ba2f527e23717333c0e0e8e9bf4354e30a65efd139164ce7199f08cc90b4
+  .claude/skills/setup-licence-audit/evals/evals.json: sha256:70734dd4c0c6c1546b247ebb4076e819c10d46302c4245239cf0ff657ae0f609
+  .claude/skills/setup-licence-audit/references/ci.md: sha256:8dfe4fbe97c195de47f9c1e718970e5d5632ea8514dd8a4b4f15c6158186e59f
