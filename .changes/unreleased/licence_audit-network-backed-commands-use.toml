@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Network-backed commands use IPv4 without a warning when the IPv6 DNS lookup finds no AAAA record; connection failures and timeouts still produce warnings."

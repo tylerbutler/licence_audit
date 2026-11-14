@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Report valid CVSS scores of `0.0` as `none` in `vulns`, `check --vulns`, and `sbom --vulns`; never block these ratings, even with a low threshold and unknown-severity blocking."
