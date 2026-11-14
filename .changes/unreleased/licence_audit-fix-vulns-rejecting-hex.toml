@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix `vulns` rejecting Hex manifest entries without `outer_checksum`; use the same identity loader as `check --vulns` while keeping SBOM checksum validation."

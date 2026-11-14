@@ -2123,7 +2123,7 @@ fn run_vulns_options(
     let reporter = progress.detail(reporter, "Loading package manifest")
 
     use sbom_manifest <- result.try(
-      manifest.load_sbom(manifest_path)
+      manifest.load_vulns(manifest_path)
       |> result.map_error(fn(manifest_error) {
         #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
       }),
