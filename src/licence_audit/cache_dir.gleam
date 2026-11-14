@@ -28,6 +28,9 @@ const entry_suffix = ".json"
 
 const temporary_suffix = ".tmp"
 
+@external(erlang, "cache_dir_ffi", "windows_user_cache")
+fn windows_user_cache() -> Result(String, Nil)
+
 /// An on-disk string cache rooted at one directory.
 pub opaque type Store {
   Store(directory: String)
@@ -65,7 +68,7 @@ pub fn describe_error(error: Error) -> String {
 fn describe_path_error(error: PathError) -> String {
   case error {
     CacheDirUnknown ->
-      "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set"
+      "Unable to determine licence cache directory: neither XDG_CACHE_HOME nor HOME is set and no Windows user cache directory is available"
     CacheDirCreateFailed(dir, reason) ->
       "Unable to create licence cache directory "
       <> dir
@@ -95,7 +98,11 @@ fn default_path(directory: String) -> Result(String, PathError) {
             path.join(path.join(home, ".cache"), cache_subdir),
             directory,
           ))
-        _ -> Error(CacheDirUnknown)
+        _ ->
+          case windows_user_cache() {
+            Ok(root) -> Ok(path.join(root, directory))
+            Error(Nil) -> Error(CacheDirUnknown)
+          }
       }
   }
 }

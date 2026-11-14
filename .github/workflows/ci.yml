@@ -91,6 +91,7 @@ jobs:
 
       - name: Test Windows escript cache
         run: |
+          python -B test/cache_default_paths.py
           gleam export escript
           python -B test/native_cache_smoke.py licence_audit --escript
 
