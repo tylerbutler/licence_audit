@@ -1,5 +1,70 @@
 # licence_audit changelog
 
+## v1.0.0-rc.2 - 2026-11-14
+
+### Fixed
+
+- Fix `sbom --license-text --cache-path` to keep SPDX text in the default versioned notice cache and apply the custom path only to metadata.
+- Fix `sbom` output: omit false BOM author attribution, preserve single SPDX expressions, and include the timestamp in reproducible serial numbers.
+- Fix `vulns` rejecting Hex manifest entries without `outer_checksum`; use the same identity loader as `check --vulns` while keeping SBOM checksum validation.
+- Make `--color` and `--colour` control stderr progress and diagnostics on every command. Explicit `never` suppresses color even with `FORCE_COLOR`; `always` forces color even with `NO_COLOR`. JSON and notice payloads remain plain.
+- Make licence exception selectors ignore ordinary SPDX identifier case and token whitespace, matching licence policy rules. Reject duplicate selectors after normalization while preserving custom reference case and exact package scope.
+- Network-backed commands use IPv4 without a warning when the IPv6 DNS lookup finds no AAAA record; connection failures and timeouts still produce warnings.
+- Report valid CVSS scores of `0.0` as `none` in `vulns`, `check --vulns`, and `sbom --vulns`; never block these ratings, even with a low threshold and unknown-severity blocking.
+- Use the Windows user cache directory for CLI metadata and notices when `XDG_CACHE_HOME` and `HOME` are unset or empty. Preserve `--cache-path` and existing environment overrides.
+
+## v1.0.0-rc.1 - 2026-11-08
+
+### Breaking
+
+- Declare the `licence_audit` CLI stable with the 1.0 release.
+
+### Fixed
+
+- Correct production dependency scope in check, SBOM, notices, and vulns when gleam.toml has no dependencies table; reject invalid or unreadable scope configuration while retaining the missing-file fallback.
+- Decode TOML string escapes in project metadata and preserve array comments when `update` edits policies, including exceptions-only and inline-table configurations.
+- Limit source archives used by `notices` and reproducible `sbom` metadata to 64 MiB per download and 256 MiB of tar data per extraction. Stop oversized downloads and gzip inflation before collecting the full archive.
+- Make `notices` use the same SPDX expression syntax as `check`: handle tabs and line breaks correctly and reject malformed expressions before requesting canonical licence text.
+- Respect Git dependency package subdirectories in `sbom --reproducible` metadata and `notices` licence lookups, cache keys, and SBOM package URLs.
+
+## v1.0.0-rc.0 - 2026-11-07
+
+### Breaking
+
+- Declare the `licence_audit` CLI stable with the 1.0 release.
+
+## v0.15.0 - 2026-11-06
+
+### Added
+
+- Add `-q` for `--quiet` on every command, `--color`/`--colour` on `sbom` and `notices` with plain payloads, `--config`/`--ignore-config` on `notices`, and `--prod-only` on `vulns`.
+
+### Changed
+
+- Remove the ineffective `vulns --no-cache` flag before 1.0. The `vulns` command queries OSV directly and does not use an on-disk cache.
+- Require a non-empty `allow` list for `check`, including `check --vulns`. Keep `deny` as an exact-match override without licence variant equivalence. Warn when `update` saves an empty allow list.
+- Store the on-disk caches as one JSON file per entry, not as SQLite databases. The CLI no longer has native dependencies: escripts no longer need the `sqlite_native/` directory, and cache paths can contain non-ASCII characters and are no longer limited to 504 bytes on Linux. `--cache-path` now names the metadata cache directory, for example `.hex-cache/hex-v2`. The default caches are `hex-v2/` and `notices-v3/` below `${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. The caches refill on first use; you can delete old `.sqlite3` files.
+
+### Fixed
+
+- Explicit `--config` files without `[tools.licence_audit]` now fail with exit 2 and a file-specific error, even when CLI flags supply a policy.
+- Fix `notices` for Gleam local path dependencies by recognizing `source = "local"` in the manifest; retain `source = "path"` as an alias.
+- Keep `check` gate verdicts on stdout without duplicate stderr errors, and send OSV request failure diagnostics to stderr even with `--quiet`.
+- Map unexpected Erlang exceptions to CLI exit code `2` with a diagnostic instead of a raw crash; keep policy and usage failures at exit code `1`.
+- Reject `check --vuln-severity` and `--vuln-block-unknown` without enabled `--vulns` as usage errors instead of silently skipping the vulnerability scan.
+- Reject unknown policy and notices configuration keys and malformed SPDX expressions in config and CLI allow/deny entries with exit code 2.
+
+## v0.14.0 - 2026-10-29
+
+### Added
+
+- Add `sbom --license-text` to embed canonical SPDX licence text for recognised IDs without changing default output.
+- Add `include` and `exclude` filters under `[tools.licence_audit.notices]`. Apply them before metadata, source, and cache access, and reject names absent from the lockfile. Projects without a `[dependencies]` table now require `notices --include-dev` to include development dependencies.
+
+### Changed
+
+- Replace the on-disk metadata and notice caches with SQLite WAL, storing metadata and its timestamp in one atomic write. New `.sqlite3` caches refill on first use; the command does not import or change existing DETS files. Cache paths must be ASCII; Linux absolute database paths must not exceed 504 bytes (#168). Escript caching requires `sqlite_native/` beside the executable. Busy cache operations report a deferred warning without discarding fetched results. Bare escripts and installations with missing or unloadable SQLite native libraries run without caching and report a deferred warning. Use `--no-cache` to skip native-library loading.
+
 ## v0.13.2 - 2026-10-25
 
 ### Fixed

@@ -141,7 +141,7 @@ fn package_json(
           ])
       }
     }
-    manifest.GitProvenance(repo, commit) ->
+    manifest.GitProvenance(repo, commit, _) ->
       Ok([
         #("downloadLocation", json.string("git+" <> repo <> "@" <> commit)),
       ])

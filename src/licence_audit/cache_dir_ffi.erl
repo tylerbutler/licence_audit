@@ -1,12 +1,18 @@
 -module(cache_dir_ffi).
--export([take_warning/1, warn/2]).
+-export([windows_user_cache/0]).
 
-take_warning(Ref) ->
-    case erlang:erase({?MODULE, Ref}) of
-        undefined -> none;
-        Warning -> {some, Warning}
+windows_user_cache() ->
+    case os:type() of
+        {win32, _} ->
+            try filename:basedir(user_cache, "licence_audit") of
+                Path ->
+                    case {filename:pathtype(Path), unicode:characters_to_binary(Path)} of
+                        {absolute, Binary} when is_binary(Binary) -> {ok, Binary};
+                        _ -> {error, nil}
+                    end
+            catch
+                error:badarg -> {error, nil}
+            end;
+        _ ->
+            {error, nil}
     end.
-
-warn(Ref, Warning) ->
-    erlang:put({?MODULE, Ref}, Warning),
-    nil.

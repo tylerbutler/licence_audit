@@ -10,7 +10,7 @@
 //// verbatim.
 ////
 //// A declared licence may be a bare identifier (`Apache-2.0`) or a compound
-//// expression (`(MIT OR Apache-2.0) WITH LLVM-exception`). Expressions are
+//// expression (`MIT OR Apache-2.0 WITH LLVM-exception`). Expressions are
 //// reduced to the *set* of identifiers they reference: for an `OR` all
 //// alternatives are included (we never try to pick a "best" one), and `AND`
 //// obviously needs all operands. `LicenseRef-*`/`DocumentRef-*` custom
@@ -25,6 +25,7 @@ import gleam/list
 import gleam/option.{None}
 import gleam/result
 import gleam/string
+import licence_audit/spdx_expression
 
 /// Immutable commit in `spdx/license-list-data`, pinned to the v3.28.0
 /// release. Pinning to a commit (not a tag) guarantees the fetched text can
@@ -46,9 +47,8 @@ pub type IndexKind {
 
 /// Reduce a list of declared licence strings (each a bare identifier or an
 /// expression) to the deduplicated set of SPDX identifiers whose canonical text
-/// is required. Returns `Error(Nil)` if any declared string references a
-/// `LicenseRef-`/`DocumentRef-` custom licence, which cannot be resolved to
-/// canonical text.
+/// is required. Returns `Error(Nil)` for invalid syntax or a
+/// `LicenseRef-`/`DocumentRef-` custom licence with no canonical text.
 pub fn required_identifiers(
   declared: List(String),
 ) -> Result(List(Requirement), Nil) {
@@ -58,56 +58,37 @@ pub fn required_identifiers(
 
 /// Reduce a single declared licence string to its required identifiers.
 pub fn identifiers_of(expression: String) -> Result(List(Requirement), Nil) {
-  let tokens = tokenize(expression)
-  classify(tokens, expect_exception: False, acc: [])
+  use parsed <- result.try(
+    spdx_expression.parse(expression) |> result.replace_error(Nil),
+  )
+  collect_identifiers(parsed, [])
 }
 
-fn classify(
-  tokens: List(String),
-  expect_exception expect_exception: Bool,
-  acc acc: List(Requirement),
+fn collect_identifiers(
+  expression: spdx_expression.Expression,
+  acc: List(Requirement),
 ) -> Result(List(Requirement), Nil) {
-  case tokens {
-    [] -> Ok(list.reverse(acc))
-    [token, ..rest] ->
-      case string.uppercase(token), expect_exception {
-        "AND", False | "OR", False ->
-          classify(rest, expect_exception: False, acc: acc)
-        "WITH", False -> classify(rest, expect_exception: True, acc: acc)
-        _, True ->
-          classify(rest, expect_exception: False, acc: [
-            ExceptionRequirement(id: token),
-            ..acc
-          ])
-        _, False -> {
-          let id = drop_trailing_plus(token)
-          case is_custom_ref(id) {
-            True -> Error(Nil)
-            False ->
-              classify(rest, expect_exception: False, acc: [
-                LicenseRequirement(id: id),
-                ..acc
-              ])
-          }
-        }
-      }
+  case expression {
+    spdx_expression.Licence(id) -> collect_licence(id, acc)
+    spdx_expression.With(licence, exception) ->
+      collect_licence(licence, [ExceptionRequirement(exception), ..acc])
+    spdx_expression.And(left, right) | spdx_expression.Or(left, right) -> {
+      use acc <- result.try(collect_identifiers(right, acc))
+      collect_identifiers(left, acc)
+    }
   }
 }
 
-fn is_custom_ref(id: String) -> Bool {
-  string.starts_with(id, "LicenseRef-")
-  || string.starts_with(id, "DocumentRef-")
-}
-
-/// Split an expression into operand/keyword tokens, treating parentheses as
-/// delimiters and collapsing surrounding whitespace.
-fn tokenize(expression: String) -> List(String) {
-  expression
-  |> string.replace("(", " ")
-  |> string.replace(")", " ")
-  |> string.split(on: " ")
-  |> list.map(string.trim)
-  |> list.filter(fn(token) { token != "" })
+fn collect_licence(
+  id: String,
+  acc: List(Requirement),
+) -> Result(List(Requirement), Nil) {
+  use <- bool.guard(
+    when: string.starts_with(id, "LicenseRef-")
+      || string.starts_with(id, "DocumentRef-"),
+    return: Error(Nil),
+  )
+  Ok([LicenseRequirement(drop_trailing_plus(id)), ..acc])
 }
 
 fn drop_trailing_plus(id: String) -> String {

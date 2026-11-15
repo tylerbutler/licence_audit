@@ -35,6 +35,7 @@ fn fixture() -> sbom.SbomInput {
           provenance: manifest.GitProvenance(
             "https://github.com/example/example.git",
             string.repeat("c", 40),
+            None,
           ),
         ),
         manifest.SbomEntry(

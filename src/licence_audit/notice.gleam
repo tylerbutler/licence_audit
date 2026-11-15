@@ -3,7 +3,6 @@ import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/http.{Get, Https}
 import gleam/http/request.{type Request, Request}
-import gleam/http/response.{type Response}
 import gleam/int
 import gleam/json
 import gleam/list
@@ -11,6 +10,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import licence_audit/archive_download
+import licence_audit/cache_dir
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/manifest
@@ -31,7 +33,12 @@ pub type PackageSource {
   /// commit. `repository` is the normalized provider identity used to build the
   /// archive request; `url` is the original manifest-recorded source URL,
   /// preserved verbatim for rendering.
-  GitPackage(repository: repository.Repository, url: String, commit: String)
+  GitPackage(
+    repository: repository.Repository,
+    url: String,
+    commit: String,
+    path: Option(String),
+  )
   PathPackage(path: String)
 }
 
@@ -47,6 +54,7 @@ pub type FetchError {
   /// reports the actual configured duration rather than assuming 30s.
   FetchTimeoutAfter(seconds: Int)
   FetchUnexpectedResponse(status: Int)
+  FetchDownloadTooLarge(limit: Int)
 }
 
 pub type NoticePackage {
@@ -118,6 +126,7 @@ pub fn default_clients() -> Clients {
 }
 
 pub type Error {
+  UnknownPackages(packages: List(String))
   MissingLicenceText(packages: List(String))
   MetadataFailed(package: String, reason: String)
   UnsupportedSource(package: String, source: String, detail: String)
@@ -144,23 +153,58 @@ pub fn selected_entries(
   })
 }
 
+pub fn filter_entries(
+  selected: List(manifest.SbomEntry),
+  locked: List(manifest.SbomEntry),
+  configuration: config.Notices,
+) -> Result(List(manifest.SbomEntry), Error) {
+  let names = list.map(locked, fn(entry) { entry.name })
+  let unknown =
+    list.append(configuration.include, configuration.exclude)
+    |> list.unique
+    |> list.filter(fn(name) { !list.contains(names, name) })
+  case unknown {
+    [] ->
+      Ok(
+        list.filter(selected, fn(entry) {
+          {
+            configuration.include == []
+            || list.contains(configuration.include, entry.name)
+          }
+          && !list.contains(configuration.exclude, entry.name)
+        }),
+      )
+    _ -> Error(UnknownPackages(unknown))
+  }
+}
+
 pub fn packages_from_entries(
   entries: List(manifest.SbomEntry),
   scopes: Dict(String, manifest.Scope),
-  metadata_for: fn(manifest.SbomEntry) -> Result(hex.PackageMetadata, Error),
-) -> Result(List(NoticePackage), Error) {
-  list.try_map(entries, fn(entry) {
-    use source <- result.try(package_source(entry))
-    use metadata <- result.try(metadata_for(entry))
-    Ok(NoticePackage(
-      name: entry.name,
-      version: entry.version,
-      declared_licences: metadata.licences,
-      repo_links: repo_link_urls(metadata.links),
-      source: source,
-      scope: scope_for(scopes, entry.name),
-    ))
-  })
+  metadata_for: fn(manifest.SbomEntry) ->
+    #(Result(hex.PackageMetadata, Error), Option(String)),
+) -> #(Result(List(NoticePackage), Error), Option(String)) {
+  let #(packages, warning) =
+    list.fold(entries, #(Ok([]), None), fn(acc, entry) {
+      use packages <- cache_dir.try_with_warning(acc)
+      use source <- cache_dir.try_with_warning(#(package_source(entry), None))
+      use metadata <- cache_dir.try_with_warning(metadata_for(entry))
+      #(
+        Ok([
+          NoticePackage(
+            name: entry.name,
+            version: entry.version,
+            declared_licences: metadata.licences,
+            repo_links: repo_link_urls(metadata.links),
+            source: source,
+            scope: scope_for(scopes, entry.name),
+          ),
+          ..packages
+        ]),
+        None,
+      )
+    })
+  #(result.map(packages, list.reverse), warning)
 }
 
 /// Extract the URL of each metadata link, preserving order and de-duplicating.
@@ -185,10 +229,23 @@ pub fn package_source(
   case entry.provenance {
     manifest.HexProvenance(outer_checksum, _) -> Ok(HexPackage(outer_checksum))
     manifest.PathProvenance(path) -> Ok(PathPackage(path))
-    manifest.GitProvenance(repo, commit) ->
+    manifest.GitProvenance(repo, commit, path) -> {
+      use _ <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(UnsupportedSource(
+          entry.name,
+          "git",
+          "invalid package path",
+        )),
+      )
       case repository.parse(repo) {
         Ok(repository_value) ->
-          Ok(GitPackage(repository: repository_value, url: repo, commit: commit))
+          Ok(GitPackage(
+            repository: repository_value,
+            url: repo,
+            commit: commit,
+            path: path,
+          ))
         Error(_) ->
           Error(UnsupportedSource(
             package: entry.name,
@@ -196,6 +253,7 @@ pub fn package_source(
             detail: "repo: " <> repo,
           ))
       }
+    }
     manifest.UnknownProvenance(source) ->
       Error(UnsupportedSource(
         package: entry.name,
@@ -307,14 +365,22 @@ pub fn read_remote_source(
         fetch_hex_tarball,
         source_archive.extract_hex_contents,
       )
-    GitPackage(repo, _url, commit) ->
-      read_git_source(
-        package,
-        repo,
-        commit,
-        fetch_git_archive,
-        source_archive.extract_tar_gz,
-      )
+    GitPackage(repo, _url, commit, path) ->
+      read_git_source(package, repo, commit, fetch_git_archive, fn(bytes) {
+        case path {
+          None -> source_archive.extract_tar_gz(bytes)
+          Some(_) -> {
+            use directory <- result.try(
+              manifest.git_subdirectory(path)
+              |> result.replace_error(source_archive.InvalidArchive),
+            )
+            source_archive.extract_tar_gz_selected(
+              bytes,
+              source_archive.package_paths(_, directory),
+            )
+          }
+        }
+      })
     PathPackage(path) -> read_path_source(package.name, path)
   }
 }
@@ -333,13 +399,13 @@ pub fn read_source_notices(
         clients.fetch_hex_tarball,
         extract_notices(_, source_archive.extract_hex_contents_selected),
       )
-    GitPackage(repo, _url, commit) ->
+    GitPackage(repo, _url, commit, path) ->
       read_git_source(
         package,
         repo,
         commit,
         clients.fetch_git_archive,
-        extract_notices(_, source_archive.extract_tar_gz_selected),
+        extract_git_notices(_, path),
       )
     PathPackage(path) -> read_path_notices(package.name, path)
   })
@@ -350,13 +416,41 @@ pub fn read_source_notices(
   })
 }
 
+fn extract_git_notices(
+  bytes: BitArray,
+  path: Option(String),
+) -> Result(List(source_archive.ArchiveFile), source_archive.ArchiveError) {
+  case path {
+    None -> extract_notices(bytes, source_archive.extract_tar_gz_selected)
+    Some(_) -> {
+      use directory <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(source_archive.InvalidArchive),
+      )
+      usable_notice_files(fn(include_nested) {
+        source_archive.extract_tar_gz_selected(bytes, fn(paths) {
+          source_archive.package_paths(paths, directory)
+          |> list.filter(fn(pair) { is_any_notice_file(pair.1) })
+          |> select_notice_candidates(include_nested)
+        })
+      })
+    }
+  }
+}
+
 pub fn selected_notice_paths(paths: List(String)) -> List(#(String, String)) {
-  let candidates = all_notice_paths(paths)
+  select_notice_candidates(all_notice_paths(paths), False)
+}
+
+fn select_notice_candidates(
+  candidates: List(#(String, String)),
+  include_nested: Bool,
+) -> List(#(String, String)) {
   let roots =
     list.filter(candidates, fn(candidate) { is_root_notice_file(candidate.1) })
-  case roots {
-    [] -> candidates
-    _ -> roots
+  case roots, include_nested {
+    [], _ | _, True -> candidates
+    _, False -> roots
   }
 }
 
@@ -500,6 +594,8 @@ pub fn describe_fetch_error(error: FetchError) -> String {
       "timed out after " <> int.to_string(seconds) <> "s"
     FetchUnexpectedResponse(status) ->
       "unexpected HTTP response " <> int.to_string(status)
+    FetchDownloadTooLarge(limit) ->
+      "source archive download exceeds " <> int.to_string(limit) <> " bytes"
   }
 }
 
@@ -531,6 +627,9 @@ pub fn render(
 
 pub fn describe_error(error: Error) -> String {
   case error {
+    UnknownPackages(packages) ->
+      "Unknown locked package names in notices configuration: "
+      <> string.join(list.sort(packages, by: string.compare), ", ")
     MissingLicenceText(packages) ->
       "Missing licence text for packages: "
       <> string.join(list.sort(packages, by: string.compare), ", ")
@@ -603,8 +702,41 @@ fn read_hex_source(
   })
 }
 
+/// Read declared metadata from a checksum-verified locked Hex tarball.
+pub fn hex_metadata_from_locked_source(
+  name: String,
+  version: String,
+  checksum: String,
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+) -> Result(hex.PackageMetadata, Error) {
+  use bytes <- result.try(fetch_verified_hex_tarball(
+    name,
+    version,
+    checksum,
+    fetch_hex_tarball,
+  ))
+  use files <- result.try(
+    source_archive.extract_tar(bytes)
+    |> result.map_error(fn(error) {
+      ArchiveFailed(name, source_archive.describe_error(error))
+    }),
+  )
+  use metadata_file <- result.try(
+    list.find(files, fn(file) { file.path == "metadata.config" })
+    |> result.replace_error(MetadataFailed(
+      name,
+      "locked Hex archive has no metadata.config",
+    )),
+  )
+  hex.package_metadata_from_archive(metadata_file.contents)
+  |> result.replace_error(MetadataFailed(
+    name,
+    "locked Hex archive has invalid metadata.config",
+  ))
+}
+
 /// Fetch a Hex package tarball and verify it against the lockfile checksum.
-pub fn fetch_verified_hex_tarball(
+fn fetch_verified_hex_tarball(
   name: String,
   version: String,
   expected_checksum: String,
@@ -781,22 +913,16 @@ pub fn fetch_tarball(
   request: Request(BitArray),
 ) -> Result(BitArray, FetchError) {
   let request = request.set_header(request, "user-agent", "licence_audit")
-  case
-    httpc_adaptive.dispatch_bits(request, timeout_ms: source_fetch_timeout_ms)
-  {
-    Ok(response) -> decode_fetch_response(response)
-    Error(httpc_adaptive.ResponseTimeout) -> Error(FetchTimeout)
-    Error(_) -> Error(FetchNetworkFailure)
-  }
-}
-
-fn decode_fetch_response(
-  response: Response(BitArray),
-) -> Result(BitArray, FetchError) {
-  case response.status {
-    status if status >= 200 && status < 300 -> Ok(response.body)
-    status -> Error(FetchUnexpectedResponse(status))
-  }
+  archive_download.fetch(request, source_fetch_timeout_ms)
+  |> result.map_error(fn(error) {
+    case error {
+      archive_download.Timeout -> FetchTimeout
+      archive_download.NetworkFailure(_) -> FetchNetworkFailure
+      archive_download.UnexpectedResponse(status) ->
+        FetchUnexpectedResponse(status)
+      archive_download.DownloadTooLarge(limit) -> FetchDownloadTooLarge(limit)
+    }
+  })
 }
 
 fn hex_tarball_request(name: String, version: String) -> Request(BitArray) {
@@ -1157,7 +1283,13 @@ fn normalized_file_contents(contents: String) -> String {
 fn source_text(source: PackageSource) -> String {
   case source {
     HexPackage(_) -> "hex"
-    GitPackage(_repo, url, commit) -> "git " <> url <> " @ " <> commit
+    GitPackage(_repo, url, commit, path) -> {
+      let directory = case path {
+        None -> ""
+        Some(path) -> " (path: " <> path <> ")"
+      }
+      "git " <> url <> " @ " <> commit <> directory
+    }
     PathPackage(path) -> "path " <> path
   }
 }

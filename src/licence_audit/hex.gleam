@@ -10,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri
+import licence_audit/hex_metadata
 import licence_audit/httpc_adaptive
 
 const request_timeout_ms = 5000
@@ -46,11 +47,6 @@ pub type Error {
   NetworkFailure(reason: String)
 }
 
-@external(erlang, "hex_metadata_ffi", "decode")
-fn decode_archive_metadata(
-  input: BitArray,
-) -> Result(#(List(String), Option(String), List(#(String, String))), Nil)
-
 /// Decode the immutable `metadata.config` stored in a Hex package tarball.
 /// Accept byte strings, quoted `/utf8` strings, decimal byte segments, and
 /// mixtures of these binary segments. Reject unsupported literals or malformed
@@ -59,9 +55,7 @@ fn decode_archive_metadata(
 pub fn package_metadata_from_archive(
   input: BitArray,
 ) -> Result(PackageMetadata, Nil) {
-  use #(licences, description, links) <- result.try(decode_archive_metadata(
-    input,
-  ))
+  use #(licences, description, links) <- result.try(hex_metadata.decode(input))
   Ok(PackageMetadata(licences:, description:, links:, publisher: None))
 }
 
@@ -135,6 +129,7 @@ pub fn from_http_error(
 fn describe_http_error(error: httpc_adaptive.Error) -> String {
   case error {
     httpc_adaptive.InvalidUtf8Response -> "response body was not valid UTF-8"
+    httpc_adaptive.NoIpv6Address -> "IPv6 DNS lookup found no address"
     httpc_adaptive.ResponseTimeout ->
       "HTTP request timed out after "
       <> int.to_string(request_timeout_ms)

@@ -1,5 +1,4 @@
 import gleam/list
-import gleam/string
 import licence_audit/config
 import licence_audit/exception
 import licence_audit/spdx_expression
@@ -20,6 +19,9 @@ pub type Error {
   MissingPolicy
 }
 
+/// Check mode requires an allow list; deny rules are exact-match overrides.
+/// Matching ignores token whitespace and ordinary identifier case, but keeps
+/// custom reference case, parentheses, and licence variants distinct.
 pub fn new(
   allow allow: List(String),
   deny deny: List(String),
@@ -27,7 +29,7 @@ pub fn new(
 ) -> Result(Policy, Error) {
   let audit_policy = Policy(allow: list.unique(allow), deny: list.unique(deny))
 
-  case check_mode && is_empty(audit_policy) {
+  case check_mode && audit_policy.allow == [] {
     True -> Error(MissingPolicy)
     False -> Ok(audit_policy)
   }
@@ -173,18 +175,9 @@ fn licence_failures(policy: Policy, licence: String) -> List(AuditStatus) {
 }
 
 fn matches(licences: List(String), licence: String) -> Bool {
-  let tokens = matching_tokens(licence)
-  list.any(licences, fn(configured) { matching_tokens(configured) == tokens })
-}
-
-fn matching_tokens(expression: String) -> List(String) {
-  expression
-  |> spdx_expression.tokenize
-  |> list.map(fn(token) {
-    case token {
-      "LicenseRef-" <> _ | "DocumentRef-" <> _ -> token
-      _ -> string.lowercase(token)
-    }
+  let tokens = spdx_expression.matching_tokens(licence)
+  list.any(licences, fn(configured) {
+    spdx_expression.matching_tokens(configured) == tokens
   })
 }
 

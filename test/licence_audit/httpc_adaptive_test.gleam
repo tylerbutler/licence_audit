@@ -42,6 +42,35 @@ fn normalise_error(error: RawError) -> httpc_adaptive.Error
 @external(erlang, "httpc_adaptive_test_ffi", "with_http_response")
 pub fn with_http_response(response: BitArray, client: fn(String) -> a) -> a
 
+@external(erlang, "httpc_adaptive_test_ffi", "request_with_invalid_options")
+fn request_with_invalid_options(has_body: Bool) -> httpc_adaptive.Error
+
+pub fn otp_request_exceptions_keep_class_and_reason_test() {
+  list.each([False, True], fn(has_body) {
+    should.equal(
+      request_with_invalid_options(has_body),
+      httpc_adaptive.RequestFailed("Erlang error: badarg"),
+    )
+  })
+}
+
+pub fn successful_get_and_post_requests_pass_through_boundary_test() {
+  list.each([Get, Post], fn(method) {
+    with_http_response(
+      <<
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok":utf8,
+      >>,
+      fn(url) {
+        let assert Ok(req) = request.to(url)
+        let req = req |> request.set_method(method) |> request.set_body("body")
+        let assert Ok(result) = httpc_adaptive.dispatch(req, timeout_ms: 1000)
+        should.equal(result.status, 200)
+        should.equal(result.body, "ok")
+      },
+    )
+  })
+}
+
 pub fn request_failures_return_typed_errors_test() {
   should.equal(
     normalise_error(SocketClosedRemotely),
@@ -188,10 +217,124 @@ pub fn ipv4_failure_is_not_hidden_by_probe_failure_test() {
   reset()
 }
 
-pub fn connection_errors_keep_family_and_stage_details_test() {
+pub fn absent_ipv6_address_selects_ipv4_silently_and_reuses_selection_test() {
+  reset()
+  let assert Ok(req) = request.to("https://hex.pm/api/packages/collie")
+  let req = request.map(req, fn(_) { <<>> })
+  let expected = Response(200, [], <<"metadata":utf8>>)
+  should.equal(
+    httpc_adaptive.dispatch_bits_with(req, 5000, fn(sent, timeout_ms, family) {
+      case family {
+        Ipv6 -> {
+          should.equal(sent.method, Head)
+          should.equal(timeout_ms, 1000)
+          Error(normalise_error(FailedConnect([#(Inet6, [], Nxdomain)])))
+        }
+        Ipv4 -> {
+          should.equal(sent, req)
+          should.equal(timeout_ms, 5000)
+          Ok(expected)
+        }
+      }
+    }),
+    Ok(expected),
+  )
+  should.equal(httpc_adaptive.take_warning(), None)
+
+  let assert Ok(other) = request.to("https://api.osv.dev/v1/querybatch")
+  let other = other |> request.set_method(Post) |> request.set_body(<<>>)
+  list.each([req, other], fn(next) {
+    should.equal(
+      httpc_adaptive.dispatch_bits_with(
+        next,
+        8000,
+        fn(sent, timeout_ms, family) {
+          should.equal(sent, next)
+          should.equal(timeout_ms, 8000)
+          should.equal(family, Ipv4)
+          Ok(expected)
+        },
+      ),
+      Ok(expected),
+    )
+    should.equal(httpc_adaptive.take_warning(), None)
+  })
+  let failure = normalise_error(FailedConnect([#(Inet, [], Nxdomain)]))
+  should.equal(
+    httpc_adaptive.dispatch_bits_with(req, 5000, fn(_, _, family) {
+      should.equal(family, Ipv4)
+      Error(failure)
+    }),
+    Error(httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)")),
+  )
+  reset()
+}
+
+pub fn ordinary_probe_failures_still_warn_test() {
+  let assert Ok(req) = request.to("https://hex.pm/api/packages/collie")
+  let req = request.map(req, fn(_) { <<>> })
   list.each(
     [
-      #(Nxdomain, "DNS lookup failed (nxdomain)"),
+      normalise_error(FailedConnect([#(Inet6, [], Econnrefused)])),
+      normalise_error(
+        FailedConnect([
+          #(Inet6, [], TlsAlert(#(UnknownCa, "certificate not trusted"))),
+        ]),
+      ),
+      normalise_error(FailedConnect([#(Inet6, [], Timeout)])),
+      normalise_error(FailedConnect([#(Inet, [], Nxdomain)])),
+      normalise_error(
+        FailedConnect([
+          #(Inet6, [], Nxdomain),
+          #(Inet, [], Nxdomain),
+        ]),
+      ),
+      request_with_invalid_options(False),
+      httpc_adaptive.InvalidUtf8Response,
+      httpc_adaptive.FailedToConnect("IPv6: DNS lookup failed (nxdomain)"),
+    ],
+    fn(failure) {
+      reset()
+      should.equal(
+        httpc_adaptive.select_family(req, fn(_, timeout_ms, family) {
+          should.equal(timeout_ms, 1000)
+          should.equal(family, Ipv6)
+          Error(failure)
+        }),
+        Ipv4,
+      )
+      let assert Some(_) = httpc_adaptive.take_warning()
+      reset()
+    },
+  )
+}
+
+pub fn only_ipv6_dns_nxdomain_has_no_address_error_test() {
+  should.equal(
+    normalise_error(FailedConnect([#(Inet6, [], Nxdomain)])),
+    httpc_adaptive.NoIpv6Address,
+  )
+  list.each(
+    [
+      [#(Inet, [], Nxdomain), #(Inet6, [], Nxdomain)],
+      [#(Inet6, [], Nxdomain), #(Inet, [], Nxdomain)],
+    ],
+    fn(options) {
+      should.equal(
+        normalise_error(FailedConnect(options)),
+        httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)"),
+      )
+    },
+  )
+}
+
+pub fn connection_errors_keep_family_and_stage_details_test() {
+  should.equal(
+    normalise_error(FailedConnect([#(Inet, [], Nxdomain)])),
+    httpc_adaptive.FailedToConnect("IPv4: DNS lookup failed (nxdomain)"),
+  )
+  list.each(
+    [
       #(Econnrefused, "TCP connection refused (econnrefused)"),
       #(Enetunreach, "network unreachable (enetunreach)"),
       #(Ehostunreach, "host unreachable (ehostunreach)"),

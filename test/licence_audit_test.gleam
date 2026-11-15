@@ -42,7 +42,7 @@ pub fn unknown_option_returns_usage_error_test() {
 
 pub fn quiet_and_verbose_path_returns_usage_error_test() {
   let licence_audit.RunResult(exit_code, output) =
-    licence_audit.run(["--quiet", "--verbose"])
+    licence_audit.run(["report", "--quiet", "--verbose"])
 
   assert exit_code == 1
   assert string.contains(output, "--quiet")

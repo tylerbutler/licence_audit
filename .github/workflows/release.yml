@@ -4,6 +4,19 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      pre:
+        description: "Enter a candidate cycle (rc), promote (none), or prepare stable (empty)"
+        type: string
+        default: ""
+      version:
+        description: "Target version before the prerelease suffix (for example, 1.0.0)"
+        type: string
+        default: ""
+
+concurrency:
+  group: trellis-release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -18,6 +31,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
+          ref: main
+          fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup environment
@@ -27,21 +42,43 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
         with:
           path: .hex-cache
-          key: hex-licence-v3-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+          key: hex-licence-v4-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
           restore-keys: |
-            hex-licence-v3-${{ runner.os }}-
+            hex-licence-v4-${{ runner.os }}-
 
       - name: Create or update release PR
+        id: prepare
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: mise exec -- trellis release pr --base main --branch release/pending
-
-      - name: Refresh generated release files
+          INPUT_PRE: ${{ inputs.pre }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if ! git ls-remote --exit-code --heads origin release/pending >/dev/null; then
-            exit 0
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "Run release preparation on main." >&2
+            exit 1
           fi
+          args=(--base main --branch release/pending --github-output)
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            shopt -s extglob
+            INPUT_PRE="${INPUT_PRE##+([[:space:]])}"
+            INPUT_PRE="${INPUT_PRE%%+([[:space:]])}"
+            INPUT_VERSION="${INPUT_VERSION##+([[:space:]])}"
+            INPUT_VERSION="${INPUT_VERSION%%+([[:space:]])}"
+            args+=(--no-resume --no-auto-pre --no-skip-unchanged)
+            if [[ -n "$INPUT_PRE" ]]; then
+              args+=(--pre "$INPUT_PRE")
+            fi
+            if [[ -n "$INPUT_VERSION" ]]; then
+              args+=(--set "licence_audit=$INPUT_VERSION")
+            fi
+          fi
+          mise exec -- trellis release pr "${args[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh generated release files
+        if: steps.prepare.outputs.outcome == 'prepared'
+        run: |
+          set -euo pipefail
           git fetch origin release/pending
           git switch -C release/pending origin/release/pending
           just sbom-generate notices

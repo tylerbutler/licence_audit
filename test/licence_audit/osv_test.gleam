@@ -270,6 +270,7 @@ pub fn decode_vuln_response_uses_score_type_for_bare_cvss_v2_vector_test() {
 
 pub fn decode_vuln_response_uses_highest_score_regardless_of_order_test() {
   let scores = [
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N\"}",
     "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N\"}",
     "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}",
     "{\"type\":\"UNKNOWN\",\"score\":\"invalid\"}",
@@ -287,14 +288,18 @@ pub fn decode_vuln_response_uses_highest_score_regardless_of_order_test() {
 pub fn severity_rank_orders_unknown_below_known_severities_test() {
   should.equal(
     list.map(
-      [osv.UnknownSeverity, osv.Low, osv.Medium, osv.High, osv.Critical],
+      [
+        osv.UnknownSeverity, osv.NoSeverity, osv.Low, osv.Medium, osv.High,
+        osv.Critical,
+      ],
       osv.severity_rank,
     ),
-    [0, 1, 2, 3, 4],
+    [-1, 0, 1, 2, 3, 4],
   )
 }
 
 pub fn parse_severity_label_recognises_common_labels_test() {
+  should.equal(osv.parse_severity_label(" None "), osv.NoSeverity)
   should.equal(osv.parse_severity_label("LOW"), osv.Low)
   should.equal(osv.parse_severity_label("Moderate"), osv.Medium)
   should.equal(osv.parse_severity_label("medium"), osv.Medium)
@@ -356,6 +361,76 @@ pub fn severity_from_cvss_vector_boundary_scores_test() {
   })
 }
 
+pub fn zero_cvss_vectors_have_no_severity_test() -> Nil {
+  list.each(
+    [
+      "AV:N/AC:L/Au:N/C:N/I:N/A:N",
+      "CVSS:2.0/AV:N/AC:L/Au:N/C:N/I:N/A:N",
+      "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+      "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+      "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N",
+    ],
+    fn(vector) {
+      should.equal(osv.severity_from_cvss_vector(vector), osv.NoSeverity)
+      let assert Ok(vuln) =
+        osv.decode_vuln_body(
+          "{\"severity\":[{\"type\":\"CVSS_V2\",\"score\":\""
+            <> vector
+            <> "\"}]}",
+          "fallback",
+        )
+      should.equal(vuln.severity, osv.NoSeverity)
+    },
+  )
+}
+
+pub fn decode_zero_score_is_known_and_database_severity_is_authoritative_test() -> Nil {
+  let body = read_fixture("osv_vuln_none.json")
+  let assert Ok(vuln) = osv.decode_vuln_body(body, "fallback")
+  should.equal(vuln.severity, osv.NoSeverity)
+  list.each([#("HIGH", osv.High), #("none", osv.NoSeverity)], fn(test_case) {
+    let #(label, expected) = test_case
+    let body = case label {
+      "none" -> string.replace(body, "C:N/I:N/A:N", "C:H/I:H/A:H")
+      _ -> body
+    }
+    let assert Ok(vuln) =
+      osv.decode_vuln_body(
+        string.replace(
+          body,
+          "\"summary\":",
+          "\"database_specific\":{\"severity\":\""
+            <> label
+            <> "\"},\"summary\":",
+        ),
+        "fallback",
+      )
+    should.equal(vuln.severity, expected)
+  })
+}
+
+pub fn decode_zero_and_low_scores_ignore_unknown_vectors_in_either_order_test() -> Nil {
+  let zero =
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N\"}"
+  let low =
+    "{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N\"}"
+  let unknown = "{\"type\":\"UNKNOWN\",\"score\":\"invalid\"}"
+  list.each(
+    [#([zero, unknown], osv.NoSeverity), #([zero, low, unknown], osv.Low)],
+    fn(test_case) {
+      let #(scores, expected) = test_case
+      list.each([scores, list.reverse(scores)], fn(scores) {
+        let assert Ok(vuln) =
+          osv.decode_vuln_body(
+            "{\"severity\":[" <> string.join(scores, ",") <> "]}",
+            "fallback",
+          )
+        should.equal(vuln.severity, expected)
+      })
+    },
+  )
+}
+
 pub fn severity_from_cvss_vector_rejects_malformed_or_unsupported_test() {
   should.equal(osv.severity_from_cvss_vector(""), osv.UnknownSeverity)
   should.equal(
@@ -375,6 +450,7 @@ pub fn severity_from_cvss_vector_rejects_malformed_or_unsupported_test() {
 }
 
 pub fn severity_to_string_round_trip_test() {
+  should.equal(osv.severity_to_string(osv.NoSeverity), "none")
   should.equal(osv.severity_to_string(osv.Critical), "critical")
   should.equal(osv.severity_to_string(osv.High), "high")
   should.equal(osv.severity_to_string(osv.Medium), "medium")

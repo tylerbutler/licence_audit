@@ -3,7 +3,9 @@
     fallback_to_ipv4/1,
     ipv6_host_verified/1,
     normalise_error/1,
+    request/4,
     remember_ipv6_host/1,
+    select_ipv4/0,
     selected_family/0,
     take_warning/0
 ]).
@@ -12,7 +14,16 @@
 -define(IPV6_HOSTS_KEY, {?MODULE, ipv6_hosts}).
 -define(WARNING_KEY, {?MODULE, warning}).
 
-%% The CLI runs requests in one process; keep the fallback local to that run.
+%% OTP can raise before returning a request error, for example loading CA roots.
+request(Method, Request, HttpOptions, Options) ->
+    try httpc:request(Method, Request, HttpOptions, Options)
+    catch
+        Class:Reason -> {error, {httpc_exception, Class, Reason}}
+    end.
+
+%% gleam_httpc's inet6fb4 can exhaust the request timeout before IPv4 succeeds.
+%% Gleam owns the bounded probe; OTP process-local state keeps its fallback for
+%% this command without global state or threading transport state through callers.
 selected_family() ->
     case erlang:get(?FAMILY_KEY) of
         ipv4 -> use_ipv4;
@@ -29,8 +40,12 @@ remember_ipv6_host(Host) ->
     nil.
 
 fallback_to_ipv4(Warning) ->
-    erlang:put(?FAMILY_KEY, ipv4),
+    select_ipv4(),
     erlang:put(?WARNING_KEY, Warning),
+    nil.
+
+select_ipv4() ->
+    erlang:put(?FAMILY_KEY, ipv4),
     nil.
 
 take_warning() ->
@@ -45,14 +60,20 @@ ipv6_hosts() ->
         _ -> []
     end.
 
+%% OTP failure tuples have several shapes; the Gleam boundary exposes one typed
+%% error while retaining DNS/TCP/TLS and address-family details.
 normalise_error(timeout) ->
     response_timeout;
+normalise_error({httpc_exception, Class, Reason}) ->
+    {request_failed, <<"Erlang ", (atom_to_binary(Class))/binary, ": ",
+        (describe_error(Reason))/binary>>};
 normalise_error(Error = {failed_connect, Options}) ->
     case lists:keyfind(inet, 1, Options) of
         {inet, _, Reason} ->
             {failed_to_connect, <<"IPv4: ", (describe_connect_error(Reason))/binary>>};
         false ->
             case lists:keyfind(inet6, 1, Options) of
+                {inet6, _, nxdomain} -> no_ipv6_address;
                 {inet6, _, Reason} ->
                     {failed_to_connect, <<"IPv6: ", (describe_connect_error(Reason))/binary>>};
                 false -> {failed_to_connect, describe_error(Error)}

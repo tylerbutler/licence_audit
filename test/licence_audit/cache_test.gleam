@@ -1,4 +1,3 @@
-import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -7,20 +6,18 @@ import gleam/time/timestamp
 import gleeunit/should
 import licence_audit/cache
 import licence_audit/cache_dir
+import licence_audit/cache_support
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/notice
 import licence_audit/progress
+import licence_audit/source_archive
+import licence_audit/source_archive_test
 import simplifile
-import slate
-import slate/exclusive
-import slate/set
 
 const tmp_dir = "build/tmp/cache_test"
 
 type ConcurrentWriteError
-
-@external(erlang, "cache_process_test_ffi", "monotonic_milliseconds")
-fn monotonic_milliseconds() -> Int
 
 @external(erlang, "cache_process_test_ffi", "concurrent_writes")
 fn concurrent_writes(
@@ -33,13 +30,18 @@ fn concurrent_writes(
 
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
-  let path = tmp_dir <> "/" <> name <> ".dets"
+  let path = tmp_dir <> "/" <> name
   let _ = simplifile.delete(path)
   path
 }
 
 fn pkg(name: String, version: String) -> manifest.Package {
-  manifest.Package(name: name, version: version, requirements: [])
+  manifest.Package(
+    name: name,
+    version: version,
+    requirements: [],
+    outer_checksum: "",
+  )
 }
 
 fn reporter() -> progress.Reporter {
@@ -63,7 +65,6 @@ fn write_cache_entry_without_timestamp(
   let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
   let assert Ok(_) =
     cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
-  let assert None = cache_dir.close_table(table, "test", None)
   Nil
 }
 
@@ -101,9 +102,42 @@ pub fn immutable_cache_ignores_incomplete_legacy_metadata_test() {
   )
   let handle = cache.open(cache.Enabled(Some(path)))
   let metadata = hex.licences_only(["MIT"])
-  let assert Ok(fetched) =
+  let assert #(Ok(fetched), None) =
     cache.fetch_immutable(handle, key, fn() { Ok(metadata) })
   should.equal(fetched, metadata)
+  let assert None = cache.close(handle)
+}
+
+pub fn immutable_git_metadata_cache_isolates_package_subdirectories_test() {
+  let handle =
+    cache.open(cache.Enabled(Some(fresh_path("immutable_git_paths"))))
+  list.each(
+    [
+      #(None, "BSD-3-Clause"),
+      #(Some("packages/beryl_protocol"), "MIT"),
+      #(Some("packages/beryl_sibling"), "Apache-2.0"),
+    ],
+    fn(pair) {
+      let key =
+        "dep@1.0.0@"
+        <> manifest.git_source_identity(
+          "https://github.com/example/beryl",
+          "abcdef",
+          pair.0,
+        )
+      let expected = hex.licences_only([pair.1])
+      should.equal(cache.fetch_immutable(handle, key, fn() { Ok(expected) }), #(
+        Ok(expected),
+        None,
+      ))
+      should.equal(
+        cache.fetch_immutable(handle, key, fn() {
+          panic as "immutable metadata must be cached per package subdirectory"
+        }),
+        #(Ok(expected), None),
+      )
+    },
+  )
   let assert None = cache.close(handle)
 }
 
@@ -118,7 +152,7 @@ pub fn open_failure_preserves_licence_warning_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/open-blocker"
   let _ = simplifile.write("data", to: blocker)
-  let path = blocker <> "/cache.dets"
+  let path = blocker <> "/cache"
   let handle = cache.open(cache.Enabled(path: Some(path)))
   let assert Some(warning) = cache.close(handle)
   should.be_true(string.starts_with(
@@ -130,13 +164,21 @@ pub fn open_failure_preserves_licence_warning_test() {
 pub fn write_failure_preserves_licence_warning_test() {
   let path = fresh_path("write_failure")
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let _ = simplifile.write("block writes", to: path)
   let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
-  let #(result, _) =
+  cache_support.break_store(path)
+  let #(result, rep) =
     cache.wrap(handle, fetcher)(pkg("gleam_stdlib", "1.0.0"), reporter())
   let assert Ok(_) = result
-  let assert Some(warning) = cache.close(handle)
-  should.be_true(string.starts_with(warning, "Failed to access licence cache: "))
+  should.be_true(
+    list.any(rep.deferred, fn(event) {
+      event.kind == progress.Warning
+      && string.starts_with(
+        event.message,
+        "Failed to access licence cache: write gleam_stdlib@1.0.0:",
+      )
+    }),
+  )
+  let assert None = cache.close(handle)
 }
 
 pub fn disabled_cache_logs_passthrough_test() {
@@ -147,6 +189,40 @@ pub fn disabled_cache_logs_passthrough_test() {
   let assert Ok(metadata) = result
   should.equal(metadata.licences, ["MIT"])
   let assert True = any_contains(detail_messages(rep), "Cache disabled")
+  let assert None = cache.close(handle)
+}
+
+pub fn quiet_read_warning_survives_successful_refetch_test() {
+  let path = fresh_path("quiet_read_warning")
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let assert Ok(Nil) = cache_support.corrupt_entry(path, "example@1.0.0")
+  let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
+  let assert #(Ok(metadata), Some(warning)) =
+    cache.fetch_cached_quiet(handle, "example", "1.0.0", fetcher)
+  should.equal(metadata.licences, ["MIT"])
+  should.be_true(string.contains(warning, "read example@1.0.0:"))
+  let assert #(Ok(_), None) =
+    cache.fetch_cached_quiet(handle, "example", "1.0.0", fn(_) {
+      panic as "the repaired entry must be cached"
+    })
+  let assert None = cache.close(handle)
+}
+
+pub fn explicit_metadata_warnings_preserve_fetch_results_test() {
+  let path = fresh_path("explicit_metadata_warnings")
+  let handle = cache.open(cache.Enabled(Some(path)))
+  cache_support.break_store(path)
+  let assert #(Ok(metadata), Some(write_warning)) =
+    cache.fetch_immutable(handle, "locked", fn() {
+      Ok(hex.licences_only(["MIT"]))
+    })
+  should.equal(metadata.licences, ["MIT"])
+  should.be_true(string.contains(write_warning, "write $immutable:v2:locked:"))
+  let assert #(Error(hex.NotFound), Some(read_warning)) =
+    cache.fetch_cached_quiet(handle, "missing", "1.0.0", fn(_) {
+      Error(hex.NotFound)
+    })
+  should.be_true(string.contains(read_warning, "read missing@1.0.0:"))
   let assert None = cache.close(handle)
 }
 
@@ -192,56 +268,31 @@ pub fn separate_vms_keep_distinct_successful_writes_test() {
     )
   should.equal(cache_dir.lookup(store, "first-key"), Ok("first-value"))
   should.equal(cache_dir.lookup(store, "second-key"), Ok("second-value"))
-  let assert None = cache_dir.close_table(store, "test", None)
 }
 
-pub fn held_lock_bounds_total_fetch_latency_test() {
-  let path = fresh_path("held_lock")
-  let handle = cache.open(cache.Enabled(path: Some(path)))
-  let started = monotonic_milliseconds()
-  // Slate releases ownership even when an assertion in the callback fails.
-  let held =
-    set.with_exclusive_table(
-      path: path,
-      repair: slate.AutoRepair,
-      access: slate.ReadWrite,
-      wait: exclusive.Immediate,
-      key_decoder: decode.string,
-      value_decoder: decode.string,
-      callback: fn(table) {
-        list.each(["first", "second", "third"], fn(name) {
-          should.equal(
-            cache.fetch_cached_quiet(handle, name, "1.0.0", fn(_) {
-              Ok(hex.licences_only(["MIT"]))
-            }),
-            Ok(hex.licences_only(["MIT"])),
-          )
-          should.equal(
-            set.lookup(table, name <> "@1.0.0"),
-            Error(slate.NotFound),
-          )
-          should.equal(
-            set.lookup(table, "$cached_at:" <> name <> "@1.0.0"),
-            Error(slate.NotFound),
-          )
-        })
-        let assert Some(warning) = cache.close(handle)
-        should.be_true(string.contains(
-          warning,
-          "Another session owns the table",
-        ))
-        should.be_false(string.contains(warning, "$cached_at:"))
-        Ok(Nil)
-      },
-    )
-  let elapsed = monotonic_milliseconds() - started
-  let assert Ok(Nil) = held
-  should.be_true(elapsed < 1000)
-
+pub fn bound_values_round_trip_test() {
+  let path = fresh_path("bound_values")
+  let key = "key\"/../\\ \u{03BB}"
+  let value = "quoted '\u{0000}\u{00E9}\u{4E2D}"
   let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
-  should.equal(cache_dir.insert(store, "after-release", "safe"), Ok(Nil))
-  should.equal(cache_dir.lookup(store, "after-release"), Ok("safe"))
-  let assert None = cache_dir.close_table(store, "test", None)
+  should.equal(cache_dir.insert_at(store, key, value, Some(0)), Ok(Nil))
+  should.equal(
+    cache_dir.lookup_entry(store, key),
+    Ok(cache_dir.Entry(value, Some(0))),
+  )
+  should.equal(cache_dir.insert(store, key, value), Ok(Nil))
+  should.equal(
+    cache_dir.lookup_entry(store, key),
+    Ok(cache_dir.Entry(value, None)),
+  )
+  should.equal(simplifile.read_directory(path), Ok([entry_name(path, key)]))
+}
+
+fn entry_name(path: String, key: String) -> String {
+  string.drop_start(
+    cache_support.entry_path(path, key),
+    string.length(path) + 1,
+  )
 }
 
 pub fn immutable_cache_entries_do_not_expire_test() {
@@ -249,7 +300,7 @@ pub fn immutable_cache_entries_do_not_expire_test() {
   let key = "example@1.0.0@hex:ABC"
 
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let assert Ok(metadata) =
+  let assert #(Ok(metadata), None) =
     cache.fetch_immutable(handle, key, fn() {
       Ok(metadata_with_publisher("archived"))
     })
@@ -257,11 +308,56 @@ pub fn immutable_cache_entries_do_not_expire_test() {
   let assert None = cache.close(handle)
 
   let handle = cache.open(cache.Enabled(path: Some(path)))
-  let assert Ok(cached) =
+  let assert #(Ok(cached), None) =
     cache.fetch_immutable(handle, key, fn() {
       panic as "immutable fetcher must not run on a cache hit"
     })
   should.equal(cached.publisher, Some("archived"))
+  let assert None = cache.close(handle)
+}
+
+pub fn locked_licence_cache_reuses_sbom_evidence_and_isolates_checksums_test() {
+  let path = fresh_path("locked_licences")
+  let archive = source_archive_test.metadata_archive(["Apache-2.0"])
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let package = manifest.Package("example", "1.0.0", [], checksum)
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let key = "example@1.0.0@hex:" <> checksum
+  let assert #(Ok(metadata), None) =
+    cache.fetch_immutable(handle, key, fn() {
+      notice.hex_metadata_from_locked_source(
+        package.name,
+        package.version,
+        checksum,
+        fn(_, _) { Ok(archive) },
+      )
+    })
+  let assert None = cache.close(handle)
+  // Mutable API cache entries cannot replace checksum-verified declarations.
+  write_cache_entry_without_timestamp(
+    path,
+    "example@1.0.0",
+    hex.licences_only(["MIT"]),
+  )
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let #(cached, _) =
+    cache.wrap_locked(handle, fn(_, _, _) {
+      panic as "verified SBOM metadata must be reused without downloading"
+    })(
+      manifest.Package(..package, outer_checksum: string.lowercase(checksum)),
+      reporter(),
+    )
+  should.equal(cached, Ok(metadata))
+  let other_archive = source_archive_test.metadata_archive(["MIT"])
+  let assert Ok(other_checksum) = source_archive.sha256_hex(other_archive)
+  let #(changed, _) =
+    cache.wrap_locked(handle, fn(name, version, expected) {
+      should.equal(expected, other_checksum)
+      notice.hex_metadata_from_locked_source(name, version, expected, fn(_, _) {
+        Ok(other_archive)
+      })
+    })(manifest.Package(..package, outer_checksum: other_checksum), reporter())
+  should.equal(changed, Ok(hex.licences_only(["MIT"])))
   let assert None = cache.close(handle)
 }
 
@@ -292,19 +388,13 @@ pub fn cache_reuses_metadata_for_seven_days_test() {
     list.each(["reported", "quiet"], fn(name) {
       let key = name <> "@1.0.0"
       let assert Ok(_) =
-        cache_dir.insert(
+        cache_dir.insert_at(
           table,
           key,
           hex.encode_cache_entry(metadata_with_publisher("cached")),
-        )
-      let assert Ok(_) =
-        cache_dir.insert(
-          table,
-          "$cached_at:" <> key,
-          int.to_string(now - age_seconds),
+          Some(now - age_seconds),
         )
     })
-    let assert None = cache_dir.close_table(table, "test", None)
 
     let handle = cache.open(cache.Enabled(path: Some(path)))
     let fetcher = fn(_name) {
@@ -319,7 +409,7 @@ pub fn cache_reuses_metadata_for_seven_days_test() {
       cache.wrap(handle, fetcher)(pkg("reported", "1.0.0"), reporter())
     let assert Ok(metadata) = result
     should.equal(metadata.publisher, expected)
-    let assert Ok(quiet_metadata) =
+    let assert #(Ok(quiet_metadata), None) =
       cache.fetch_cached_quiet(handle, "quiet", "1.0.0", fetcher)
     should.equal(quiet_metadata.publisher, expected)
     let assert None = cache.close(handle)
@@ -348,14 +438,13 @@ pub fn cache_refetches_legacy_enriched_entry_instead_of_stale_publisher_test() {
 pub fn corrupt_cache_entry_is_refetched_test() {
   let path = fresh_path("corrupt")
   let assert Ok(table) = cache_dir.open_table(Some(path), "unused", "test")
-  let assert Ok(_) = cache_dir.insert(table, "example@1.0.0", "not valid json")
   let assert Ok(_) =
-    cache_dir.insert(
+    cache_dir.insert_at(
       table,
-      "$cached_at:example@1.0.0",
-      int.to_string(now_seconds()),
+      "example@1.0.0",
+      "not valid json",
+      Some(now_seconds()),
     )
-  let assert None = cache_dir.close_table(table, "test", None)
 
   let handle = cache.open(cache.Enabled(path: Some(path)))
   let fetcher = fn(_name) { Ok(metadata_with_publisher("refetched")) }
@@ -467,7 +556,7 @@ pub fn unwritable_path_returns_warning_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.write("data", to: blocker)
-  let bad_path = blocker <> "/nested/hex.dets"
+  let bad_path = blocker <> "/nested/hex"
 
   let handle = cache.open(cache.Enabled(path: Some(bad_path)))
   let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
@@ -478,4 +567,114 @@ pub fn unwritable_path_returns_warning_test() {
 
   let warning = cache.close(handle)
   let assert Some(_) = warning
+}
+
+pub fn same_key_writers_in_separate_vms_leave_one_complete_value_test() {
+  let path = fresh_path("same_key_vms")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  let first = string.repeat("a", 65_536)
+  let second = string.repeat("b", 65_536)
+  let assert Ok(Nil) = concurrent_writes(path, "key", first, "key", second)
+  let assert Ok(value) = cache_dir.lookup(store, "key")
+  should.be_true(value == first || value == second)
+  should.equal(simplifile.read_directory(path), Ok([entry_name(path, "key")]))
+}
+
+pub fn entry_for_another_key_is_rejected_test() {
+  let path = fresh_path("key_mismatch")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  should.equal(cache_dir.insert(store, "first", "value"), Ok(Nil))
+  let assert Ok(Nil) =
+    simplifile.rename(
+      at: cache_support.entry_path(path, "first"),
+      to: cache_support.entry_path(path, "second"),
+    )
+  let assert Error(error) = cache_dir.lookup(store, "second")
+  should.be_true(string.contains(
+    cache_dir.describe_error(error),
+    "belongs to a different key",
+  ))
+}
+
+pub fn invalid_entry_file_is_warned_and_refetched_test() {
+  let path = fresh_path("invalid_entry_file")
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let assert Ok(Nil) =
+    simplifile.write(
+      "{\"key\":\"example@1.0.0\",\"value\":",
+      to: cache_support.entry_path(path, "example@1.0.0"),
+    )
+  let fetcher = fn(_name) { Ok(hex.licences_only(["MIT"])) }
+  let assert #(Ok(_), Some(warning)) =
+    cache.fetch_cached_quiet(handle, "example", "1.0.0", fetcher)
+  should.be_true(string.contains(warning, "Invalid cached value or timestamp"))
+  let assert #(Ok(_), None) =
+    cache.fetch_cached_quiet(handle, "example", "1.0.0", fn(_) {
+      panic as "the repaired entry must be cached"
+    })
+  let assert None = cache.close(handle)
+}
+
+pub fn leftover_temporary_file_is_ignored_test() {
+  let path = fresh_path("leftover_temporary")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  let leftover = cache_support.entry_path(path, "key") <> ".abandoned.tmp"
+  let assert Ok(Nil) = simplifile.write("{\"key\":", to: leftover)
+  let assert Error(error) = cache_dir.lookup(store, "key")
+  should.equal(cache_dir.access_warning(error, "test"), None)
+  should.equal(cache_dir.insert(store, "key", "value"), Ok(Nil))
+  should.equal(cache_dir.lookup(store, "key"), Ok("value"))
+}
+
+pub fn legacy_cache_file_is_not_modified_test() {
+  let path = fresh_path("legacy_file")
+  let assert Ok(Nil) = simplifile.create_directory_all(tmp_dir)
+  let assert Ok(_) = simplifile.write("legacy cache", to: path)
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let assert Some(warning) = cache.close(handle)
+  should.be_true(string.starts_with(
+    warning,
+    "Unable to open licence cache at " <> path <> ": ",
+  ))
+  should.equal(simplifile.read(path), Ok("legacy cache"))
+}
+
+pub fn repeated_writes_leave_no_temporary_files_test() {
+  let path = fresh_path("no_temporary_files")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  int.range(from: 1, to: 26, with: Nil, run: fn(_, version) {
+    let value = int.to_string(version)
+    should.equal(
+      cache_dir.insert_at(store, "key", value, Some(version)),
+      Ok(Nil),
+    )
+    should.equal(
+      cache_dir.lookup_entry(store, "key"),
+      Ok(cache_dir.Entry(value, Some(version))),
+    )
+  })
+  should.equal(simplifile.read_directory(path), Ok([entry_name(path, "key")]))
+}
+
+pub fn failed_write_over_existing_entry_returns_error_test() {
+  // An aborted earlier run can leave the directory read-only.
+  let _ = simplifile.set_permissions_octal(tmp_dir <> "/read_only_store", 0o755)
+  let path = fresh_path("read_only_store")
+  let assert Ok(store) = cache_dir.open_table(Some(path), "unused", "test")
+  should.equal(cache_dir.insert(store, "key", "old"), Ok(Nil))
+  let assert Ok(Nil) = simplifile.set_permissions_octal(path, 0o555)
+  // Root and Windows ignore the directory mode, so the test cannot fail a write.
+  let probe = path <> "/probe"
+  case simplifile.write(to: probe, contents: "") {
+    Ok(Nil) -> Nil
+    Error(_) -> {
+      let assert Error(error) = cache_dir.insert(store, "key", "new")
+      should.be_true(string.starts_with(
+        cache_dir.describe_error(error),
+        "write key:",
+      ))
+    }
+  }
+  let assert Ok(Nil) = simplifile.set_permissions_octal(path, 0o755)
+  should.equal(cache_dir.lookup(store, "key"), Ok("old"))
 }

@@ -4,9 +4,9 @@
 //// supplies immutable keys and bypasses this storage for mutable path
 //// dependencies.
 ////
-//// The cache is purely an optimisation. Any failure to open, read, or write
-//// lets the resolver read live. Open and close failures produce deferred
-//// warnings surfaced via `close`.
+//// Returned storage errors let the resolver read live and produce deferred
+//// warnings returned with each operation. Use `--no-cache` to bypass the
+//// cache.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -33,25 +33,25 @@ pub opaque type Cache {
 /// materials, repository tag→commit resolutions, repository-extracted licence
 /// files, pinned SPDX indexes, and canonical SPDX records shared across
 /// packages. The version is encoded into the
-/// cache filename so data written by an older format is ignored rather than
+/// cache directory name so data written by an older format is ignored rather than
 /// mis-decoded; `notice.decode_notice_files` also treats any unparseable entry
 /// as a miss, so forward-compatible drift self-heals without a bump.
 const cache_format_version = 3
 
-fn cache_filename() -> String {
-  "notices-v" <> int.to_string(cache_format_version) <> ".dets"
+fn cache_directory() -> String {
+  "notices-v" <> int.to_string(cache_format_version)
 }
 
 /// Open a cache according to `mode`.
 ///
-/// Never returns an error. If the cache path cannot be prepared, the returned
+/// Returns no error value. If the cache path cannot be prepared, the returned
 /// `Cache` bypasses storage and includes a deferred warning accessible via
 /// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
     Disabled -> Cache(table: None, warning: None)
     Enabled(path) ->
-      case cache_dir.open_table(path, cache_filename(), "notices") {
+      case cache_dir.open_table(path, cache_directory(), "notices") {
         Ok(table) -> Cache(table: Some(table), warning: None)
         Error(error) ->
           Cache(table: None, warning: Some(cache_dir.describe_error(error)))
@@ -59,12 +59,9 @@ pub fn open(mode: Mode) -> Cache {
   }
 }
 
-/// Close the cache (if open) and return any deferred warning.
+/// Return the warning from opening the cache.
 pub fn close(cache: Cache) -> Option(String) {
-  case cache.table {
-    None -> cache.warning
-    Some(table) -> cache_dir.close_table(table, "notices", cache.warning)
-  }
+  cache.warning
 }
 
 /// Read a cached list of notice files stored under a namespaced `key`. Returns
@@ -73,69 +70,67 @@ pub fn close(cache: Cache) -> Option(String) {
 pub fn get_files(
   cache: Cache,
   key: String,
-) -> Result(List(notice.NoticeFile), Nil) {
+) -> #(Result(List(notice.NoticeFile), Nil), Option(String)) {
   case cache.table {
-    None -> Error(Nil)
-    Some(table) -> lookup(table, key)
+    None -> #(Error(Nil), None)
+    Some(table) -> {
+      use encoded <- cache_dir.try_with_warning(lookup(table, key))
+      #(notice.decode_notice_files(encoded), None)
+    }
   }
 }
 
-/// Best-effort write of notice files under `key`. A disabled cache or write
-/// failure is silently ignored: the cache is purely an optimisation.
+/// Best-effort write of notice files under `key`, returning any storage warning.
 pub fn put_files(
   cache: Cache,
   key: String,
   files: List(notice.NoticeFile),
-) -> Nil {
+) -> Option(String) {
   case cache.table {
-    None -> Nil
-    Some(table) -> store(table, key, files)
+    None -> None
+    Some(table) -> store(table, key, notice.encode_notice_files(files))
   }
 }
 
 /// Read a cached plain-text value (e.g. a resolved commit SHA or canonical SPDX
 /// text) stored under `key`. A blank stored value is treated as a miss.
-pub fn get_text(cache: Cache, key: String) -> Result(String, Nil) {
+pub fn get_text(
+  cache: Cache,
+  key: String,
+) -> #(Result(String, Nil), Option(String)) {
   case cache.table {
-    None -> Error(Nil)
-    Some(table) ->
-      case cache_dir.lookup(table, key) {
-        Ok(value) ->
-          case notice.has_text(value) {
-            False -> Error(Nil)
-            True -> Ok(value)
-          }
-        Error(_) -> Error(Nil)
+    None -> #(Error(Nil), None)
+    Some(table) -> {
+      use value <- cache_dir.try_with_warning(lookup(table, key))
+      case notice.has_text(value) {
+        False -> #(Error(Nil), None)
+        True -> #(Ok(value), None)
       }
+    }
   }
 }
 
 /// Best-effort write of a plain-text value under `key`.
-pub fn put_text(cache: Cache, key: String, value: String) -> Nil {
+pub fn put_text(cache: Cache, key: String, value: String) -> Option(String) {
   case cache.table {
-    None -> Nil
-    Some(table) -> {
-      let _ = cache_dir.insert(table, key, value)
-      Nil
-    }
+    None -> None
+    Some(table) -> store(table, key, value)
   }
 }
 
 fn lookup(
   table: cache_dir.Store,
   key: String,
-) -> Result(List(notice.NoticeFile), Nil) {
+) -> #(Result(String, Nil), Option(String)) {
   case cache_dir.lookup(table, key) {
-    Ok(encoded) -> notice.decode_notice_files(encoded)
-    Error(_) -> Error(Nil)
+    Ok(encoded) -> #(Ok(encoded), None)
+    Error(error) -> #(Error(Nil), cache_dir.access_warning(error, "notices"))
   }
 }
 
-fn store(
-  table: cache_dir.Store,
-  key: String,
-  files: List(notice.NoticeFile),
-) -> Nil {
-  let _ = cache_dir.insert(table, key, notice.encode_notice_files(files))
-  Nil
+fn store(table: cache_dir.Store, key: String, value: String) -> Option(String) {
+  case cache_dir.insert(table, key, value) {
+    Ok(Nil) -> None
+    Error(error) -> cache_dir.access_warning(error, "notices")
+  }
 }

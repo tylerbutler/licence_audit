@@ -6,6 +6,7 @@
 %% directory. Runs `Fun` with the process working directory set to `Dir`,
 %% then always restores the original directory via `after`, even if `Fun`
 %% panics (a Gleam panic is an Erlang exception, and `after` still runs).
+%% Gleam Result chaining cannot guarantee cwd restoration after that exception.
 with_cwd(Dir, Fun) ->
     {ok, OriginalCwd} = file:get_cwd(),
     try

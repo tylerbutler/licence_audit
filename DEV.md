@@ -1,6 +1,7 @@
 # Developing `licence_audit`
 
-This document is for contributors. End-user docs live in [README.md](./README.md).
+This document is for contributors. The [website](https://licence-audit.tylerbutler.com/docs)
+is the canonical user documentation.
 
 ## Toolchain
 
@@ -17,90 +18,36 @@ recipe wraps its commands in `mise exec --` already, so `just build`,
 back to `mise exec -- <command>` when running tools that don't have a
 `just` recipe.
 
-## Reference coding
-
-Use [XERJ](https://xerj.org/llms.txt) to search this project's sources and peer
-implementations before writing code:
-
-```sh
-just xerj-install
-just xerj-serve
-```
-
-Keep the node in that terminal. In a second terminal:
+The stable compiler and just versions are exact pins in `.mise.toml`.
+`mise.lock` records versions and backend-provided download URLs and SHA-256
+hashes for Linux and macOS on x86-64 and ARM64. Rebar3 uses the explicit GitHub
+release backend so its lock entries include URLs and hashes. Install without
+changing the lockfile:
 
 ```sh
-just xerj-index --dry-run
-just xerj-index
-just xerj-reference-add
-just xerj-reference-index
-just xerj-search "run_options_with_clients"
-just xerj-reference "OSV querybatch"
+mise install --locked
 ```
 
-Search local code first, then use a narrow query for the mechanism you need.
-Read the source context and tests at each returned `file:line`. Check the
-licence before adapting code and cite the reference you used. If the search
-returns no useful result, state that and use normal source search.
+The Erlang Linux build target is fixed to Ubuntu 24.04 so locked installs use
+the same OTP asset when the hosted runner's Ubuntu version changes.
 
-The local search recipe needs `curl` and `jq`. XERJ indexes Gleam as plain-text
-chunks without syntax-aware definitions; the recipe searches `text` as well
-as the `body` and `defs` fields used for supported languages. Do not rely on
-`xerj def` for Gleam symbols. A `?-?` line range means XERJ did not return line
-metadata for that hit; read the file before citing a line.
+If you have unrelated global mise tools without their own lockfile, select
+the project tools explicitly (for example, `mise install --locked erlang
+gleam just github:erlang/rebar3`). A bare install includes global tools as well.
 
-`.mcp.json` registers `just _xerj mcp` for project-scoped MCP clients. Run the
-client from this repository and reload its MCP configuration after setup.
-The recipe supplies the endpoint, corpus home, and API key at runtime.
-
-| Repository | Use |
-|---|---|
-| `EmbarkStudios/cargo-deny` | SPDX expressions, licence allow/deny policy, exceptions |
-| `google/osv-scanner` | OSV batch queries, advisory handling, vulnerability gates |
-| `oss-review-toolkit/ort` | Gleam analysis, CycloneDX SBOMs, third-party notices |
-| `gleam-lang/gleam` | Gleam manifests, locked dependencies, dependency resolution |
-
-The recipes store clones, commit and licence metadata, journals, and indexes
-under `~/.local/share/xerj/licence-audit/`, outside the project tree.
-`.xerjignore` limits the project index to `src/`, `test/` without fixtures, and
-`native/`. `reference-code.xerjignore` limits the reference corpus to source
-files and licence files. Do not build or edit the reference clones.
-
-Re-run `just xerj-index` after source changes. `--no-graph` lets XERJ reconcile
-added, changed, and deleted files. `just xerj-reference-add` keeps existing
-clones at their current commits. To update a reference, use `git pull
---ff-only` in that clone, then run `just xerj-reference-add` to record its new
-commit and `just xerj-reference-index` to refresh the index. For a replacement
-index, use `just xerj-reference-index --fresh`; XERJ verifies it before
-switching readers. The generated `corpora/licence-audit-references/corpus.json`
-records full commit SHAs and licences for pinned rebuilds.
-
-The node binds to loopback at `http://127.0.0.1:19200`, with the native API on
-19201 and gRPC on 19202. It requires an API key stored in `data/admin.key`;
-the recipes read that file without putting the key in project configuration.
-The node uses local lexical embeddings, not neural embeddings. The config
-disables external reranking and WAL forwarding.
-
-On the Linux workstation used for this setup, the enabled user service
-`xerj-licence-audit.service` runs the node without an open terminal:
+CI requires a locked install. For a tool update, change its pin, regenerate
+the lockfile, and review the versions, URLs, and hashes before committing:
 
 ```sh
-systemctl --user status xerj-licence-audit --no-pager
-systemctl --user restart xerj-licence-audit
-systemctl --user stop xerj-licence-audit
+mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64
+just build-strict
+just test
 ```
 
-On that workstation, `data/` links to
-`/x23/tylerbu-xerj/licence-audit/data/`, because the home filesystem exceeds
-XERJ's default 95% disk watermark. The node retains that disk safeguard.
-
-Do not run `just xerj-serve` while that service is active. On another machine,
-use the foreground recipe or create a user service that runs it. XERJ search
-is a local development tool; `just ci` does not start or query it.
-
-Indexing exit code `3` means completion with skipped files, not a total
-failure. Read the `xerj-done` summary and skipped-file reasons before using
-the corpus. Exit code `4` asks for a decision; do not bypass that gate.
+The lockfile pins the URLs and checksums of mise-installed tools, including
+Queso and cargo-about. The release job also installs the Rust targets, Zig,
+cargo-zigbuild, and system packages. These use their own trust and verification
+mechanisms. The build is not fully hermetic.
 
 ## Build from source
 
@@ -111,8 +58,7 @@ just build
 `just build` uses `gleam export escript` to compile production sources and
 produce the escript at `./licence_audit`. The pinned compiler provides this
 exporter, so the build does not need `gleescript`.
-The build also copies slate's native lock library to `./slate_native/`.
-Keep that directory beside the escript when you move or distribute it.
+The escript has no native dependencies. You can move it without other files.
 
 ### Vendored packages
 
@@ -149,6 +95,21 @@ The script rejects unreviewed licence changes and unsupported source files.
 Run these recipes with Python 3.11 or later.
 
 `dev/licence_audit/gen_docs.gleam` uses the development-only Markdown generator.
+`just docs` updates the `cli-reference` marker regions in
+`website/src/pages/docs/index.md` and each command guide. It derives usage,
+flags, types, defaults, and descriptions from `glint.document(cli.app())`.
+Edit surrounding guide prose directly; do not edit generated regions.
+`just docs-check` compares generated content without writing. Missing or
+malformed marker pairs are errors. The README and `docs/` command stubs link
+to the website and are not generator outputs.
+`just test-docs` tests read-only drift detection, regeneration, and missing
+pages/markers in isolated guide copies.
+
+Run `just website-deps website-check website-build` to install locked website
+dependencies, check Astro types and worker tests, and build the static site.
+These recipes use the Node and pnpm versions in `.mise.toml`; they do not deploy.
+`just ci` includes website validation.
+
 Production builds and Hex packages exclude `dev/` and its `glugify` dependency.
 Gleam compiles native files from `dev/` in production, so the sync script
 replaces the Markdown generator's exit shims with core-library calls. It
@@ -207,16 +168,55 @@ This uses fresh Erlang VMs, because the Gleam test runner starts application
 dependencies before it runs tests. The CLI must also start these dependencies
 when Queso calls `main()` directly.
 
-To test Unicode cache paths without network access:
+The same recipe checks error, throw, and exit exceptions at the CLI boundary,
+including cleanup while the exception unwinds. `just test-cli-streams` checks
+the escript with an invalid CA bundle path
+(`ERL_FLAGS='-public_key cacerts_path [47,110,111]'`).
+These runtime failures must exit 2 without a raw
+stack trace. Policy and usage failures must still exit 1.
+
+To test environment conversion and cache paths without network access:
 
 ```sh
 just test-env-cache-paths
 ```
 
-The test starts fresh Erlang VMs with `é` and `中` in `XDG_CACHE_HOME`
-and `HOME`. It writes cache entries at the expected paths, then runs the
-cache-enabled CLI and checks for cache hits. It also checks conversion
-failures and the deferred warning when neither environment variable is set.
+The test checks `é` and `中` in `XDG_CACHE_HOME` and `HOME` with caching
+disabled. It then writes cache entries, runs the cache-enabled
+CLI, and checks for cache hits. It also checks conversion failures and the
+deferred warning when neither environment variable is set.
+The isolated Python checks also cover Unicode paths with caching enabled,
+empty values, explicit metadata overrides, and notice cache persistence.
+The Windows CI job runs these checks with `HOME` and `XDG_CACHE_HOME` removed
+and a scratch `LOCALAPPDATA`. Its relocated escript smoke test checks the
+default metadata and notice caches through real CLI commands.
+
+## File cache
+
+`cache_dir.gleam` stores each cache entry as one JSON file in the cache
+directory. The file name is the lowercase hex SHA-256 hash of the key, with a
+`.json` suffix. The file contains the key, the optional timestamp, and the
+value. A read that finds a different key, invalid JSON, or invalid UTF-8 gives
+a deferred warning and a cache miss. Immutable metadata and notice values use
+a null timestamp.
+
+A write goes to a temporary file with a random name in the same directory.
+Then `simplifile.rename` moves it over the entry file. On POSIX systems, this
+rename is atomic, so a reader sees the old entry or the new entry. OTP's
+Windows rename moves an existing entry aside before it moves the new file into
+place. Thus a reader can see no entry for a short time, which is a cache miss.
+Readers never see a partial file. If a rename fails and the entry file exists,
+another writer won the race, and the write is a success.
+
+The cache has no locks. Concurrent commands can share a cache directory: when
+two writers race on one key, both values are valid. A failed write leaves a
+`.tmp` file only if the command stops during the write. Lookups ignore these
+files. The cache does not remove old entries; delete the directory to clear it.
+
+### Cache snapshots
+
+The cache directory is safe to copy at any time. A copy can omit entries that
+a running command writes during the copy, but each copied entry is complete.
 
 ## Common tasks
 
@@ -234,6 +234,11 @@ just clean          # remove build artifacts
 Run `just` with no arguments to see the full recipe list. The local `just ci`
 recipe and GitHub Actions both validate the SBOM after checking the committed
 SBOM for drift.
+
+For PRs from `release/pending`, CI and PR Validation cancel older queued
+and running workflow runs when a new run arrives. Each workflow has its own
+concurrency group for the PR. Other branches and release builds use separate
+groups for each run and do not cancel earlier runs.
 
 To run a single Gleam test module, invoke `gleam test` directly through
 mise and pass the module name:
@@ -255,11 +260,14 @@ consolidated injected runner for tests and library callers. Pass a `Clients`
 bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
-disabled. Both runners add `--no-cache`, so they do not touch the on-disk
-caches. Concurrent CLI runs can share cached entries. `--no-cache` bypasses
-the caches, and `--cache-path=PATH` overrides the licence metadata cache
-location. Source-built escripts require the `slate_native/` directory beside
-the executable for cache access; `just build` copies it there.
+disabled. Pass `flags` or `["report", ..flags]` for a licence report; an empty
+argument list runs the default report. Both runners add `--no-cache` to default
+and named reports and other cache-capable
+commands, so they do not touch the on-disk caches or add unsupported flags
+to root help/version or standalone `vulns`. Concurrent CLI runs can share
+cache paths. `--no-cache` bypasses
+the caches, and `--cache-path=DIR` overrides the licence metadata cache
+directory.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 
@@ -275,7 +283,9 @@ SBOMs useful.
 Reproducible mode does not use the mutable Hex package API. It reads component
 metadata from each checksum-verified Hex `metadata.config` and from each Git
 archive at the manifest commit. The immutable results use content-addressed,
-non-expiring cache entries. Hex publisher data is omitted because package
+non-expiring cache entries. For Git dependencies with a manifest `path`, metadata
+comes from that package subdirectory's `gleam.toml`, not the repository root.
+The cache key includes the package path. Hex publisher data is omitted because package
 owners can change after publication. `--vulns` is incompatible with
 `--reproducible` because OSV advisory data also changes over time.
 
@@ -328,11 +338,123 @@ Releases are produced by the `release.yml` and `publish.yml` GitHub Actions
 workflows; do not edit `CHANGELOG.md` or bump the version in `gleam.toml` by
 hand.
 
+To prepare `1.0.0-rc.0`, dispatch the release workflow on `main`:
+
+```sh
+gh workflow run release.yml --ref main -f pre=rc -f version=1.0.0
+```
+
+After the candidate PR merges, new or changed fragments and release-owned
+source changes on `main` can open the next candidate PR. Trellis archives
+candidate fragments in `.changes/licence_audit/v<prerelease>.toml` and removes
+them from `unreleased`. Each later candidate includes only new changes.
+To promote the candidate to `1.0.0`, dispatch:
+
+```sh
+gh workflow run release.yml --ref main -f pre=none
+```
+
+Promotion combines the target version's candidate archives with any remaining
+fragments into the stable release notes. Keep the generated archives committed
+with release files. After the promotion PR merges, pushes resume the normal
+stable release flow. Use manual
+dispatch to enter a candidate cycle or promote it. Leave both inputs empty to
+prepare a normal stable release when `main` is stable. Empty inputs on a
+candidate fail with a request to use `pre=none`; they do not promote it.
+
+The `[tools.trellis.release]` defaults enable `resume`, `auto_pre`, and
+`skip_unchanged`. Automatic pushes preserve an open release PR's original target
+and mode, including a pending promotion. Without a pending PR, Trellis continues
+the committed candidate label and skips unchanged release content. Its content
+check includes pending fragments and release-owned `gleam.toml`, `src/`, and
+`priv/` files. Unrelated docs and excluded examples do not trigger a candidate.
+Closed PRs and leftover release branches do not supply pending intent.
+
+Manual runs disable those defaults and replace the pending request with the
+supplied inputs. Release preparation runs one job at a time. The workflow
+appends Trellis's `--github-output` records to `$GITHUB_OUTPUT` and refreshes
+the SBOM and notices only for `outcome=prepared`. `unchanged` and `no_changes`
+skip that work; invalid release state and other errors fail the job.
+
+Trellis 1.5.0 retries delayed GitHub head metadata after a successful branch
+push. If the previous head persists, preparation fails without updating the
+PR description or emitting success records. Concurrent head changes and
+closed, merged, or retargeted PRs still fail.
+
+Preview candidate or promotion plans without GitHub writes:
+
+```sh
+just changelog-preview --pre rc --set licence_audit=1.0.0
+just changelog-preview --pre none
+```
+
+`just release-pr` uses the same native defaults as automatic pushes. It pushes
+`release/pending` and creates or updates its PR. To replace a request locally,
+pass `--no-resume --no-auto-pre --no-skip-unchanged` and the desired `--pre` and
+`--set` options. Direct `just changelog` applies versions to the local checkout;
+it does not use release-PR continuation defaults.
+
+### Release history and older PRs
+
+Trellis 1.5.0 reads proposed versions and release inputs from Git history.
+Full history is required; the release workflow uses `fetch-depth: 0`.
+Older PRs do not need `.changes/release.toml` to resume. Preparation removes
+that obsolete file from its next generated release commit.
+
+The legacy migration for
+[#239](https://github.com/tylerbutler/licence_audit/pull/239) is complete:
+the PR merged and `1.0.0-rc.1` was published. Do not repeat its recovery.
+Stale or ambiguous history still fails preparation. Check the current PR,
+release mode, and target before using a manual replacement. A candidate
+must remain in its version series; promote it before starting another series.
+
 When a same-repository `release/pending` PR is merged, `auto-tag.yml` checks
 out its merge commit and runs `trellis tag create --github-release`. This
 uses the tag format in `gleam.toml` and the matching changelog section.
 It does not require a PR label or Changie configuration. The GitHub App
 token lets the tag push start `publish.yml`.
+Trellis marks candidate GitHub Releases as prereleases. The `v*` tag trigger
+publishes the same artifacts for candidates and stable releases.
+
+### Hex publication
+
+After CI, binary packaging, and GitHub Release asset upload succeed,
+`publish.yml` publishes each new release to Hex, including `0.x`, RCs,
+and other prerelease types. The tag must match `v{version}` from its
+`gleam.toml`. The workflow checks out an exact tag and runs the pinned
+`trellis publish --tag "$RELEASE_TAG"`.
+
+Before the first publication, a Hex package owner must create an API
+key with permission to publish `licence_audit` and store it as the repository
+Actions secret `HEXPM_API_KEY` (Settings > Secrets and variables > Actions).
+For the first publication, the key must permit package creation; after
+creation, restrict it to this package. Do not put the key in source files
+or workflow inputs. A missing key fails the Hex job before publication.
+
+Trellis checks the tag/version match, skips versions already on Hex, and
+retries Hex API, build, test, and publication failures. It runs Gleam
+format, strict build, and test checks before publishing. Publication jobs
+for the same tag run one at a time. Failed retries fail the job.
+
+To recover a failed Hex publication, fix the secret or reported error and
+rerun the failed Hex job. If the workflow needs a fix, merge it
+to `main`, then dispatch from `main` with the existing tag:
+
+```sh
+gh workflow run publish.yml --ref main -f tag=v1.0.0-rc.0
+```
+
+The dispatch uses the tagged package and its pinned toolchain. It does not
+backfill historical releases unless you dispatch their tags. Preview the
+publication plan without credentials or publication:
+
+```sh
+mise exec -- trellis publish --tag v0.14.0 --dry-run
+```
+
+Use a tag that matches the checked-out package version. The dry run reads
+the public Hex API. The Gleam exporter includes runtime native sources,
+`LICENSE`, and vendored `NOTICE`; no custom file list is needed.
 
 To recover a merged release that has no tag or GitHub Release, run the
 auto-tag workflow manually against the current version on `main`:
@@ -366,10 +488,8 @@ archive for that target.
 ### Release licence material
 
 Publish includes the generated `THIRD_PARTY_NOTICES.txt`, project `LICENSE`,
-vendored `NOTICE`, and Slate's `slate_native/licenses/` in each archive. It also
-embeds these documents under `META-INF/licenses/` in the bare escript ZIP
-payload. Keep the Slate libraries beside the escript; the bare download does
-not replace the complete escript archive.
+and vendored `NOTICE` in each archive. It also embeds these documents under
+`META-INF/licenses/` in the bare escript ZIP payload.
 
 Run `just test-release-notices` to test staging and archive checks. Publish reads
 the notice bytes from each staged tar/ZIP and the bare escript, and compares
@@ -390,6 +510,10 @@ The collector writes `build/release-notices/<target>/` with these inputs:
   This inventory includes a superset of the OTP applications in the executable.
 - The Queso launcher's actual `Cargo.lock`, checked against the pinned Queso
   source, and target-filtered `cargo-about --locked --fail` licence material.
+  The comparison accepts CRLF line endings from Queso's Windows source archive;
+  the bundle keeps the original bytes. Queso's
+  [source packer](https://github.com/jtdowney/queso/blob/v0.3.0/src/pack.rs#L22-L27)
+  preserves those bytes.
   The collector also preserves separate licence, NOTICE, and copyright files
   from the resolved crate sources, including bundled native code.
   `queso/source-packages.json` records immutable crate source URLs and their
@@ -413,8 +537,6 @@ collection records that it has no such download verification.
 `manifest.json` records fetched source
 URLs/checksums and checksums of the collected documents. Publish stages the
 bundle as `runtime-notices/` and compares its archived bytes with that manifest.
-It also verifies and includes every document in Slate's upstream notice
-manifest, including the Rust runtime copyright and licence directory.
 
 Missing upstream material, unresolved licence expressions, checksum mismatches,
 or an unidentifiable external OpenSSL version stop publication. The collector

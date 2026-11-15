@@ -6,6 +6,8 @@ runs:
   steps:
     - name: Setup mise
       uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+      with:
+        install_args: --locked
 
     - name: Cache Gleam dependencies
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6

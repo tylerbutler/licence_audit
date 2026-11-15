@@ -5,6 +5,8 @@ import gleam/list
 import gleam/result
 import gleam/string
 
+pub const max_decompressed_bytes = 268_435_456
+
 pub type ArchiveError {
   InvalidArchive
   MissingContentsArchive
@@ -19,40 +21,52 @@ pub type ArchiveFile {
 @external(erlang, "source_archive_ffi", "extract_tar")
 fn extract_tar_raw(
   data: BitArray,
+  limit: Int,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
 
 @external(erlang, "source_archive_ffi", "extract_tar_gz")
 fn extract_tar_gz_raw(
   data: BitArray,
+  limit: Int,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
 
 @external(erlang, "source_archive_ffi", "extract_tar_selected")
 fn extract_tar_selected_raw(
   data: BitArray,
   select: fn(List(String)) -> List(#(String, String)),
+  limit: Int,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
 
 @external(erlang, "source_archive_ffi", "extract_tar_gz_selected")
 fn extract_tar_gz_selected_raw(
   data: BitArray,
   select: fn(List(String)) -> List(#(String, String)),
+  limit: Int,
 ) -> Result(List(#(String, BitArray)), ArchiveError)
 
 @external(erlang, "source_archive_ffi", "extract_root_file_tar_gz")
+fn extract_root_file_tar_gz_raw(
+  data: BitArray,
+  filename: String,
+  limit: Int,
+) -> Result(BitArray, ArchiveError)
+
 pub fn extract_root_file_tar_gz(
   data: BitArray,
   filename: String,
-) -> Result(BitArray, ArchiveError)
+) -> Result(BitArray, ArchiveError) {
+  extract_root_file_tar_gz_raw(data, filename, max_decompressed_bytes)
+}
 
 pub fn extract_tar(data: BitArray) -> Result(List(ArchiveFile), ArchiveError) {
-  use files <- result.try(extract_tar_raw(data))
+  use files <- result.try(extract_tar_raw(data, max_decompressed_bytes))
   Ok(files_to_archive_files(files))
 }
 
 pub fn extract_tar_gz(
   data: BitArray,
 ) -> Result(List(ArchiveFile), ArchiveError) {
-  use files <- result.try(extract_tar_gz_raw(data))
+  use files <- result.try(extract_tar_gz_raw(data, max_decompressed_bytes))
   Ok(files_to_archive_files(files))
 }
 
@@ -62,21 +76,91 @@ pub fn extract_tar_gz_selected(
   data: BitArray,
   select: fn(List(String)) -> List(#(String, String)),
 ) -> Result(List(ArchiveFile), ArchiveError) {
-  extract_tar_gz_selected_raw(data, select)
+  extract_tar_gz_selected_raw(data, select, max_decompressed_bytes)
   |> result.map(files_to_archive_files)
+}
+
+/// Scope the full inventory before selecting files or inferring package roots.
+pub fn package_paths(
+  paths: List(String),
+  directory: String,
+) -> List(#(String, String)) {
+  let normalized =
+    list.map(paths, fn(path) {
+      #(path, case string.starts_with(path, "./") {
+        True -> string.drop_start(path, 2)
+        False -> path
+      })
+    })
+  let has_root = case normalized {
+    [] -> False
+    [#(_, first), ..] -> {
+      let root = case string.split(first, "/") {
+        [root, _, ..] -> root
+        _ -> ""
+      }
+      root != ""
+      && list.all(normalized, fn(pair) {
+        string.starts_with(pair.1, root <> "/")
+      })
+    }
+  }
+  normalized
+  |> list.filter_map(fn(pair) {
+    let relative = case has_root {
+      True -> pair.1 |> string.split("/") |> list.drop(1) |> string.join("/")
+      False -> pair.1
+    }
+    case directory {
+      "" -> Ok(#(pair.0, relative))
+      _ ->
+        case string.starts_with(relative, directory <> "/") {
+          True ->
+            Ok(#(
+              pair.0,
+              string.drop_start(relative, string.length(directory) + 1),
+            ))
+          False -> Error(Nil)
+        }
+    }
+  })
+}
+
+pub fn extract_package_file_tar_gz(
+  data: BitArray,
+  directory: String,
+  filename: String,
+) -> Result(BitArray, ArchiveError) {
+  use files <- result.try(
+    extract_tar_gz_selected(data, fn(paths) {
+      let matches =
+        package_paths(paths, directory)
+        |> list.filter(fn(pair) { pair.1 == filename })
+      case matches {
+        [match] -> [match]
+        _ -> []
+      }
+    }),
+  )
+  case files {
+    [file] -> Ok(file.contents)
+    _ -> Error(MissingRootFile)
+  }
 }
 
 pub fn extract_hex_contents_selected(
   data: BitArray,
   select: fn(List(String)) -> List(#(String, String)),
 ) -> Result(List(ArchiveFile), ArchiveError) {
-  use files <- result.try(
-    extract_tar_selected_raw(data, fn(paths) {
+  use files <- result.try(extract_tar_selected_raw(
+    data,
+    fn(paths) {
       paths
       |> list.filter(fn(path) { path == "contents.tar.gz" })
       |> list.map(fn(path) { #(path, path) })
-    }),
-  )
+    },
+    max_decompressed_bytes,
+  ))
   use contents <- result.try(
     list.key_find(files, "contents.tar.gz")
     |> result.replace_error(MissingContentsArchive),
@@ -87,7 +171,7 @@ pub fn extract_hex_contents_selected(
 pub fn extract_hex_contents(
   data: BitArray,
 ) -> Result(List(ArchiveFile), ArchiveError) {
-  use files <- result.try(extract_tar_raw(data))
+  use files <- result.try(extract_tar_raw(data, max_decompressed_bytes))
   use contents <- result.try(
     list.key_find(files, "contents.tar.gz")
     |> result.replace_error(MissingContentsArchive),

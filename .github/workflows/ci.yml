@@ -19,23 +19,60 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref == 'release/pending' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.head_ref == 'release/pending' }}
+
 jobs:
+  website:
+    runs-on: ubuntu-latest
+    name: Website
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # ratchet:actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.9.0
+
+      - name: Install locked website dependencies
+        working-directory: website
+        run: pnpm install --frozen-lockfile
+
+      - name: Check website
+        working-directory: website
+        run: pnpm check && pnpm test
+
+      - name: Build website
+        working-directory: website
+        run: pnpm build
+
   windows-policy:
     runs-on: windows-latest
     name: Windows atomic policy writes
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
+      CC: clang-cl.exe
+      CXX: clang-cl.exe
+      LINKER: lld-link.exe
+      REBAR_TARGET_ARCH: win32
+      REBAR_TARGET_ARCH_WORDSIZE: "64"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref }}
 
       - name: Setup pinned toolchain
-        uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # ratchet:erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
         with:
           otp-version: "28.3"
-          gleam-version: "1.19.0-rc3"
+          gleam-version: "1.19.2"
           rebar3-version: "3.26.0"
           version-type: strict
 
@@ -51,6 +88,12 @@ jobs:
 
       - name: Test real Windows replacement and interruption
         run: python -u -B test/update_atomic_windows.py
+
+      - name: Test Windows escript cache
+        run: |
+          python -B test/cache_default_paths.py
+          gleam export escript
+          python -B test/native_cache_smoke.py licence_audit --escript
 
   test:
     runs-on: ubuntu-latest
@@ -87,11 +130,17 @@ jobs:
           mise exec -- python3 -B scripts/release_notices.py check licence_audit
           ./licence_audit --help
 
+      - name: Test relocated escript cache
+        run: mise exec -- python3 -B test/native_cache_smoke.py licence_audit --escript
+
       - name: Check vendored production boundary
         run: just test-vendor-production
 
       - name: Run tests
         run: just test
+
+      - name: Test notices filtering with CLI caches
+        run: just test-notices-filter
 
       - name: Test runtime startup
         run: just test-runtime-startup
@@ -102,7 +151,7 @@ jobs:
       - name: Test CLI output streams
         run: just test-cli-streams
 
-      - name: Test Unicode cache paths
+      - name: Test Unicode environment conversion and ASCII cache paths
         run: just test-env-cache-paths
 
       - name: Smoke test built CLI
@@ -111,13 +160,16 @@ jobs:
       - name: Check generated docs are up to date
         run: just docs-check
 
+      - name: Test documentation generation
+        run: just test-docs
+
       - name: Cache Hex licence metadata
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
         with:
           path: .hex-cache
-          key: hex-licence-v3-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+          key: hex-licence-v4-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
           restore-keys: |
-            hex-licence-v3-${{ runner.os }}-
+            hex-licence-v4-${{ runner.os }}-
 
       - name: Check committed SBOM is up to date
         if: ${{ !inputs.skip_sbom_drift_check }}
@@ -151,9 +203,15 @@ jobs:
       - name: Build native Linux executable
         run: mise exec -- queso build --target x86_64-linux-glibc
 
-      - name: Test native HTTP without system Erlang
+      - name: Test cache and HTTPS without system Erlang
         run: |
           set -euo pipefail
           binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
           test "${#binaries[@]}" -eq 1
-          just smoke-native-http "${binaries[0]}"
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+            debian:bookworm-slim sh -ec '
+              apt-get update -qq
+              apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
+              exec python3 -B test/native_cache_smoke.py "$1"
+            ' sh "${binaries[0]}"

@@ -1,0 +1,3 @@
+packages = [
+  { name = "example", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
+]

@@ -4,15 +4,23 @@ title: check
 description: Report Hex package licence metadata and enforce your licence policy. Return a nonzero exit code for violations.
 ---
 
-`check` runs the same audit as the command with no subcommand. It then
+`check` runs the same licence scan as [`report`](/docs/report). It then
 **enforces** your policy. It returns a nonzero exit code when it finds a
 violation. Use `check` in CI.
+
+The licence verdict uses declarations from the checksum-verified locked Hex
+archive, even if the Hex API reports different licences for the latest release.
+Reports and `update` use the same evidence and
+[checksum-keyed cache](/docs/#caching).
 
 ```sh
 licence_audit check
 ```
 
 ## Define a policy
+
+See [configuration discovery](/docs/configuration#discovery) for how the
+command selects the policy file and handles explicit `--config` files.
 
 Add the policy to `[tools.licence_audit]` in `gleam.toml`:
 
@@ -23,10 +31,37 @@ deny  = ["GPL-3.0-only"]
 ```
 
 An `allow` list permits only the specified licences. A `deny` list rejects
-matching licences. To create the policy, use [`licence_audit
-update`](/docs/update). The command gets metadata, selects existing entries,
+matching licences. To create the policy, use
+[`licence_audit update`](/docs/update). The command gets metadata, selects existing entries,
 asks you to confirm the selection, and writes the result. It preserves
 comments in `gleam.toml`.
+
+### Configuration validation
+
+Unknown keys in `[tools.licence_audit]` or its `notices` table are errors with
+exit code `2`. The policy keys are `allow`, `deny`, `vuln_severity`,
+`vuln_block_unknown`, `exceptions`, and `notices`; the notices keys are `include`
+and `exclude`. The error names the unknown key. An older binary therefore
+rejects keys added by a newer release instead of silently ignoring them.
+
+Every `allow` and `deny` entry, from config or CLI, must parse as an SPDX
+expression. Empty entries and malformed expressions such as `MIT/Apache-2.0`
+or `Apache 2.0` cause exit code `2`. Validation checks syntax, not membership in
+the SPDX License List. Custom identifiers and `LicenseRef-`/`DocumentRef-`
+forms remain supported. Validation does not change the entry text.
+
+### 1.0 allow-list requirement
+
+For version 1.0, `check` requires a non-empty `allow` list. A deny-only policy
+returns exit code `2` and asks you to add `allow`. This also applies to
+`check --vulns`: it remains a combined licence and vulnerability gate, not a
+vulnerability-only check. This requirement replaces deny-only checks supported
+by earlier releases.
+
+`deny` is an exact-match override and wins over `allow`. Matching does not
+normalise deprecated identifiers, a trailing `+`, `-or-later` identifiers, or
+`WITH` terms into equivalent licences. List the complete identifiers or terms
+that you intend to allow or deny.
 
 ### SPDX expressions
 
@@ -43,21 +78,27 @@ SPDX identifiers match without regard to case; custom `LicenseRef-`
 identifiers remain case-sensitive. The parser checks syntax, not membership
 in the SPDX licence list. It does not infer equivalence between identifiers.
 
-Separate strings in a package's licence list must all pass. An exact
-expression in `allow` accepts its terms but does not override operand deny
-rules. An exact expression in `deny` rejects that declaration.
-Expression matching ignores whitespace between tokens and SPDX identifier
-case, but preserves custom-reference case and the expression's tokens.
+Each separate string in a package's licence list must pass. A full
+expression in `allow` accepts its terms. It does not override a `deny` rule on
+one of its operands. A full expression in `deny` rejects that declaration.
+Expression matching ignores whitespace between tokens and the case of SPDX
+identifiers. It keeps the case of custom references and the tokens of the
+expression.
 
-Malformed expressions fail the gate, even with a deny-only policy.
+Malformed expressions fail licence evaluation.
 For untrusted metadata, the parser limits each expression to 64 KiB,
 1024 tokens, and 64 nested parentheses. Expressions above these limits fail
 the gate.
 
 ## Ad-hoc and merged policy
 
-The command merges CLI `--allow` and `--deny` values with the configuration.
-Use these options to add restrictions for one run:
+CLI `--allow` and `--deny` values form a union with the corresponding
+configuration lists; duplicates are removed. `--allow` adds permitted licences
+for this run and can widen the gate. `--deny` adds denied licences for this run.
+Neither option replaces the configured list, and `deny` still takes precedence
+over `allow`.
+
+For example, add permitted and denied licences to the configured policy:
 
 ```sh
 licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
@@ -66,7 +107,7 @@ licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
 Use `--config=other.toml` to read a different file. The file must have a
 `[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
 
-> **Note:** `--allow` and `--deny` also work on the bare command. These options
+> **Note:** `--allow` and `--deny` also work on [`report`](/docs/report). These options
 > show a policy preview. Findings return exit code `0` when the scan completes.
 > Use `check` to return a failure for a violation.
 
@@ -74,14 +115,29 @@ Use `--config=other.toml` to read a different file. The file must have a
 
 Completed licence checks exit `0` when the policy passes and `1` for policy
 violations. Unavailable or invalid package metadata exits `2`, even when a
-partial report is available or other packages violate the policy. The same
-metadata failures exit `2` in the bare report command.
+partial report is available or other packages violate the policy. The
+`report` command also exits `2` for these metadata failures.
+
+Required evidence includes a valid `outer_checksum` and the locked archive's
+`metadata.config`. A checksum mismatch, failed download, or invalid or missing
+metadata cannot fall back to API licences. Create a checksum-bearing lockfile
+with `gleam deps download`.
 
 ## Production-only gates
 
 Use `--prod-only` when your gate should consider only production dependencies.
 The command then ignores licence violations in development dependencies. This
 option prevents tooling-only packages from causing a CI failure.
+
+Production dependencies are the packages reachable from `[dependencies]` in
+the `gleam.toml` beside the selected manifest. A valid file without that table,
+or with an empty table, has no production dependencies. This rule also applies
+to `check --vulns --prod-only`.
+
+A missing `gleam.toml` uses all lockfile direct dependencies as production
+roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
+table causes exit code `2`. `--ignore-config` skips policy settings, not this
+scope validation.
 
 ## Also fail on vulnerabilities
 
@@ -95,8 +151,10 @@ licence_audit check --vulns --vuln-block-unknown
 ```
 
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
-The command reports advisories with unknown severity, but these advisories do
-not cause a failure by default. Use `--vuln-block-unknown` to make these
+Advisories with severity `none` (a valid CVSS score of `0.0`) never cause a
+failure, even with `--vuln-block-unknown`. `none` is not a gate threshold.
+The command reports advisories with unknown severity. By default, these
+advisories do not cause a failure. Use `--vuln-block-unknown` to make these
 advisories cause a failure. OSV batch or advisory-detail failures exit `2`,
 because the gate cannot complete. You can set the threshold in the configuration:
 
@@ -105,6 +163,11 @@ because the gate cannot complete. You can set the threshold in the configuration
 vuln_severity = "high"
 vuln_block_unknown = true
 ```
+
+The CLI flags `--vuln-severity` and `--vuln-block-unknown` require `--vulns`.
+Without it, they cause a usage error (exit 1), including an explicit
+`--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
+remain valid without `--vulns` and apply only when the scan is enabled.
 
 `--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
 can only enable blocking: if you omit it, a configured `true` still applies.
@@ -145,7 +208,13 @@ Put global settings such as `allow`, `deny`, and `vuln_severity` in
 | `advisory` | `advisory = "CVE-2026-12345"` | An OSV advisory ID or a direct alias in the fetched record. |
 
 Use the licence term from the finding in the report, rather than the full
-declared expression. A denied term takes precedence over an unallowed term.
+declared expression. Licence selectors use the same token matching as `allow`
+and `deny`: ordinary SPDX identifier case and whitespace between tokens do not
+affect the match. For example, `gpl-3.0-only` matches `GPL-3.0-only`.
+Custom `LicenseRef-` and `DocumentRef-` references remain case-sensitive.
+Parentheses and licence variants remain distinct.
+
+A denied term takes precedence over an unallowed term.
 An exception for one selector cannot accept another selector, a second
 required term, or another advisory. For `OR`, an accepted alternative is
 sufficient. The report prefers an alternative that passes global policy over
@@ -174,8 +243,9 @@ Advisory IDs are case-sensitive. Match only the record's primary ID or its
 explicit `aliases`; related IDs, text mentions, and alias chains do not
 match. The same advisory on another package still uses the normal gate.
 Two entries that select the same scoped finding cause a configuration error,
-including entries that overlap through advisory aliases. Remove one entry
-instead of relying on file order.
+including licence selectors that differ only in ordinary identifier case or
+token whitespace, and entries that overlap through advisory aliases. Remove
+one entry instead of relying on file order.
 
 ### Precedence and expiry
 
@@ -207,7 +277,7 @@ their own; matching expired findings follow normal policy and severity rules.
 An entry is `not evaluated` if its scan is disabled, `--prod-only` excludes
 the package, or the command cannot get the evidence. Do not treat these
 entries as stale. Licence-only runs do not evaluate advisory exceptions.
-The bare command previews licence exceptions without enforcing them, and
+[`report`](/docs/report) previews licence exceptions without enforcing them, and
 [`vulns`](/docs/vulns) displays advisory exceptions without enforcing a gate.
 
 Exceptions cannot accept failed network requests, malformed metadata, missing
@@ -217,18 +287,31 @@ requirements. `update` preserves exception entries and their comments.
 
 ## Flags
 
-| Flag | What it does |
-|---|---|
-| `--allow` | Allow licences, comma-separated. Merges with config. |
-| `--deny` | Deny licences, comma-separated. Merges with config. |
-| `--prod-only` | Only audit production dependencies. |
-| `--vulns` | Also query OSV.dev and fail on advisories at or above `--vuln-severity`. |
-| `--vuln-severity` | Minimum failing severity: `low` \| `medium` \| `high` (default) \| `critical`. |
-| `--vuln-block-unknown` | Fail `check --vulns` on advisories with unknown severity. |
-| `--config` | Read configuration from `PATH`. |
-| `--ignore-config` | Ignore configuration files; use only CLI flags. |
-| `--manifest` | Read `manifest.toml` from `PATH`. |
-| `--cache-path` | Override the licence metadata cache location. |
-| `--no-cache` | Bypass the on-disk licence metadata cache. |
-| `--color` | Colourise output: `auto` (default) \| `always` \| `never`. Alias `--colour`. |
-| `--quiet` / `--verbose` | Suppress or expand progress output. |
+<!-- cli-reference -->
+Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+
+**Usage:**
+
+```
+licence_audit check [--flags]
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
+| `--vuln-block-unknown` | `BOOL` |  | Fail `check --vulns` on advisories whose severity is unknown (default false; requires --vulns) |
+| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high; requires --vulns) |
+| `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |
+<!-- cli-referencestop -->

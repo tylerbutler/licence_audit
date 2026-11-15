@@ -1,11 +1,11 @@
 import gleam/dict.{type Dict}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import licence_audit/toml
+import licence_audit/toml.{type Document, type Value}
 import simplifile
-import tomlet.{type Document, type Value}
 
 /// Whether a package is part of the production dependency tree (`Prod`) or only
 /// reachable through development dependencies (`Dev`). Prod wins: a package
@@ -16,7 +16,12 @@ pub type Scope {
 }
 
 pub type Package {
-  Package(name: String, version: String, requirements: List(String))
+  Package(
+    name: String,
+    version: String,
+    requirements: List(String),
+    outer_checksum: String,
+  )
 }
 
 /// A node in the full dependency graph. Includes non-Hex packages so that
@@ -61,7 +66,7 @@ pub type Provenance {
   /// record it, but the field is accepted for forward compatibility with
   /// future lockfile formats so the SBOM can surface both checksums.
   HexProvenance(outer_checksum: String, inner_checksum: Option(String))
-  GitProvenance(repo: String, commit: String)
+  GitProvenance(repo: String, commit: String, path: Option(String))
   PathProvenance(path: String)
   UnknownProvenance(source: String)
 }
@@ -175,14 +180,77 @@ fn decode_provenance(
     "git" -> {
       use repo <- result.try(required_string(table, "repo", package_name))
       use commit <- result.try(required_string(table, "commit", package_name))
-      Ok(GitProvenance(repo: repo, commit: commit))
+      use path <- result.try(git_path(table, package_name))
+      Ok(GitProvenance(repo: repo, commit: commit, path: path))
     }
-    "path" -> {
+    "local" | "path" -> {
       use path <- result.try(required_string(table, "path", package_name))
       Ok(PathProvenance(path: path))
     }
     other -> Ok(UnknownProvenance(source: other))
   }
+}
+
+fn git_path(
+  table: toml.Entry,
+  package_name: String,
+) -> Result(Option(String), Error) {
+  use path <- result.try(case toml.field(table, "path") {
+    Error(_) -> Ok(None)
+    Ok(value) ->
+      toml.as_string(value)
+      |> result.map(Some)
+      |> result.replace_error(InvalidPackageField(
+        package_name,
+        "path",
+        "String",
+      ))
+  })
+  use _ <- result.try(
+    git_subdirectory(path)
+    |> result.replace_error(InvalidPackageField(
+      package_name,
+      "path",
+      "relative package directory without parent traversal",
+    )),
+  )
+  Ok(path)
+}
+
+/// Normalize only for lookup; Git provenance retains the manifest spelling.
+pub fn git_subdirectory(path: Option(String)) -> Result(String, Nil) {
+  case path {
+    None -> Ok("")
+    Some(path) -> {
+      let parts = string.split(path, "/")
+      case
+        string.starts_with(path, "/")
+        || string.contains(path, "\\")
+        || string.contains(path, ":")
+        || list.contains(parts, "..")
+      {
+        True -> Error(Nil)
+        False ->
+          Ok(
+            parts
+            |> list.filter(fn(part) { part != "" && part != "." })
+            |> string.join("/"),
+          )
+      }
+    }
+  }
+}
+
+pub fn git_source_identity(
+  repo: String,
+  commit: String,
+  path: Option(String),
+) -> String {
+  let directory = case path {
+    None -> ""
+    Some(path) -> ":path:" <> json.to_string(json.string(path))
+  }
+  "git:" <> repo <> "@" <> commit <> directory
 }
 
 type RawPackage {
@@ -191,6 +259,7 @@ type RawPackage {
     version: String,
     source: String,
     requirements: List(String),
+    outer_checksum: String,
   )
 }
 
@@ -237,6 +306,7 @@ fn build_locked(
               name: raw.name,
               version: raw.version,
               requirements: raw.requirements,
+              outer_checksum: raw.outer_checksum,
             )
           #([package, ..hex_acc], skipped_pkgs_acc, [node, ..graph_acc])
         }
@@ -298,13 +368,15 @@ pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
 }
 
 /// Parse the names of direct production dependencies from `gleam.toml` source:
-/// the keys of the `[dependencies]` table. `Error(Nil)` when the TOML cannot be
-/// parsed or has no `[dependencies]` table — callers treat that as "cannot
-/// determine" and fall back to classifying everything as production.
+/// the keys of the `[dependencies]` table, or an empty list if it is absent.
+/// Return `Error(Nil)` for invalid TOML or a dependencies value that is not a
+/// table.
 pub fn prod_direct_names(gleam_toml: String) -> Result(List(String), Nil) {
-  case toml.parse(gleam_toml) {
-    Error(_) -> Error(Nil)
-    Ok(document) -> toml.table_keys(document, ["dependencies"])
+  use document <- result.try(toml.parse(gleam_toml))
+  case toml.get_table(document, ["dependencies"]) {
+    Error(toml.TableLookupMissing) -> Ok([])
+    Error(toml.TableLookupNotTable) -> Error(Nil)
+    Ok(_) -> toml.table_keys(document, ["dependencies"])
   }
 }
 
@@ -450,6 +522,7 @@ fn decode_package(package: Value) -> Result(#(RawPackage, toml.Entry), Error) {
           version: version,
           source: source,
           requirements: requirements,
+          outer_checksum: "",
         ),
         package,
       ))
@@ -458,7 +531,32 @@ fn decode_package(package: Value) -> Result(#(RawPackage, toml.Entry), Error) {
 }
 
 fn decode_audit_package(package: Value) -> Result(RawPackage, Error) {
-  decode_package(package) |> result.map(fn(pair) { pair.0 })
+  use #(raw, table) <- result.try(decode_package(package))
+  case raw.source {
+    "hex" -> {
+      use checksum <- result.try(required_string(
+        table,
+        "outer_checksum",
+        raw.name,
+      ))
+      case
+        string.length(checksum) == 64
+        && list.all(
+          string.to_graphemes(string.lowercase(checksum)),
+          fn(character) { string.contains("0123456789abcdef", character) },
+        )
+      {
+        True -> Ok(RawPackage(..raw, outer_checksum: checksum))
+        False ->
+          Error(InvalidPackageField(
+            raw.name,
+            "outer_checksum",
+            "SHA-256 checksum (64 hexadecimal characters)",
+          ))
+      }
+    }
+    _ -> Ok(raw)
+  }
 }
 
 fn optional_string_list(

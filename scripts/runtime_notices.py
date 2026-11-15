@@ -1,6 +1,7 @@
 """Collect upstream runtime attribution from the inputs used by Queso."""
 
 import argparse
+import email
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -115,6 +116,16 @@ def otp_material(version):
     return files
 
 
+def wheel_tags(python, abi, platform):
+    return {f"{p}-{a}-{s}" for p in python.split(".")
+            for a in abi.split(".") for s in platform.split(".")}
+
+
+def wheel_metadata_tags(wheel):
+    return {expanded for tag in email.message_from_string(wheel).get_all("Tag", [])
+            for expanded in wheel_tags(*"".join(tag.split()).split("-"))}
+
+
 def toolchain_material(targets):
     rust = Path(command("rustc", "--print", "sysroot")) / "share/doc/rust"
     files = {"rust/COPYRIGHT-library.html": (rust / "COPYRIGHT-library.html").read_bytes()}
@@ -155,14 +166,12 @@ def toolchain_material(targets):
     wheel = importlib.metadata.distribution("ziglang").read_text("WHEEL")
     if not wheel:
         raise ValueError("Installed Zig wheel metadata is missing")
-    tags = set(re.findall(r"^Tag: (.+)$", wheel, re.M))
+    tags = wheel_metadata_tags(wheel)
     wheels = json.loads(fetch(f"https://pypi.org/pypi/ziglang/{zig_version}/json"))["urls"]
     matches = []
     for asset in wheels:
         if asset["filename"].endswith(".whl"):
-            python, abi, platform = asset["filename"].removesuffix(".whl").rsplit("-", 3)[1:]
-            asset_tags = {f"{p}-{a}-{s}" for p in python.split(".")
-                          for a in abi.split(".") for s in platform.split(".")}
+            asset_tags = wheel_tags(*asset["filename"].removesuffix(".whl").rsplit("-", 3)[1:])
             if asset_tags == tags:
                 matches.append({"url": asset["url"], "sha256": asset["digests"]["sha256"]})
     if len(matches) != 1:
@@ -177,7 +186,9 @@ def launcher_material(cache, version, targets):
         raise ValueError(f"Expected one fresh Queso {version} launcher lockfile in {cache}")
     lock = candidates[0]
     revision = api(f"jtdowney/queso/commits/v{version}")["sha"]
-    if lock.read_bytes() != raw("jtdowney/queso", revision, "launcher/Cargo.lock"):
+    if lock.read_text(encoding="utf-8") != raw(
+        "jtdowney/queso", revision, "launcher/Cargo.lock"
+    ).decode("utf-8"):
         raise ValueError("Built Queso launcher lockfile differs from pinned upstream source")
     config = Path("build/runtime-notices-about.toml")
     config.write_text(

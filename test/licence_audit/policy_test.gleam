@@ -54,8 +54,12 @@ pub fn multiple_allowed_licences_are_ok_test() {
 }
 
 pub fn deny_list_only_policy_permits_non_denied_licences_test() {
+  should.equal(
+    policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: True),
+    Error(policy.MissingPolicy),
+  )
   let assert Ok(audit_policy) =
-    policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: True)
+    policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: False)
 
   should.equal(policy.audit(audit_policy, ["MIT"]), policy.Allowed)
 }
@@ -129,7 +133,7 @@ pub fn config_policy_can_be_converted_to_policy_test() {
 
 pub fn expressions_apply_policy_to_operands_test() {
   let assert Ok(deny_only) =
-    policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: True)
+    policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: False)
   let assert Ok(allow_and_deny) =
     policy.new(allow: ["MIT"], deny: ["GPL-3.0-only"], check_mode: True)
   [
@@ -204,7 +208,7 @@ pub fn malformed_expressions_fail_closed_even_when_allowed_test() {
       policy.InvalidLicenceExpression(expression),
     )
     let assert Ok(deny_only) =
-      policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: True)
+      policy.new(allow: [], deny: ["GPL-3.0-only"], check_mode: False)
     should.equal(
       policy.audit(deny_only, [expression]),
       policy.InvalidLicenceExpression(expression),
@@ -255,7 +259,7 @@ pub fn custom_references_preserve_only_their_own_case_test() {
   |> list.each(fn(test_case) {
     let #(configured, declared) = test_case
     let assert Ok(deny_only) =
-      policy.new(allow: [], deny: [configured], check_mode: True)
+      policy.new(allow: [], deny: [configured], check_mode: False)
     should.equal(
       policy.audit(deny_only, [declared]),
       policy.DeniedLicence(declared),
@@ -265,7 +269,7 @@ pub fn custom_references_preserve_only_their_own_case_test() {
     should.equal(policy.audit(allow_only, [declared]), policy.Allowed)
   })
   let assert Ok(deny_only) =
-    policy.new(allow: [], deny: ["LicenseRef-Custom"], check_mode: True)
+    policy.new(allow: [], deny: ["LicenseRef-Custom"], check_mode: False)
   should.equal(policy.audit(deny_only, ["LicenseRef-custom"]), policy.Allowed)
   let assert Ok(allow_only) =
     policy.new(allow: ["LicenseRef-Custom"], deny: [], check_mode: True)
@@ -273,4 +277,63 @@ pub fn custom_references_preserve_only_their_own_case_test() {
     policy.audit(allow_only, ["LicenseRef-custom"]),
     policy.UnallowedLicence("LicenseRef-custom"),
   )
+}
+
+pub fn deny_does_not_infer_licence_variant_equivalence_test() {
+  [
+    #("GPL-2.0-only", "GPL-2.0"),
+    #("GPL-2.0-only", "GPL-2.0+"),
+    #("GPL-3.0-only", "GPL-3.0-only WITH GCC-exception-3.1"),
+    #("GPL-3.0-or-later", "GPL-3.0+"),
+    #("GPL-3.0-only", "GPL-3.0-or-later"),
+  ]
+  |> list.each(fn(pair) {
+    list.each([pair, #(pair.1, pair.0)], fn(pair) {
+      let #(denied, declared) = pair
+      let assert Ok(explicit_allow) =
+        policy.new(allow: [declared], deny: [denied], check_mode: True)
+      should.equal(policy.audit(explicit_allow, [declared]), policy.Allowed)
+      should.equal(
+        policy.findings(explicit_allow, [declared], fn(_) { False }),
+        [],
+      )
+      let assert Ok(no_variant_allow) =
+        policy.new(allow: [denied], deny: [denied], check_mode: True)
+      should.equal(
+        policy.audit(no_variant_allow, [declared]),
+        policy.UnallowedLicence(declared),
+      )
+      let assert Ok(exact_deny) =
+        policy.new(allow: [declared], deny: [declared], check_mode: True)
+      should.equal(
+        policy.audit(exact_deny, [declared]),
+        policy.DeniedLicence(declared),
+      )
+    })
+  })
+}
+
+pub fn whole_expression_deny_preserves_parentheses_but_ignores_whitespace_test() {
+  let expression = "MIT OR GPL-3.0-only"
+  let parenthesized = "(" <> expression <> ")"
+  let assert Ok(audit_policy) =
+    policy.new(allow: ["MIT"], deny: [expression], check_mode: True)
+  should.equal(
+    policy.audit(audit_policy, [expression]),
+    policy.DeniedLicence(expression),
+  )
+  should.equal(
+    policy.audit(audit_policy, ["mit\tOR\n gpl-3.0-only"]),
+    policy.DeniedLicence("mit\tOR\n gpl-3.0-only"),
+  )
+  should.equal(policy.audit(audit_policy, [parenthesized]), policy.Allowed)
+  let assert Ok(exact_deny) =
+    policy.new(allow: ["MIT"], deny: [parenthesized], check_mode: True)
+  should.equal(
+    policy.audit(exact_deny, [parenthesized]),
+    policy.DeniedLicence(parenthesized),
+  )
+  let assert Ok(operand_deny) =
+    policy.new(allow: [expression], deny: ["GPL-3.0-only"], check_mode: True)
+  should.equal(policy.audit(operand_deny, [expression]), policy.Allowed)
 }

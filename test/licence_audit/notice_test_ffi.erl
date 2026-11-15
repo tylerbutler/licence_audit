@@ -2,6 +2,9 @@
 -export([with_unreadable_file/2, with_unreadable_directory/2]).
 -include_lib("kernel/include/file.hrl").
 
+%% File-content fixtures cannot simulate access denial. Change actual Unix
+%% permissions and restore them with try/after even if a Gleam assertion raises;
+%% privileged users and Windows cannot exercise the same permission check.
 with_unreadable_file(Path, Check) ->
     with_unreadable(Path, 8#200, fun file:read_file/1, Check).
 
