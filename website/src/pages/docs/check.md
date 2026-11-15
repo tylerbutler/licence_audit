@@ -102,7 +102,7 @@ licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
 Use `--config=other.toml` to read a different file. The file must have a
 `[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
 
-> **Note:** `--allow` and `--deny` also work on the command with no subcommand. These options
+> **Note:** `--allow` and `--deny` also work on [`report`](/docs/report). These options
 > show a policy preview. Findings return exit code `0` when the scan completes.
 > Use `check` to return a failure for a violation.
 
@@ -110,8 +110,8 @@ Use `--config=other.toml` to read a different file. The file must have a
 
 Completed licence checks exit `0` when the policy passes and `1` for policy
 violations. Unavailable or invalid package metadata exits `2`, even when a
-partial report is available or other packages violate the policy. The command
-with no subcommand also exits `2` for these metadata failures.
+partial report is available or other packages violate the policy. The
+`report` command also exits `2` for these metadata failures.
 
 ## Production-only gates
 
@@ -267,7 +267,7 @@ their own; matching expired findings follow normal policy and severity rules.
 An entry is `not evaluated` if its scan is disabled, `--prod-only` excludes
 the package, or the command cannot get the evidence. Do not treat these
 entries as stale. Licence-only runs do not evaluate advisory exceptions.
-The command with no subcommand previews licence exceptions without enforcing them, and
+[`report`](/docs/report) previews licence exceptions without enforcing them, and
 [`vulns`](/docs/vulns) displays advisory exceptions without enforcing a gate.
 
 Exceptions cannot accept failed network requests, malformed metadata, missing
