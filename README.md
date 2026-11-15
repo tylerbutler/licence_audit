@@ -4,6 +4,10 @@ A CLI for the locked dependencies in a Gleam project. It reports Hex package
 licences, previews or enforces a licence policy, creates CycloneDX SBOMs and
 third-party notices, and checks for known vulnerabilities through OSV.dev.
 
+Licence reports, `check`, and `update` read declarations from the locked Hex
+archive and verify its SHA-256 against `manifest.toml`. The first scan downloads
+the archives; later scans reuse checksum-keyed metadata without expiry.
+
 ## Install
 
 Download a self-contained archive for your platform from the
