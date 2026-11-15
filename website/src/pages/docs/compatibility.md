@@ -47,6 +47,21 @@ or a new major release.
 We document deprecations and migration steps in release notes. Deprecated
 interfaces remain usable until the next major release.
 
+### Pre-1.0 dependency scope migration
+
+Replace `--prod-only` with `--scope=prod` for licence reports, `check`, and
+`vulns`. These commands default to `--scope=all`. Replace
+`notices --include-dev` with `notices --scope=all`; notices still defaults to
+`--scope=prod`.
+
+The removed flags are usage errors, including `=true` and `=false` forms.
+Where a script used `--prod-only=false`, use `--scope=all`. Where it used
+`notices --include-dev=false`, use `notices --scope=prod`. Configuration
+filters cannot add development-only packages under production scope.
+
+Neither `sbom` nor `update` accepts `--scope`. SBOM output retains the full
+locked graph and each component's production or development scope.
+
 ## Commands and configuration
 
 `licence_audit report` is an explicit form of the default licence report.

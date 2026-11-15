@@ -1293,10 +1293,10 @@ pub fn path_and_git_packages_are_skipped_and_counted_test() {
   )
 }
 
-pub fn prod_only_skipped_summary_matches_displayed_non_hex_rows_test() {
+pub fn prod_scope_skipped_summary_matches_displayed_non_hex_rows_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
-      manifest_args(["--prod-only"]),
+      manifest_args(["--scope=prod"]),
       test_clients(fake_fetcher),
       progress.disabled(),
     ).0
@@ -1796,7 +1796,7 @@ local_dep = { path = \"../local_dep\" }
   root <> "/manifest.toml"
 }
 
-pub fn check_vulns_locked_checksum_preserves_prod_only_git_scope_test() {
+pub fn check_vulns_locked_checksum_preserves_prod_git_scope_test() {
   [#("gleam_stdlib", 0), #("gluegun", 1)]
   |> list.each(fn(test_case) {
     let #(production, expected_exit) = test_case
@@ -1816,7 +1816,7 @@ pub fn check_vulns_locked_checksum_preserves_prod_only_git_scope_test() {
           "check",
           test_policy.flag(["MIT"], []),
           "--checks=all",
-          "--prod-only",
+          "--scope=prod",
         ],
         licence_audit.Clients(
           ..test_clients(fake_fetcher),
@@ -3290,7 +3290,7 @@ pub fn audit_manifest_path_uses_manifest_project_for_scope_test() {
         "--manifest=" <> manifest_path,
         "check",
         test_policy.flag(["MIT", "AGPL-3.0"], []),
-        "--prod-only",
+        "--scope=prod",
       ],
       test_clients(project_root_fetcher),
       progress.disabled(),
@@ -3358,14 +3358,14 @@ pub fn check_fails_on_dev_dependency_violation_by_default_test() {
   should.equal(exit_code, 1)
 }
 
-pub fn check_prod_only_ignores_dev_dependency_violation_test() {
+pub fn check_prod_scope_ignores_dev_dependency_violation_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
       [
         "--manifest=test/fixtures/prod_dev_manifest.toml",
         "check",
         test_policy.flag(["MIT"], ["AGPL-3.0"]),
-        "--prod-only",
+        "--scope=prod",
       ],
       test_clients(prod_dev_fetcher),
       progress.disabled(),
@@ -3402,14 +3402,14 @@ fn dev_only_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
   )
 }
 
-pub fn check_prod_only_vulns_ignores_dev_dependency_advisory_test() {
+pub fn check_prod_scope_vulns_ignores_dev_dependency_advisory_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
       [
         "--manifest=test/fixtures/prod_dev_manifest.toml",
         "check",
         test_policy.flag(["MIT"], []),
-        "--prod-only",
+        "--scope=prod",
         "--checks=all",
       ],
       licence_audit.Clients(

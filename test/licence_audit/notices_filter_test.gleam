@@ -327,10 +327,11 @@ pub fn notices_allowlist_does_not_enable_dev_dependencies_test() {
   let root =
     project("dev", "[tools.licence_audit.notices]\ninclude = [\"dev_dep\"]")
   should.equal(run(root, []).exit_code, 0)
+  should.equal(run(root, ["--scope=prod"]).exit_code, 0)
   let assert Ok(_) = simplifile.create_directory_all(root <> "/dev")
   let assert Ok(_) =
     simplifile.write("Dev licence text", to: root <> "/dev/LICENSE")
-  let result = run(root, ["--include-dev"])
+  let result = run(root, ["--scope=all"])
   should.equal(result.exit_code, 0)
   assert string.contains(result.output, "dev_dep 1.0.0")
   assert string.contains(result.output, "Dev licence text")
@@ -391,7 +392,7 @@ pub fn notices_dev_only_project_without_production_table_test() {
     )
   let result =
     licence_audit.run_configured(
-      ["notices", "--manifest=" <> root <> "/manifest.toml", "--include-dev"],
+      ["notices", "--manifest=" <> root <> "/manifest.toml", "--scope=all"],
       clients,
       progress.disabled(),
     ).0

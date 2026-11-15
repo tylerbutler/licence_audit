@@ -93,19 +93,20 @@ for configuration and override rules.
 
 ## Flags
 
-`vulns` includes development dependencies by default. Use `--prod-only` to
+`vulns` defaults to `--scope=all`, which includes development dependencies.
+Use `--scope=prod` to
 exclude them. OSV advisories are not cached; this command does not accept
 `--no-cache` or `--cache-path`.
 
 Scope follows the production dependency graph in the `gleam.toml` beside the
 selected manifest. A valid file without `[dependencies]`, or with an empty
-table, has no production dependencies, so `--prod-only` makes no OSV requests.
+table, has no production dependencies, so `--scope=prod` makes no OSV requests.
 A missing file uses all lockfile direct dependencies as production roots.
 An unreadable file, invalid TOML, or a `dependencies` value that is not a table
 causes exit code `2`, including with `--ignore-config`.
 
 <!-- cli-reference -->
-Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --prod-only is set. Queries OSV directly and uses no on-disk cache.
+Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --scope=prod is set. Queries OSV directly and uses no on-disk cache.
 
 **Usage:**
 
@@ -121,8 +122,8 @@ licence_audit vulns [--flags]
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
-| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- cli-referencestop -->
 

@@ -25,7 +25,7 @@ run_cli() {
     "--manifest=$root/manifest.toml" "--cache-path=$root/metadata" "$@"
 }
 
-output=$(run_cli --quiet)
+output=$(run_cli --scope=prod --quiet)
 [[ "$output" == *"Third-party licences"* ]]
 [[ "$output" != *"Products using this licence"* ]]
 test ! -e "$root/metadata"
@@ -69,7 +69,7 @@ test ! -e "$root/cache"
 mkdir -p "$root/missing"
 printf 'Dev-only licence text\n' > "$root/missing/LICENSE"
 printf '\nexclude = ["hex_dep"]\n' >> "$root/gleam.toml"
-output=$(run_cli --include-dev --no-cache --quiet)
+output=$(run_cli --scope=all --no-cache --quiet)
 [[ "$output" == *"path_dep 1.0.0"* ]]
 [[ "$output" == *"Dev-only licence text"* ]]
 test ! -e "$root/metadata"
