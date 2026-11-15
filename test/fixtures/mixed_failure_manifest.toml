@@ -1,9 +1,9 @@
 packages = [
-  { name = "denied", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "AAAA" },
-  { name = "fetch_root", version = "1.0.0", source = "hex", requirements = ["fetch_leaf"], outer_checksum = "BBBB" },
-  { name = "fetch_leaf", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "CCCC" },
-  { name = "allowed_root", version = "1.0.0", source = "hex", requirements = ["allowed_leaf"], outer_checksum = "DDDD" },
-  { name = "allowed_leaf", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "EEEE" },
+  { name = "denied", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "B8D7E4FB91A622EFE199FEC0D2CC9F056E6DECAF2F11DA5B1E9EB75B65B42E90" },
+  { name = "fetch_root", version = "1.0.0", source = "hex", requirements = ["fetch_leaf"], outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
+  { name = "fetch_leaf", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
+  { name = "allowed_root", version = "1.0.0", source = "hex", requirements = ["allowed_leaf"], outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
+  { name = "allowed_leaf", version = "1.0.0", source = "hex", requirements = [], outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
 ]
 
 [requirements]

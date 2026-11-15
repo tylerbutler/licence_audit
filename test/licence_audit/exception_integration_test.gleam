@@ -3,9 +3,13 @@ import gleam/list
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/osv
 import licence_audit/progress
+import licence_audit/source_archive
+import licence_audit/source_archive_test
+import licence_audit/toml
 import simplifile
 
 const manifest =
@@ -104,6 +108,29 @@ fn detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
   )
 }
 
+fn checksummed_manifest_line(
+  line: String,
+  fetch: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+) -> String {
+  case string.contains(line, "source = \"hex\"") {
+    False -> line
+    True -> {
+      let assert Ok(document) =
+        toml.parse("package = " <> string.replace(line, "},", "}"))
+      let assert Ok(name) = toml.get_string(document, ["package", "name"])
+      let assert Ok(old_checksum) =
+        toml.get_string(document, ["package", "outer_checksum"])
+      let licences = case fetch(name) {
+        Ok(metadata) -> metadata.licences
+        Error(_) -> []
+      }
+      let assert Ok(checksum) =
+        source_archive.sha256_hex(source_archive_test.metadata_archive(licences))
+      string.replace(line, old_checksum, checksum)
+    }
+  }
+}
+
 fn run(
   root: String,
   args: List(String),
@@ -111,6 +138,21 @@ fn run(
   query: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   details: fn(String) -> Result(osv.Vulnerability, osv.Error),
 ) -> licence_audit.RunResult {
+  let assert Ok(project_text) = simplifile.read(root <> "/gleam.toml")
+  case
+    config.parse(project_text),
+    list.contains(args, "vulns") && !list.contains(args, "check")
+  {
+    Error(_), _ | Ok(_), True -> Nil
+    Ok(_), False -> {
+      let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
+      let lines = string.split(contents, "\n")
+      let lines = list.map(lines, checksummed_manifest_line(_, fetch))
+      let assert Ok(_) =
+        simplifile.write(root <> "/manifest.toml", string.join(lines, "\n"))
+      Nil
+    }
+  }
   licence_audit.run_configured(
     list.append(args, [
       "--manifest=" <> root <> "/manifest.toml",
@@ -118,8 +160,8 @@ fn run(
       "--quiet",
     ]),
     licence_audit.Clients(
-      ..licence_audit.default_clients(),
       fetcher: fetch,
+      notice_clients: source_archive_test.metadata_clients(fetch),
       osv_batch_fetcher: query,
       osv_detail_fetcher: details,
     ),
@@ -141,7 +183,7 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   assert string.contains(result.output, "Policy exceptions:")
   assert !string.contains(result.output, "unused #1")
   assert string.contains(result.output, "local_dep")
-  let preview = run(root, [], licences, batch, detail)
+  let preview = run(root, ["report"], licences, batch, detail)
   should.equal(preview.exit_code, 0)
   assert string.contains(preview.output, "excepted #1")
   let ignored =

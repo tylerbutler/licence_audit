@@ -227,11 +227,8 @@ fn assert_invalid_cli(
 }
 
 pub fn cli_malformed_entries_fail_before_fetching_test() {
-  list.each(["", "check"], fn(command) {
-    let commands = case command {
-      "" -> []
-      _ -> [command]
-    }
+  list.each(["report", "check"], fn(command) {
+    let commands = [command]
     list.each(["allow", "deny"], fn(field) {
       list.each(
         ["MIT/Apache-2.0", "Apache 2.0", "", "MIT,", ",MIT", "MIT,,Apache-2.0"],
