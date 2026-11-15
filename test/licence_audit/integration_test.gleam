@@ -98,6 +98,42 @@ pub fn default_and_named_report_preserve_output_errors_and_cache_bypass_test() {
     simplifile.read_directory("build/default-report-unused-cache")
 }
 
+pub fn removed_policy_flags_stop_before_loading_any_configuration_test() {
+  let alternate = test_policy.flag(["Apache-2.0"], [])
+  let invalid = "build/removed-policy-flags-invalid.toml"
+  let assert Ok(_) = simplifile.write(invalid, "invalid = [")
+  list.each([[], ["report"], ["check"]], fn(command) {
+    use config <- list.each([
+      [],
+      [alternate],
+      [alternate, "--ignore-config"],
+      ["--config=missing.toml"],
+      ["--config=missing.toml", "--ignore-config"],
+      ["--config=" <> invalid],
+      ["--config=" <> invalid, "--ignore-config"],
+    ])
+    use name <- list.each(["allow", "deny"])
+    use flags <- list.each([
+      ["--" <> name],
+      ["--" <> name <> "="],
+      ["--" <> name <> "=MIT"],
+      ["--" <> name, "MIT"],
+      ["--" <> name, ""],
+    ])
+    let #(result, events) =
+      licence_audit.run_configured(
+        list.append(list.append(command, config), flags),
+        test_clients(fn(_) { panic as "invalid flags must not fetch metadata" }),
+        progress.capturing(progress.Normal, "report"),
+      )
+    should.equal(result.exit_code, 1)
+    assert string.contains(result.output, "invalid flag")
+    assert string.contains(result.output, name)
+    should.equal(events, [])
+  })
+  let assert Ok(_) = simplifile.delete(invalid)
+}
+
 pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
   let clients =
     licence_audit.Clients(
