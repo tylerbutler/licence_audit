@@ -51,6 +51,12 @@ Use `licence_audit --help` or `licence_audit <command> --help` for the CLI
 options in your installed version. `-h` is an alias for `--help`.
 `--version` is available only at the root.
 
+Licence reports, `check`, and `vulns` default to `--scope=all`. Use
+`--scope=prod` for production dependencies only. `notices` defaults to
+`--scope=prod`; use `--scope=all` to include development dependencies.
+These values replace `--prod-only` and `--include-dev`, which are no longer
+accepted. `sbom` retains the full graph and has no scope flag.
+
 ## Contributing and security
 
 See [DEV.md](./DEV.md) for development commands and [SECURITY.md](./SECURITY.md)

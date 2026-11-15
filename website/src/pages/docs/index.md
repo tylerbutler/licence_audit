@@ -58,6 +58,22 @@ command also returns `1` when it finds a policy violation.
 See [configuration discovery](/docs/configuration#discovery) for how the
 manifest selects the project and policy file.
 
+Reports, `check`, and `vulns` include all locked dependencies by default.
+Use `--scope=prod` to select production dependencies, including shared
+transitive dependencies:
+
+```sh
+licence_audit --scope=prod
+licence_audit check --scope=prod
+licence_audit vulns --scope=prod
+licence_audit notices --scope=all
+```
+
+`notices` defaults to production scope; `--scope=all` adds development
+dependencies. `sbom` always keeps the full graph. See the
+[scope migration notes](/docs/compatibility#pre-10-dependency-scope-migration)
+if you used `--prod-only` or `--include-dev`.
+
 ## Optional GitHub Actions usage
 
 Use mise in GitHub Actions to install the same native binary as a local
@@ -264,8 +280,8 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->

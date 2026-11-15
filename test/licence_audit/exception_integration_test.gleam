@@ -642,7 +642,7 @@ pub fn disabled_and_production_filtered_scans_are_not_unused_test() {
   let result =
     run(
       root,
-      ["check", "--vulns", "--prod-only"],
+      ["check", "--vulns", "--scope=prod"],
       clean_licences,
       first_batch,
       detail,
@@ -650,15 +650,15 @@ pub fn disabled_and_production_filtered_scans_are_not_unused_test() {
   should.equal(result.exit_code, 1)
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only #1",
+    "not evaluated: excluded by --scope=prod #1",
   )
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only #2",
+    "not evaluated: excluded by --scope=prod #2",
   )
 }
 
-pub fn standalone_vulns_prod_only_filters_queries_and_exception_coverage_test() {
+pub fn standalone_vulns_prod_scope_filters_queries_and_exception_coverage_test() {
   let root =
     project(
       "standalone-prod",
@@ -671,17 +671,17 @@ pub fn standalone_vulns_prod_only_filters_queries_and_exception_coverage_test() 
     first_batch(purls)
   }
   let result =
-    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+    run(root, ["vulns", "--scope=prod"], clean_licences, query, detail)
   should.equal(result.exit_code, 0)
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only",
+    "not evaluated: excluded by --scope=prod",
   )
   assert !string.contains(result.output, "second 2.0.0")
   assert !string.contains(result.output, "unused")
 }
 
-pub fn standalone_vulns_prod_only_skips_all_dev_sources_without_query_test() {
+pub fn standalone_vulns_prod_scope_skips_all_dev_sources_without_query_test() {
   let root = project("standalone-all-dev", "")
   let assert Ok(_) =
     simplifile.write(
@@ -691,18 +691,18 @@ pub fn standalone_vulns_prod_only_skips_all_dev_sources_without_query_test() {
     )
   let query = fn(_) { panic as "No production packages should reach OSV" }
   let result =
-    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+    run(root, ["vulns", "--scope=prod"], clean_licences, query, detail)
   should.equal(result.exit_code, 0)
   assert !string.contains(result.output, "local_dep")
   assert !string.contains(result.output, "git_dep")
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only",
+    "not evaluated: excluded by --scope=prod",
   )
   assert !string.contains(result.output, "unused")
 }
 
-pub fn standalone_vulns_prod_only_keeps_shared_production_dependencies_test() {
+pub fn standalone_vulns_prod_scope_keeps_shared_production_dependencies_test() {
   let root = project("standalone-shared", "")
   let assert Ok(_) =
     simplifile.write(
@@ -719,7 +719,7 @@ pub fn standalone_vulns_prod_only_keeps_shared_production_dependencies_test() {
     first_batch(purls)
   }
   should.equal(
-    run(root, ["vulns", "--prod-only"], clean_licences, query, detail).exit_code,
+    run(root, ["vulns", "--scope=prod"], clean_licences, query, detail).exit_code,
     0,
   )
 }
@@ -736,7 +736,7 @@ pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_tes
   let expected =
     run(
       root,
-      ["vulns", "--prod-only", "-q"],
+      ["vulns", "--scope=prod", "-q"],
       clean_licences,
       first_batch,
       detail,
@@ -745,7 +745,7 @@ pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_tes
   let actual =
     run(
       root,
-      [quiet, "vulns", "--prod-only"],
+      [quiet, "vulns", "--scope=prod"],
       clean_licences,
       first_batch,
       detail,

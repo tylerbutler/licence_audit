@@ -356,7 +356,7 @@ fn run_notices_options(
       notice.selected_entries(
         sbom_manifest,
         scopes,
-        include_dev: options.include_dev,
+        include_dev: options.scope == cli.All,
       )
       |> notice.filter_entries(sbom_manifest.entries, configuration)
       |> result.map_error(fn(notice_error) {
@@ -421,8 +421,11 @@ fn run_selected_notices(
       reporter,
       "Selected "
         <> int.to_string(list.length(selected))
-        <> " package(s) for notices (include_dev="
-        <> bool.to_string(options.include_dev)
+        <> " package(s) for notices (scope="
+        <> case options.scope {
+        cli.Prod -> "prod"
+        cli.All -> "all"
+      }
         <> ")",
     )
   let reporter = progress.package_count(reporter, list.length(selected))
@@ -1583,9 +1586,9 @@ fn audit_locked(
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
   let dep_paths = manifest.dep_paths(locked)
-  let #(active_packages, active_skipped) = case options.prod_only {
-    False -> #(locked.packages, locked.skipped_packages)
-    True -> #(
+  let #(active_packages, active_skipped) = case options.scope {
+    cli.All -> #(locked.packages, locked.skipped_packages)
+    cli.Prod -> #(
       list.filter(locked.packages, fn(p) {
         scope_for(scopes, p.name) == manifest.Prod
       }),
@@ -1597,9 +1600,9 @@ fn audit_locked(
   let active_sbom_entries = case sbom_manifest {
     None -> []
     Some(sbom_manifest) ->
-      case options.prod_only {
-        False -> sbom_manifest.entries
-        True ->
+      case options.scope {
+        cli.All -> sbom_manifest.entries
+        cli.Prod ->
           list.filter(sbom_manifest.entries, fn(entry) {
             scope_for(scopes, entry.name) == manifest.Prod
           })
@@ -1689,12 +1692,12 @@ fn audit_locked(
     let excluded_licences =
       locked.packages
       |> list.filter(fn(pkg) {
-        options.prod_only && scope_for(scopes, pkg.name) == manifest.Dev
+        options.scope == cli.Prod && scope_for(scopes, pkg.name) == manifest.Dev
       })
       |> list.map(fn(pkg) {
         #(
           "pkg:hex/" <> string.lowercase(pkg.name) <> "@" <> pkg.version,
-          "excluded by --prod-only",
+          "excluded by --scope=prod",
         )
       })
     let licence_coverage = case evaluate_policy {
@@ -1728,11 +1731,12 @@ fn audit_locked(
       Some(manifest) ->
         manifest.entries
         |> list.filter(fn(entry) {
-          options.prod_only && scope_for(scopes, entry.name) == manifest.Dev
+          options.scope == cli.Prod
+          && scope_for(scopes, entry.name) == manifest.Dev
         })
         |> list.filter_map(fn(entry) {
           sbom.purl_for(entry)
-          |> result.map(fn(purl) { #(purl, "excluded by --prod-only") })
+          |> result.map(fn(purl) { #(purl, "excluded by --scope=prod") })
         })
     }
     let vuln_coverage = case vuln_outcome.coverage {
@@ -2146,7 +2150,8 @@ fn run_vulns_options(
     let #(all_purl_pairs, _) = build_purl_pairs(sbom_manifest)
     let active_entries =
       list.filter(sbom_manifest.entries, fn(entry) {
-        !options.prod_only || scope_for(scopes, entry.name) == manifest.Prod
+        options.scope == cli.All
+        || scope_for(scopes, entry.name) == manifest.Prod
       })
     let #(purl_pairs, purl_errors) =
       build_purl_pairs(
@@ -2155,9 +2160,10 @@ fn run_vulns_options(
     let excluded =
       all_purl_pairs
       |> list.filter(fn(pair) {
-        options.prod_only && scope_for(scopes, pair.0.name) == manifest.Dev
+        options.scope == cli.Prod
+        && scope_for(scopes, pair.0.name) == manifest.Dev
       })
-      |> list.map(fn(pair) { #(pair.1, "excluded by --prod-only") })
+      |> list.map(fn(pair) { #(pair.1, "excluded by --scope=prod") })
     let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
     use _ <- result.try(
