@@ -141,7 +141,7 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   assert string.contains(result.output, "Policy exceptions:")
   assert !string.contains(result.output, "unused #1")
   assert string.contains(result.output, "local_dep")
-  let preview = run(root, [], licences, batch, detail)
+  let preview = run(root, ["report"], licences, batch, detail)
   should.equal(preview.exit_code, 0)
   assert string.contains(preview.output, "excepted #1")
   let ignored =

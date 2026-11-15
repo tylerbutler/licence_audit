@@ -4,7 +4,7 @@ title: check
 description: Report Hex package licence metadata and enforce your licence policy. Return a nonzero exit code for violations.
 ---
 
-`check` runs the same audit as the command with no subcommand. It then
+`check` runs the same licence scan as [`report`](/docs/report). It then
 **enforces** your policy. It returns a nonzero exit code when it finds a
 violation. Use `check` in CI.
 

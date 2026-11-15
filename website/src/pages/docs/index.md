@@ -41,7 +41,7 @@ Inspect the dependencies, create a policy, and enforce the policy.
 ```sh
 # 1. Create manifest.toml and report the dependency tree
 gleam deps download
-licence_audit
+licence_audit report
 
 # 2. Select the licences to allow or deny
 licence_audit update
@@ -50,10 +50,13 @@ licence_audit update
 licence_audit check
 ```
 
-The `licence_audit` command reports policy findings without enforcing them and
-returns exit code `0` when the scan completes. An incomplete licence report
+The `licence_audit report` command reports policy findings without enforcing
+them and returns exit code `0` when the scan completes. An incomplete licence report
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
+
+A bare `licence_audit` shows help and exits `0`. It does not read project
+files, open caches, or contact Hex or OSV. Use [`report`](/docs/report) to scan.
 
 See [configuration discovery](/docs/configuration#discovery) for how the
 manifest selects the project and policy file.
@@ -244,29 +247,18 @@ options available in your installed version.
 use `licence_audit --version`, not `licence_audit sbom --version`.
 
 <!-- cli-reference -->
-Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy.
+Select a command. Use `licence_audit report` to inspect licences, `check` to enforce a policy, and `update` to create a policy. Scan flags belong after the command name, for example `licence_audit report --manifest=PATH`.
 
 **Usage:**
 
 ```
-licence_audit (check | notices | sbom | update | vulns) [--flags]
+licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 ```
 
 **Flags:**
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
-| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
-| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->
 

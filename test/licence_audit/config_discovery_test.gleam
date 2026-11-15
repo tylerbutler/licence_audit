@@ -139,7 +139,7 @@ pub fn implicit_missing_section_keeps_report_and_cli_policy_behavior_test() {
 }
 
 pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
-  [[], ["check"], ["vulns"]]
+  [["report"], ["check"], ["vulns"]]
   |> list.each(fn(command) {
     let overrides = case command {
       ["vulns"] -> [[]]

@@ -40,6 +40,33 @@ fn test_clients(
   licence_audit.Clients(..licence_audit.default_clients(), fetcher:)
 }
 
+pub fn bare_help_and_root_scan_errors_do_not_call_clients_test() {
+  let clients =
+    licence_audit.Clients(
+      ..licence_audit.default_clients(),
+      fetcher: fn(_) { panic as "root must not fetch Hex metadata" },
+      osv_batch_fetcher: fn(_) { panic as "root must not query OSV" },
+      osv_detail_fetcher: fn(_) { panic as "root must not fetch advisories" },
+    )
+  use args <- list.each([[], ["--help"], ["-h"], ["--version"]])
+  let #(result, events) =
+    licence_audit.run_configured(args, clients, progress.disabled())
+  should.equal(result.exit_code, 0)
+  should.equal(events, [])
+  assert !string.contains(result.output, "Starting licence audit")
+  use args <- list.each([
+    ["--manifest=missing-manifest.toml"],
+    ["--config=missing-config.toml"],
+    ["--no-cache"],
+    ["audit"],
+  ])
+  let #(result, events) =
+    licence_audit.run_configured(args, clients, progress.disabled())
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "licence_audit report")
+  should.equal(events, [])
+}
+
 pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
   let clients =
     licence_audit.Clients(
@@ -178,10 +205,14 @@ fn spdx_fallback_clients() -> notice.Clients {
 }
 
 fn manifest_args(extra: List(String)) -> List(String) {
-  list.append(
-    ["--manifest=test/fixtures/manifest.toml", "--ignore-config"],
-    extra,
-  )
+  let command = case list.contains(extra, "check") {
+    True -> extra
+    False -> ["report", ..extra]
+  }
+  list.append(command, [
+    "--manifest=test/fixtures/manifest.toml",
+    "--ignore-config",
+  ])
 }
 
 pub fn default_report_succeeds_without_policy_test() {
@@ -210,7 +241,7 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
       contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\" }]\n",
     )
 
-  [[], ["check", "--allow=MIT"]]
+  [["report"], ["check", "--allow=MIT"]]
   |> list.each(fn(args) {
     let audit =
       licence_audit.run_configured(
@@ -1100,13 +1131,14 @@ fn transitive_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
 }
 
 fn transitive_manifest_args(extra: List(String)) -> List(String) {
-  list.append(
-    [
-      "--manifest=test/fixtures/transitive_manifest.toml",
-      "--ignore-config",
-    ],
-    extra,
-  )
+  let command = case list.contains(extra, "check") {
+    True -> extra
+    False -> ["report", ..extra]
+  }
+  list.append(command, [
+    "--manifest=test/fixtures/transitive_manifest.toml",
+    "--ignore-config",
+  ])
 }
 
 pub fn report_shows_dependency_tree_without_kind_column_test() {

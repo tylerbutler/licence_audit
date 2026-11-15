@@ -49,6 +49,12 @@ interfaces remain usable until the next major release.
 
 ## Commands and configuration
 
+Before 1.0, the unnamed licence scan moved to `licence_audit report`.
+Replace `licence_audit --manifest=PATH` with
+`licence_audit report --manifest=PATH`; put other scan flags after `report`
+as well. Bare invocation now shows help without reading project files.
+There is no `audit` alias. Root `--help`, `-h`, and `--version` still work.
+
 Existing documented commands, flags, aliases, and valid argument forms remain
 available within a major version. We preserve their meanings, defaults, and
 documented environment-variable controls.

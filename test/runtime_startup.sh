@@ -2,6 +2,15 @@
 set -euo pipefail
 
 # Use fresh VMs: the Gleam test runner has already started the applications.
+for argument in "" --help -h --version; do
+  timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
+    ok = application:load({application, licence_audit, [
+      {vsn, "test"}, {applications, [licence_audit_missing_runtime_dependency]}
+    ]}),
+    licence_audit:main(), halt(0).
+  ' -extra ${argument:+"$argument"} >/dev/null
+done
+
 timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
   undefined = whereis(httpc_manager),
   {ok, nil} = runtime_ffi:start(),
@@ -42,7 +51,7 @@ output=$(timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -e
     {vsn, "test"}, {applications, [licence_audit_missing_runtime_dependency]}
   ]}),
   licence_audit:main().
-' 2>&1) || status=$?
+' -extra report 2>&1) || status=$?
 if [ "$status" -ne 2 ] || [[ "$output" != *"Error: Could not start runtime applications: licence_audit_missing_runtime_dependency:"* ]]; then
   printf 'Expected startup diagnostic and exit 2, got exit %s:\n%s\n' "$status" "$output" >&2
   exit 1

@@ -38,6 +38,7 @@ documentation. It contains installation and setup guidance, generated CLI
 usage and flag tables, and command behavior:
 
 - [Quick start](https://licence-audit.tylerbutler.com/docs)
+- [Licence reports](https://licence-audit.tylerbutler.com/docs/report)
 - [GitHub Actions](https://licence-audit.tylerbutler.com/docs#optional-github-actions-usage)
 - [Licence policy and checks](https://licence-audit.tylerbutler.com/docs/check)
 - [Create a policy](https://licence-audit.tylerbutler.com/docs/update)
@@ -50,6 +51,11 @@ usage and flag tables, and command behavior:
 Use `licence_audit --help` or `licence_audit <command> --help` for the CLI
 options in your installed version. `-h` is an alias for `--help`.
 `--version` is available only at the root.
+
+Run `licence_audit report` to inspect licences or preview policy findings.
+A bare `licence_audit` shows help, including outside a Gleam project.
+To migrate an old root scan, put `report` before its flags:
+`licence_audit report --manifest=path/to/manifest.toml`.
 
 ## Contributing and security
 

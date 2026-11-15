@@ -41,8 +41,44 @@ class CliStreamTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("Error:", result.stderr)
 
+    def test_bare_help_outside_project_does_not_open_cache(self):
+        (self.project / "gleam.toml").unlink()
+        cache = self.project / "unused-cache"
+        env = {
+            **os.environ, "HOME": str(self.project / "unused-home"),
+            "XDG_CACHE_HOME": str(cache), "NO_COLOR": "1",
+        }
+        for arguments in ([], ["--help"], ["-h"], ["--version"]):
+            result = subprocess.run(
+                [str(ROOT / "licence_audit"), *arguments],
+                cwd=self.project, env=env, capture_output=True, text=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            self.assertTrue(result.stdout)
+            if arguments != ["--version"]:
+                self.assertIn("licence_audit report", result.stdout)
+                self.assertIn("USAGE:", result.stdout)
+            self.assertFalse(cache.exists())
+            self.assertFalse((self.project / "unused-home").exists())
+
+    def test_root_scan_flags_and_audit_alias_are_usage_errors(self):
+        for arguments in (
+            ["--manifest=missing.toml"], ["--manifest", "missing.toml"],
+            ["--config=missing.toml"], ["--ignore-config"], ["--allow=MIT"],
+            ["--no-cache"], ["--cache-path=cache"], ["--prod-only"],
+            ["--quiet"], ["--colour=never"], ["audit"],
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("licence_audit report", result.stderr)
+                self.assertNotIn("Could not read", result.stderr)
+
     def test_missing_manifest_diagnostics_ignore_quiet(self):
-        for command in ("", "check", "sbom", "vulns", "notices", "update"):
+        for command in ("report", "check", "sbom", "vulns", "notices", "update"):
             with self.subTest(command=command):
                 arguments = [command] if command else []
                 arguments += ["--quiet"]
@@ -54,7 +90,7 @@ class CliStreamTest(unittest.TestCase):
 
     def test_invalid_config_is_a_diagnostic(self):
         (self.project / "gleam.toml").write_text("invalid = [")
-        self.assert_diagnostic(self.run_cli("--quiet", "--no-cache"))
+        self.assert_diagnostic(self.run_cli("report", "--quiet", "--no-cache"))
 
     def test_vulnerability_flags_require_scan_before_reading_manifest(self):
         for flags in (
@@ -71,13 +107,14 @@ class CliStreamTest(unittest.TestCase):
                     self.assertNotIn("manifest", result.stderr)
 
     def test_help_alias_and_root_only_version(self):
-        for command in ("", "check", "sbom", "vulns", "notices", "update"):
+        for command in ("", "report", "check", "sbom", "vulns", "notices", "update"):
             arguments = [command] if command else []
             with self.subTest(command=command):
                 help_result = self.run_cli(*arguments, "-h")
                 self.assertEqual(help_result.returncode, 0, help_result.stderr)
-                self.assertIn("--quiet", help_result.stdout)
-                self.assertIn("-q", help_result.stdout)
+                if command:
+                    self.assertIn("--quiet", help_result.stdout)
+                    self.assertIn("-q", help_result.stdout)
                 version = self.run_cli(*arguments, "--version")
                 self.assertEqual(version.returncode, 1 if command else 0)
 
@@ -117,7 +154,7 @@ class CliStreamTest(unittest.TestCase):
             ("auto", {"FORCE_COLOR": "1"}, True),
             ("auto", {"TERM": "dumb"}, False),
         )
-        for command in ("", "check", "sbom", "vulns", "notices", "update"):
+        for command in ("report", "check", "sbom", "vulns", "notices", "update"):
             for mode, environment, colored in cases:
                 with self.subTest(command=command, mode=mode, env=environment):
                     arguments = [command] if command else []
@@ -509,7 +546,7 @@ class CliStreamTest(unittest.TestCase):
         blocker = self.project / "cache"
         blocker.write_text("not a directory")
         env = {**os.environ, "XDG_CACHE_HOME": str(blocker)}
-        for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
+        for arguments in (["report"], ["check", "--allow=MIT"], ["sbom", "--offline"]):
             for no_cache in (False, True):
                 with self.subTest(command=arguments[0], no_cache=no_cache):
                     flags = ["--quiet", "--no-cache"] if no_cache else []
@@ -571,7 +608,7 @@ class CliStreamTest(unittest.TestCase):
         """
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
-            for command in ([], ["check", "--allow=MIT"])
+            for command in (["report"], ["check", "--allow=MIT"])
             for mode, environment, colored in (
                 ("never", {"FORCE_COLOR": "1"}, False),
                 ("always", {"NO_COLOR": "1"}, True),
