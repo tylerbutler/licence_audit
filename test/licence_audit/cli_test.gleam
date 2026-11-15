@@ -9,6 +9,7 @@ import licence_audit/progress
 
 const optional_path_flags = [
   #([], ["manifest", "config", "cache-path"]),
+  #(["report"], ["manifest", "config", "cache-path"]),
   #(["check"], ["manifest", "config", "cache-path"]),
   #(["update"], ["manifest", "config", "cache-path"]),
   #(["sbom"], ["manifest", "cache-path", "output"]),
@@ -17,9 +18,29 @@ const optional_path_flags = [
 ]
 
 fn parse_options(args: List(String)) -> cli.Options {
-  let assert Ok(glint.Out(cli.RunAudit(options))) =
+  let assert Ok(glint.Out(action)) =
     glint.execute(cli.app(), cli.normalize_args(args))
-  options
+  case action {
+    cli.RunAudit(options) -> options
+    cli.RunReport(options) ->
+      cli.Options(
+        manifest_path: options.manifest_path,
+        config_path: options.config_path,
+        allow_licences: options.allow_licences,
+        deny_licences: options.deny_licences,
+        ignore_config: options.ignore_config,
+        check: False,
+        verbosity: options.verbosity,
+        color: options.color,
+        no_cache: options.no_cache,
+        cache_path: options.cache_path,
+        checks: cli.Licences,
+        vuln_severity: None,
+        vuln_block_unknown: False,
+        scope: options.scope,
+      )
+    _ -> panic as "expected report or check options"
+  }
 }
 
 fn parse_update_options(args: List(String)) -> cli.UpdateOptions {
@@ -68,6 +89,7 @@ pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
   should.equal(options.check, True)
+  should.equal(options.checks, cli.Licences)
   should.equal(options.vuln_severity, None)
   should.equal(options.vuln_block_unknown, False)
 }
@@ -92,6 +114,11 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
   }
   let assert Ok(glint.Out(action)) = glint.execute(cli.app(), args)
   let paths = case action {
+    cli.RunReport(options) -> [
+      options.manifest_path,
+      options.config_path,
+      options.cache_path,
+    ]
     cli.RunAudit(options) -> [
       options.manifest_path,
       options.config_path,
@@ -122,7 +149,7 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
 
 pub fn optional_string_flags_still_require_values_when_supplied_test() {
   use command <- list.each([
-    #(["check"], ["vuln-severity"]),
+    #(["check"], ["vuln-severity", "checks"]),
     ..optional_path_flags
   ])
   let #(command, names) = command
@@ -134,25 +161,25 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
 }
 
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
-  let options = parse_options(["check", "--vulns", "--vuln-block-unknown"])
+  let options = parse_options(["check", "--checks=all", "--vuln-block-unknown"])
 
   should.equal(options.vuln_block_unknown, True)
 }
 
 pub fn comma_separated_allow_options_are_preserved_test() {
-  let options = parse_options(["--allow=MIT,Apache-2.0"])
+  let options = parse_options(["report", "--allow=MIT,Apache-2.0"])
 
   should.equal(options.allow_licences, ["MIT", "Apache-2.0"])
 }
 
 pub fn comma_separated_deny_options_are_preserved_test() {
-  let options = parse_options(["--deny=GPL-3.0-only,AGPL-3.0-only"])
+  let options = parse_options(["report", "--deny=GPL-3.0-only,AGPL-3.0-only"])
 
   should.equal(options.deny_licences, ["GPL-3.0-only", "AGPL-3.0-only"])
 }
 
 pub fn default_report_mode_accepts_empty_policy_test() {
-  let options = parse_options([])
+  let options = parse_options(["report"])
 
   should.equal(options.allow_licences, [])
   should.equal(options.deny_licences, [])
@@ -160,19 +187,19 @@ pub fn default_report_mode_accepts_empty_policy_test() {
 }
 
 pub fn default_verbosity_is_normal_test() {
-  let options = parse_options([])
+  let options = parse_options(["report"])
 
   should.equal(options.verbosity, progress.Normal)
 }
 
 pub fn quiet_option_sets_quiet_verbosity_test() {
-  let options = parse_options(["--quiet"])
+  let options = parse_options(["report", "--quiet"])
 
   should.equal(options.verbosity, progress.Quiet)
 }
 
 pub fn verbose_option_sets_verbose_verbosity_test() {
-  let options = parse_options(["--verbose"])
+  let options = parse_options(["report", "--verbose"])
 
   should.equal(options.verbosity, progress.Verbose)
 }
@@ -182,14 +209,14 @@ pub fn short_verbose_option_normalizes_to_verbose_test() {
 }
 
 pub fn short_verbose_option_sets_verbose_verbosity_test() {
-  let options = parse_options(["-v"])
+  let options = parse_options(["report", "-v"])
 
   should.equal(options.verbosity, progress.Verbose)
 }
 
 pub fn quiet_and_short_verbose_returns_invalid_usage_action_test() {
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), cli.normalize_args(["--quiet", "-v"]))
+    glint.execute(cli.app(), cli.normalize_args(["report", "--quiet", "-v"]))
 
   assert string.contains(message, "--quiet")
   assert string.contains(message, "--verbose")
@@ -197,26 +224,26 @@ pub fn quiet_and_short_verbose_returns_invalid_usage_action_test() {
 
 pub fn quiet_and_verbose_returns_invalid_usage_action_test() {
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), ["--quiet", "--verbose"])
+    glint.execute(cli.app(), ["report", "--quiet", "--verbose"])
 
   assert string.contains(message, "--quiet")
   assert string.contains(message, "--verbose")
 }
 
 pub fn config_option_sets_config_path_test() {
-  let options = parse_options(["--config=audit.toml"])
+  let options = parse_options(["report", "--config=audit.toml"])
 
   should.equal(options.config_path, Some("audit.toml"))
 }
 
 pub fn manifest_option_sets_manifest_path_test() {
-  let options = parse_options(["--manifest=manifest.toml"])
+  let options = parse_options(["report", "--manifest=manifest.toml"])
 
   should.equal(options.manifest_path, Some("manifest.toml"))
 }
 
 pub fn ignore_config_option_sets_flag_test() {
-  let options = parse_options(["--ignore-config"])
+  let options = parse_options(["report", "--ignore-config"])
 
   should.equal(options.ignore_config, True)
 }
@@ -265,7 +292,7 @@ pub fn positional_argument_returns_usage_error_test() {
 }
 
 pub fn help_text_includes_usage_and_supported_options_test() {
-  let help = help_text(["--help"])
+  let help = help_text(["report", "--help"])
 
   [
     "licence_audit",
@@ -280,7 +307,6 @@ pub fn help_text_includes_usage_and_supported_options_test() {
     "--colour",
     "--no-cache",
     "--cache-path",
-    "--version",
     "--help",
   ]
   |> list.each(fn(text) {
@@ -353,7 +379,7 @@ pub fn invalid_check_vuln_severity_returns_usage_error_test() {
 pub fn check_vuln_severity_preserves_supported_values_test() {
   use severity <- list.each(["low", "medium", "high", "critical"])
   let options =
-    parse_options(["check", "--vulns", "--vuln-severity=" <> severity])
+    parse_options(["check", "--checks=all", "--vuln-severity=" <> severity])
 
   should.equal(options.vuln_severity, Some(severity))
 }
@@ -366,26 +392,33 @@ pub fn check_vulnerability_flags_require_enabled_scan_test() {
     ["--vuln-block-unknown=false"],
     ["--vuln-severity=high", "--vuln-block-unknown"],
   ])
-  use scan <- list.each([[], ["--vulns=false"]])
+  use scan <- list.each([[], ["--checks=licences"]])
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
     glint.execute(cli.app(), list.append(["check", ..scan], flags))
-  assert string.contains(message, "require --vulns")
+  assert string.contains(message, "require --checks=vulns or --checks=all")
 }
 
 pub fn check_enabled_scan_preserves_explicit_boolean_values_test() {
   use value <- list.each([#("true", True), #("false", False)])
   let #(text, expected) = value
   use flags <- list.each([
-    ["--vulns", "--vuln-block-unknown=" <> text],
-    ["--vuln-block-unknown=" <> text, "--vulns=true"],
+    ["--checks=all", "--vuln-block-unknown=" <> text],
+    ["--vuln-block-unknown=" <> text, "--checks=vulns"],
   ])
   let options = parse_options(["check", ..flags])
-  should.equal(options.check_vulns, True)
+  assert options.checks != cli.Licences
   should.equal(options.vuln_block_unknown, expected)
 }
 
 pub fn vulnerability_gate_flags_remain_check_only_test() {
-  use command <- list.each([[], ["update"], ["notices"], ["sbom"], ["vulns"]])
+  use command <- list.each([
+    [],
+    ["report"],
+    ["update"],
+    ["notices"],
+    ["sbom"],
+    ["vulns"],
+  ])
   use flag <- list.each(["--vuln-severity=high", "--vuln-block-unknown"])
   let message = usage_error(list.append(command, [flag]))
   assert string.contains(message, "vuln-")
@@ -428,44 +461,44 @@ pub fn update_subcommand_parses_supported_flags_test() {
 }
 
 pub fn default_color_mode_is_auto_test() {
-  let options = parse_options([])
+  let options = parse_options(["report"])
 
   should.equal(options.color, color.Auto)
 }
 
 pub fn default_no_cache_is_false_test() {
-  let options = parse_options([])
+  let options = parse_options(["report"])
 
   should.equal(options.no_cache, False)
   should.equal(options.cache_path, None)
 }
 
 pub fn no_cache_flag_sets_no_cache_test() {
-  let options = parse_options(["--no-cache"])
+  let options = parse_options(["report", "--no-cache"])
 
   should.equal(options.no_cache, True)
 }
 
 pub fn cache_path_flag_sets_cache_path_test() {
-  let options = parse_options(["--cache-path=/tmp/foo.dets"])
+  let options = parse_options(["report", "--cache-path=/tmp/foo.dets"])
 
   should.equal(options.cache_path, Some("/tmp/foo.dets"))
 }
 
 pub fn color_always_sets_always_mode_test() {
-  let options = parse_options(["--color=always"])
+  let options = parse_options(["report", "--color=always"])
 
   should.equal(options.color, color.Always)
 }
 
 pub fn colour_alias_always_sets_always_mode_test() {
-  let options = parse_options(["--colour=always"])
+  let options = parse_options(["report", "--colour=always"])
 
   should.equal(options.color, color.Always)
 }
 
 pub fn color_never_sets_never_mode_test() {
-  let options = parse_options(["--color=never"])
+  let options = parse_options(["report", "--color=never"])
 
   should.equal(options.color, color.Never)
 }
@@ -481,7 +514,7 @@ pub fn notices_subcommand_parses_defaults_test() {
 
   should.equal(options.manifest_path, None)
   should.equal(options.output, None)
-  should.equal(options.include_dev, False)
+  should.equal(options.scope, cli.Prod)
   should.equal(options.verbosity, progress.Normal)
 }
 
@@ -491,13 +524,13 @@ pub fn notices_subcommand_parses_supported_flags_test() {
       "notices",
       "--manifest=locked.toml",
       "--output=THIRD_PARTY_LICENSES.txt",
-      "--include-dev",
+      "--scope=all",
       "--verbose",
     ])
 
   should.equal(options.manifest_path, Some("locked.toml"))
   should.equal(options.output, Some("THIRD_PARTY_LICENSES.txt"))
-  should.equal(options.include_dev, True)
+  should.equal(options.scope, cli.All)
   should.equal(options.verbosity, progress.Verbose)
 }
 
@@ -524,7 +557,7 @@ pub fn notices_subcommand_accepts_config_controls_test() {
 
 pub fn invalid_color_value_returns_invalid_usage_action_test() {
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), ["--color=rainbow"])
+    glint.execute(cli.app(), ["report", "--color=rainbow"])
 
   assert string.contains(message, "color")
   assert string.contains(message, "rainbow")
@@ -580,7 +613,14 @@ pub fn sbom_subcommand_rejects_ignore_config_flag_test() {
   assert string.contains(message, "ignore-config")
 }
 
-const commands = [[], ["check"], ["update"], ["sbom"], ["vulns"], ["notices"]]
+const commands = [
+  ["report"],
+  ["check"],
+  ["update"],
+  ["sbom"],
+  ["vulns"],
+  ["notices"],
+]
 
 pub fn shared_aliases_and_color_modes_work_on_all_commands_test() {
   use command <- list.each(commands)
@@ -597,6 +637,7 @@ pub fn shared_aliases_and_color_modes_work_on_all_commands_test() {
       cli.normalize_args(list.append(command, [verbosity, spelling <> mode])),
     )
   let #(actual_verbosity, actual_color) = case action {
+    cli.RunReport(options) -> #(options.verbosity, options.color)
     cli.RunAudit(options) -> #(options.verbosity, options.color)
     cli.UpdateConfig(options) -> #(options.verbosity, options.color)
     cli.RunSbom(options) -> #(options.verbosity, options.color)
@@ -624,16 +665,17 @@ pub fn command_specific_flag_matrix_test() {
     #("--ignore-config", [True, True, True, False, True, True]),
     #("--no-cache", [True, True, True, True, False, True]),
     #("--cache-path=custom.cache", [True, True, True, True, False, True]),
-    #("--prod-only", [True, True, False, False, True, False]),
-    #("--include-dev", [False, False, False, False, False, True]),
+    #("--scope=prod", [True, True, False, False, True, True]),
+    #("--scope=all", [True, True, False, False, True, True]),
     #("--allow=MIT", [True, True, False, False, False, False]),
     #("--deny=MIT", [True, True, False, False, False, False]),
     #("--output=out", [False, False, False, True, False, True]),
-    #("--vulns", [False, True, False, True, False, False]),
+    #("--vulns", [False, False, False, True, False, False]),
+    #("--checks=all", [False, True, False, False, False, False]),
     #("--offline", [False, False, False, True, False, False]),
     #("--reproducible", [False, False, False, True, False, False]),
     #("--license-text", [False, False, False, True, False, False]),
-    #("--version", [True, False, False, False, False, False]),
+    #("--version", [False, False, False, False, False, False]),
   ])
   use command <- list.each(list.zip(commands, entry.1))
   let result = glint.execute(cli.app(), list.append(command.0, [entry.0]))
@@ -647,13 +689,118 @@ pub fn command_specific_flag_matrix_test() {
   }
 }
 
-pub fn standalone_vulns_scope_defaults_and_flag_test() {
-  use prod_only <- list.each([False, True])
-  let flags = case prod_only {
-    False -> []
-    True -> ["--prod-only"]
+pub fn dependency_scope_defaults_and_values_test() {
+  use command <- list.each([[], ["report"], ["check"], ["vulns"], ["notices"]])
+  use flags <- list.each([[], ["--scope=prod"], ["--scope=all"]])
+  let assert Ok(glint.Out(action)) =
+    glint.execute(cli.app(), list.append(command, flags))
+  let scope = case action {
+    cli.RunReport(options) -> options.scope
+    cli.RunAudit(options) -> options.scope
+    cli.RunVulns(options) -> options.scope
+    cli.RunNotices(options) -> options.scope
+    cli.UpdateConfig(_)
+    | cli.RunSbom(_)
+    | cli.ShowVersion
+    | cli.InvalidUsage(_) -> panic as "expected scoped command"
   }
-  let assert Ok(glint.Out(cli.RunVulns(options))) =
-    glint.execute(cli.app(), list.append(["vulns"], flags))
-  should.equal(options.prod_only, prod_only)
+  should.equal(scope, case flags, command {
+    ["--scope=prod"], _ | [], ["notices"] -> cli.Prod
+    _, _ -> cli.All
+  })
+}
+
+pub fn dependency_scope_rejects_missing_and_invalid_values_test() {
+  use command <- list.each([[], ["report"], ["check"], ["vulns"], ["notices"]])
+  use flag <- list.each([
+    "--scope",
+    "--scope=",
+    "--scope=dev",
+    "--scope=Prod",
+    "--scope=true",
+    "--scope=false",
+  ])
+  let message = usage_error(list.append(command, [flag]))
+  assert string.contains(message, "scope")
+}
+
+pub fn removed_dependency_flags_are_rejected_on_all_commands_test() {
+  use command <- list.each([[], ..commands])
+  use name <- list.each(["prod-only", "include-dev"])
+  use suffix <- list.each(["", "=true", "=false"])
+  let message = usage_error(list.append(command, ["--" <> name <> suffix]))
+  assert string.contains(message, name)
+  assert !string.contains(
+    help_text(list.append(command, ["--help"])),
+    "--" <> name,
+  )
+}
+
+pub fn check_selection_accepts_only_supported_values_test() {
+  list.each(
+    [
+      #("licences", cli.Licences),
+      #("vulns", cli.Vulnerabilities),
+      #("all", cli.AllChecks),
+    ],
+    fn(selection) {
+      let options = parse_options(["check", "--checks=" <> selection.0])
+      should.equal(options.checks, selection.1)
+    },
+  )
+  use value <- list.each([
+    "",
+    "licenses",
+    "none",
+    "true",
+    "ALL",
+    "licences,vulns",
+  ])
+  let message = usage_error(["check", "--checks=" <> value])
+  assert string.contains(message, "checks")
+  assert string.contains(message, "must be one of")
+}
+
+pub fn removed_check_vulns_flag_and_help_test() {
+  list.each(["--vulns", "--vulns=true", "--vulns=false"], fn(flag) {
+    assert string.contains(usage_error(["check", flag]), "vulns")
+  })
+  let help = help_text(["check", "--help"])
+  assert string.contains(help, "--checks")
+  assert !string.contains(help, "--vulns")
+}
+
+pub fn bare_root_matches_named_report_and_lists_report_test() {
+  should.equal(parse_options([]), parse_options(["report"]))
+  let help = help_text(["--help"])
+  assert string.contains(help, "report")
+  assert !string.contains(help, "audit --")
+  assert string.contains(help, "--no-cache")
+  assert string.contains(help, "--allow")
+}
+
+pub fn root_scan_options_match_named_report_test() {
+  use flags <- list.each([
+    ["--manifest=missing.toml"],
+    ["--config=missing.toml"],
+    ["--ignore-config"],
+    ["--allow=MIT"],
+    ["--deny=MIT"],
+    ["--scope=prod"],
+    ["--scope=all"],
+    ["--cache-path=cache"],
+    ["--no-cache"],
+    ["--quiet"],
+    ["--verbose"],
+    ["--color=never"],
+  ])
+  should.equal(
+    parse_options(flags),
+    parse_options(list.append(["report"], flags)),
+  )
+}
+
+pub fn audit_alias_remains_unsupported_test() {
+  let message = usage_error(["audit"])
+  assert string.contains(message, "invalid number of arguments")
 }

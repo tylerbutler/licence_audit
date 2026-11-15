@@ -185,6 +185,17 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
   }
 }
 
+/// Vulnerability gates accept valid configuration without a licence section,
+/// including an explicitly selected file. All supplied settings are validated.
+pub fn load_vulns(options: LoadOptions) -> Result(Policy, Error) {
+  case load(LoadOptions(..options, check: False)) {
+    Error(MissingPolicySection(_)) ->
+      load(LoadOptions(..options, check: False, ignore_config: True))
+    Ok(loaded) -> Ok(loaded)
+    Error(error) -> Error(error)
+  }
+}
+
 pub fn parse(input: String) -> Result(Policy, Error) {
   case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))

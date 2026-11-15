@@ -3,9 +3,13 @@ import gleam/list
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/config
 import licence_audit/hex
 import licence_audit/osv
 import licence_audit/progress
+import licence_audit/source_archive
+import licence_audit/source_archive_test
+import licence_audit/toml
 import simplifile
 
 const manifest =
@@ -104,6 +108,29 @@ fn detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
   )
 }
 
+fn checksummed_manifest_line(
+  line: String,
+  fetch: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+) -> String {
+  case string.contains(line, "source = \"hex\"") {
+    False -> line
+    True -> {
+      let assert Ok(document) =
+        toml.parse("package = " <> string.replace(line, "},", "}"))
+      let assert Ok(name) = toml.get_string(document, ["package", "name"])
+      let assert Ok(old_checksum) =
+        toml.get_string(document, ["package", "outer_checksum"])
+      let licences = case fetch(name) {
+        Ok(metadata) -> metadata.licences
+        Error(_) -> []
+      }
+      let assert Ok(checksum) =
+        source_archive.sha256_hex(source_archive_test.metadata_archive(licences))
+      string.replace(line, old_checksum, checksum)
+    }
+  }
+}
+
 fn run(
   root: String,
   args: List(String),
@@ -111,6 +138,22 @@ fn run(
   query: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   details: fn(String) -> Result(osv.Vulnerability, osv.Error),
 ) -> licence_audit.RunResult {
+  let assert Ok(project_text) = simplifile.read(root <> "/gleam.toml")
+  case
+    config.parse(project_text),
+    { list.contains(args, "vulns") && !list.contains(args, "check") }
+    || list.contains(args, "--checks=vulns")
+  {
+    Error(_), _ | Ok(_), True -> Nil
+    Ok(_), False -> {
+      let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
+      let lines = string.split(contents, "\n")
+      let lines = list.map(lines, checksummed_manifest_line(_, fetch))
+      let assert Ok(_) =
+        simplifile.write(root <> "/manifest.toml", string.join(lines, "\n"))
+      Nil
+    }
+  }
   licence_audit.run_configured(
     list.append(args, [
       "--manifest=" <> root <> "/manifest.toml",
@@ -118,8 +161,8 @@ fn run(
       "--quiet",
     ]),
     licence_audit.Clients(
-      ..licence_audit.default_clients(),
       fetcher: fetch,
+      notice_clients: source_archive_test.metadata_clients(fetch),
       osv_batch_fetcher: query,
       osv_detail_fetcher: details,
     ),
@@ -141,7 +184,7 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   assert string.contains(result.output, "Policy exceptions:")
   assert !string.contains(result.output, "unused #1")
   assert string.contains(result.output, "local_dep")
-  let preview = run(root, [], licences, batch, detail)
+  let preview = run(root, ["report"], licences, batch, detail)
   should.equal(preview.exit_code, 0)
   assert string.contains(preview.output, "excepted #1")
   let ignored =
@@ -380,13 +423,14 @@ pub fn advisory_alias_accepts_only_one_package_occurrence_test() {
         <> advisory_waiver("pkg:hex/first@1.0.0", "CVE-2026-12345", ""),
     )
   let result =
-    run(root, ["check", "--vulns"], clean_licences, first_batch, detail)
+    run(root, ["check", "--checks=all"], clean_licences, first_batch, detail)
   should.equal(result.exit_code, 0)
   assert string.contains(
     result.output,
     "GHSA-canonical  first@1.0.0 [excepted #1",
   )
-  let result = run(root, ["check", "--vulns"], clean_licences, batch, detail)
+  let result =
+    run(root, ["check", "--checks=all"], clean_licences, batch, detail)
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "1 blocking advisory/advisories")
   assert string.contains(result.output, "second@2.0.0")
@@ -394,6 +438,46 @@ pub fn advisory_alias_accepts_only_one_package_occurrence_test() {
     result.output,
     "Skipped 1 unsupported source(s): local_dep",
   )
+}
+
+pub fn vulnerability_only_scoped_exceptions_do_not_evaluate_licences_test() {
+  use policy <- list.each(["", licence_rules])
+  let root =
+    project(
+      "vulnerability_only_exceptions",
+      policy
+        <> advisory_waiver("pkg:hex/first@1.0.0", "CVE-2026-12345", "")
+        <> licence_waiver(""),
+    )
+  let no_licences = fn(_) {
+    panic as "vulnerability-only must not fetch licences"
+  }
+  let accepted =
+    run(root, ["check", "--checks=vulns"], no_licences, first_batch, detail)
+  should.equal(accepted.exit_code, 0)
+  assert string.contains(accepted.output, "excepted #1")
+  assert string.contains(
+    accepted.output,
+    "not evaluated: licence scan disabled",
+  )
+  assert !string.contains(accepted.output, "Dependency licence audit failed")
+  let scoped =
+    run(root, ["check", "--checks=vulns"], no_licences, batch, detail)
+  should.equal(scoped.exit_code, 1)
+  assert string.contains(scoped.output, "second@2.0.0")
+  let excluded =
+    run(
+      root,
+      ["check", "--checks=vulns", "--scope=prod"],
+      no_licences,
+      fn(purls) {
+        assert !list.contains(purls, "pkg:hex/second@2.0.0")
+        batch(purls)
+      },
+      detail,
+    )
+  should.equal(excluded.exit_code, 0)
+  assert !string.contains(excluded.output, "second@2.0.0")
 }
 
 pub fn expired_and_unrelated_advisories_follow_normal_gate_test() {
@@ -408,13 +492,13 @@ pub fn expired_and_unrelated_advisories_follow_normal_gate_test() {
       ),
     )
   let result =
-    run(root, ["check", "--vulns"], clean_licences, first_batch, detail)
+    run(root, ["check", "--checks=all"], clean_licences, first_batch, detail)
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "expired; matched")
   let result =
     run(
       root,
-      ["check", "--vulns", "--vuln-severity=critical"],
+      ["check", "--checks=all", "--vuln-severity=critical"],
       clean_licences,
       first_batch,
       detail,
@@ -427,7 +511,7 @@ pub fn expired_and_unrelated_advisories_follow_normal_gate_test() {
         <> advisory_waiver("pkg:hex/first@1.0.0", "CVE-2026-99999", ""),
     )
   let result =
-    run(root, ["check", "--vulns"], clean_licences, first_batch, detail)
+    run(root, ["check", "--checks=all"], clean_licences, first_batch, detail)
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "unused #1")
 }
@@ -445,7 +529,8 @@ pub fn all_scoped_advisories_can_be_accepted_including_github_test() {
         "",
       ),
     )
-  let result = run(root, ["check", "--vulns"], clean_licences, batch, detail)
+  let result =
+    run(root, ["check", "--checks=all"], clean_licences, batch, detail)
   should.equal(result.exit_code, 0)
   assert string.contains(result.output, "3 excepted finding(s)")
   let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
@@ -458,7 +543,8 @@ pub fn all_scoped_advisories_can_be_accepted_including_github_test() {
       ),
       to: root <> "/manifest.toml",
     )
-  let result = run(root, ["check", "--vulns"], clean_licences, batch, detail)
+  let result =
+    run(root, ["check", "--checks=all"], clean_licences, batch, detail)
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "unused #3")
 }
@@ -471,7 +557,7 @@ pub fn advisory_overlap_is_a_config_error_in_both_commands_test() {
         <> advisory_waiver("pkg:hex/first@1.0.0", "GHSA-canonical", "")
         <> advisory_waiver("pkg:hex/first@1.0.0", "CVE-2026-12345", ""),
     )
-  [["check", "--vulns"], ["vulns"]]
+  [["check", "--checks=all"], ["vulns"]]
   |> list.each(fn(args) {
     let result = run(root, args, clean_licences, first_batch, detail)
     should.equal(result.exit_code, 2)
@@ -501,7 +587,7 @@ pub fn ambiguous_locked_identity_is_rejected_before_osv_query_test() {
         "packages = [\n" <> duplicate,
       ),
     )
-  [["check", "--vulns"], ["vulns"]]
+  [["check", "--checks=all"], ["vulns"]]
   |> list.each(fn(args) {
     let result =
       run(
@@ -526,7 +612,8 @@ pub fn accepted_advisory_cannot_hide_another_advisory_or_licence_test() {
       licence_rules
         <> advisory_waiver("pkg:hex/first@1.0.0", "CVE-2026-12345", ""),
     )
-  let result = run(root, ["check", "--vulns"], licences, first_batch, detail)
+  let result =
+    run(root, ["check", "--checks=all"], licences, first_batch, detail)
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "denied: GPL-3.0-only")
   let query = fn(purls) {
@@ -551,7 +638,8 @@ pub fn accepted_advisory_cannot_hide_another_advisory_or_licence_test() {
       _ -> detail(id)
     }
   }
-  let result = run(root, ["check", "--vulns"], clean_licences, query, details)
+  let result =
+    run(root, ["check", "--checks=all"], clean_licences, query, details)
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "OSV-other")
 }
@@ -565,7 +653,7 @@ pub fn failed_osv_evidence_is_never_excepted_test() {
   let result =
     run(
       root,
-      ["check", "--vulns"],
+      ["check", "--checks=all"],
       clean_licences,
       fn(_) { Error(osv.NetworkFailure) },
       detail,
@@ -574,7 +662,7 @@ pub fn failed_osv_evidence_is_never_excepted_test() {
   assert string.contains(result.output, "not evaluated: OSV request failed")
   let failed = fn(_) { Error(osv.InvalidJson("Invalid response")) }
   let result =
-    run(root, ["check", "--vulns"], clean_licences, first_batch, failed)
+    run(root, ["check", "--checks=all"], clean_licences, first_batch, failed)
   should.equal(result.exit_code, 2)
   assert string.contains(
     result.output,
@@ -642,7 +730,7 @@ pub fn disabled_and_production_filtered_scans_are_not_unused_test() {
   let result =
     run(
       root,
-      ["check", "--vulns", "--prod-only"],
+      ["check", "--checks=all", "--scope=prod"],
       clean_licences,
       first_batch,
       detail,
@@ -650,15 +738,19 @@ pub fn disabled_and_production_filtered_scans_are_not_unused_test() {
   should.equal(result.exit_code, 1)
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only #1",
+    "not evaluated: excluded by --scope=prod #1",
   )
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only #2",
+    "not evaluated: excluded by --scope=prod #2",
   )
 }
 
-pub fn standalone_vulns_prod_only_filters_queries_and_exception_coverage_test() {
+pub fn standalone_vulns_prod_scope_filters_queries_and_exception_coverage_test() {
+  use #(command, expected_exit) <- list.each([
+    #(["vulns"], 0),
+    #(["check", "--checks=vulns"], 1),
+  ])
   let root =
     project(
       "standalone-prod",
@@ -671,17 +763,23 @@ pub fn standalone_vulns_prod_only_filters_queries_and_exception_coverage_test() 
     first_batch(purls)
   }
   let result =
-    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
-  should.equal(result.exit_code, 0)
+    run(
+      root,
+      list.append(command, ["--scope=prod"]),
+      clean_licences,
+      query,
+      detail,
+    )
+  should.equal(result.exit_code, expected_exit)
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only",
+    "not evaluated: excluded by --scope=prod",
   )
   assert !string.contains(result.output, "second 2.0.0")
   assert !string.contains(result.output, "unused")
 }
 
-pub fn standalone_vulns_prod_only_skips_all_dev_sources_without_query_test() {
+pub fn standalone_vulns_prod_scope_skips_all_dev_sources_without_query_test() {
   let root = project("standalone-all-dev", "")
   let assert Ok(_) =
     simplifile.write(
@@ -691,18 +789,18 @@ pub fn standalone_vulns_prod_only_skips_all_dev_sources_without_query_test() {
     )
   let query = fn(_) { panic as "No production packages should reach OSV" }
   let result =
-    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+    run(root, ["vulns", "--scope=prod"], clean_licences, query, detail)
   should.equal(result.exit_code, 0)
   assert !string.contains(result.output, "local_dep")
   assert !string.contains(result.output, "git_dep")
   assert string.contains(
     result.output,
-    "not evaluated: excluded by --prod-only",
+    "not evaluated: excluded by --scope=prod",
   )
   assert !string.contains(result.output, "unused")
 }
 
-pub fn standalone_vulns_prod_only_keeps_shared_production_dependencies_test() {
+pub fn standalone_vulns_prod_scope_keeps_shared_production_dependencies_test() {
   let root = project("standalone-shared", "")
   let assert Ok(_) =
     simplifile.write(
@@ -719,7 +817,7 @@ pub fn standalone_vulns_prod_only_keeps_shared_production_dependencies_test() {
     first_batch(purls)
   }
   should.equal(
-    run(root, ["vulns", "--prod-only"], clean_licences, query, detail).exit_code,
+    run(root, ["vulns", "--scope=prod"], clean_licences, query, detail).exit_code,
     0,
   )
 }
@@ -736,7 +834,7 @@ pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_tes
   let expected =
     run(
       root,
-      ["vulns", "--prod-only", "-q"],
+      ["vulns", "--scope=prod", "-q"],
       clean_licences,
       first_batch,
       detail,
@@ -745,7 +843,7 @@ pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_tes
   let actual =
     run(
       root,
-      [quiet, "vulns", "--prod-only"],
+      [quiet, "vulns", "--scope=prod"],
       clean_licences,
       first_batch,
       detail,
@@ -771,7 +869,7 @@ pub fn unknown_severity_obeys_exception_and_existing_threshold_rules_test() {
   let result =
     run(
       root,
-      ["check", "--vulns", "--vuln-block-unknown"],
+      ["check", "--checks=all", "--vuln-block-unknown"],
       clean_licences,
       first_batch,
       details,
@@ -780,7 +878,7 @@ pub fn unknown_severity_obeys_exception_and_existing_threshold_rules_test() {
   let result =
     run(
       root,
-      ["check", "--vulns", "--vuln-block-unknown"],
+      ["check", "--checks=all", "--vuln-block-unknown"],
       clean_licences,
       batch,
       details,
@@ -809,7 +907,7 @@ pub fn malformed_exceptions_fail_before_fetching_test() {
 pub fn no_exception_output_is_unchanged_test() {
   let root = project("empty", licence_rules)
   let first =
-    run(root, ["check", "--vulns"], clean_licences, first_batch, detail)
+    run(root, ["check", "--checks=all"], clean_licences, first_batch, detail)
   let assert Ok(contents) = simplifile.read(root <> "/gleam.toml")
   let assert Ok(_) =
     simplifile.write(
@@ -817,7 +915,7 @@ pub fn no_exception_output_is_unchanged_test() {
       to: root <> "/gleam.toml",
     )
   let second =
-    run(root, ["check", "--vulns"], clean_licences, first_batch, detail)
+    run(root, ["check", "--checks=all"], clean_licences, first_batch, detail)
   should.equal(second, first)
 }
 
@@ -841,7 +939,7 @@ pub fn unused_expired_entries_do_not_fail_on_their_own_test() {
       run(
         root,
         case index {
-          0 -> ["check", "--vulns"]
+          0 -> ["check", "--checks=all"]
           _ -> ["vulns"]
         },
         clean_licences,

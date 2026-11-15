@@ -53,14 +53,14 @@ grep -Fq 'USAGE:' help.log
 run version --version
 grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' version.log
 
-run report --no-cache --color=never
+run report report --no-cache --color=never
 grep -Eq 'gleam_stdlib[[:space:]]+1\.0\.5[[:space:]]+Apache-2\.0' report.log
 grep -Fq 'Skipped non-Hex packages: 0' report.log
 
 run vulns vulns --color=never
 grep -Eq '^Checked 1 packages: (0 with vulnerabilities, 1 clean|1 with vulnerabilities, 0 clean)\.$' vulns.log
 
-run check check --vulns --no-cache --color=never
+run check check --checks=all --no-cache --color=never
 grep -Eq 'gleam_stdlib[[:space:]]+1\.0\.5[[:space:]]+Apache-2\.0.*allowed' check.log
 grep -Eq 'No known vulnerabilities reported by OSV.dev.|advisory/advisories at or above' check.log
 
