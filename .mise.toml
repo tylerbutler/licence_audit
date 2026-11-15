@@ -3,9 +3,9 @@ erlang = "29.1"
 gleam = "1.19.2"
 just = "1.59.0"
 "github:erlang/rebar3" = { version = "3.28.0", bin = "rebar3" }
-node = "26.13.0"
+node = "26.13.1"
 pnpm = "12.18.0"
-"github:jtdowney/queso" = "0.3.0"
+"github:jtdowney/queso" = "0.3.1"
 "github:EmbarkStudios/cargo-about" = "0.9.3"
 "github:tylerbutler/trellis" = "1.5.0"
 
@@ -13,7 +13,7 @@ pnpm = "12.18.0"
 "github:CycloneDX/cyclonedx-cli" = "0.33.1"
 "github:CycloneDX/sbom-utility" = "0.19.2"
 "github:interlynk-io/sbomqs" = "2.1.3"
-"github:sbom-tool/sbom-tools" = "0.3.0"
+"github:sbom-tool/sbom-tools" = "0.4.0"
 "github:tylerbutler/licence_audit" = "latest"
 
 # cdxgen publishes ~10 separate binaries per release; pin to just the
