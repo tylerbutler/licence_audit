@@ -56,9 +56,14 @@ Use `licence_audit --help` or `licence_audit <command> --help` for the CLI
 options in your installed version. `-h` is an alias for `--help`.
 `--version` is available only at the root.
 
+Reports and checks read `allow` and `deny` from `[tools.licence_audit]` in TOML.
+Use `--config=policies/release.toml` to select an alternate policy.
+See the [migration notes](https://licence-audit.tylerbutler.com/docs/compatibility#migration-before-10)
+if your scripts use removed `--allow` or `--deny` flags.
+
 Run `licence_audit` or `licence_audit report` to inspect licences or preview
 policy findings. Both use the same options and non-enforcing report behavior.
-Existing root scan commands still work; adding `report` is optional.
+The named command is optional. Both forms reject the removed policy flags.
 
 Licence reports, `check`, and `vulns` default to `--scope=all`. Use
 `--scope=prod` for production dependencies only. `notices` defaults to

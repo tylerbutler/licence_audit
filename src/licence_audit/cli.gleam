@@ -21,8 +21,6 @@ pub type ReportOptions {
   ReportOptions(
     manifest_path: Option(String),
     config_path: Option(String),
-    allow_licences: List(String),
-    deny_licences: List(String),
     ignore_config: Bool,
     verbosity: progress.Verbosity,
     color: color.Mode,
@@ -36,8 +34,6 @@ pub type Options {
   Options(
     manifest_path: Option(String),
     config_path: Option(String),
-    allow_licences: List(String),
-    deny_licences: List(String),
     ignore_config: Bool,
     check: Bool,
     verbosity: progress.Verbosity,
@@ -204,8 +200,6 @@ fn report_command(
     "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.",
   )
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use allow <- glint.flag(allow_flag())
-  use deny <- glint.flag(deny_flag())
   use config <- glint.optional_flag(config_flag())
   use manifest <- glint.optional_flag(manifest_flag())
   use ignore_config <- glint.flag(ignore_config_flag())
@@ -217,8 +211,6 @@ fn report_command(
   use scope <- glint.flag(scope_flag("all"))
   use _, _, flags <- glint.command()
 
-  let assert Ok(allow_licences) = allow(flags)
-  let assert Ok(deny_licences) = deny(flags)
   let assert Ok(config_path) = config(flags)
   let assert Ok(manifest_path) = manifest(flags)
   let assert Ok(ignore_config) = ignore_config(flags)
@@ -242,8 +234,6 @@ fn report_command(
       RunReport(ReportOptions(
         manifest_path: manifest_path,
         config_path: config_path,
-        allow_licences: allow_licences,
-        deny_licences: deny_licences,
         ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
@@ -257,8 +247,6 @@ fn report_command(
 fn check_command() -> glint.Command(CliAction) {
   use <- glint.command_help(check_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use allow <- glint.flag(allow_flag())
-  use deny <- glint.flag(deny_flag())
   use config <- glint.optional_flag(config_flag())
   use manifest <- glint.optional_flag(manifest_flag())
   use ignore_config <- glint.flag(ignore_config_flag())
@@ -273,8 +261,6 @@ fn check_command() -> glint.Command(CliAction) {
   use vuln_block_unknown <- glint.optional_flag(vuln_block_unknown_flag())
   use _, _, flags <- glint.command()
 
-  let assert Ok(allow_licences) = allow(flags)
-  let assert Ok(deny_licences) = deny(flags)
   let assert Ok(config_path) = config(flags)
   let assert Ok(manifest_path) = manifest(flags)
   let assert Ok(ignore_config) = ignore_config(flags)
@@ -309,8 +295,6 @@ fn check_command() -> glint.Command(CliAction) {
       RunAudit(Options(
         manifest_path: manifest_path,
         config_path: config_path,
-        allow_licences: allow_licences,
-        deny_licences: deny_licences,
         ignore_config: ignore_config,
         check: True,
         verbosity: verbosity,
@@ -327,18 +311,6 @@ fn check_command() -> glint.Command(CliAction) {
         scope: scope_from_string(scope_value),
       ))
   }
-}
-
-fn allow_flag() -> glint.Flag(List(String)) {
-  glint.strings_flag("allow")
-  |> glint.flag_default([])
-  |> glint.flag_help("Allow licences, comma-separated")
-}
-
-fn deny_flag() -> glint.Flag(List(String)) {
-  glint.strings_flag("deny")
-  |> glint.flag_default([])
-  |> glint.flag_help("Deny licences, comma-separated")
 }
 
 fn config_flag() -> glint.Flag(String) {

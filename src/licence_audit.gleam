@@ -230,8 +230,6 @@ fn execute_action(
         cli.Options(
           manifest_path: options.manifest_path,
           config_path: options.config_path,
-          allow_licences: options.allow_licences,
-          deny_licences: options.deny_licences,
           ignore_config: options.ignore_config,
           check: False,
           verbosity: options.verbosity,
@@ -1959,8 +1957,8 @@ fn load_policy(
     config.LoadOptions(
       config_path: options.config_path,
       project_root: project_root,
-      allow_licences: options.allow_licences,
-      deny_licences: options.deny_licences,
+      allow_licences: [],
+      deny_licences: [],
       vuln_severity: options.vuln_severity,
       vuln_block_unknown: options.vuln_block_unknown,
       ignore_config: options.ignore_config,

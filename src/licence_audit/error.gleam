@@ -39,7 +39,7 @@ pub fn message(error: Error) -> String {
     AuditFailed ->
       "Dependency licence audit failed. Review the report above and update the dependency or policy."
     MissingPolicy ->
-      "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or pass --allow."
+      "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or select a policy file with --config."
     Usage(message) -> message
     RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
     RuntimeException(reason) -> "Unexpected Erlang exception: " <> reason

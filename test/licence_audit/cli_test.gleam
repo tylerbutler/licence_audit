@@ -26,8 +26,6 @@ fn parse_options(args: List(String)) -> cli.Options {
       cli.Options(
         manifest_path: options.manifest_path,
         config_path: options.config_path,
-        allow_licences: options.allow_licences,
-        deny_licences: options.deny_licences,
         ignore_config: options.ignore_config,
         check: False,
         verbosity: options.verbosity,
@@ -206,19 +204,6 @@ pub fn path_values_that_look_like_aliases_are_preserved_test() {
   should.equal(verbosity, progress.Quiet)
 }
 
-pub fn policy_values_that_look_like_aliases_are_preserved_test() {
-  use value <- list.each(["-v", "-q", "-h", "--colour"])
-  use command <- list.each([[], ["report"], ["check"]])
-  use flags <- list.each([
-    ["--allow", value, "--deny", value],
-    ["--allow=" <> value, "--deny=" <> value],
-  ])
-  let options = parse_options(list.append(command, list.append(flags, ["-v"])))
-  should.equal(options.allow_licences, [value])
-  should.equal(options.deny_licences, [value])
-  should.equal(options.verbosity, progress.Verbose)
-}
-
 pub fn constrained_values_that_look_like_aliases_remain_invalid_values_test() {
   use value <- list.each(["-v", "-q", "-h", "--colour"])
   use flag <- list.each([
@@ -256,10 +241,15 @@ pub fn constrained_values_that_look_like_aliases_remain_invalid_values_test() {
 
 pub fn equals_values_do_not_consume_the_next_alias_test() {
   let options =
-    parse_options(["--manifest=-h", "--config=--colour", "--allow=-q", "-v"])
+    parse_options([
+      "--manifest=-h",
+      "--config=--colour",
+      "--cache-path=-q",
+      "-v",
+    ])
   should.equal(options.manifest_path, Some("-h"))
   should.equal(options.config_path, Some("--colour"))
-  should.equal(options.allow_licences, ["-q"])
+  should.equal(options.cache_path, Some("-q"))
   should.equal(options.verbosity, progress.Verbose)
 }
 
@@ -296,23 +286,31 @@ pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
   should.equal(options.vuln_block_unknown, True)
 }
 
-pub fn comma_separated_allow_options_are_preserved_test() {
-  let options = parse_options(["report", "--allow=MIT,Apache-2.0"])
-
-  should.equal(options.allow_licences, ["MIT", "Apache-2.0"])
-}
-
-pub fn comma_separated_deny_options_are_preserved_test() {
-  let options = parse_options(["report", "--deny=GPL-3.0-only,AGPL-3.0-only"])
-
-  should.equal(options.deny_licences, ["GPL-3.0-only", "AGPL-3.0-only"])
+pub fn removed_policy_flags_reject_all_forms_test() -> Nil {
+  use command <- list.each([
+    [],
+    ["report"],
+    ["check"],
+    ["check", "--checks=all"],
+    ["check", "--checks=vulns"],
+  ])
+  use name <- list.each(["allow", "deny"])
+  use flags <- list.each([
+    ["--" <> name],
+    ["--" <> name <> "="],
+    ["--" <> name <> "=MIT"],
+    ["--" <> name <> "=MIT,Apache-2.0"],
+    ["--" <> name, "MIT"],
+    ["--" <> name, ""],
+  ])
+  let message = usage_error(list.append(command, flags))
+  assert string.contains(message, "invalid flag")
+  assert string.contains(message, name)
 }
 
 pub fn default_report_mode_accepts_empty_policy_test() {
   let options = parse_options(["report"])
 
-  should.equal(options.allow_licences, [])
-  should.equal(options.deny_licences, [])
   should.equal(options.check, False)
 }
 
@@ -426,8 +424,6 @@ pub fn help_text_includes_usage_and_supported_options_test() {
 
   [
     "licence_audit",
-    "--allow",
-    "--deny",
     "--config",
     "--manifest",
     "--ignore-config",
@@ -901,8 +897,8 @@ pub fn command_specific_flag_matrix_test() {
     #("--cache-path=custom.cache", [True, True, True, True, False, True]),
     #("--scope=prod", [True, True, False, False, True, True]),
     #("--scope=all", [True, True, False, False, True, True]),
-    #("--allow=MIT", [True, True, False, False, False, False]),
-    #("--deny=MIT", [True, True, False, False, False, False]),
+    #("--allow=MIT", [False, False, False, False, False, False]),
+    #("--deny=MIT", [False, False, False, False, False, False]),
     #("--output=out", [False, False, False, True, False, True]),
     #("--vulns", [False, False, False, True, False, False]),
     #("--checks=all", [False, True, False, False, False, False]),
@@ -1025,7 +1021,8 @@ pub fn bare_root_matches_named_report_and_lists_report_test() {
   assert string.contains(help, "report")
   assert !string.contains(help, "audit --")
   assert string.contains(help, "--no-cache")
-  assert string.contains(help, "--allow")
+  assert !string.contains(help, "--allow")
+  assert !string.contains(help, "--deny")
 }
 
 pub fn root_scan_options_match_named_report_test() {
@@ -1033,8 +1030,6 @@ pub fn root_scan_options_match_named_report_test() {
     ["--manifest=missing.toml"],
     ["--config=missing.toml"],
     ["--ignore-config"],
-    ["--allow=MIT"],
-    ["--deny=MIT"],
     ["--scope=prod"],
     ["--scope=all"],
     ["--cache-path=cache"],
