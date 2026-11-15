@@ -136,7 +136,7 @@ worker() ->
     ok = gen_tcp:send(Socket, term_to_binary({ready, Key})),
     {ok, Go} = gen_tcp:recv(Socket, 0, 10000),
     go = binary_to_term(Go, [safe]),
-    {ok, Store} = licence_audit@cache_dir:open_table({some, Root}, <<"unused">>, <<"test">>),
+    {ok, Store} = licence_audit@cache_dir:open_table({some, Root}, <<>>, <<"test">>),
     Result = write_repeatedly(Store, Key, Value, 50),
     ok = gen_tcp:send(Socket, term_to_binary(Result)),
     gen_tcp:close(Socket),

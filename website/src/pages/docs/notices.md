@@ -165,11 +165,12 @@ by Erlang/OTP's user cache directory.
 
 Immutable content addresses are the cache keys. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
-licence files from repositories, and canonical SPDX records. Packages that
-declare the same identifier share one SPDX record. Cache entries do not expire.
-Use `XDG_CACHE_HOME` to relocate the caches, or use `--no-cache` to bypass
-both the metadata and licence materials caches. `--cache-path=DIR` overrides
-only the metadata cache directory. The command reads local path dependencies
+and licence files from repositories. Pinned canonical SPDX records and indexes
+use `spdx-v1/` below the same application root. Packages that declare the same
+identifier share one SPDX record. This change preserves cache freshness rules.
+Use `--cache-dir=DIR` to select the root for all these caches, taking precedence
+over `XDG_CACHE_HOME` and `HOME`. Use `--no-cache` to bypass them without deleting
+stored entries. The command reads local path dependencies
 live and does not cache them.
 
 Corrupt cached values are treated as misses. Transient network failures are
@@ -190,7 +191,7 @@ licence_audit notices [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |

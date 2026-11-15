@@ -82,7 +82,7 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(version.returncode, 1 if command else 0)
 
     def test_vulns_removed_cache_flags_and_short_quiet(self):
-        for flag in ("--no-cache", "--cache-path=cache.sqlite3"):
+        for flag in ("--no-cache", "--cache-dir=cache"):
             result = self.run_cli("vulns", flag)
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stdout, "")
@@ -222,7 +222,7 @@ class CliStreamTest(unittest.TestCase):
             '[requirements]\nlocal = { path = "local" }\n'
         )
         cache_path = self.project / "metadata.dets"
-        result = self.run_cli("notices", "--quiet", f"--cache-path={cache_path}")
+        result = self.run_cli("notices", "--quiet", f"--cache-dir={cache_path}")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Third-party licences", result.stdout)
         self.assertNotIn("Products using this licence", result.stdout)
@@ -240,7 +240,7 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "gleam.toml").write_text(
             project_config + 'exclude = ["stale"]\n'
         )
-        result = self.run_cli("notices", "--quiet", f"--cache-path={cache_path}")
+        result = self.run_cli("notices", "--quiet", f"--cache-dir={cache_path}")
         self.assert_diagnostic(result)
         self.assertIn("Unknown locked package names", result.stderr)
         self.assertFalse(cache_path.exists())
@@ -257,14 +257,16 @@ class CliStreamTest(unittest.TestCase):
             )
         )
 
-    def test_sbom_license_text_uses_default_notice_cache_with_metadata_override(self):
+    def test_sbom_license_text_uses_only_explicit_application_root(self):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "example", version = "1.0.0", '
             'source = "hex", outer_checksum = "ABC" }]\n'
             '[requirements]\nexample = "1.0.0"\n'
         )
-        metadata_path = self.project / "metadata.sqlite3"
+        cache_root = self.project / "cache-é中"
+        metadata_path = cache_root / "hex-v2"
         cache_home = self.project / "cache"
+        home = self.project / "unused-home"
         evaluation = """
             Mode = os:getenv("SBOM_CACHE_MODE"),
             Metadata = 'licence_audit@hex':licences_only([<<"Apache-2.0">>]),
@@ -306,13 +308,14 @@ class CliStreamTest(unittest.TestCase):
                         "erl", "-noshell", "-pa",
                         *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
                         "-eval", evaluation, "-extra", "sbom", "--license-text",
-                        "--quiet", f"--cache-path={metadata_path}",
+                        "--quiet", f"--cache-dir={cache_root}",
                         *(["--no-cache"] if mode == "no_cache" else []),
                     ],
                     cwd=self.project, capture_output=True, text=True, timeout=30,
                     env={
                         **os.environ, "NO_COLOR": "1",
-                        "XDG_CACHE_HOME": str(cache_home), "SBOM_CACHE_MODE": mode,
+                        "XDG_CACHE_HOME": str(cache_home), "HOME": str(home),
+                        "SBOM_CACHE_MODE": mode,
                     },
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -330,12 +333,15 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(
                     json.loads(metadata_files[0].read_text())["key"], "example@1.0.0"
                 )
-                notice_files = list((cache_home / "licence_audit").glob("notices-v*/*.json"))
+                notice_files = list(cache_root.glob("spdx-v1/*.json"))
                 self.assertEqual(len(notice_files), 1)
                 entry = json.loads(notice_files[0].read_text())
                 self.assertTrue(entry["key"].startswith("spdx:"))
                 self.assertTrue(entry["key"].endswith(":license:Apache-2.0"))
                 self.assertEqual(entry["value"], "Cached SPDX text")
+                self.assertFalse(cache_home.exists())
+                self.assertFalse(home.exists())
+                self.assertFalse(list(cache_root.rglob("*.tmp")))
                 if mode == "cold":
                     cached_files = {
                         file: file.read_bytes() for file in metadata_files + notice_files
@@ -381,7 +387,7 @@ class CliStreamTest(unittest.TestCase):
                 with self.subTest(licence=licence, quiet=quiet):
                     result = self.run_cli(
                         "check", f"--allow={licence}",
-                        f"--cache-path={cache_path}",
+                        f"--cache-dir={cache_path}",
                         *(["--quiet"] if quiet else []),
                     )
                     self.assertEqual(result.returncode, status, result.stderr)

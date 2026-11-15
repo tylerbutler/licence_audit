@@ -22,7 +22,7 @@ TOML
 run_cli() {
   timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin \
     -eval 'licence_audit:main().' -extra notices \
-    "--manifest=$root/manifest.toml" "--cache-path=$root/metadata" "$@"
+    "--manifest=$root/manifest.toml" "--cache-dir=$root/metadata" "$@"
 }
 
 output=$(run_cli --quiet)

@@ -16,7 +16,7 @@ import licence_audit/progress
 
 /// Configures how the cache module behaves for a given run.
 pub type Mode {
-  /// Cache enabled; `path` overrides the default location when `Some`.
+  /// Cache enabled; `path` selects the application root when `Some`.
   Enabled(path: Option(String))
   /// Bypass the cache entirely (no read, no write, no file opened).
   Disabled

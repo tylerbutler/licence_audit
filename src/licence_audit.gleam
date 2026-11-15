@@ -402,12 +402,8 @@ fn run_selected_notices(
   {
     True -> #(cache.Disabled, notice_cache.Disabled)
     False -> #(
-      cache.Enabled(path: options.cache_path),
-      // `--cache-path` overrides the metadata cache directory (as on every
-      // other command). The source cache keeps its own version-namespaced
-      // directory at the default location (still relocatable via
-      // XDG_CACHE_HOME) so format bumps invalidate it correctly.
-      notice_cache.Enabled(path: None),
+      cache.Enabled(path: options.cache_dir),
+      notice_cache.Enabled(path: options.cache_dir),
     )
   }
   let metadata_cache = cache.open(metadata_cache_mode)
@@ -779,7 +775,7 @@ fn run_sbom_for_manifest(
 ) -> #(ActionResult, progress.Reporter) {
   let cache_mode = case options.no_cache {
     True -> cache.Disabled
-    False -> cache.Enabled(path: options.cache_path)
+    False -> cache.Enabled(path: options.cache_dir)
   }
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
@@ -1124,7 +1120,7 @@ fn gather_sbom_license_texts(
     |> list.sort(by: string.compare)
   let mode = case options.no_cache {
     True -> notice_cache.Disabled
-    False -> notice_cache.Enabled(path: None)
+    False -> notice_cache.Enabled(path: options.cache_dir)
   }
   let text_cache = notice_cache.open(mode)
   let #(texts, warning) =
@@ -1578,7 +1574,7 @@ fn audit_locked(
   }
   let cache_mode = case options.no_cache {
     True -> cache.Disabled
-    False -> cache.Enabled(path: options.cache_path)
+    False -> cache.Enabled(path: options.cache_dir)
   }
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher = cache.wrap(cache_handle, fetcher)
@@ -2093,7 +2089,7 @@ fn run_update_options(
     options.config_path,
     options.ignore_config,
     options.no_cache,
-    options.cache_path,
+    options.cache_dir,
     fetcher,
     reporter,
   )

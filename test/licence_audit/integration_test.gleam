@@ -723,7 +723,7 @@ pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
 
   let result =
     licence_audit.run_configured(
-      manifest_args(["--cache-path=" <> cache_path]),
+      manifest_args(["--cache-dir=" <> cache_path]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         notice_clients: notice_clients(fixture_hex_tarball),

@@ -158,11 +158,13 @@ integration interfaces.
 
 ## Caching
 
-`licence_audit` caches Hex licence metadata on disk between runs in the
-`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2/` directory. Override it
-with `--cache-path=DIR`, or bypass the caches with `--no-cache`.
+`licence_audit` stores cache families below one application root:
+`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. Use `--cache-dir=DIR`
+to select a root for metadata, locked-source metadata, notice materials, and
+SPDX text. An explicit root takes precedence over environment discovery.
+Use `--no-cache` to bypass reads and writes without deleting entries.
 When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
-the default is `%LOCALAPPDATA%\licence_audit\Cache\hex-v2\`, as resolved
+the root is `%LOCALAPPDATA%\licence_audit\Cache\`, as resolved
 by Erlang/OTP's user cache directory. A nonempty `XDG_CACHE_HOME` takes
 precedence over `HOME` on all platforms.
 `licence_audit` reuses Hex API entries for 7 days, so metadata changes on Hex
@@ -171,17 +173,33 @@ can take up to 7 days to appear. Use `--no-cache` when you need fresh data.
 The cache is shared across projects and commands for each package name and
 version. Concurrent commands can share the cache. In CI, restore and save the
 cache directory between jobs, for example with `actions/cache`,
-`--cache-path=.hex-cache/hex-v2`, and `.hex-cache/` as the path to save. Use
+`--cache-dir=.hex-cache`, and `.hex-cache/` as the path to save. Use
 `--verbose` to see cache hits and misses.
 
-The cache directory contains one JSON file for each entry. A command writes
+The root contains versioned family directories:
+
+- `hex-v2/`: Hex API metadata and checksum/commit-keyed locked-source metadata.
+- `notices-v3/`: package and source materials, including repository resolutions.
+- `spdx-v1/`: pinned SPDX indexes and canonical licence/exception text.
+
+The versioned directories are internal storage details, not CLI options.
+Future local publication verification will use this root too. This release
+does not add publication verification or change cache freshness rules.
+
+Each family contains one JSON file for each entry. A command writes
 each entry to a temporary file and then renames it, so other commands never
 read a partial entry. You can copy the cache directory at any time. To clear
 the cache, delete the directory.
 
 The cache fills on first use. `licence_audit` does not read or change old
-`.dets` or `.sqlite3` cache files. You can delete them. If `--cache-path`
+`.dets` or `.sqlite3` cache files. You can delete them. If `--cache-dir`
 points to a file, the command warns and continues without caching.
+
+**Migration:** replace `--cache-path=.hex-cache/hex-v2` with
+`--cache-dir=.hex-cache`. The old flag is rejected. Compatible metadata and
+immutable materials remain usable in their existing versioned directories.
+Pinned SPDX entries in `notices-v3/` are copied into `spdx-v1/` on a hit.
+Other incompatible layouts are cache misses; no repair or deletion is required.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the
@@ -257,7 +275,7 @@ licence_audit (check | notices | sbom | update | vulns) [--flags]
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |

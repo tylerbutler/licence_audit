@@ -87,7 +87,7 @@ for configuration and override rules.
 
 `vulns` includes development dependencies by default. Use `--prod-only` to
 exclude them. OSV advisories are not cached; this command does not accept
-`--no-cache` or `--cache-path`.
+`--no-cache` or `--cache-dir`.
 
 Scope follows the production dependency graph in the `gleam.toml` beside the
 selected manifest. A valid file without `[dependencies]`, or with an empty
