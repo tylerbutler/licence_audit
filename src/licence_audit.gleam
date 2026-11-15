@@ -27,6 +27,7 @@ import licence_audit/osv
 import licence_audit/path
 import licence_audit/policy
 import licence_audit/progress
+import licence_audit/publication
 import licence_audit/report
 import licence_audit/repository
 import licence_audit/sbom
@@ -55,6 +56,8 @@ fn report_result(exit_code: Int, output: String) -> ActionResult {
 pub type Clients {
   Clients(
     fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+    publication_fetcher: fn(String, String) ->
+      Result(hex.Publication, hex.Error),
     osv_batch_fetcher: fn(List(String)) ->
       Result(List(osv.BatchEntry), osv.Error),
     osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
@@ -65,6 +68,7 @@ pub type Clients {
 pub fn default_clients() -> Clients {
   Clients(
     fetcher: hex.fetch_package_metadata_from_hex,
+    publication_fetcher: hex.fetch_publication_from_hex,
     osv_batch_fetcher: osv.query_batch_from_osv,
     osv_detail_fetcher: osv.fetch_vulnerability_from_osv,
     notice_clients: notice.default_clients(),
@@ -208,8 +212,18 @@ pub fn run_configured(
   clients: Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, List(progress.Event)) {
+  run_cli_configured(library_args(args), clients, reporter)
+}
+
+/// Execute CLI options with injected clients, including their cache settings.
+/// Embedded entry points above still bypass disk storage.
+pub fn run_cli_configured(
+  args: List(String),
+  clients: Clients,
+  reporter: progress.Reporter,
+) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) = case
-    glint.execute(cli.app(), cli.normalize_args(library_args(args)))
+    glint.execute(cli.app(), cli.normalize_args(args))
   {
     Ok(glint.Help(help)) -> #(report_result(0, help <> "\n"), reporter)
     Ok(glint.Out(action)) ->
@@ -275,15 +289,7 @@ fn execute_action(
       Diagnostic(RunResult(1, "Error: " <> message <> "\n")),
       reporter,
     )
-    cli.RunSbom(options) ->
-      run_sbom_options(
-        options,
-        clients.fetcher,
-        clients.osv_batch_fetcher,
-        clients.osv_detail_fetcher,
-        clients.notice_clients,
-        reporter,
-      )
+    cli.RunSbom(options) -> run_sbom_options(options, clients, reporter)
     cli.RunVulns(options) -> {
       let #(result, reporter) =
         run_vulns_options(
@@ -308,10 +314,7 @@ fn execute_action(
 
 fn run_sbom_options(
   options: cli.SbomOptions,
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  source_clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
@@ -350,10 +353,7 @@ fn run_sbom_options(
         scopes,
         project_root,
         local_metadata,
-        fetcher,
-        osv_batch_fetcher,
-        osv_detail_fetcher,
-        source_clients,
+        clients,
         reporter,
       )
   }
@@ -807,90 +807,94 @@ fn run_sbom_for_manifest(
   scopes: dict.Dict(String, manifest.Scope),
   project_root: String,
   local_metadata: dict.Dict(String, hex.PackageMetadata),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  source_clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
   let cache_mode = case options.no_cache {
     True -> cache.Disabled
     False -> cache.Enabled(path: options.cache_dir)
   }
-  let cache_handle = cache.open(cache_mode)
-  let cached_fetcher = cache.wrap(cache_handle, fetcher)
+  let #(now, _) =
+    timestamp.system_time() |> timestamp.to_unix_seconds_and_nanoseconds
+  let #(publications, warning) =
+    publication.resolve(
+      sbom_manifest.entries,
+      cache_mode,
+      options.offline,
+      now,
+      clients.publication_fetcher,
+    )
+  let reporter = apply_cache_warning(reporter, warning)
+  case publications {
+    Error(reason) -> #(diagnostic(reason), reporter)
+    Ok(publications) -> {
+      let cache_handle = cache.open(cache_mode)
+      let cached_fetcher =
+        cache.wrap(cache_handle, case options.offline {
+          True -> fn(_) {
+            Error(hex.NetworkFailure("offline: metadata is not cached"))
+          }
+          False -> clients.fetcher
+        })
 
-  let #(metadata_result, cache_warning) = case
-    options.offline,
-    options.reproducible
-  {
-    True, True -> #(Ok(#(dict.new(), reporter)), None)
-    True, False -> #(
-      Ok(fetch_package_metadata(
-        sbom_manifest,
-        project_root,
-        cached_fetcher,
-        True,
-        reporter,
-      )),
-      None,
-    )
-    False, True ->
-      fetch_reproducible_package_metadata(
-        sbom_manifest,
-        cache_handle,
-        source_clients,
-        reporter,
-      )
-    False, False -> #(
-      Ok(fetch_package_metadata(
-        sbom_manifest,
-        project_root,
-        cached_fetcher,
-        False,
-        reporter,
-      )),
-      None,
-    )
-  }
-  let cache_warning = option.or(cache_warning, cache.close(cache_handle))
-
-  case metadata_result {
-    Error(metadata_error) -> #(
-      diagnostic(metadata_error),
-      apply_cache_warning(reporter, cache_warning),
-    )
-    Ok(#(package_metadata, reporter)) -> {
-      let reporter = apply_cache_warning(reporter, cache_warning)
-      // Optionally query OSV and embed the results as a CycloneDX
-      // vulnerabilities array. A failed query fails the whole command.
-      let #(vulns_result, reporter) = case options.with_vulns {
-        False -> #(Ok([]), reporter)
+      let #(metadata_result, cache_warning) = case options.reproducible {
         True ->
-          gather_embedded_vulnerabilities(
+          fetch_reproducible_package_metadata(
             sbom_manifest,
-            osv_batch_fetcher,
-            osv_detail_fetcher,
+            cache_handle,
+            clients.notice_clients,
+            options.offline,
             reporter,
           )
-      }
-
-      case vulns_result {
-        Error(osv_error) -> #(
-          diagnostic(error.from_osv_error(osv_error)),
-          reporter,
+        False -> #(
+          Ok(fetch_package_metadata(
+            sbom_manifest,
+            project_root,
+            cached_fetcher,
+            reporter,
+          )),
+          None,
         )
-        Ok(vulnerabilities) ->
-          render_sbom(
-            options,
-            sbom_manifest,
-            scopes,
-            root,
-            dict.merge(package_metadata, local_metadata),
-            vulnerabilities,
-            source_clients,
-            reporter,
-          )
+      }
+      let cache_warning = option.or(cache_warning, cache.close(cache_handle))
+
+      case metadata_result {
+        Error(metadata_error) -> #(
+          diagnostic(metadata_error),
+          apply_cache_warning(reporter, cache_warning),
+        )
+        Ok(#(package_metadata, reporter)) -> {
+          let reporter = apply_cache_warning(reporter, cache_warning)
+          // Optionally query OSV and embed the results as a CycloneDX
+          // vulnerabilities array. A failed query fails the whole command.
+          let #(vulns_result, reporter) = case options.with_vulns {
+            False -> #(Ok([]), reporter)
+            True ->
+              gather_embedded_vulnerabilities(
+                sbom_manifest,
+                publications,
+                clients.osv_batch_fetcher,
+                clients.osv_detail_fetcher,
+                reporter,
+              )
+          }
+
+          case vulns_result {
+            Error(reason) -> #(diagnostic(reason), reporter)
+            Ok(vulnerabilities) ->
+              render_sbom(
+                options,
+                sbom_manifest,
+                scopes,
+                root,
+                dict.merge(package_metadata, local_metadata),
+                publications,
+                vulnerabilities,
+                clients.notice_clients,
+                reporter,
+              )
+          }
+        }
       }
     }
   }
@@ -900,6 +904,7 @@ fn fetch_reproducible_package_metadata(
   manifest_value: manifest.SbomManifest,
   cache_handle: cache.Cache,
   clients: notice.Clients,
+  offline: Bool,
   reporter: progress.Reporter,
 ) -> #(
   Result(
@@ -926,7 +931,14 @@ fn fetch_reproducible_package_metadata(
             )
           use package_metadata <- cache_dir.try_with_warning(
             cache.fetch_immutable(cache_handle, key, fn() {
-              metadata_from_locked_source(entry, clients)
+              case offline {
+                True ->
+                  Error(error.SbomMetadataFailed(
+                    entry.name,
+                    "offline: required locked metadata is not cached or caching is disabled",
+                  ))
+                False -> metadata_from_locked_source(entry, clients)
+              }
             }),
           )
           #(
@@ -1060,6 +1072,7 @@ fn render_sbom(
   scopes: dict.Dict(String, manifest.Scope),
   root: sbom.RootComponent,
   package_metadata: dict.Dict(String, hex.PackageMetadata),
+  publications: dict.Dict(String, hex.Publication),
   vulnerabilities: List(sbom.EmbeddedVulnerability),
   source_clients: notice.Clients,
   reporter: progress.Reporter,
@@ -1097,6 +1110,7 @@ fn render_sbom(
             serial_number: serial_number,
             timestamp: timestamp,
             package_metadata: package_metadata,
+            publications: publications,
             scopes: scopes,
             vulnerabilities: vulnerabilities,
             license_texts: license_texts,
@@ -1143,12 +1157,21 @@ fn gather_sbom_license_texts(
   let #(texts, warning) =
     list.fold(ids, #(Ok(dict.new()), None), fn(acc, id) {
       use texts <- cache_dir.try_with_warning(acc)
-      use resolved <- cache_dir.with_warning(notice_resolve.resolve_spdx(
-        text_cache,
-        "SBOM",
-        spdx.LicenseRequirement(id),
-        clients,
-      ))
+      use resolved <- cache_dir.with_warning(case options.offline {
+        True ->
+          notice_resolve.resolve_cached_spdx(
+            text_cache,
+            "SBOM",
+            spdx.LicenseRequirement(id),
+          )
+        False ->
+          notice_resolve.resolve_spdx(
+            text_cache,
+            "SBOM",
+            spdx.LicenseRequirement(id),
+            clients,
+          )
+      })
       #(
         case resolved {
           Ok(Some(file)) -> Ok(dict.insert(texts, id, file.contents))
@@ -1168,43 +1191,60 @@ fn gather_sbom_license_texts(
 
 /// Query OSV for every component with a purl and map the results into
 /// `sbom.EmbeddedVulnerability` values, one per unique advisory, with the
-/// component `bom-ref`s (purls) each advisory affects. Returns the OSV error on a
+/// component references each advisory affects. Returns an error on a
 /// failed batch query so the caller can fail the command.
 fn gather_embedded_vulnerabilities(
   sbom_manifest: manifest.SbomManifest,
+  publications: dict.Dict(String, hex.Publication),
   batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
-) -> #(Result(List(sbom.EmbeddedVulnerability), osv.Error), progress.Reporter) {
-  let #(purl_pairs, _errors) = build_purl_pairs(sbom_manifest)
-  let purls = list.map(purl_pairs, fn(pair) { pair.1 })
-  case purls {
-    [] -> #(Ok([]), reporter)
-    _ -> {
-      let reporter =
-        progress.detail(
-          reporter,
-          "Querying OSV.dev for "
-            <> int.to_string(list.length(purls))
-            <> " packages",
-        )
-      case batch_fetcher(purls) {
-        Error(osv_error) -> #(Error(osv_error), reporter)
-        Ok(entries) -> {
-          let id_to_refs = build_id_to_refs(purl_pairs, entries)
-          let unique_ids = unique_vuln_ids(entries)
-          // SBOM embedding tolerates detail failures the same way the plain
-          // `vulns` report does; selected vulnerability gates block on them.
-          let #(vulns, _detail_failures, reporter) =
-            fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
-          #(Ok(to_embedded_vulnerabilities(vulns, id_to_refs)), reporter)
+) -> #(Result(List(sbom.EmbeddedVulnerability), error.Error), progress.Reporter) {
+  let purl_pairs =
+    list.try_fold(sbom_manifest.entries, [], fn(pairs, entry) {
+      use purl <- result.try(sbom.verified_purl(entry, publications))
+      use ref <- result.try(sbom.component_ref(entry))
+      case purl {
+        Some(purl) -> Ok(list.append(pairs, [#(purl, ref)]))
+        None -> Ok(pairs)
+      }
+    })
+  case purl_pairs {
+    Error(reason) -> #(Error(reason), reporter)
+    Ok(purl_pairs) -> {
+      let purls = list.map(purl_pairs, fn(pair) { pair.0 })
+      case purls {
+        [] -> #(Ok([]), reporter)
+        _ -> {
+          let reporter =
+            progress.detail(
+              reporter,
+              "Querying OSV.dev for "
+                <> int.to_string(list.length(purls))
+                <> " packages",
+            )
+          case batch_fetcher(purls) {
+            Error(osv_error) -> #(
+              Error(error.from_osv_error(osv_error)),
+              reporter,
+            )
+            Ok(entries) -> {
+              let id_to_refs = build_id_to_refs(purl_pairs, entries)
+              let unique_ids = unique_vuln_ids(entries)
+              // SBOM embedding tolerates detail failures the same way the plain
+              // `vulns` report does; selected vulnerability gates block on them.
+              let #(vulns, _detail_failures, reporter) =
+                fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+              #(Ok(to_embedded_vulnerabilities(vulns, id_to_refs)), reporter)
+            }
+          }
         }
       }
     }
   }
 }
 
-/// Pair each fetched advisory with the component `bom-ref`s (purls) it affects.
+/// Pair each fetched advisory with the component references it affects.
 fn to_embedded_vulnerabilities(
   vulns: List(osv.Vulnerability),
   id_to_refs: dict.Dict(String, List(String)),
@@ -1218,24 +1258,24 @@ fn to_embedded_vulnerabilities(
   })
 }
 
-/// Build a map from each OSV advisory id to the component `bom-ref`s (purls)
+/// Build a map from each OSV advisory id to the component `bom-ref`s
 /// it affects. Batch entries align positionally with `purl_pairs` because
 /// `osv.query_batch` preserves input order.
 fn build_id_to_refs(
-  purl_pairs: List(PurlPair),
+  purl_pairs: List(#(String, String)),
   entries: List(osv.BatchEntry),
 ) -> dict.Dict(String, List(String)) {
   list.zip(purl_pairs, entries)
   |> list.fold(dict.new(), fn(acc, pair) {
-    let #(#(_entry, purl), batch_entry) = pair
+    let #(#(_purl, ref), batch_entry) = pair
     list.fold(batch_entry.vuln_ids, acc, fn(inner, id) {
       let existing = case dict.get(inner, id) {
         Ok(refs) -> refs
         Error(_) -> []
       }
-      case list.contains(existing, purl) {
+      case list.contains(existing, ref) {
         True -> inner
-        False -> dict.insert(inner, id, list.append(existing, [purl]))
+        False -> dict.insert(inner, id, list.append(existing, [ref]))
       }
     })
   })
@@ -1246,19 +1286,13 @@ fn fetch_package_metadata(
   project_root: String,
   fetcher: fn(manifest.Package, progress.Reporter) ->
     #(Result(hex.PackageMetadata, hex.Error), progress.Reporter),
-  offline: Bool,
   reporter: progress.Reporter,
 ) -> #(dict.Dict(String, hex.PackageMetadata), progress.Reporter) {
   list.fold(manifest_value.entries, #(dict.new(), reporter), fn(acc, entry) {
     let #(metadata_acc, rep) = acc
     case entry.provenance {
-      // Hex packages are enriched from the registry API (network), skipped
-      // silently in offline mode to preserve deterministic offline output.
       manifest.HexProvenance(_, _) ->
-        case offline {
-          True -> #(metadata_acc, rep)
-          False -> fetch_hex_entry_metadata(entry, fetcher, metadata_acc, rep)
-        }
+        fetch_hex_entry_metadata(entry, fetcher, metadata_acc, rep)
       // Git packages have no Hex metadata; enrich them from their locally
       // checked-out source tree instead. This is filesystem-only, so it runs
       // in offline mode too.

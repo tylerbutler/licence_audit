@@ -584,14 +584,15 @@ pub fn sbom_subcommand_parses_defaults_test() {
   should.equal(options.license_text, False)
 }
 
-pub fn sbom_license_text_allows_reproducible_but_rejects_offline_test() {
-  let assert Ok(glint.Out(cli.RunSbom(options))) =
-    glint.execute(cli.app(), ["sbom", "--license-text", "--reproducible"])
-  should.equal(options.license_text, True)
-  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), ["sbom", "--license-text", "--offline"])
-  assert string.contains(message, "--license-text")
-  assert string.contains(message, "--offline")
+pub fn sbom_license_text_allows_reproducible_and_offline_test() {
+  list.each(
+    [["--reproducible"], ["--offline"], ["--reproducible", "--offline"]],
+    fn(flags) {
+      let assert Ok(glint.Out(cli.RunSbom(options))) =
+        glint.execute(cli.app(), ["sbom", "--license-text", ..flags])
+      should.equal(options.license_text, True)
+    },
+  )
 }
 
 pub fn sbom_subcommand_parses_reproducible_flag_test() {

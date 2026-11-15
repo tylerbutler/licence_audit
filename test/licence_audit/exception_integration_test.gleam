@@ -162,6 +162,9 @@ fn run(
     ]),
     licence_audit.Clients(
       fetcher: fetch,
+      publication_fetcher: fn(_, _) {
+        panic as "non-SBOM commands must not verify local publication"
+      },
       notice_clients: source_archive_test.metadata_clients(fetch),
       osv_batch_fetcher: query,
       osv_detail_fetcher: details,

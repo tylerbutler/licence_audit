@@ -74,6 +74,9 @@ fn cleanup(manifest_path: String) -> Nil {
 fn no_clients() -> licence_audit.Clients {
   licence_audit.Clients(
     fetcher: fn(_) { panic as "excluded packages must not fetch metadata" },
+    publication_fetcher: fn(_, _) {
+      panic as "scope commands must not verify local publication"
+    },
     osv_batch_fetcher: fn(_) { panic as "excluded packages must not query OSV" },
     osv_detail_fetcher: fn(_) {
       panic as "excluded packages must not fetch advisories"
@@ -101,6 +104,7 @@ fn no_clients() -> licence_audit.Clients {
 
 fn selected_clients(names: List(String)) -> licence_audit.Clients {
   licence_audit.Clients(
+    publication_fetcher: no_clients().publication_fetcher,
     fetcher: fn(name) {
       assert list.contains(names, name)
       Ok(hex.licences_only(["Apache-2.0"]))

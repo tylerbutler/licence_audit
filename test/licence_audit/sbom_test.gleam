@@ -525,6 +525,7 @@ pub fn render_local_identity_and_graph_without_published_provenance_test() {
           "local_dep",
         ]),
         scopes: dict.from_list([#("local_dep", manifest.Dev)]),
+        publications: dict.from_list([#("local_dep", hex.Unpublished)]),
         package_metadata: dict.insert(
           input.package_metadata,
           "local_dep",
@@ -594,6 +595,22 @@ pub fn render_local_identity_and_graph_without_published_provenance_test() {
   assert string.contains(output, "\"licence_audit:local_path\"")
   assert !string.contains(output, "pkg:hex/local_dep")
   assert !string.contains(output, "tarballs/local_dep")
+}
+
+pub fn render_requires_publication_evidence_for_local_components_test() {
+  let local =
+    manifest.SbomEntry(
+      "local_dep",
+      "1.0.0",
+      [],
+      manifest.PathProvenance("../local_dep"),
+    )
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      manifest: manifest.SbomManifest([local], ["local_dep"]),
+    )
+  let assert Error(error.SbomPublicationFailed(_, _)) = sbom.try_render(input)
 }
 
 pub fn reproducible_serial_is_byte_stable_test() {
@@ -916,6 +933,7 @@ fn minimal_input() -> sbom.SbomInput {
     ),
     timestamp: "2026-05-24T22:51:00Z",
     package_metadata: package_metadata,
+    publications: dict.new(),
     scopes: dict.new(),
     vulnerabilities: [],
     license_texts: dict.new(),

@@ -563,6 +563,31 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   }
 }
 
+/// A verified publication can add a purl without changing local provenance.
+/// This identity rule is shared by SBOM formats and vulnerability enrichment.
+pub fn verified_purl(
+  entry: manifest.SbomEntry,
+  publications: Dict(String, hex.Publication),
+) -> Result(option.Option(String), error.Error) {
+  case entry.provenance {
+    manifest.PathProvenance(_) ->
+      case dict.get(publications, entry.name) {
+        Ok(hex.Published) ->
+          Ok(option.Some("pkg:hex/" <> entry.name <> "@" <> entry.version))
+        Ok(hex.Unpublished) -> Ok(option.None)
+        Error(_) ->
+          Error(error.SbomPublicationFailed(
+            entry.name <> "@" <> entry.version,
+            "required publication evidence is missing",
+          ))
+      }
+    manifest.HexProvenance(_, _)
+    | manifest.GitProvenance(_, _, _)
+    | manifest.UnknownProvenance(_) ->
+      purl_for(entry) |> result.map(option.Some)
+  }
+}
+
 pub type LicenseEntry {
   LicenseId(id: String)
   LicenseName(name: String)
@@ -819,6 +844,7 @@ pub type SbomInput {
     serial_number: SerialNumber,
     timestamp: String,
     package_metadata: Dict(String, hex.PackageMetadata),
+    publications: Dict(String, hex.Publication),
     scopes: Dict(String, manifest.Scope),
     /// Vulnerabilities to embed (CycloneDX `vulnerabilities`); empty omits it.
     vulnerabilities: List(EmbeddedVulnerability),
@@ -844,6 +870,7 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
         input.package_metadata,
         input.scopes,
         input.license_texts,
+        input.publications,
       )
     }),
   )
@@ -905,8 +932,10 @@ fn build_component(
   package_metadata: Dict(String, hex.PackageMetadata),
   scopes: Dict(String, manifest.Scope),
   license_texts: Dict(String, String),
+  publications: Dict(String, hex.Publication),
 ) -> Result(json.Json, error.Error) {
   use ref <- result.try(component_ref(entry))
+  use purl <- result.try(verified_purl(entry, publications))
   let metadata = dict.get(package_metadata, entry.name)
 
   let fields =
@@ -915,7 +944,7 @@ fn build_component(
       #("type", json.string("library")),
       #("name", json.string(entry.name)),
     ]
-    |> append_purl(entry, ref)
+    |> append_purl(purl)
     |> append_version(entry.version)
     |> append_scope(entry, scopes)
     |> append_supplier(entry, metadata)
@@ -934,15 +963,11 @@ type Field =
 
 fn append_purl(
   fields: List(Field),
-  entry: manifest.SbomEntry,
-  ref: String,
+  purl: option.Option(String),
 ) -> List(Field) {
-  case entry.provenance {
-    manifest.PathProvenance(_) -> fields
-    manifest.HexProvenance(_, _)
-    | manifest.GitProvenance(_, _, _)
-    | manifest.UnknownProvenance(_) ->
-      list.append(fields, [#("purl", json.string(ref))])
+  case purl {
+    option.None -> fields
+    option.Some(value) -> list.append(fields, [#("purl", json.string(value))])
   }
 }
 

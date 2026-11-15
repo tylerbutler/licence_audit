@@ -653,6 +653,29 @@ fn resolve_spdx_requirements(
   }
 }
 
+/// Read required pinned SPDX text without a network request.
+pub fn resolve_cached_spdx(
+  cache: notice_cache.Cache,
+  package: String,
+  requirement: spdx.Requirement,
+) -> #(Result(Option(notice.NoticeFile), notice.Error), Option(String)) {
+  use cached <- cache_dir.with_warning(notice_cache.get_text(
+    cache,
+    spdx_key(requirement),
+  ))
+  case cached {
+    Ok(text) -> #(Ok(Some(notice.spdx_file(requirement, text))), None)
+    Error(Nil) -> #(
+      Error(notice.SpdxFetchFailed(
+        package,
+        requirement_id(requirement),
+        "offline: required pinned SPDX text is not cached or caching is disabled",
+      )),
+      None,
+    )
+  }
+}
+
 /// Read canonical text for an already-canonical SPDX requirement, using the
 /// shared pinned-record cache. Unknown identifiers return `Ok(None)`.
 pub fn resolve_spdx(

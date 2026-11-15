@@ -47,6 +47,60 @@ pub type Error {
   NetworkFailure(reason: String)
 }
 
+/// Publication of a name/version, not verification of local source contents.
+pub type Publication {
+  Published
+  Unpublished
+}
+
+pub fn fetch_publication_from_hex(
+  name: String,
+  version: String,
+) -> Result(Publication, Error) {
+  fetch_publication(name, version, send)
+}
+
+/// Only a release-endpoint 404 proves absence. Validate successful responses
+/// against the requested identity; never use archive hashes as local evidence.
+pub fn fetch_publication(
+  name: String,
+  version: String,
+  client: fn(Request(String)) -> Result(Response(String), Error),
+) -> Result(Publication, Error) {
+  let req =
+    package_request(uri.percent_encode(name))
+    |> request.set_path(
+      "/api/packages/"
+      <> uri.percent_encode(name)
+      <> "/releases/"
+      <> uri.percent_encode(version),
+    )
+  use response <- result.try(client(req))
+  case response.status {
+    404 -> Ok(Unpublished)
+    429 -> Error(RateLimited)
+    200 -> {
+      let decoder = {
+        use release_version <- decode.field("version", decode.string)
+        use package_url <- decode.field("package_url", decode.string)
+        decode.success(#(release_version, package_url))
+      }
+      case json.parse(response.body, decoder) {
+        Ok(#(release_version, package_url))
+          if release_version == version
+          && package_url == "https://hex.pm/api/packages/" <> name
+        -> Ok(Published)
+        Ok(_) | Error(json.UnableToDecode(_)) ->
+          Error(InvalidMetadata(
+            "release identity does not match " <> name <> "@" <> version,
+          ))
+        Error(_) -> Error(InvalidJson("Invalid Hex release JSON"))
+      }
+    }
+    status -> Error(UnexpectedResponse(status))
+  }
+}
+
 /// Decode the immutable `metadata.config` stored in a Hex package tarball.
 /// Accept byte strings, quoted `/utf8` strings, decimal byte segments, and
 /// mixtures of these binary segments. Reject unsupported literals or malformed

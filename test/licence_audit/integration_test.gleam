@@ -45,6 +45,7 @@ fn test_clients(
   licence_audit.Clients(
     ..licence_audit.default_clients(),
     fetcher:,
+    publication_fetcher: fn(_, _) { Ok(hex.Unpublished) },
     notice_clients: source_archive_test.metadata_clients(fetcher),
   )
 }
@@ -53,6 +54,9 @@ pub fn help_and_version_do_not_call_clients_test() {
   let clients =
     licence_audit.Clients(
       fetcher: fn(_) { panic as "root must not fetch Hex metadata" },
+      publication_fetcher: fn(_, _) {
+        panic as "root must not verify publications"
+      },
       osv_batch_fetcher: fn(_) { panic as "root must not query OSV" },
       osv_detail_fetcher: fn(_) { panic as "root must not fetch advisories" },
       notice_clients: source_archive_test.metadata_clients(fn(_) {
@@ -2527,6 +2531,9 @@ pub fn sbom_subcommand_errors_on_missing_local_metadata_test() {
 fn local_sbom_clients() -> licence_audit.Clients {
   licence_audit.Clients(
     ..test_clients(fn(_) { panic as "offline must not fetch Hex metadata" }),
+    publication_fetcher: fn(_, _) {
+      panic as "offline must not verify publications over the network"
+    },
     osv_batch_fetcher: fn(_) { panic as "offline must not query OSV" },
     osv_detail_fetcher: fn(_) { panic as "offline must not fetch OSV details" },
     notice_clients: notice.Clients(
@@ -2546,11 +2553,31 @@ fn run_local_sbom(
   root: String,
   flags: List(String),
 ) -> licence_audit.RunResult {
-  licence_audit.run_configured(
-    ["sbom", "--manifest=" <> root <> "/manifest.toml", ..flags],
+  licence_audit.run_cli_configured(
+    [
+      "sbom",
+      "--manifest=" <> root <> "/manifest.toml",
+      "--cache-dir=" <> root <> "/.cache",
+      ..flags
+    ],
     local_sbom_clients(),
     progress.disabled(),
   ).0
+}
+
+fn warm_local_sbom(root: String) -> Nil {
+  let result =
+    licence_audit.run_cli_configured(
+      [
+        "sbom",
+        "--reproducible",
+        "--manifest=" <> root <> "/manifest.toml",
+        "--cache-dir=" <> root <> "/.cache",
+      ],
+      test_clients(sbom_fetcher),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 0)
 }
 
 fn prepare_local_sbom_workspace() -> String {
@@ -2573,11 +2600,26 @@ fn prepare_local_sbom_workspace() -> String {
       "test/fixtures/sbom_local/app/manifest.toml",
       root <> "/app/manifest.toml",
     )
+  let assert Ok(locked) = simplifile.read(root <> "/app/manifest.toml")
+  let assert Ok(checksum) =
+    source_archive.sha256_hex(
+      source_archive_test.metadata_archive(["Apache-2.0"]),
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/app/manifest.toml",
+      string.replace(
+        locked,
+        "0C5506589DF4C63DF5D6FFBB834562D6865C6C2AEE0019D7B37886BD6D128141",
+        checksum,
+      ),
+    )
   root <> "/app"
 }
 
 pub fn sbom_local_workspace_offline_graph_scopes_and_metadata_test() {
   let root = prepare_local_sbom_workspace()
+  warm_local_sbom(root)
   let assert Ok(parent) =
     sbom.component_ref(manifest.SbomEntry(
       "local_parent",
@@ -2816,6 +2858,8 @@ pub fn sbom_local_reproducibility_survives_relocation_and_uses_current_metadata_
     "name = \"local_dep\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]\n"
   prepare_local_sbom_project(first_root, metadata, "")
   prepare_local_sbom_project(second_root, metadata, "")
+  warm_local_sbom(first_root)
+  warm_local_sbom(second_root)
   let flags = ["--offline", "--reproducible"]
   let first = run_local_sbom(first_root, flags)
   should.equal(first.exit_code, 0)
@@ -2846,7 +2890,7 @@ pub fn sbom_local_reproducibility_survives_relocation_and_uses_current_metadata_
   let assert Ok(_) = simplifile.delete(second_root)
 }
 
-pub fn sbom_local_metadata_survives_external_enrichment_and_osv_skips_locals_test() {
+pub fn sbom_local_metadata_survives_enrichment_and_osv_skips_unpublished_locals_test() {
   let root = "build/tmp/sbom-local-enrichment"
   prepare_local_sbom_project(
     root,
@@ -3432,7 +3476,7 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
   assert !string.contains(first.output, "\"publisher\"")
 }
 
-pub fn sbom_reproducible_offline_skips_all_dependency_enrichment_test() {
+pub fn sbom_reproducible_offline_requires_locked_metadata_test() {
   let root = "build/sbom-reproducible-offline"
   let local_git_path = root <> "/build/packages/gluegun"
   let assert Ok(_) = simplifile.create_directory_all(local_git_path)
@@ -3469,14 +3513,8 @@ pub fn sbom_reproducible_offline_skips_all_dependency_enrichment_test() {
       progress.disabled(),
     ).0
 
-  should.equal(result.exit_code, 0)
-  let assert Ok(purls) =
-    json.parse(
-      result.output,
-      decode.at(["components"], decode.list(decode.at(["purl"], decode.string))),
-    )
-  should.equal(list.length(purls), 2)
-  assert !string.contains(result.output, "\"licenses\"")
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "offline: required locked metadata")
   assert !string.contains(result.output, "Local Git enrichment")
   let assert Ok(_) = simplifile.delete(root)
 }
@@ -3543,9 +3581,16 @@ pub fn vulns_report_labels_scope_test() {
 }
 
 pub fn sbom_color_modes_preserve_plain_json_payload_test() {
+  let root = "build/tmp/sbom-color"
+  prepare_sbom_metadata_project(root)
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"color_fixture\"\nversion = \"1.0.0\"\n",
+    )
   let args = [
     "sbom",
-    "--manifest=test/fixtures/manifest_github_git.toml",
+    "--manifest=" <> root <> "/manifest.toml",
     "--offline",
     "--reproducible",
   ]
@@ -3565,6 +3610,7 @@ pub fn sbom_color_modes_preserve_plain_json_payload_test() {
   should.equal(forced, plain)
   assert string.contains(plain.output, "\"bomFormat\"")
   assert !string.contains(plain.output, "\u{001b}[")
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn vulns_reuses_shared_advisory_details_test() {
