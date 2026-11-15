@@ -3,35 +3,35 @@
 lockfile_version = 3
 
 [[tools.erlang]]
-version = "29.1"
+version = "29.1.2"
 backend = "core:erlang"
-specifiers = ["29.1"]
+specifiers = ["29.1.2"]
 
 [tools.erlang.options]
 precompiled_os = "ubuntu-24.04"
 
 [tools.erlang."platforms.linux-arm64"]
-checksum = "sha256:c672f984e6fb7db13a71ac38b9659347d32ccb356b48ca35152301ae12429a70"
-url = "https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04/OTP-29.1.tar.gz"
+checksum = "sha256:5d344f2ef455cfa15ad3112ce3aaecc8fa0d97532b2f106df46bc1701bc02c27"
+url = "https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04/OTP-29.1.2.tar.gz"
 
 [tools.erlang."platforms.linux-x64"]
-checksum = "sha256:008e2dfad440bbbefa8e38b0e0933df1017098e241641251a6235bde50ef6e99"
-url = "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-29.1.tar.gz"
+checksum = "sha256:2cfca446976fc61962585a1c77e5d11ddb6f5fed83e84668a2c4acfaad60d22e"
+url = "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-29.1.2.tar.gz"
 
 [[tools.erlang]]
-version = "29.1"
+version = "29.1.2"
 backend = "core:erlang"
-specifiers = ["29.1"]
+specifiers = ["29.1.2"]
 
 [tools.erlang."platforms.macos-arm64"]
-checksum = "sha256:f588fd647dcbbbc0039465ce667f8691a075953f178d3422d3d6b63d444f0595"
-url = "https://github.com/erlef/otp_builds/releases/download/OTP-29.1/otp-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/erlef/otp_builds/releases/assets/567801096"
+checksum = "sha256:579af3bb043e0692503f7f24c6e65b620bdf1802a13567a7247d1d18f1ec5470"
+url = "https://github.com/erlef/otp_builds/releases/download/OTP-29.1.2/otp-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/erlef/otp_builds/releases/assets/640679208"
 
 [tools.erlang."platforms.macos-x64"]
-checksum = "sha256:f4857836de068b7e31c134dcb19c5bea77320caf1c412e0d6ac449e206f62a51"
-url = "https://github.com/erlef/otp_builds/releases/download/OTP-29.1/otp-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/erlef/otp_builds/releases/assets/567818745"
+checksum = "sha256:bac2e78f48c30ecfdbe2b2ea219856f0225530f978b344ef8bbd6a8f7e5f58c0"
+url = "https://github.com/erlef/otp_builds/releases/download/OTP-29.1.2/otp-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/erlef/otp_builds/releases/assets/640726802"
 
 [[tools."github:CycloneDX/cyclonedx-cli"]]
 version = "0.33.1"
