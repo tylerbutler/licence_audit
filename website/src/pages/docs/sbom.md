@@ -1,11 +1,12 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: sbom
-description: Create a CycloneDX 1.6 JSON SBOM from your locked dependency tree. Does not evaluate licence policy.
+description: Create a CycloneDX 1.6 or SPDX 2.3 JSON SBOM from your locked dependency tree. Does not evaluate licence policy.
 ---
 
-`sbom` creates a [CycloneDX 1.6][cyclonedx] document that describes all locked
-dependencies. It does **not** evaluate licence policy.
+`sbom` creates a [CycloneDX 1.6][cyclonedx] document by default, or an
+[SPDX 2.3 JSON][spdx] document with `--format=spdx-json`. Both describe all
+locked dependencies. The command does **not** evaluate licence policy.
 
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
@@ -14,9 +15,27 @@ licence_audit sbom --offline           # skip Hex fetch, omit licence fields
 licence_audit sbom --reproducible      # reproducible output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
 licence_audit sbom --license-text      # embed canonical SPDX licence text
+licence_audit sbom --format=spdx-json  # SPDX 2.3 instead of CycloneDX
 ```
 
-## Document contents
+## SPDX format
+
+`--format=spdx-json` reuses the locked package graph and licence metadata.
+It includes package URLs, locked Hex SHA-256 checksums, a root package, and
+`DESCRIBES` and `DEPENDS_ON` relationships. It does not add file analysis,
+copyright evidence, or source-level licence conclusions.
+
+A single recognised SPDX licence ID becomes `licenseDeclared`. Missing
+declarations use `NOASSERTION`. Custom names, expressions, and multiple
+declarations use `NOASSERTION` and preserve the original declarations in
+`licenseComments`. The tool does not infer `AND` or `OR`, or invent custom
+licence text. `licenseConcluded` is always `NOASSERTION`.
+
+SPDX output rejects `--vulns` and `--license-text` with exit code `1` before
+network requests or artifact writes. Both flags remain CycloneDX-only.
+SPDX tag-value and SPDX 3 are not supported.
+
+## CycloneDX document contents
 
 For each locked dependency, `sbom` creates a component with this information:
 a package URL, a SHA-256 hash for Hex packages, the package description,
@@ -68,6 +87,7 @@ IDs on dependencies and the root component:
 {"license":{"id":"Apache-2.0","text":{"contentType":"text/plain","content":"..."},"acknowledgement":"declared"}}
 ```
 
+This flag is supported only with `--format=cyclonedx-json`.
 The text comes from the same fixed SPDX revision and shared cache as
 [`notices`](/docs/notices), not from package source. It is reference text,
 not package-specific copyright or attribution evidence. Default output does
@@ -117,7 +137,7 @@ How `--reproducible` and `--offline` combine:
 
 ## Embedded vulnerabilities
 
-`--vulns` queries OSV.dev and adds the results to the CycloneDX
+`--vulns` is CycloneDX-only. It queries OSV.dev and adds the results to the CycloneDX
 `vulnerabilities` array. Each advisory has an `id`, an `OSV` source link,
 ratings, and an `affects` list. The list refers to affected components by
 `bom-ref` or purl. Tools such as [Dependency-Track][dt] can read this
@@ -143,6 +163,8 @@ locked commit. It omits mutable Hex publisher data, uses a content hash for
 `serialNumber`, and gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
 the variable is not set. The same project files, lockfile, tool version,
 options, and timestamp produce byte-identical output.
+SPDX uses `documentNamespace` and `creationInfo.created` instead of
+`serialNumber` and `timestamp`, with the same reproducibility guarantees.
 The resolved timestamp is part of the serial hash. A different timestamp
 therefore produces a different `serialNumber`.
 
@@ -162,7 +184,7 @@ Both stdout and `--output=PATH` use pretty-printed JSON. When writing a file,
 stdout stays empty.
 
 <!-- cli-reference -->
-Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies with their CycloneDX scope. JSON output stays plain in every color mode.
+Generate a CycloneDX 1.6 or SPDX 2.3 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies; CycloneDX records their scope. JSON output stays plain in every color mode.
 
 **Usage:**
 
@@ -176,10 +198,11 @@ licence_audit sbom [--flags]
 |------|------|---------|-------------|
 | `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline) |
+| `--format` | `STRING` | `cyclonedx-json` | Output format: cyclonedx-json or spdx-json |
+| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs in CycloneDX (requires network on cache miss; conflicts with --offline and --format=spdx-json) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git |
+| `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; leave Hex dependency licences unknown; with --reproducible, skip all dependency enrichment including Git |
 | `--output` | `STRING` |  | Write SBOM to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--reproducible` | `BOOL` | `false` | Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
@@ -188,5 +211,6 @@ licence_audit sbom [--flags]
 <!-- cli-referencestop -->
 
 [cyclonedx]: https://cyclonedx.org/
+[spdx]: https://spdx.github.io/spdx-spec/v2.3/
 [dt]: https://dependencytrack.org/
 [sde]: https://reproducible-builds.org/docs/source-date-epoch/
