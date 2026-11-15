@@ -2091,7 +2091,6 @@ fn run_update_options(
     manifest_path,
     project_root,
     options.config_path,
-    options.ignore_config,
     options.no_cache,
     options.cache_path,
     fetcher,
