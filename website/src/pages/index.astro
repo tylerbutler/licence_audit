@@ -86,8 +86,8 @@ const workflow = [
   {
     n: "03",
     title: "Enforce",
-    body: "Run <code>check</code> to fail the build when a dependency violates the policy. Add <code>--vulns</code> to fail on advisories at or above the specified severity.",
-    code: "licence_audit check --vulns",
+    body: "Run <code>check</code> to fail the build when a dependency violates the policy. Select <code>--checks=all</code> to include the vulnerability gate, or <code>--checks=vulns</code> to check vulnerabilities only.",
+    code: "licence_audit check --checks=all",
   },
 ] as const;
 

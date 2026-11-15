@@ -34,8 +34,9 @@ Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
 file read/write failures exit `2`.
 
 An empty `allow` selection is saved, including a deny-only policy. `update`
-warns that you must add allow rules before running `check` or `check --vulns`.
+warns that you must add allow rules before running `check` or `check --checks=all`.
 Those commands require a non-empty allow list and otherwise exit `2`.
+Vulnerability-only checks (`check --checks=vulns`) do not require an allow list.
 Report-only use remains available. `--quiet` suppresses the warning with other
 progress output.
 
