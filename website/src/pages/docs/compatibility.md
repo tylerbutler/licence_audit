@@ -130,7 +130,7 @@ Scripts that relied on those codes must use `2` for operational failure.
 
 Before 1.0, `sbom --offline` changes from enrichment skipping to network
 prohibition. Warm the selected `--cache-dir` with the required online options
-before running offline. `--license-text --offline` now accepts cached pinned
+before running offline. `--licence-text --offline` now accepts cached pinned
 text; missing text returns `2`. Reproducible offline runs no longer succeed
 by omitting required locked metadata.
 

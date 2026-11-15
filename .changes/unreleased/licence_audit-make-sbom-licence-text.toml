@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `sbom --licence-text` the primary spelling and keep `--license-text` as a supported alias, with the same boolean and repeated-flag behavior."

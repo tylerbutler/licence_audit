@@ -189,7 +189,8 @@ pub fn run(args: List(String)) -> RunResult {
 }
 
 fn library_args(args: List(String)) -> List(String) {
-  case glint.execute(cli.app(), cli.normalize_args(args)) {
+  let args = cli.normalize_args(args)
+  case glint.execute(cli.app(), args) {
     Ok(glint.Out(cli.RunReport(_)))
     | Ok(glint.Out(cli.RunAudit(_)))
     | Ok(glint.Out(cli.UpdateConfig(_)))

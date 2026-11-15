@@ -13,7 +13,7 @@ licence_audit sbom --output=sbom.json  # pretty JSON to a file
 licence_audit sbom --offline           # prohibit network; read files and caches
 licence_audit sbom --reproducible      # reproducible output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
-licence_audit sbom --license-text      # embed canonical SPDX licence text
+licence_audit sbom --licence-text      # embed canonical SPDX licence text
 ```
 
 ## Document contents
@@ -61,7 +61,12 @@ extract copyright holders. Use a source scanner when you need that evidence.
 
 ## Embedded licence text
 
-`--license-text` adds canonical SPDX License List text to recognised licence
+Use `--license-text` as a supported alias for `--licence-text`. Both spellings
+accept a bare flag, `=true`, or `=false`. A bare flag toggles the value; an
+explicit value sets it. Repeated flags, including mixed spellings, apply in
+argument order.
+
+`--licence-text` adds canonical SPDX License List text to recognised licence
 IDs on dependencies and the root component:
 
 ```json
@@ -179,7 +184,7 @@ These items are required. If one fails, the command exits `2`:
 - valid local paths, package metadata, and dependency relationships,
 - usable publication verification for local packages,
 - locked Hex/Git metadata when `--reproducible` is selected,
-- pinned SPDX text when `--license-text` is selected,
+- pinned SPDX text when `--licence-text` is selected,
 - SBOM generation and file writes.
 
 How `--reproducible` and `--offline` combine:
@@ -190,7 +195,7 @@ How `--reproducible` and `--offline` combine:
 | `--reproducible --offline` | The same required metadata, using local files and usable cached evidence without network access. | Missing required metadata or verification exits `2`. |
 
 To prepare an offline reproducible run, first run `sbom --reproducible` online
-with the same `--cache-dir`. Include `--license-text` in that run if you need
+with the same `--cache-dir`. Include `--licence-text` in that run if you need
 offline licence text. Preserve the cache root between runs or CI jobs.
 `--offline` does not relax evidence requirements selected by other flags.
 
@@ -270,7 +275,7 @@ licence_audit sbom [--flags]
 |------|------|---------|-------------|
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache) |
+| `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache; alias: --license-text) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Prohibit network access; use local files and usable cached evidence. Required metadata, publication verification, and requested SPDX text must remain available |

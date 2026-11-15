@@ -131,21 +131,60 @@ pub fn app() -> glint.Glint(CliAction) {
 }
 
 pub fn normalize_args(args: List(String)) -> List(String) {
-  list.map(args, fn(arg) {
-    case arg {
-      "-h" -> "--help"
-      "-q" -> "--quiet"
-      "-v" -> "--verbose"
-      "--colour" -> "--color"
-      other -> {
-        case string.starts_with(other, "--colour=") {
-          True ->
-            "--color=" <> string.drop_start(other, string.length("--colour="))
-          False -> other
-        }
+  let tree = glint.document(app())
+  let value_flags =
+    [tree, ..tree.subcommands]
+    |> list.flat_map(fn(command) { command.flags })
+    |> list.filter(fn(flag) { flag.type_ != "BOOL" })
+    |> list.map(fn(flag) { "--" <> flag.meta.name })
+  normalize_values(args, value_flags, [])
+}
+
+fn normalize_values(
+  args: List(String),
+  value_flags: List(String),
+  normalized: List(String),
+) -> List(String) {
+  case args {
+    [] -> list.reverse(normalized)
+    // Glint rejects separators; leave this suffix untouched for its usage error.
+    ["--", ..] -> list.append(list.reverse(normalized), args)
+    [arg, ..rest] -> {
+      let arg = normalize_alias(arg)
+      case list.contains(value_flags, arg), rest {
+        True, [value, ..remaining] if value != "--" ->
+          // Glint only accepts values in --flag=value form.
+          normalize_values(remaining, value_flags, [
+            arg <> "=" <> value,
+            ..normalized
+          ])
+        _, _ -> normalize_values(rest, value_flags, [arg, ..normalized])
       }
     }
-  })
+  }
+}
+
+fn normalize_alias(arg: String) -> String {
+  case arg {
+    "-h" -> "--help"
+    "-q" -> "--quiet"
+    "-v" -> "--verbose"
+    "--colour" -> "--color"
+    "--license-text" -> "--licence-text"
+    other -> {
+      case
+        string.starts_with(other, "--colour="),
+        string.starts_with(other, "--license-text=")
+      {
+        True, _ ->
+          "--color=" <> string.drop_start(other, string.length("--colour="))
+        _, True ->
+          "--licence-text="
+          <> string.drop_start(other, string.length("--license-text="))
+        False, False -> other
+      }
+    }
+  }
 }
 
 fn root_command() -> glint.Command(CliAction) {
@@ -509,10 +548,10 @@ fn sbom_command() -> glint.Command(CliAction) {
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
   use license_text <- glint.flag(
-    glint.bool_flag("license-text")
+    glint.bool_flag("licence-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache)",
+      "Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache; alias: --license-text)",
     ),
   )
   use _, _, flags <- glint.command()
