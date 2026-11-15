@@ -189,9 +189,9 @@ pub fn run(args: List(String)) -> RunResult {
 }
 
 fn library_args(args: List(String)) -> List(String) {
+  let args = cli.normalize_args(args)
   let command =
     args
-    |> cli.normalize_args
     |> list.filter(fn(arg) { !string.starts_with(arg, "--") })
     |> list.first
   use <- bool.guard(
@@ -206,9 +206,7 @@ pub fn run_configured(
   clients: Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, List(progress.Event)) {
-  let #(result, reporter) = case
-    glint.execute(cli.app(), cli.normalize_args(library_args(args)))
-  {
+  let #(result, reporter) = case glint.execute(cli.app(), library_args(args)) {
     Ok(glint.Help(help)) -> #(report_result(0, help <> "\n"), reporter)
     Ok(glint.Out(action)) ->
       execute_action(action, clients, reporter, color.for_enabled(False))

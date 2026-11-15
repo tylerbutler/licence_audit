@@ -108,6 +108,18 @@ jobs:
 | [`update`](/docs/update) | Select licences and write a policy to `gleam.toml`. |
 | [`vulns`](/docs/vulns) | Report known vulnerabilities from OSV.dev. Does not evaluate policy. |
 
+### Flag values and aliases
+
+Use `--flag=value` or `--flag value` for flags that take a value.
+For example, `licence_audit sbom --output -v` writes to a file named `-v`;
+it does not enable verbose output. Values can contain `=`, and you can use
+`--output=--colour` for a file named `--colour`.
+
+Use `-h`, `-q`, and `-v` as options for help, quiet output, and verbose output.
+Use `--colour` as an alias for `--color`. These aliases keep their literal
+text when you supply them as flag values. Do not use a `--` separator or
+positional arguments.
+
 ## Output, colours, and exit codes
 
 Reports and gate verdicts go to **stdout**. Progress, warnings, and operational

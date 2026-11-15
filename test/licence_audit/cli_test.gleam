@@ -133,6 +133,122 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
   assert string.contains(message, "has no assigned value")
 }
 
+pub fn path_values_that_look_like_aliases_are_preserved_test() {
+  use value <- list.each(["-v", "-q", "-h", "--colour", "--colour=never"])
+  use command <- list.each(optional_path_flags)
+  let #(command, names) = command
+  use name <- list.each(names)
+  let separated = list.append(command, ["--" <> name, value, "-q"])
+  let equals = list.append(command, ["--" <> name <> "=" <> value, "-q"])
+  should.equal(cli.normalize_args(separated), cli.normalize_args(equals))
+  let assert Ok(glint.Out(action)) =
+    glint.execute(cli.app(), cli.normalize_args(separated))
+  let #(paths, verbosity) = case action {
+    cli.RunAudit(options) -> #(
+      [options.manifest_path, options.config_path, options.cache_path],
+      options.verbosity,
+    )
+    cli.UpdateConfig(options) -> #(
+      [options.manifest_path, options.config_path, options.cache_path],
+      options.verbosity,
+    )
+    cli.RunSbom(options) -> #(
+      [options.manifest_path, options.cache_path, options.output],
+      options.verbosity,
+    )
+    cli.RunNotices(options) -> #(
+      [
+        options.manifest_path,
+        options.config_path,
+        options.cache_path,
+        options.output,
+      ],
+      options.verbosity,
+    )
+    cli.RunVulns(options) -> #(
+      [options.manifest_path, options.config_path],
+      options.verbosity,
+    )
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
+  }
+  should.equal(list.filter(paths, option.is_some), [Some(value)])
+  should.equal(verbosity, progress.Quiet)
+}
+
+pub fn policy_values_that_look_like_aliases_are_preserved_test() {
+  use value <- list.each(["-v", "-q", "-h", "--colour"])
+  use command <- list.each([[], ["check"]])
+  use flags <- list.each([
+    ["--allow", value, "--deny", value],
+    ["--allow=" <> value, "--deny=" <> value],
+  ])
+  let options = parse_options(list.append(command, list.append(flags, ["-v"])))
+  should.equal(options.allow_licences, [value])
+  should.equal(options.deny_licences, [value])
+  should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn constrained_values_that_look_like_aliases_remain_invalid_values_test() {
+  use value <- list.each(["-v", "-q", "-h", "--colour"])
+  use flag <- list.each(["--color", "--colour", "--vuln-severity"])
+  let args = ["check", "--vulns", flag, value]
+  let normalized = cli.normalize_args(args)
+  let canonical = case flag {
+    "--colour" -> "--color"
+    _ -> flag
+  }
+  should.equal(normalized, ["check", "--vulns", canonical <> "=" <> value])
+  should.equal(
+    cli.normalize_args(["check", "--vulns", flag <> "=" <> value]),
+    normalized,
+  )
+  case glint.execute(cli.app(), normalized) {
+    Ok(glint.Out(cli.InvalidUsage(message))) -> {
+      assert string.contains(message, value)
+    }
+    Error(message) -> {
+      assert string.contains(message, "must be one of")
+    }
+    _ -> panic as "expected an invalid value, not help or parsed options"
+  }
+}
+
+pub fn equals_values_do_not_consume_the_next_alias_test() {
+  let options =
+    parse_options(["--manifest=-h", "--config=--colour", "--allow=-q", "-v"])
+  should.equal(options.manifest_path, Some("-h"))
+  should.equal(options.config_path, Some("--colour"))
+  should.equal(options.allow_licences, ["-q"])
+  should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn separated_colour_alias_accepts_a_value_test() {
+  let options = parse_options(["--colour", "never", "-q"])
+  should.equal(options.color, color.Never)
+  should.equal(options.verbosity, progress.Quiet)
+}
+
+pub fn missing_colour_alias_value_returns_usage_error_test() {
+  let message = usage_error(["--colour"])
+  assert string.contains(message, "color")
+  assert string.contains(message, "has no assigned value")
+}
+
+pub fn separators_remain_unsupported_and_do_not_rewrite_aliases_test() {
+  should.equal(cli.normalize_args(["--", "-h", "--colour"]), [
+    "--",
+    "-h",
+    "--colour",
+  ])
+  let message = usage_error(["--", "-h"])
+  assert string.contains(message, "flag provided but not defined")
+  let args = ["sbom", "--output", "--", "-v"]
+  should.equal(cli.normalize_args(args), args)
+  let message = usage_error(args)
+  assert string.contains(message, "output")
+  assert string.contains(message, "has no assigned value")
+}
+
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
   let options = parse_options(["check", "--vulns", "--vuln-block-unknown"])
 
