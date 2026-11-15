@@ -1,13 +1,46 @@
 import gleam/bit_array
+import gleam/json
 import gleam/list
 import gleam/result
 import gleam/string
 import gleeunit/should
+import licence_audit/hex
 import licence_audit/notice
 import licence_audit/source_archive
 import simplifile
 
 const fixture_dir = "test/fixtures/notices/archive_fixture"
+
+pub fn with_tar(
+  entries: List(#(String, BitArray)),
+  check: fn(BitArray) -> a,
+) -> a {
+  with_tar_gz(entries, fn(bytes) { check(gunzip(bytes)) })
+}
+
+pub fn metadata_archive(licences: List(String)) -> BitArray {
+  let metadata =
+    "{<<\"licenses\">>, ["
+    <> string.join(
+      list.map(licences, fn(licence) {
+        "<<" <> json.to_string(json.string(licence)) <> "/utf8>>"
+      }),
+      ",",
+    )
+    <> "]}.\n"
+  with_tar([#("metadata.config", <<metadata:utf8>>)], fn(bytes) { bytes })
+}
+
+pub fn metadata_clients(
+  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+) -> notice.Clients {
+  notice.Clients(..notice.default_clients(), fetch_hex_tarball: fn(name, _) {
+    case fetcher(name) {
+      Ok(metadata) -> Ok(metadata_archive(metadata.licences))
+      Error(_) -> Error(notice.FetchNetworkFailure)
+    }
+  })
+}
 
 pub fn with_beryl_archive(check: fn(BitArray) -> a) -> a {
   with_tar_gz(

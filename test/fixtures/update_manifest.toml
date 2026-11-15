@@ -1,0 +1,8 @@
+packages = [
+  { name = "app_a", version = "1.0.0", source = "hex", requirements = ["lib_b"], outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
+  { name = "lib_b", version = "2.0.0", source = "hex", requirements = ["lib_c"], outer_checksum = "07A4CA00995A3F9519B9C735E4ED729E08BBF3BA516FE7E399537BCDFC23153E" },
+  { name = "lib_c", version = "3.0.0", source = "hex", requirements = [], outer_checksum = "FDD245DB2171FE0BCE89962177075D7D19D7153EBCA6B31213F0FD0552F1F4EC" },
+]
+
+[requirements]
+app_a = "1.0.0"

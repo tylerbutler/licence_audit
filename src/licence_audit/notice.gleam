@@ -702,8 +702,41 @@ fn read_hex_source(
   })
 }
 
+/// Read declared metadata from a checksum-verified locked Hex tarball.
+pub fn hex_metadata_from_locked_source(
+  name: String,
+  version: String,
+  checksum: String,
+  fetch_hex_tarball: fn(String, String) -> Result(BitArray, FetchError),
+) -> Result(hex.PackageMetadata, Error) {
+  use bytes <- result.try(fetch_verified_hex_tarball(
+    name,
+    version,
+    checksum,
+    fetch_hex_tarball,
+  ))
+  use files <- result.try(
+    source_archive.extract_tar(bytes)
+    |> result.map_error(fn(error) {
+      ArchiveFailed(name, source_archive.describe_error(error))
+    }),
+  )
+  use metadata_file <- result.try(
+    list.find(files, fn(file) { file.path == "metadata.config" })
+    |> result.replace_error(MetadataFailed(
+      name,
+      "locked Hex archive has no metadata.config",
+    )),
+  )
+  hex.package_metadata_from_archive(metadata_file.contents)
+  |> result.replace_error(MetadataFailed(
+    name,
+    "locked Hex archive has invalid metadata.config",
+  ))
+}
+
 /// Fetch a Hex package tarball and verify it against the lockfile checksum.
-pub fn fetch_verified_hex_tarball(
+fn fetch_verified_hex_tarball(
   name: String,
   version: String,
   expected_checksum: String,

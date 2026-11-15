@@ -89,11 +89,14 @@ def smoke(binary, escript=False):
             args = ["check", "--verbose", "--color=never", *overrides]
             first = run(command + args, work, env, f"{name}-fresh")
             assert "Apache-2.0" in first and "Cache hit for gleam_stdlib@1.0.5" not in first, first
-            key = "gleam_stdlib@1.0.5"
+            key = (
+                "$immutable:v2:gleam_stdlib@1.0.5@hex:"
+                "CEE5B6C076A85B45F60C585F4316C63EC8B7127C119D5738C3958A9C4D50404E"
+            )
             entry_file = cache / (hashlib.sha256(key.encode()).hexdigest() + ".json")
             entry = json.loads(entry_file.read_text(encoding="utf-8"))
             assert entry["key"] == key, entry
-            assert "Apache-2.0" in entry["value"] and isinstance(entry["cached_at"], int), entry
+            assert "Apache-2.0" in entry["value"] and entry.get("cached_at") is None, entry
             assert not list(cache.glob("*.tmp")), "Temporary cache files were left behind"
             second = run(command + args, work, env, f"{name}-cached")
             assert "Cache hit for gleam_stdlib@1.0.5" in second, second
@@ -110,6 +113,8 @@ def smoke(binary, escript=False):
         for name in ("HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA"):
             isolated_env[name] = str(work / ("unused-" + name))
         for args, family, name in (
+            (["--verbose", "--color=never"], "hex-v2", "default-report"),
+            (["report", "--verbose", "--color=never"], "hex-v2", "named-report"),
             (notices_args, "notices-v3", "notices"),
             (["sbom", "--license-text", "--output=smoke-text.json", "--color=never"],
              "spdx-v1", "text"),

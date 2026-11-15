@@ -266,11 +266,14 @@ consolidated injected runner for tests and library callers. Pass a `Clients`
 bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
-disabled. Both runners add `--no-cache`, so they do not touch the on-disk
-caches. Concurrent CLI runs can share cache paths. `--no-cache` bypasses
-the caches without deleting entries. `--cache-dir=DIR` selects the application
-root for metadata, notice materials, and SPDX text. Stores use versioned
-subdirectories below that root.
+disabled. Pass `flags` or `["report", ..flags]` for a licence report; an empty
+argument list runs the default report. Both runners add `--no-cache` to default
+and named reports and other cache-capable commands, so they do not touch
+the on-disk caches or add unsupported flags
+to root help/version or standalone `vulns`. Concurrent CLI runs can share
+cache paths. `--no-cache` bypasses the caches without deleting entries.
+`--cache-dir=DIR` selects the application root for metadata, notice materials,
+and SPDX text. Stores use versioned subdirectories below that root.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 

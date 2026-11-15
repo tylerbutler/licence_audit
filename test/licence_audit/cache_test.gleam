@@ -9,7 +9,10 @@ import licence_audit/cache_dir
 import licence_audit/cache_support
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/notice
 import licence_audit/progress
+import licence_audit/source_archive
+import licence_audit/source_archive_test
 import simplifile
 
 const tmp_dir = "build/tmp/cache_test"
@@ -33,7 +36,12 @@ fn fresh_path(name: String) -> String {
 }
 
 fn pkg(name: String, version: String) -> manifest.Package {
-  manifest.Package(name: name, version: version, requirements: [])
+  manifest.Package(
+    name: name,
+    version: version,
+    requirements: [],
+    outer_checksum: "",
+  )
 }
 
 fn reporter() -> progress.Reporter {
@@ -306,6 +314,51 @@ pub fn immutable_cache_entries_do_not_expire_test() {
       panic as "immutable fetcher must not run on a cache hit"
     })
   should.equal(cached.publisher, Some("archived"))
+  let assert None = cache.close(handle)
+}
+
+pub fn locked_licence_cache_reuses_sbom_evidence_and_isolates_checksums_test() {
+  let path = fresh_path("locked_licences")
+  let archive = source_archive_test.metadata_archive(["Apache-2.0"])
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let package = manifest.Package("example", "1.0.0", [], checksum)
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let key = "example@1.0.0@hex:" <> checksum
+  let assert #(Ok(metadata), None) =
+    cache.fetch_immutable(handle, key, fn() {
+      notice.hex_metadata_from_locked_source(
+        package.name,
+        package.version,
+        checksum,
+        fn(_, _) { Ok(archive) },
+      )
+    })
+  let assert None = cache.close(handle)
+  // Mutable API cache entries cannot replace checksum-verified declarations.
+  write_cache_entry_without_timestamp(
+    path,
+    "example@1.0.0",
+    hex.licences_only(["MIT"]),
+  )
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let #(cached, _) =
+    cache.wrap_locked(handle, fn(_, _, _) {
+      panic as "verified SBOM metadata must be reused without downloading"
+    })(
+      manifest.Package(..package, outer_checksum: string.lowercase(checksum)),
+      reporter(),
+    )
+  should.equal(cached, Ok(metadata))
+  let other_archive = source_archive_test.metadata_archive(["MIT"])
+  let assert Ok(other_checksum) = source_archive.sha256_hex(other_archive)
+  let #(changed, _) =
+    cache.wrap_locked(handle, fn(name, version, expected) {
+      should.equal(expected, other_checksum)
+      notice.hex_metadata_from_locked_source(name, version, expected, fn(_, _) {
+        Ok(other_archive)
+      })
+    })(manifest.Package(..package, outer_checksum: other_checksum), reporter())
+  should.equal(changed, Ok(hex.licences_only(["MIT"])))
   let assert None = cache.close(handle)
 }
 
