@@ -8,6 +8,11 @@ description: Report Hex package licence metadata and enforce your licence policy
 **enforces** your policy. It returns a nonzero exit code when it finds a
 violation. Use `check` in CI.
 
+The licence verdict uses declarations from the checksum-verified locked Hex
+archive, even if the Hex API reports different licences for the latest release.
+Reports and `update` use the same evidence and
+[checksum-keyed cache](/docs/#caching).
+
 ```sh
 licence_audit check
 ```
@@ -112,6 +117,11 @@ Completed licence checks exit `0` when the policy passes and `1` for policy
 violations. Unavailable or invalid package metadata exits `2`, even when a
 partial report is available or other packages violate the policy. The
 `report` command also exits `2` for these metadata failures.
+
+Required evidence includes a valid `outer_checksum` and the locked archive's
+`metadata.config`. A checksum mismatch, failed download, or invalid or missing
+metadata cannot fall back to API licences. Create a checksum-bearing lockfile
+with `gleam deps download`.
 
 ## Production-only gates
 

@@ -246,24 +246,24 @@ fn execute_action(
           vuln_block_unknown: False,
           prod_only: options.prod_only,
         ),
-        clients.fetcher,
         clients.osv_batch_fetcher,
         clients.osv_detail_fetcher,
+        clients.notice_clients,
         reporter,
         palette,
       )
     cli.RunAudit(options) ->
       run_options_with_clients(
         options,
-        clients.fetcher,
         clients.osv_batch_fetcher,
         clients.osv_detail_fetcher,
+        clients.notice_clients,
         reporter,
         palette,
       )
     cli.UpdateConfig(options) -> {
       let #(result, reporter) =
-        run_update_options(options, clients.fetcher, reporter)
+        run_update_options(options, clients.notice_clients, reporter)
       let run_result = RunResult(result.exit_code, result.output)
       #(
         case result {
@@ -980,38 +980,15 @@ fn hex_metadata_from_locked_source(
   checksum: String,
   clients: notice.Clients,
 ) -> Result(hex.PackageMetadata, error.Error) {
-  use bytes <- result.try(
-    notice.fetch_verified_hex_tarball(
-      entry.name,
-      entry.version,
-      checksum,
-      clients.fetch_hex_tarball,
-    )
-    |> result.map_error(fn(source_error) {
-      error.SbomMetadataFailed(entry.name, notice.describe_error(source_error))
-    }),
-  )
-  use files <- result.try(
-    source_archive.extract_tar(bytes)
-    |> result.map_error(fn(archive_error) {
-      error.SbomMetadataFailed(
-        entry.name,
-        source_archive.describe_error(archive_error),
-      )
-    }),
-  )
-  use metadata_file <- result.try(
-    list.find(files, fn(file) { file.path == "metadata.config" })
-    |> result.replace_error(error.SbomMetadataFailed(
-      entry.name,
-      "locked Hex archive has no metadata.config",
-    )),
-  )
-  hex.package_metadata_from_archive(metadata_file.contents)
-  |> result.replace_error(error.SbomMetadataFailed(
+  notice.hex_metadata_from_locked_source(
     entry.name,
-    "locked Hex archive has invalid metadata.config",
-  ))
+    entry.version,
+    checksum,
+    clients.fetch_hex_tarball,
+  )
+  |> result.map_error(fn(source_error) {
+    error.SbomMetadataFailed(entry.name, notice.describe_error(source_error))
+  })
 }
 
 fn git_metadata_from_locked_source(
@@ -1310,6 +1287,7 @@ fn fetch_hex_entry_metadata(
       name: entry.name,
       version: entry.version,
       requirements: entry.requirements,
+      outer_checksum: "",
     )
   let #(result, reporter) = fetcher(package, reporter)
   case result {
@@ -1507,9 +1485,9 @@ fn write_sbom_output(
 
 fn run_options_with_clients(
   options: cli.Options,
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
@@ -1528,9 +1506,9 @@ fn run_options_with_clients(
         locked,
         sbom_manifest,
         scopes,
-        fetcher,
         osv_batch_fetcher,
         osv_detail_fetcher,
+        source_clients,
         reporter,
         palette,
       )
@@ -1599,9 +1577,9 @@ fn audit_locked(
   locked: manifest.LockedPackages,
   sbom_manifest: Option(manifest.SbomManifest),
   scopes: dict.Dict(String, manifest.Scope),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
@@ -1617,7 +1595,15 @@ fn audit_locked(
     False -> cache.Enabled(path: options.cache_path)
   }
   let cache_handle = cache.open(cache_mode)
-  let cached_fetcher = cache.wrap(cache_handle, fetcher)
+  let cached_fetcher =
+    cache.wrap_locked(cache_handle, fn(name, version, checksum) {
+      notice.hex_metadata_from_locked_source(
+        name,
+        version,
+        checksum,
+        source_clients.fetch_hex_tarball,
+      )
+    })
   let dep_paths = manifest.dep_paths(locked)
   let #(active_packages, active_skipped) = case options.prod_only {
     False -> #(locked.packages, locked.skipped_packages)
@@ -1858,7 +1844,7 @@ fn finalize_audit(
 fn fetch_packages(
   packages: List(manifest.Package),
   fetcher: fn(manifest.Package, progress.Reporter) ->
-    #(Result(hex.PackageMetadata, hex.Error), progress.Reporter),
+    #(Result(hex.PackageMetadata, notice.Error), progress.Reporter),
   audit_policy: policy.Policy,
   check_mode: Bool,
   paths: dict.Dict(String, List(String)),
@@ -1882,7 +1868,7 @@ fn fetch_packages(
       let #(fetch_result, reporter) = fetcher(package, reporter)
       case fetch_result {
         Error(fetch_error) -> {
-          let message = error.message(error.from_hex_error(fetch_error))
+          let message = notice.describe_error(fetch_error)
           let reporter =
             progress.fail(
               reporter,
@@ -2118,7 +2104,7 @@ fn halt(code: Int) -> Nil
 
 fn run_update_options(
   options: cli.UpdateOptions,
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(update_cmd.UpdateResult, progress.Reporter) {
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
@@ -2130,7 +2116,7 @@ fn run_update_options(
     options.ignore_config,
     options.no_cache,
     options.cache_path,
-    fetcher,
+    source_clients,
     reporter,
   )
 }

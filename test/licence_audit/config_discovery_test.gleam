@@ -8,6 +8,7 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/picker
 import licence_audit/progress
+import licence_audit/source_archive_test
 import licence_audit/update
 import simplifile
 
@@ -175,6 +176,7 @@ pub fn discovery_uses_manifest_sibling_not_current_directory_or_parent_test() {
       licence_audit.Clients(
         ..licence_audit.default_clients(),
         fetcher: metadata_fetcher,
+        notice_clients: source_archive_test.metadata_clients(metadata_fetcher),
       ),
       progress.disabled(),
     )
@@ -206,7 +208,7 @@ pub fn update_rejects_missing_section_before_fetch_picker_or_write_test() {
       False,
       True,
       None,
-      unused_fetcher,
+      source_archive_test.metadata_clients(unused_fetcher),
       fn(_title, _labels, _allow, _deny) {
         panic as "invalid configuration must stop before selection"
       },
@@ -229,7 +231,7 @@ pub fn update_ignore_config_keeps_explicit_write_target_test() {
       True,
       True,
       None,
-      metadata_fetcher,
+      source_archive_test.metadata_clients(metadata_fetcher),
       fn(_title, _labels, allow, deny) {
         should.equal(allow, [])
         should.equal(deny, [])

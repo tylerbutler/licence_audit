@@ -1,5 +1,6 @@
 """Run the update flow under a file-size limit applied after VM startup (Linux)."""
 
+import hashlib
 import pathlib
 import resource
 import signal
@@ -13,17 +14,25 @@ original = b'# Must survive SIGXFSZ\nname = "keep_me"\n'
 path.write_bytes(original)
 path.chmod(0o640)
 before = path.stat()
+archive = pathlib.Path("test/fixtures/sbom_metadata/hex.tar")
+checksum = hashlib.sha256(archive.read_bytes()).hexdigest().upper()
+(root / "manifest.toml").write_text(
+    'packages = [{ name = "example", version = "1.0.0", source = "hex", '
+    f'outer_checksum = "{checksum}" }}]\n'
+)
 
 evaluation = """
+{ok, Archive} = file:read_file("test/fixtures/sbom_metadata/hex.tar"),
+Clients = setelement(2, licence_audit@notice:default_clients(),
+    fun(_, _) -> {ok, Archive} end),
 io:format("READY~n"), io:get_line(""),
-Fetcher = fun(_) -> {ok, licence_audit@hex:licences_only([<<"MIT">>])} end,
 Picker = fun(_, _, _, _) ->
     {ok, {selection, lists:duplicate(1000, <<"MIT-long-policy-entry">>), []}}
 end,
 licence_audit@update:run_with_picker(
-    <<"test/fixtures/transitive_manifest.toml">>, <<".">>,
+    <<"build/tmp/update_sigxfsz/manifest.toml">>, <<".">>,
     {some, <<"build/tmp/update_sigxfsz/gleam.toml">>}, true, true, none,
-    Fetcher, Picker, licence_audit@progress:capturing(verbose, <<"update">>)
+    Clients, Picker, licence_audit@progress:capturing(verbose, <<"update">>)
 ),
 halt().
 """

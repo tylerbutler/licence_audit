@@ -1,5 +1,6 @@
 """Exercise the CLI with stdout and stderr captured independently."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parent.parent
+HEX_ARCHIVE = ROOT / "test/fixtures/sbom_metadata/hex.tar"
+HEX_CHECKSUM = hashlib.sha256(HEX_ARCHIVE.read_bytes()).hexdigest().upper()
 
 
 class CliStreamTest(unittest.TestCase):
@@ -387,7 +390,7 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "example", version = "1.0.0", '
             'build_tools = ["gleam"], requirements = [], '
-            'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
+            f'otp_app = "example", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
         cache_path = self.project / "metadata"
@@ -399,9 +402,14 @@ class CliStreamTest(unittest.TestCase):
                 """
                 Path = unicode:characters_to_binary(os:getenv("STREAM_CACHE_PATH")),
                 Cache = 'licence_audit@cache':open({enabled, {some, Path}}),
-                {{ok, _}, none} = 'licence_audit@cache':fetch_cached_quiet(
-                    Cache, <<"example">>, <<"1.0.0">>,
-                    fun(_) -> {ok, 'licence_audit@hex':licences_only([<<"MIT">>])} end),
+                Checksum = list_to_binary(os:getenv("STREAM_ARCHIVE_CHECKSUM")),
+                {{ok, _}, none} = 'licence_audit@cache':fetch_immutable(
+                    Cache, <<"example@1.0.0@hex:", Checksum/binary>>,
+                    fun() ->
+                        'licence_audit@notice':hex_metadata_from_locked_source(
+                            <<"example">>, <<"1.0.0">>, Checksum,
+                            fun(_, _) -> file:read_file(os:getenv("STREAM_ARCHIVE_PATH")) end)
+                    end),
                 none = 'licence_audit@cache':close(Cache),
                 halt(0).
                 """,
@@ -410,10 +418,14 @@ class CliStreamTest(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=30,
-            env={**os.environ, "STREAM_CACHE_PATH": str(cache_path)},
+            env={
+                **os.environ, "STREAM_CACHE_PATH": str(cache_path),
+                "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
+                "STREAM_ARCHIVE_CHECKSUM": HEX_CHECKSUM,
+            },
         )
         self.assertEqual(seed.returncode, 0, seed.stdout + seed.stderr)
-        for licence, status in (("Apache-2.0", 1), ("MIT", 0)):
+        for licence, status in (("MIT", 1), ("Apache-2.0", 0)):
             for quiet in (False, True):
                 with self.subTest(licence=licence, quiet=quiet):
                     result = self.run_cli(
@@ -436,23 +448,26 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "example", version = "1.0.0", '
             'build_tools = ["gleam"], requirements = [], '
-            'otp_app = "example", source = "hex", outer_checksum = "ABC" }]\n'
+            f'otp_app = "example", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
         # Replace only fetch functions in a fresh VM, retaining the real OSV
         # formatting/severity functions and main's stream dispatch.
         evaluation = """
-            Metadata = 'licence_audit@hex':licences_only([<<"MIT">>]),
-            HexForms = [
-                {attribute, 1, module, 'licence_audit@hex'},
-                {attribute, 1, export, [{fetch_package_metadata_from_hex, 1}]},
-                {function, 1, fetch_package_metadata_from_hex, 1, [
-                    {clause, 1, [{var, 1, '_'}], [],
-                        [erl_parse:abstract({ok, Metadata})]}
-                ]}
-            ],
-            {ok, Hex, HexBinary} = compile:forms(HexForms, [binary]),
-            {module, Hex} = code:load_binary(Hex, "stream_fixture", HexBinary),
+            {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
+            Notice = 'licence_audit@notice',
+            {ok, {Notice, [{abstract_code, {raw_abstract_v1, NoticeForms}}]}} =
+                beam_lib:chunks(code:which(Notice), [abstract_code]),
+            SourceForms = lists:map(fun
+                ({function, Line, fetch_hex_tarball_from_hex, 2, _}) ->
+                    {function, Line, fetch_hex_tarball_from_hex, 2, [
+                        {clause, Line, [{var, Line, '_'}, {var, Line, '_'}], [],
+                            [erl_parse:abstract({ok, Archive})]}
+                    ]};
+                (Form) -> Form
+            end, NoticeForms),
+            {ok, Notice, NoticeBinary} = compile:forms(SourceForms, [binary]),
+            {module, Notice} = code:load_binary(Notice, "stream_fixture", NoticeBinary),
             Mode = os:getenv("STREAM_OSV_MODE"),
             Severity = case Mode of "unknown" -> unknown_severity; _ -> high end,
             Batch = case Mode of
@@ -497,11 +512,11 @@ class CliStreamTest(unittest.TestCase):
         for mode, deny_licence, status in cases:
             for quiet in (False, True):
                 with self.subTest(mode=mode, deny_licence=deny_licence, quiet=quiet):
-                    arguments = ["check", "--allow=MIT", "--vulns", "--no-cache"]
+                    arguments = ["check", "--allow=Apache-2.0", "--vulns", "--no-cache"]
                     if mode == "unknown":
                         arguments += ["--vuln-block-unknown"]
                     if deny_licence:
-                        arguments += ["--deny=MIT"]
+                        arguments += ["--deny=Apache-2.0"]
                     if quiet:
                         arguments += ["--quiet"]
                     result = subprocess.run(
@@ -515,6 +530,7 @@ class CliStreamTest(unittest.TestCase):
                         env={
                             **os.environ, "NO_COLOR": "1",
                             "STREAM_OSV_MODE": mode,
+                            "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
                         },
                     )
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
@@ -581,34 +597,36 @@ class CliStreamTest(unittest.TestCase):
         packages = [
             '{ name = "' + name + '", version = "1.0.0", '
             'build_tools = ["gleam"], requirements = [], '
-            'otp_app = "' + name + '", source = "hex", outer_checksum = "ABC" }'
+            'otp_app = "' + name + '", source = "hex", outer_checksum = "' + HEX_CHECKSUM + '" }'
             for name in ("healthy", "unavailable")
         ]
         (self.project / "manifest.toml").write_text(
             "packages = [" + ", ".join(packages) + "]\n"
             '[requirements]\nhealthy = ">= 1.0.0"\nunavailable = ">= 1.0.0"\n'
         )
-        # Replace only Hex fetching in a fresh VM; exercise the real main/dispatch.
+        # Replace archive fetching in a fresh VM; retain verification and decoding.
         evaluation = """
-            Metadata = 'licence_audit@hex':licences_only([<<"MIT">>]),
-            Forms = [
-                {attribute, 1, module, 'licence_audit@hex'},
-                {attribute, 1, export, [{fetch_package_metadata_from_hex, 1}]},
-                {function, 1, fetch_package_metadata_from_hex, 1, [
-                    {clause, 1, [erl_parse:abstract(<<"healthy">>)], [],
-                        [erl_parse:abstract({ok, Metadata})]},
-                    {clause, 1, [{var, 1, '_'}], [],
-                        [erl_parse:abstract({error,
-                            {network_failure, <<"fixture metadata failure">>}})]}
-                ]}
-            ],
-            {ok, Module, Binary} = compile:forms(Forms, [binary]),
+            {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
+            Module = 'licence_audit@notice',
+            {ok, {Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                beam_lib:chunks(code:which(Module), [abstract_code]),
+            Replaced = lists:map(fun
+                ({function, Line, fetch_hex_tarball_from_hex, 2, _}) ->
+                    {function, Line, fetch_hex_tarball_from_hex, 2, [
+                        {clause, Line, [erl_parse:abstract(<<"healthy">>), {var, Line, '_'}], [],
+                            [erl_parse:abstract({ok, Archive})]},
+                        {clause, Line, [{var, Line, '_'}, {var, Line, '_'}], [],
+                            [erl_parse:abstract({error, fetch_timeout})]}
+                    ]};
+                (Form) -> Form
+            end, Forms),
+            {ok, Module, Binary} = compile:forms(Replaced, [binary]),
             {module, Module} = code:load_binary(Module, "stream_fixture", Binary),
             licence_audit:main().
         """
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
-            for command in (["report"], ["check", "--allow=MIT"])
+            for command in (["report"], ["check", "--allow=Apache-2.0"])
             for mode, environment, colored in (
                 ("never", {"FORCE_COLOR": "1"}, False),
                 ("always", {"NO_COLOR": "1"}, True),
@@ -620,6 +638,7 @@ class CliStreamTest(unittest.TestCase):
                 for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
                     env.pop(name, None)
                 env.update(environment)
+                env["STREAM_ARCHIVE_PATH"] = str(HEX_ARCHIVE)
                 result = subprocess.run(
                     [
                         "erl", "-noshell", "-pa",
@@ -635,9 +654,9 @@ class CliStreamTest(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn("healthy", result.stdout)
-                self.assertIn("MIT", result.stdout)
+                self.assertIn("Apache-2.0", result.stdout)
                 self.assertIn("unavailable", result.stdout)
-                self.assertIn("fixture metadata failure", result.stdout)
+                self.assertIn("timed out after 30s", result.stdout)
                 self.assertIn("package metadata could not be fetched", result.stderr)
                 self.assertNotIn("healthy", result.stderr)
                 for message in (
@@ -693,7 +712,7 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "gleam_stdlib", version = "0.60.0", '
             'build_tools = ["gleam"], requirements = [], '
-            'otp_app = "gleam_stdlib", source = "hex", outer_checksum = "ABC" }]\n'
+            f'otp_app = "gleam_stdlib", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\ngleam_stdlib = ">= 0.60.0"\n'
         )
         for arguments in (["check", "--allow=MIT", "--no-cache"], ["vulns"]):
@@ -707,12 +726,17 @@ class CliStreamTest(unittest.TestCase):
                     env={
                         **os.environ,
                         "NO_COLOR": "1",
-                        "ERL_FLAGS": "-public_key cacerts_path [47,110,111]",
+                        "ERL_FLAGS": "+S 2:2 +SDcpu 1 +SDio 1 -public_key cacerts_path [47,110,111]",
                     },
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-                self.assertIn("failed_load_cacerts", result.stderr)
-                self.assertIn("enoent", result.stderr)
+                certificate_error = (
+                    ("FailedLoadCacerts", "Enoent")
+                    if arguments[0] == "check"
+                    else ("failed_load_cacerts", "enoent")
+                )
+                for detail in certificate_error:
+                    self.assertIn(detail, result.stderr)
                 self.assertNotIn("runtime error:", result.stderr.lower())
                 self.assertNotIn("stack trace", result.stderr.lower())
                 self.assertNotIn("runtime terminating", result.stderr.lower())

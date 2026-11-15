@@ -1,6 +1,6 @@
 packages = [
-  { name = "gleam_stdlib", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "AAAA" },
-  { name = "gleeunit", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleeunit", source = "hex", outer_checksum = "BBBB" },
+  { name = "gleam_stdlib", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66" },
+  { name = "gleeunit", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "gleeunit", source = "hex", outer_checksum = "B6A799B33DDCB78EDB6A17EA45D24813304C77E8C132E0D44B374529E6334956" },
 ]
 
 [requirements]
