@@ -24,7 +24,7 @@
   3. resolve dependency paths for tree rendering (`manifest.dep_paths`)
   4. fetch Hex metadata (wrapped by `cache.gleam`)
   5. evaluate policy per package + render report tree (`report.gleam`)
-  6. optionally run OSV vulnerability gate for `check --vulns` (`osv.gleam`)
+  6. run the OSV vulnerability gate for `check --checks=all` (`osv.gleam`); `check --checks=vulns` uses a separate flow without licence metadata or enforcement
 - **Subcommand-specific flows**:
   - `update`: `src/licence_audit/update.gleam` discovers licenses and writes `[tools.licence_audit]` via `toml_port.gleam` (`tomlet`-based, comment-preserving edits).
   - `sbom`: `src/licence_audit/sbom.gleam` + `sbom_json.gleam` generate CycloneDX JSON and enforce supported purl sources.

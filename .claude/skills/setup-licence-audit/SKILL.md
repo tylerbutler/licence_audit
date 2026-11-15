@@ -141,7 +141,8 @@ vuln_block_unknown = true
 ```
 
 This is an example of vulnerability settings, not a complete licence policy.
-The settings do not enable OSV checks on their own; the command needs `--vulns`.
+The settings do not enable OSV checks on their own; select `--checks=vulns` or
+`--checks=all` on `check`.
 
 ## 4. Add local commands
 
@@ -152,7 +153,8 @@ Use the column for the selected installation:
 | Licence report or policy preview | `gleam run --target erlang -m licence_audit -- report` (or omit `-- report`) | `licence_audit report` (or `licence_audit`) |
 | Vulnerability report | `gleam run --target erlang -m licence_audit -- vulns` | `licence_audit vulns` |
 | Enforce licence policy | `gleam run --target erlang -m licence_audit -- check` | `licence_audit check` |
-| Enforce licences and vulnerability threshold | `gleam run --target erlang -m licence_audit -- check --vulns` | `licence_audit check --vulns` |
+| Enforce vulnerability threshold only | `gleam run --target erlang -m licence_audit -- check --checks=vulns` | `licence_audit check --checks=vulns` |
+| Enforce licences and vulnerability threshold | `gleam run --target erlang -m licence_audit -- check --checks=all` | `licence_audit check --checks=all` |
 
 For the manual policy picker, use
 `gleam run --target erlang -m licence_audit -- update` with a module setup,
@@ -160,7 +162,7 @@ or `licence_audit update` with a standalone setup. Put policy flags such as
 `--config` after `--` in module commands.
 
 Report commands do not fail because they find violations or vulnerabilities.
-Use the combined `check --vulns` command for enforcement. It returns `1` for
+Use the combined `check --checks=all` command for enforcement. It returns `1` for
 gate failures and `2` for input, configuration, or network errors. Do not hide
 these failures with `|| true` or equivalent settings.
 
@@ -169,7 +171,7 @@ to the existing task runner, or document shell commands if there is none.
 Reuse existing matching tasks and tool execution wrappers (such as
 `mise exec --`); do not overwrite a generic `check` task. Keep local and CI
 commands on the same policy and version. Do not add severity flags that
-override the configured policy. Use `--prod-only` only when requested.
+override the configured policy. Use `--scope=prod` only when requested.
 
 Licence auditing covers locked Hex packages. Vulnerability checks cover Hex
 and GitHub dependencies; other sources are skipped and reported. Surface
@@ -177,7 +179,7 @@ skipped packages rather than claiming complete dependency coverage. Hex
 metadata can be cached; OSV advisories require network access and are not
 cached. An unavailable OSV service is an incomplete check, not a clean result.
 Adding the tool as a dev dependency also adds it and its dependencies to the
-lockfile being audited. Do not hide these packages or add `--prod-only` to
+lockfile being audited. Do not hide these packages or add `--scope=prod` to
 remove them unless the user requests production-only coverage.
 
 ## 5. Add CI only on request

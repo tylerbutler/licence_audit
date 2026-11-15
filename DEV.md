@@ -150,7 +150,7 @@ The smoke recipe needs Docker and network access. It runs the executable
 in a Debian container with CA certificates but no Erlang installation.
 A temporary one-package project, HOME, and cache keep the test separate
 from local configuration. The test makes real Hex and OSV requests for a
-licence report, a vulnerability report, and `check --vulns`. It also checks
+licence report, a vulnerability report, and `check --checks=all`. It also checks
 help, version, and offline SBOM output. Network failures fail the test;
 failure logs are printed before temporary files are removed.
 

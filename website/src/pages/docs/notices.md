@@ -12,16 +12,16 @@ create the related machine-readable data.
 ```sh
 licence_audit notices                              # to stdout
 licence_audit notices --output=THIRD_PARTY_LICENSES.txt
-licence_audit notices --include-dev
+licence_audit notices --scope=all
 ```
 
-By default, `notices` includes only **production** dependencies. Use
-`--include-dev` to add development dependencies. A valid project without a
-`[dependencies]` table has no production dependencies.
+By default, `notices` uses `--scope=prod` and includes only **production**
+dependencies. Use `--scope=all` to add development dependencies. A valid
+project without a `[dependencies]` table has no production dependencies.
 
 A missing `gleam.toml` uses all lockfile direct dependencies as production
 roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
-table causes exit code `2`, including with `--ignore-config` or `--include-dev`.
+table causes exit code `2`, including with `--ignore-config` or `--scope=all`.
 
 ## Dependency filters
 
@@ -46,7 +46,7 @@ so this example selects only `package_a`.
 Use exact locked package names, including transitive dependencies. Unknown
 names in either list cause an error, even if a scope rule or another filter
 would remove them. Known development-only dependencies remain valid names,
-but `include` does not make them eligible without `--include-dev`.
+but `include` cannot widen `--scope=prod`. Use `--scope=all` to make them eligible.
 
 Filters apply to Hex, git, and path dependencies after production/development
 scope selection. The command does no metadata, source, or package cache work
@@ -194,10 +194,10 @@ licence_audit notices [--flags]
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--include-dev` | `BOOL` | `false` | Include dev-only dependencies in the notice file |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--output` | `STRING` |  | Write notices to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--scope` | `STRING` | `prod` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- cli-referencestop -->

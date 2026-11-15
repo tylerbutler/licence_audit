@@ -369,7 +369,7 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
     [
       "--allow=MIT",
       "--deny=GPL-3.0-only",
-      "--vulns",
+      "--checks=all",
       "--vuln-severity=critical",
     ],
   ]
@@ -425,7 +425,7 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "--config=" <> path,
           "--allow=MIT",
           "--deny=GPL-3.0-only",
-          "--vulns",
+          "--checks=all",
           "--vuln-severity=critical",
           "--vuln-block-unknown",
         ],
