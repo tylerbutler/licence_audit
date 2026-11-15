@@ -13,7 +13,7 @@ licence_audit sbom --output=sbom.json  # pretty JSON to a file
 licence_audit sbom --offline           # skip Hex fetch, omit licence fields
 licence_audit sbom --reproducible      # reproducible output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
-licence_audit sbom --license-text      # embed canonical SPDX licence text
+licence_audit sbom --licence-text      # embed canonical SPDX licence text
 ```
 
 ## Document contents
@@ -61,7 +61,12 @@ extract copyright holders. Use a source scanner when you need that evidence.
 
 ## Embedded licence text
 
-`--license-text` adds canonical SPDX License List text to recognised licence
+Use `--license-text` as a supported alias for `--licence-text`. Both spellings
+accept a bare flag, `=true`, or `=false`. A bare flag toggles the value; an
+explicit value sets it. Repeated flags, including mixed spellings, apply in
+argument order.
+
+`--licence-text` adds canonical SPDX License List text to recognised licence
 IDs on dependencies and the root component:
 
 ```json
@@ -177,7 +182,7 @@ licence_audit sbom [--flags]
 |------|------|---------|-------------|
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--license-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline) |
+| `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline; alias: --license-text) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git |

@@ -121,6 +121,7 @@ jobs:
       - name: Type check
         run: just check
 
+      # Later --no-deps steps reuse this escript and its production BEAM files.
       - name: Build (warnings as errors)
         run: just build-strict
 
@@ -134,7 +135,7 @@ jobs:
         run: mise exec -- python3 -B test/native_cache_smoke.py licence_audit --escript
 
       - name: Check vendored production boundary
-        run: just test-vendor-production
+        run: just --no-deps test-vendor-production
 
       - name: Run tests
         run: just test
@@ -149,19 +150,19 @@ jobs:
         run: just test-update-atomic
 
       - name: Test CLI output streams
-        run: just test-cli-streams
+        run: just --no-deps test-cli-streams
 
       - name: Test Unicode environment conversion and ASCII cache paths
-        run: just test-env-cache-paths
+        run: just --no-deps test-env-cache-paths
 
       - name: Smoke test built CLI
         run: ./licence_audit --help
 
       - name: Check generated docs are up to date
-        run: just docs-check
+        run: just --no-deps _docs-ffi docs-check
 
       - name: Test documentation generation
-        run: just test-docs
+        run: just --no-deps test-docs
 
       - name: Cache licence_audit application data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
@@ -172,12 +173,15 @@ jobs:
             licence-audit-root-v1-${{ runner.os }}-
             hex-licence-v4-${{ runner.os }}-
 
+      - name: Generate SBOM
+        run: just --no-deps sbom-generate
+
       - name: Check committed SBOM is up to date
         if: ${{ !inputs.skip_sbom_drift_check }}
-        run: just sbom-drift-check
+        run: just --no-deps sbom-drift-check
 
       - name: Validate SBOM (schema)
-        run: just sbom-validate
+        run: just --no-deps sbom-validate
 
   native-http:
     runs-on: ubuntu-latest

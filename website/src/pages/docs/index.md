@@ -128,6 +128,18 @@ jobs:
 | [`update`](/docs/update) | Select licences and write a policy to `gleam.toml`. |
 | [`vulns`](/docs/vulns) | Report known vulnerabilities from OSV.dev. Does not evaluate policy. |
 
+### Flag values and aliases
+
+Use `--flag=value` or `--flag value` for flags that take a value.
+For example, `licence_audit sbom --output -v` writes to a file named `-v`;
+it does not enable verbose output. Values can contain `=`, and you can use
+`--output=--colour` for a file named `--colour`.
+
+Use `-h`, `-q`, and `-v` as options for help, quiet output, and verbose output.
+Use `--colour` as an alias for `--color`. These aliases keep their literal
+text when you supply them as flag values. Do not use a `--` separator or
+positional arguments.
+
 ## Output, colours, and exit codes
 
 Reports and gate verdicts go to **stdout**. Progress, warnings, and operational
@@ -312,11 +324,9 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

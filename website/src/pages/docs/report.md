@@ -31,6 +31,10 @@ it must contain a valid `[tools.licence_audit]` section. Use `--ignore-config`
 for a read-only report that ignores policy files. See
 [configuration discovery](/docs/configuration#discovery).
 
+Reports read `allow` and `deny` from the selected TOML file.
+Use `--config=policies/release.toml` to select a complete alternate policy.
+The default and named reports reject `--allow` and `--deny`.
+
 Use `--no-cache` to bypass the on-disk caches. Use `--quiet` (`-q`) or
 `--verbose` (`-v`) to control progress on stderr, and `--color` (`--colour`)
 to select `auto`, `always`, or `never`. Reports use stdout; input and
@@ -67,11 +71,9 @@ licence_audit report [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

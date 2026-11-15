@@ -222,13 +222,16 @@ fn assert_invalid_cli(
       no_fetch_clients(),
       progress.disabled(),
     )
-  should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "valid SPDX expressions")
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "invalid flag")
 }
 
-pub fn cli_malformed_entries_fail_before_fetching_test() {
-  list.each(["report", "check"], fn(command) {
-    let commands = [command]
+pub fn removed_cli_entries_fail_before_fetching_test() {
+  list.each(["", "report", "check"], fn(command) {
+    let commands = case command {
+      "" -> []
+      _ -> [command]
+    }
     list.each(["allow", "deny"], fn(field) {
       list.each(
         ["MIT/Apache-2.0", "Apache 2.0", "", "MIT,", ",MIT", "MIT,,Apache-2.0"],
@@ -242,7 +245,7 @@ pub fn cli_malformed_entries_fail_before_fetching_test() {
   })
 }
 
-pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
+pub fn file_errors_stop_checks_before_fetching_test() {
   let root = "build/strict-config-validation"
   let assert Ok(_) = simplifile.create_directory_all(root)
   let manifest_path = root <> "/manifest.toml"
@@ -259,13 +262,7 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
       }
       let #(result, _) =
         licence_audit.run_configured(
-          [
-            "check",
-            "--manifest=" <> manifest_path,
-            "--allow=MIT",
-            "--deny=GPL-3.0-only",
-            ..flags
-          ],
+          ["check", "--manifest=" <> manifest_path, ..flags],
           no_fetch_clients(),
           progress.disabled(),
         )
@@ -290,13 +287,7 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
       }
       let #(result, _) =
         licence_audit.run_configured(
-          [
-            "check",
-            "--manifest=" <> manifest_path,
-            "--allow=MIT",
-            "--deny=GPL-3.0-only",
-            ..flags
-          ],
+          ["check", "--manifest=" <> manifest_path, ..flags],
           no_fetch_clients(),
           progress.disabled(),
         )

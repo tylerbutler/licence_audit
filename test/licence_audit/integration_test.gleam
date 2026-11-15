@@ -18,6 +18,7 @@ import licence_audit/repository
 import licence_audit/source_archive
 import licence_audit/source_archive_test
 import licence_audit/spdx
+import licence_audit/test_policy
 import licence_audit/toml
 import licence_audit/update
 import simplifile
@@ -74,8 +75,7 @@ pub fn help_and_version_do_not_call_clients_test() {
 pub fn default_and_named_report_preserve_output_errors_and_cache_bypass_test() {
   let args = [
     "--manifest=test/fixtures/manifest.toml",
-    "--ignore-config",
-    "--deny=MIT",
+    test_policy.flag([], ["MIT"]),
     "--cache-dir=build/default-report-unused-cache",
   ]
   use #(fetcher, expected_exit) <- list.each([
@@ -451,14 +451,15 @@ fn spdx_fallback_clients() -> notice.Clients {
 }
 
 fn manifest_args(extra: List(String)) -> List(String) {
+  let flags = case list.any(extra, string.starts_with(_, "--config=")) {
+    True -> []
+    False -> ["--ignore-config"]
+  }
   let command = case list.contains(extra, "check") {
     True -> extra
     False -> ["report", ..extra]
   }
-  list.append(command, [
-    "--manifest=test/fixtures/manifest.toml",
-    "--ignore-config",
-  ])
+  list.append(command, ["--manifest=test/fixtures/manifest.toml", ..flags])
 }
 
 pub fn default_report_succeeds_without_policy_test() {
@@ -488,15 +489,16 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
     )
 
   [
-    ["report"],
-    ["check", "--allow=MIT"],
-    ["check", "--allow=MIT", "--checks=all"],
+    ["--ignore-config"],
+    ["report", "--ignore-config"],
+    ["check", test_policy.flag(["MIT"], [])],
+    ["check", test_policy.flag(["MIT"], []), "--checks=all"],
     ["update"],
   ]
   |> list.each(fn(args) {
     let audit =
       licence_audit.run_configured(
-        list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+        list.append(args, ["--manifest=" <> path]),
         test_clients(fake_fetcher),
         progress.disabled(),
       ).0
@@ -523,7 +525,7 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
     |> list.each(fn(args) {
       let result =
         licence_audit.run_configured(
-          list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+          list.append(args, ["--manifest=" <> path]),
           licence_audit.Clients(
             ..test_clients(fake_fetcher),
             osv_batch_fetcher: fn(purls) {
@@ -582,11 +584,11 @@ pub fn vulnerability_commands_reject_invalid_required_manifest_fields_test() {
           to: path,
           contents: "packages = [{ " <> invalid_field <> valid_fields <> " }]",
         )
-      [["vulns"], ["check", "--allow=MIT", "--checks=all"]]
+      [["vulns"], ["check", test_policy.flag(["MIT"], []), "--checks=all"]]
       |> list.each(fn(args) {
         let result =
           licence_audit.run_configured(
-            list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+            list.append(args, ["--manifest=" <> path]),
             clients,
             progress.disabled(),
           ).0
@@ -1071,7 +1073,7 @@ pub fn verbose_progress_includes_package_details_test() {
 pub fn all_allowed_dependencies_pass_in_check_mode_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0"]),
+      manifest_args(["check", test_policy.flag(["MIT", "Apache-2.0"], [])]),
       test_clients(fake_fetcher),
       progress.disabled(),
     ).0
@@ -1112,11 +1114,9 @@ pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_te
     )
   [
     [],
-    ["--deny=GPL-3.0-only"],
     ["--checks=all"],
     ["--checks=all", "--vuln-severity=low"],
     ["--checks=all", "--vuln-block-unknown"],
-    ["--checks=all", "--deny=GPL-3.0-only"],
   ]
   |> list.each(fn(flags) {
     let result =
@@ -1134,12 +1134,12 @@ pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_te
       ).0
     should.equal(result.exit_code, 2)
     assert string.contains(result.output, "requires a non-empty allow list")
-    assert string.contains(result.output, "pass --allow")
+    assert string.contains(result.output, "select a policy file with --config")
     assert !string.contains(result.output, "--allow/--deny")
   })
   let empty_identifier =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow="]),
+      manifest_args(["check", test_policy.flag([""], [])]),
       clients,
       progress.disabled(),
     ).0
@@ -1150,7 +1150,7 @@ pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_te
   )
 }
 
-pub fn check_requires_allow_after_config_and_cli_merge_test() {
+pub fn check_requires_allow_in_selected_config_test() {
   let assert Ok(_) = simplifile.create_directory_all("build/tmp")
   let path = "build/tmp/check_allow_requirement.toml"
   [
@@ -1175,9 +1175,15 @@ pub fn check_requires_allow_after_config_and_cli_merge_test() {
       ).0
     should.equal(result.exit_code, 2)
     assert string.contains(result.output, "requires a non-empty allow list")
+    let assert Ok(_) =
+      simplifile.write(
+        "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\n"
+          <> string.replace(fields, "allow = []", ""),
+        to: path,
+      )
     let with_allow =
       licence_audit.run_configured(
-        list.append(arguments, ["--allow=MIT,Apache-2.0"]),
+        arguments,
         test_clients(fake_fetcher),
         progress.disabled(),
       ).0
@@ -1191,8 +1197,7 @@ pub fn denied_dependency_fails_in_check_mode_with_report_test() {
     licence_audit.run_configured(
       manifest_args([
         "check",
-        "--allow=MIT,Apache-2.0",
-        "--deny=MIT",
+        test_policy.flag(["MIT", "Apache-2.0"], ["MIT"]),
       ]),
       test_clients(fake_fetcher),
       progress.disabled(),
@@ -1207,7 +1212,7 @@ pub fn denied_dependency_fails_in_check_mode_with_report_test() {
 pub fn policy_failure_does_not_emit_error_progress_event_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0", "--deny=MIT"]),
+      manifest_args(["check", test_policy.flag(["MIT", "Apache-2.0"], ["MIT"])]),
       test_clients(fake_fetcher),
       progress.capturing(progress.Normal, "report"),
     )
@@ -1219,7 +1224,7 @@ pub fn policy_failure_does_not_emit_error_progress_event_test() {
 pub fn fetch_failure_in_check_mode_emits_error_progress_event_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0"]),
+      manifest_args(["check", test_policy.flag(["MIT", "Apache-2.0"], [])]),
       test_clients(failing_fetcher),
       progress.capturing(progress.Normal, "report"),
     )
@@ -1237,7 +1242,7 @@ pub fn fetch_failure_in_check_mode_emits_error_progress_event_test() {
 pub fn network_failure_reports_reason_and_continues_audit_test() {
   let #(licence_audit.RunResult(exit_code, output), events) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0"]),
+      manifest_args(["check", test_policy.flag(["MIT", "Apache-2.0"], [])]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         notice_clients: notice_clients(fn(name, version) {
@@ -1305,7 +1310,7 @@ pub fn prod_scope_skipped_summary_matches_displayed_non_hex_rows_test() {
 }
 
 pub fn hex_fetch_failure_in_report_mode_exits_two_test() {
-  list.each([[], ["--deny=MIT"], ["--quiet"]], fn(flags) {
+  list.each([[], [test_policy.flag([], ["MIT"])], ["--quiet"]], fn(flags) {
     let #(result, events) =
       licence_audit.run_configured(
         manifest_args(flags),
@@ -1359,7 +1364,7 @@ pub fn report_metadata_errors_exit_two_test() {
 pub fn report_policy_findings_still_exit_zero_test() {
   let result =
     licence_audit.run_configured(
-      manifest_args(["--deny=MIT"]),
+      manifest_args([test_policy.flag([], ["MIT"])]),
       test_clients(fake_fetcher),
       progress.disabled(),
     ).0
@@ -1370,7 +1375,7 @@ pub fn report_policy_findings_still_exit_zero_test() {
 pub fn hex_fetch_failure_in_check_mode_exits_two_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0"]),
+      manifest_args(["check", test_policy.flag(["MIT", "Apache-2.0"], [])]),
       test_clients(failing_fetcher),
       progress.disabled(),
     ).0
@@ -1391,13 +1396,17 @@ fn transitive_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
 }
 
 fn transitive_manifest_args(extra: List(String)) -> List(String) {
+  let flags = case list.any(extra, string.starts_with(_, "--config=")) {
+    True -> []
+    False -> ["--ignore-config"]
+  }
   let command = case list.contains(extra, "check") {
     True -> extra
     False -> ["report", ..extra]
   }
   list.append(command, [
     "--manifest=test/fixtures/transitive_manifest.toml",
-    "--ignore-config",
+    ..flags
   ])
 }
 
@@ -1422,8 +1431,7 @@ pub fn denied_transitive_fails_check_and_prints_via_chain_test() {
     licence_audit.run_configured(
       transitive_manifest_args([
         "check",
-        "--allow=MIT",
-        "--deny=GPL-3.0",
+        test_policy.flag(["MIT"], ["GPL-3.0"]),
       ]),
       test_clients(transitive_fetcher),
       progress.disabled(),
@@ -1444,8 +1452,7 @@ pub fn direct_dep_denial_does_not_emit_via_line_test() {
     licence_audit.run_configured(
       transitive_manifest_args([
         "check",
-        "--allow=GPL-3.0",
-        "--deny=MIT",
+        test_policy.flag(["GPL-3.0"], ["MIT"]),
       ]),
       test_clients(transitive_fetcher),
       progress.disabled(),
@@ -1467,8 +1474,7 @@ pub fn check_failure_only_reports_failing_trees_test() {
     licence_audit.run_configured(
       manifest_args([
         "check",
-        "--allow=MIT,Apache-2.0",
-        "--deny=MIT",
+        test_policy.flag(["MIT", "Apache-2.0"], ["MIT"]),
       ]),
       test_clients(fake_fetcher),
       progress.disabled(),
@@ -1491,10 +1497,8 @@ pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
             list.append(
               [
                 "--manifest=test/fixtures/mixed_failure_manifest.toml",
-                "--ignore-config",
                 "check",
-                "--allow=MIT",
-                "--deny=GPL-3.0",
+                test_policy.flag(["MIT"], ["GPL-3.0"]),
               ],
               extra,
             ),
@@ -1544,7 +1548,11 @@ fn unused_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
 pub fn check_vulns_osv_batch_failure_exits_two_test() {
   let #(result, events) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0", "--checks=all"]),
+      manifest_args([
+        "check",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
+        "--checks=all",
+      ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         osv_batch_fetcher: failing_osv_batch,
@@ -1607,7 +1615,7 @@ pub fn zero_cvss_never_blocks_low_threshold_with_unknown_blocking_test() -> Nil 
         manifest_args(list.append(
           [
             "check",
-            "--allow=MIT,Apache-2.0",
+            test_policy.flag(["MIT", "Apache-2.0"], []),
             "--checks=all",
             "--vuln-severity=low",
           ],
@@ -1664,7 +1672,7 @@ pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
     licence_audit.run_configured(
       manifest_args([
         "check",
-        "--allow=MIT,Apache-2.0",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
         "--checks=all",
         "--vuln-severity=none",
       ]),
@@ -1745,7 +1753,6 @@ pub fn vulnerability_commands_preserve_mixed_source_identities_test() {
         licence_audit.run_configured(
           list.append(args, [
             "--manifest=" <> manifest_path,
-            "--ignore-config",
           ]),
           licence_audit.Clients(
             ..test_clients(fake_fetcher),
@@ -1806,9 +1813,8 @@ pub fn check_vulns_locked_checksum_preserves_prod_git_scope_test() {
       licence_audit.run_configured(
         [
           "--manifest=" <> manifest_path,
-          "--ignore-config",
           "check",
-          "--allow=MIT",
+          test_policy.flag(["MIT"], []),
           "--checks=all",
           "--scope=prod",
         ],
@@ -1889,9 +1895,8 @@ pub fn check_vulns_reports_unsupported_sources_test() {
     licence_audit.run_configured(
       [
         "--manifest=" <> path,
-        "--ignore-config",
         "check",
-        "--allow=MIT",
+        test_policy.flag(["MIT"], []),
         "--checks=all",
       ],
       licence_audit.Clients(
@@ -1943,7 +1948,12 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
       }),
     )
   list.each(
-    [#(["report"], 0), #(["check"], 1), #(["check", "--allow=Apache-2.0"], 0)],
+    [
+      #([], 0),
+      #(["report"], 0),
+      #(["check"], 1),
+      #(["check", test_policy.flag(["Apache-2.0"], [])], 0),
+    ],
     fn(command) {
       let result =
         licence_audit.run_configured(
@@ -1969,7 +1979,6 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
       root <> "/manifest.toml",
       root,
       None,
-      False,
       True,
       None,
       clients.notice_clients,
@@ -2017,7 +2026,7 @@ pub fn licence_commands_reject_bad_locked_evidence_without_api_fallback_test() {
   ]
   list.each(cases, fn(test_case) {
     let assert Ok(_) = simplifile.write(root <> "/manifest.toml", test_case.0)
-    list.each([["report"], ["check"], ["update"]], fn(command) {
+    list.each([[], ["report"], ["check"], ["update"]], fn(command) {
       let result =
         licence_audit.run_configured(
           list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),
@@ -2101,7 +2110,11 @@ pub fn licence_commands_reject_missing_and_invalid_archive_metadata_test() {
 pub fn check_vulns_unknown_severity_is_non_blocking_by_default_test() {
   let result =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0", "--checks=all"]),
+      manifest_args([
+        "check",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
+        "--checks=all",
+      ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         osv_batch_fetcher: one_vuln_batch,
@@ -2123,7 +2136,7 @@ pub fn check_vulns_unknown_severity_blocks_when_enabled_test() {
     licence_audit.run_configured(
       manifest_args([
         "check",
-        "--allow=MIT,Apache-2.0",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
         "--checks=all",
         "--vuln-block-unknown",
       ]),
@@ -2148,7 +2161,11 @@ pub fn check_vulns_detail_failure_exits_two_by_default_test() {
   // unknown-severity placeholder — even with the default threshold/config.
   let result =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0", "--checks=all"]),
+      manifest_args([
+        "check",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
+        "--checks=all",
+      ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         osv_batch_fetcher: one_vuln_batch,
@@ -2172,7 +2189,11 @@ pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
   // and it must be the specific advisory-detail failure.
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_configured(
-      manifest_args(["check", "--allow=MIT,Apache-2.0", "--checks=all"]),
+      manifest_args([
+        "check",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
+        "--checks=all",
+      ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         osv_batch_fetcher: one_vuln_batch,
@@ -2212,7 +2233,7 @@ pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
     licence_audit.run_configured(
       manifest_args([
         "check",
-        "--allow=MIT,Apache-2.0",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
         "--checks=all",
         "--vuln-block-unknown",
       ]),
@@ -2230,7 +2251,7 @@ pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
   assert !string.contains(result.output, "OSV resource not found")
 }
 
-pub fn check_vulns_config_and_ignore_config_control_unknown_gate_test() {
+pub fn check_vulns_alternate_config_controls_unknown_gate_test() {
   let config_path = "build/tmp/vuln-block-unknown.toml"
   let assert Ok(Nil) = simplifile.create_directory_all("build/tmp")
   let assert Ok(Nil) =
@@ -2260,10 +2281,8 @@ vuln_block_unknown = true
     licence_audit.run_configured(
       [
         "--manifest=test/fixtures/manifest.toml",
-        "--config=" <> config_path,
-        "--ignore-config",
         "check",
-        "--allow=MIT,Apache-2.0",
+        test_policy.flag(["MIT", "Apache-2.0"], []),
         "--checks=all",
       ],
       licence_audit.Clients(
@@ -2305,7 +2324,7 @@ pub fn check_vulns_known_severity_thresholds_are_unchanged_test() {
       licence_audit.run_configured(
         manifest_args([
           "check",
-          "--allow=MIT,Apache-2.0",
+          test_policy.flag(["MIT", "Apache-2.0"], []),
           "--checks=all",
           "--vuln-severity=" <> threshold,
         ]),
@@ -2396,17 +2415,29 @@ pub fn sbom_license_text_is_opt_in_and_fetches_shared_id_once_test() {
   should.equal(plain.exit_code, 0)
   assert !string.contains(plain.output, "\"text\":")
   should.equal(record_detail_fetch("sbom-license-text"), 1)
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use value <- list.each([#("", True), #("=true", True), #("=false", False)])
+  let #(suffix, enabled) = value
   reset_detail_fetch("sbom-license-text")
   let enriched =
     licence_audit.run_configured(
-      list.append(args, ["--license-text"]),
+      list.append(args, [spelling <> suffix]),
       clients,
       progress.disabled(),
     ).0
   should.equal(enriched.exit_code, 0)
-  should.equal(record_detail_fetch("sbom-license-text"), 2)
-  assert string.contains(enriched.output, "\"contentType\": \"text/plain\"")
-  assert string.contains(enriched.output, "Canonical SPDX text\\n")
+  should.equal(record_detail_fetch("sbom-license-text"), case enabled {
+    True -> 2
+    False -> 1
+  })
+  should.equal(
+    string.contains(enriched.output, "\"contentType\": \"text/plain\""),
+    enabled,
+  )
+  should.equal(
+    string.contains(enriched.output, "Canonical SPDX text\\n"),
+    enabled,
+  )
 }
 
 pub fn sbom_license_text_fetch_failures_leave_output_untouched_test() {
@@ -2419,13 +2450,14 @@ pub fn sbom_license_text_fetch_failures_leave_output_untouched_test() {
       Ok(Some(" \r\n\t")),
     ],
     fn(response) {
+      use spelling <- list.each(["--licence-text", "--license-text"])
       let assert Ok(Nil) = simplifile.write(output, "previous output")
       let result =
         licence_audit.run_configured(
           [
             "sbom",
             "--manifest=test/fixtures/manifest_github_git.toml",
-            "--license-text",
+            spelling,
             "--output=" <> output,
           ],
           licence_audit.Clients(
@@ -2823,6 +2855,58 @@ fn reproducible_sbom_clients() -> notice.Clients {
     fetch_repo_archive: fn(_repo, _commit) { Error(notice.FetchNetworkFailure) },
     fetch_spdx_index: fn(_kind) { Error(notice.FetchNetworkFailure) },
     fetch_spdx: fn(_requirement) { Error(notice.FetchNetworkFailure) },
+  )
+}
+
+pub fn sbom_licence_text_spellings_produce_identical_reproducible_output_test() {
+  let root = "build/sbom-licence-text-alias"
+  let assert Ok(Nil) = simplifile.create_directory_all(root)
+  let assert Ok(archive) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/gleam.toml",
+      contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/manifest.toml",
+      contents: "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \""
+        <> checksum
+        <> "\" }]\n[requirements]\nhex_dep = \"1.0.0\"\n",
+    )
+  let args = [
+    "sbom",
+    "--reproducible",
+    "--manifest=" <> root <> "/manifest.toml",
+  ]
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) { panic as "must use locked metadata" }),
+      notice_clients: notice.Clients(
+        ..reproducible_sbom_clients(),
+        fetch_spdx: fn(_) { Ok(Some("Canonical SPDX text\n")) },
+      ),
+    )
+  use suffix <- list.each(["", "=true", "=false"])
+  let primary =
+    licence_audit.run_configured(
+      list.append(args, ["--licence-text" <> suffix]),
+      clients,
+      progress.disabled(),
+    ).0
+  let alias =
+    licence_audit.run_configured(
+      list.append(args, ["--license-text" <> suffix]),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(primary.exit_code, 0)
+  should.equal(alias, primary)
+  should.equal(
+    string.contains(primary.output, "Canonical SPDX text\\n"),
+    suffix != "=false",
   )
 }
 
@@ -3268,9 +3352,8 @@ pub fn audit_manifest_path_uses_manifest_project_for_scope_test() {
     licence_audit.run_configured(
       [
         "--manifest=" <> manifest_path,
-        "--ignore-config",
         "check",
-        "--allow=MIT,AGPL-3.0",
+        test_policy.flag(["MIT", "AGPL-3.0"], []),
         "--scope=prod",
       ],
       test_clients(project_root_fetcher),
@@ -3329,10 +3412,8 @@ pub fn check_fails_on_dev_dependency_violation_by_default_test() {
     licence_audit.run_configured(
       [
         "--manifest=test/fixtures/prod_dev_manifest.toml",
-        "--ignore-config",
         "check",
-        "--allow=MIT",
-        "--deny=AGPL-3.0",
+        test_policy.flag(["MIT"], ["AGPL-3.0"]),
       ],
       test_clients(prod_dev_fetcher),
       progress.disabled(),
@@ -3346,10 +3427,8 @@ pub fn check_prod_scope_ignores_dev_dependency_violation_test() {
     licence_audit.run_configured(
       [
         "--manifest=test/fixtures/prod_dev_manifest.toml",
-        "--ignore-config",
         "check",
-        "--allow=MIT",
-        "--deny=AGPL-3.0",
+        test_policy.flag(["MIT"], ["AGPL-3.0"]),
         "--scope=prod",
       ],
       test_clients(prod_dev_fetcher),
@@ -3392,9 +3471,8 @@ pub fn check_prod_scope_vulns_ignores_dev_dependency_advisory_test() {
     licence_audit.run_configured(
       [
         "--manifest=test/fixtures/prod_dev_manifest.toml",
-        "--ignore-config",
         "check",
-        "--allow=MIT",
+        test_policy.flag(["MIT"], []),
         "--scope=prod",
         "--checks=all",
       ],

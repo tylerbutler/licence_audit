@@ -18,12 +18,26 @@ licence_audit update
 See [configuration discovery](/docs/configuration#discovery) for policy
 selection and the [write target](/docs/configuration#update-write-target).
 
-1. `update` resolves the dependency tree and reads licence declarations from
+1. `update` validates the target's TOML, policy, and exceptions.
+2. It resolves the dependency tree and reads licence declarations from
    checksum-verified locked Hex archives.
-2. It shows an interactive list of the licences. Existing allow and deny
+3. It shows an interactive list of the licences. Existing allow and deny
    entries are preselected.
-3. It writes the result to `gleam.toml`. Existing comments and formatting do
+4. It writes the result to the selected target. Existing comments and formatting do
    not change.
+
+Use `--config=PATH` to select an alternate target:
+
+```sh
+licence_audit update --config=policies/project.toml
+```
+
+`update` creates a missing policy section in a valid default or explicit target.
+It can create a missing target file if the parent directory exists. It rejects
+malformed TOML or invalid policy before fetching metadata or showing the picker.
+To change the starting selection, clear or change the preselected entries.
+See [update migration](/docs/configuration#update-migration) for the removal of
+`update --ignore-config`.
 
 `update` preserves [scoped policy exceptions](/docs/check#scoped-policy-exceptions)
 and their comments. It does not create, renew, or remove review decisions.
@@ -62,7 +76,7 @@ The command does not use OTP's non-atomic Windows rename.
 
 `update` is interactive and requires a TTY:
 
-- It exits `1` on non-interactive stdin (for example, in CI).
+- It exits `1` if stdin or stdout is non-interactive (for example, in CI).
 - It exits `130` if you cancel.
 
 > **Note:** If you use the escript, Erlang/OTP **28 or later** is required
@@ -91,7 +105,6 @@ licence_audit update [--flags]
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
