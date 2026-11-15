@@ -12,12 +12,14 @@ import licence_audit/hex
 import licence_audit/notice
 import licence_audit/osv
 import licence_audit/path_test
+import licence_audit/picker
 import licence_audit/progress
 import licence_audit/repository
 import licence_audit/source_archive
 import licence_audit/source_archive_test
 import licence_audit/spdx
 import licence_audit/toml
+import licence_audit/update
 import simplifile
 
 @external(erlang, "integration_test_ffi", "record_detail_fetch")
@@ -37,7 +39,11 @@ fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
 fn test_clients(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
 ) -> licence_audit.Clients {
-  licence_audit.Clients(..licence_audit.default_clients(), fetcher:)
+  licence_audit.Clients(
+    ..licence_audit.default_clients(),
+    fetcher:,
+    notice_clients: source_archive_test.metadata_clients(fetcher),
+  )
 }
 
 pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
@@ -201,7 +207,7 @@ pub fn default_report_succeeds_without_policy_test() {
   assert !string.contains(output, "Status")
 }
 
-pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
+pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
   let path = "build/tmp/manifest-without-checksum.toml"
   let assert Ok(_) = simplifile.create_directory_all("build/tmp")
   let assert Ok(_) =
@@ -210,7 +216,7 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
       contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\" }]\n",
     )
 
-  [[], ["check", "--allow=MIT"]]
+  [[], ["check", "--allow=MIT"], ["update"]]
   |> list.each(fn(args) {
     let audit =
       licence_audit.run_configured(
@@ -218,8 +224,9 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
         test_clients(fake_fetcher),
         progress.disabled(),
       ).0
-    should.equal(audit.exit_code, 0)
+    should.equal(audit.exit_code, 2)
     assert string.contains(audit.output, "gleam_stdlib")
+    assert string.contains(audit.output, "outer_checksum")
   })
 
   let sbom =
@@ -236,7 +243,7 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
 
   [[], ["CVE-2024-0001"]]
   |> list.each(fn(ids) {
-    [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+    [["vulns"]]
     |> list.each(fn(args) {
       let result =
         licence_audit.run_configured(
@@ -716,7 +723,7 @@ local_dep = { path = \"deps/local_dep\" }
   assert string.contains(result.output, "Path licence text")
 }
 
-pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
+pub fn run_with_source_clients_disables_disk_cache_for_audits_test() {
   let cache_path = "build/tmp/run-with-notice-clients-cache"
   let _ = simplifile.create_directory_all("build/tmp")
   let _ = simplifile.delete(cache_path)
@@ -726,7 +733,7 @@ pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
       manifest_args(["--cache-path=" <> cache_path]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
-        notice_clients: notice_clients(fixture_hex_tarball),
+        notice_clients: source_archive_test.metadata_clients(fake_fetcher),
       ),
       progress.disabled(),
     ).0
@@ -952,28 +959,33 @@ pub fn fetch_failure_in_check_mode_emits_error_progress_event_test() {
 }
 
 pub fn network_failure_reports_reason_and_continues_audit_test() {
-  let fetcher = fn(name) {
-    case name {
-      "gleam_stdlib" ->
-        Error(hex.NetworkFailure("DNS lookup failed (nxdomain)"))
-      _ -> fake_fetcher(name)
-    }
-  }
   let #(licence_audit.RunResult(exit_code, output), events) =
     licence_audit.run_configured(
       manifest_args(["check", "--allow=MIT,Apache-2.0"]),
-      licence_audit.Clients(..licence_audit.default_clients(), fetcher: fetcher),
+      licence_audit.Clients(
+        ..test_clients(fake_fetcher),
+        notice_clients: notice_clients(fn(name, version) {
+          case name {
+            "gleam_stdlib" -> Error(notice.FetchTimeout)
+            _ ->
+              test_clients(fake_fetcher).notice_clients.fetch_hex_tarball(
+                name,
+                version,
+              )
+          }
+        }),
+      ),
       progress.capturing(progress.Normal, "report"),
     )
 
   should.equal(exit_code, 2)
-  assert string.contains(output, "DNS lookup failed (nxdomain)")
+  assert string.contains(output, "timed out after 30s")
   assert string.contains(output, "Apache-2.0")
   assert list.contains(
     events,
     progress.Event(
       progress.Failure,
-      "Failed to fetch package metadata for gleam_stdlib@1.0.0: Hex.pm request failed: DNS lookup failed (nxdomain)",
+      "Failed to fetch package metadata for gleam_stdlib@1.0.0: Failed to fetch source archive for gleam_stdlib: timed out after 30s",
     ),
   )
 }
@@ -1029,7 +1041,7 @@ pub fn hex_fetch_failure_in_report_mode_exits_two_test() {
     assert string.contains(result.output, "gleam_stdlib")
     assert string.contains(result.output, "MIT")
     assert string.contains(result.output, "argv")
-    assert string.contains(result.output, "Hex package not found")
+    assert string.contains(result.output, "network failure")
     assert list.contains(
       events,
       progress.Event(
@@ -1047,16 +1059,19 @@ pub fn hex_fetch_failure_in_report_mode_exits_two_test() {
 pub fn report_metadata_errors_exit_two_test() {
   list.each(
     [
-      #(hex.NetworkFailure("connection refused"), "connection refused"),
-      #(hex.InvalidJson("invalid JSON"), "invalid JSON"),
-      #(hex.InvalidMetadata("missing licences"), "missing licences"),
+      #(notice.FetchNetworkFailure, "network failure"),
+      #(notice.FetchTimeout, "timed out after 30s"),
+      #(notice.FetchUnexpectedResponse(500), "unexpected HTTP response 500"),
     ],
     fn(test_case) {
       let #(fetch_error, message) = test_case
       let result =
         licence_audit.run_configured(
           manifest_args([]),
-          test_clients(fn(_) { Error(fetch_error) }),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            notice_clients: notice_clients(fn(_, _) { Error(fetch_error) }),
+          ),
           progress.disabled(),
         ).0
       should.equal(result.exit_code, 2)
@@ -1087,7 +1102,7 @@ pub fn hex_fetch_failure_in_check_mode_exits_two_test() {
   should.equal(exit_code, 2)
   assert string.contains(output, "gleam_stdlib")
   assert string.contains(output, "argv")
-  assert string.contains(output, "Hex package not found")
+  assert string.contains(output, "network failure")
 }
 
 fn transitive_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
@@ -1220,7 +1235,7 @@ pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
         assert string.contains(result.output, "denied: GPL-3.0")
         assert string.contains(result.output, "fetch_root")
         assert string.contains(result.output, "fetch_leaf")
-        assert string.contains(result.output, "Hex package not found")
+        assert string.contains(result.output, "network failure")
         assert !string.contains(result.output, "allowed_root")
         assert !string.contains(result.output, "allowed_leaf")
         assert !string.contains(
@@ -1446,7 +1461,7 @@ pub fn vulnerability_commands_preserve_mixed_source_identities_test() {
   ["", ", outer_checksum = \"AAAA\"", ", outer_checksum = 42"]
   |> list.each(fn(checksum) {
     let manifest_path = mixed_vuln_manifest(checksum)
-    [#(["vulns"], 0), #(["check", "--allow=MIT", "--vulns"], 1)]
+    [#(["vulns"], 0)]
     |> list.each(fn(command) {
       let #(args, expected_exit) = command
       let result =
@@ -1497,11 +1512,14 @@ local_dep = { path = \"../local_dep\" }
   root <> "/manifest.toml"
 }
 
-pub fn check_vulns_missing_checksum_preserves_prod_only_git_scope_test() {
+pub fn check_vulns_locked_checksum_preserves_prod_only_git_scope_test() {
   [#("gleam_stdlib", 0), #("gluegun", 1)]
   |> list.each(fn(test_case) {
     let #(production, expected_exit) = test_case
-    let manifest_path = mixed_vuln_manifest("")
+    let manifest_path =
+      mixed_vuln_manifest(
+        ", outer_checksum = \"4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66\"",
+      )
     let assert Ok(_) =
       simplifile.write(
         to: "build/tmp/mixed-vuln-provenance/gleam.toml",
@@ -1586,10 +1604,14 @@ pub fn github_commit_queries_reach_vulns_and_sbom_test() {
 }
 
 pub fn check_vulns_reports_unsupported_sources_test() {
+  let path =
+    mixed_vuln_manifest(
+      ", outer_checksum = \"4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66\"",
+    )
   let result =
     licence_audit.run_configured(
       [
-        "--manifest=test/fixtures/manifest_path_dep.toml",
+        "--manifest=" <> path,
         "--ignore-config",
         "check",
         "--allow=MIT",
@@ -1597,7 +1619,9 @@ pub fn check_vulns_reports_unsupported_sources_test() {
       ],
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
-        osv_batch_fetcher: github_only_vuln_batch,
+        osv_batch_fetcher: fn(purls) {
+          Ok(list.map(purls, fn(purl) { osv.BatchEntry(purl, []) }))
+        },
         osv_detail_fetcher: vulnerability_with_severity(osv.High),
       ),
       progress.disabled(),
@@ -1607,6 +1631,193 @@ pub fn check_vulns_reports_unsupported_sources_test() {
   assert string.contains(
     result.output,
     "Skipped 1 unsupported source(s): local_dep",
+  )
+}
+
+fn locked_licence_project(name: String, archive: BitArray) -> String {
+  let root = "build/locked-licence-" <> name
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \""
+        <> checksum
+        <> "\" }]\n[requirements]\nhex_dep = \"1.0.0\"\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"fixture\"\nversion = \"1.0.0\"\n[tools.licence_audit]\nallow = [\"MIT\"]\n",
+    )
+  root
+}
+
+pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
+  let assert Ok(archive) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+  let root = locked_licence_project("disagreement", archive)
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) { Ok(hex.licences_only(["MIT"])) }),
+      notice_clients: notice_clients(fn(name, version) {
+        should.equal(#(name, version), #("hex_dep", "1.0.0"))
+        Ok(archive)
+      }),
+    )
+  list.each(
+    [#([], 0), #(["check"], 1), #(["check", "--allow=Apache-2.0"], 0)],
+    fn(command) {
+      let result =
+        licence_audit.run_configured(
+          list.append(command.0, ["--manifest=" <> root <> "/manifest.toml"]),
+          clients,
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, command.1)
+      assert string.contains(result.output, "Apache-2.0")
+      assert !string.contains(result.output, "MIT")
+    },
+  )
+  let root_update =
+    licence_audit.run_configured(
+      ["update", "--manifest=" <> root <> "/manifest.toml"],
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(root_update.exit_code, 1)
+  assert string.contains(root_update.output, "requires an interactive terminal")
+  let #(updated, _) =
+    update.run_with_picker(
+      root <> "/manifest.toml",
+      root,
+      None,
+      False,
+      True,
+      None,
+      clients.notice_clients,
+      fn(_, labels, allow, deny) {
+        should.equal(labels, ["Apache-2.0", "MIT"])
+        should.equal(allow, ["MIT"])
+        should.equal(deny, [])
+        Ok(picker.Selection(["Apache-2.0"], []))
+      },
+      progress.disabled(),
+    )
+  should.equal(updated.exit_code, 0)
+  let assert Ok(saved) = simplifile.read(root <> "/gleam.toml")
+  assert string.contains(saved, "allow = [\"Apache-2.0\"]")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn licence_commands_reject_bad_locked_evidence_without_api_fallback_test() {
+  let archive = source_archive_test.metadata_archive(["Apache-2.0"])
+  let root = locked_licence_project("bad-evidence", archive)
+  let assert Ok(original_policy) = simplifile.read(root <> "/gleam.toml")
+  let assert Ok(original_manifest) = simplifile.read(root <> "/manifest.toml")
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let cases = [
+    #(original_manifest, Error(notice.FetchNetworkFailure), "network failure"),
+    #(
+      string.replace(original_manifest, checksum, string.repeat("0", 64)),
+      Ok(archive),
+      "Checksum mismatch",
+    ),
+    #(
+      string.replace(original_manifest, checksum, "invalid"),
+      Ok(archive),
+      "outer_checksum",
+    ),
+    #(
+      string.replace(
+        original_manifest,
+        ", outer_checksum = \"" <> checksum <> "\"",
+        "",
+      ),
+      Ok(archive),
+      "outer_checksum",
+    ),
+  ]
+  list.each(cases, fn(test_case) {
+    let assert Ok(_) = simplifile.write(root <> "/manifest.toml", test_case.0)
+    list.each([[], ["check"], ["update"]], fn(command) {
+      let result =
+        licence_audit.run_configured(
+          list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),
+          licence_audit.Clients(
+            ..test_clients(fn(_) {
+              panic as "API licences must not be a fallback"
+            }),
+            notice_clients: notice_clients(fn(_, _) { test_case.1 }),
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 2)
+      case command, test_case.2 {
+        ["update"], "network failure" | ["update"], "Checksum mismatch" -> {
+          assert string.contains(result.output, "failed to fetch metadata")
+        }
+        _, _ -> {
+          assert string.contains(result.output, test_case.2)
+        }
+      }
+      should.equal(simplifile.read(root <> "/gleam.toml"), Ok(original_policy))
+    })
+  })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn licence_commands_reject_missing_and_invalid_archive_metadata_test() {
+  list.each(
+    [
+      #([#("README", <<"No metadata":utf8>>)], "no metadata.config"),
+      #([#("metadata.config", <<"invalid":utf8>>)], "invalid metadata.config"),
+      #(
+        [
+          #("metadata.config", <<
+            "{<<\"description\">>, <<\"Missing licences\">>}.\n":utf8,
+          >>),
+        ],
+        "invalid metadata.config",
+      ),
+      #(
+        [#("metadata.config", <<"{<<\"licenses\">>, [42]}.\n":utf8>>)],
+        "invalid metadata.config",
+      ),
+    ],
+    fn(test_case) {
+      let archive =
+        source_archive_test.with_tar(test_case.0, fn(archive) { archive })
+      let root = locked_licence_project("metadata-error", archive)
+      let assert Ok(original_policy) = simplifile.read(root <> "/gleam.toml")
+      list.each([[], ["check"], ["update"]], fn(command) {
+        let result =
+          licence_audit.run_configured(
+            list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),
+            licence_audit.Clients(
+              ..test_clients(fn(_) {
+                panic as "invalid archive must not fall back to API licences"
+              }),
+              notice_clients: notice_clients(fn(_, _) { Ok(archive) }),
+            ),
+            progress.disabled(),
+          ).0
+        should.equal(result.exit_code, 2)
+        case command {
+          ["update"] -> {
+            assert string.contains(result.output, "failed to fetch metadata")
+          }
+          _ -> {
+            assert string.contains(result.output, test_case.1)
+          }
+        }
+        should.equal(
+          simplifile.read(root <> "/gleam.toml"),
+          Ok(original_policy),
+        )
+      })
+      let assert Ok(_) = simplifile.delete(root)
+    },
   )
 }
 
@@ -2737,8 +2948,8 @@ allow = [\"MIT\", \"AGPL-3.0\"]
     simplifile.write(
       to: manifest_path,
       contents: "packages = [
-  { name = \"prod_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"AAAA\" },
-  { name = \"dev_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"BBBB\" },
+  { name = \"prod_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66\" },
+  { name = \"dev_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"B6A799B33DDCB78EDB6A17EA45D24813304C77E8C132E0D44B374529E6334956\" },
 ]
 
 [requirements]

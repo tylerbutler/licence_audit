@@ -6,8 +6,8 @@ description: Install licence_audit, inspect your locked dependencies, create a p
 
 `licence_audit` is a small CLI that audits the licences used by your Gleam
 project's locked dependencies. It reads `manifest.toml` and gets licence
-metadata from Hex. It reports the resolved dependency tree, creates a
-CycloneDX SBOM, and checks for known vulnerabilities.
+metadata from checksum-verified locked Hex archives. It reports the resolved
+dependency tree, creates a CycloneDX SBOM, and checks for known vulnerabilities.
 
 ## Install
 
@@ -165,11 +165,19 @@ When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
 the default is `%LOCALAPPDATA%\licence_audit\Cache\hex-v2\`, as resolved
 by Erlang/OTP's user cache directory. A nonempty `XDG_CACHE_HOME` takes
 precedence over `HOME` on all platforms.
-`licence_audit` reuses Hex API entries for 7 days, so metadata changes on Hex
-can take up to 7 days to appear. Use `--no-cache` when you need fresh data.
+Licence reports, `check`, and `update` share the immutable metadata cache with
+`sbom --reproducible`. Each key includes the package name, locked version, and
+archive checksum. These entries do not expire. The first scan downloads each
+locked tarball, which is larger than an API response; later scans reuse its
+verified metadata.
 
-The cache is shared across projects and commands for each package name and
-version. Concurrent commands can share the cache. In CI, restore and save the
+Optional API enrichment for default SBOMs and notices uses separate
+`name@version` entries with a 7-day lifetime. API licences do not determine
+licence report, check, or update results. `--no-cache` bypasses both entry types
+and still requires checksum verification for licence scans.
+
+The cache is shared across projects and commands. Concurrent commands can
+share the cache. In CI, restore and save the
 cache directory between jobs, for example with `actions/cache`,
 `--cache-path=.hex-cache/hex-v2`, and `.hex-cache/` as the path to save. Use
 `--verbose` to see cache hits and misses.
@@ -185,16 +193,16 @@ points to a file, the command warns and continues without caching.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the
-remaining packages. The cache excludes failed lookups. If a refresh fails
-and an older entry exists, the audit uses that entry and warns.
+remaining packages. The cache excludes failed lookups. Failed archive
+downloads, checksum verification, or metadata decoding cannot fall back to API
+licences. Optional API enrichment can use an older API entry if a refresh fails.
 
 If a cache operation fails, `licence_audit` continues the audit and writes a
 warning to stderr. It does not cache OSV advisories.
 
-Hex network errors include the request URL and available DNS, connection,
-or TLS details for IPv4 and IPv6. Request timeout errors include the
-5000 ms limit. When the HTTP client does not identify the failed stage,
-the message says so.
+Hex API network errors include the request URL and available DNS, connection,
+or TLS details for IPv4 and IPv6. API request timeout errors include the
+5000 ms limit. Archive downloads have a 30-second timeout.
 
 ## Set up with an AI agent
 
@@ -231,8 +239,18 @@ against a policy committed to version control.
   or `--color=never` for plain text. `--colour` is an alias.
 
 Licence audits cover locked Hex packages. Non-Hex sources remain in the tree
-and are identified as skipped. Hex licence metadata is package-level data,
-not a source inspection or a per-release licence conclusion.
+and are identified as skipped. Reports, licence checks, and update discovery
+use the `licenses` declarations in the locked archive's `metadata.config`.
+The checksum must match `outer_checksum` in `manifest.toml`.
+
+A missing or invalid checksum, checksum mismatch, unreadable archive, or
+missing or invalid required metadata returns exit code `2`. An empty declared
+licence list is valid metadata; licence policy evaluation decides its verdict.
+Run `gleam deps download` to create a lockfile with checksums. The standalone
+`vulns` command needs package identities, not archive checksums.
+
+These declarations describe the locked release. They do not replace a legal
+review or an inspection of licence text in source files.
 
 ## Root usage and flags
 

@@ -9,12 +9,34 @@ import simplifile
 const manifest_fixture =
   "# Minimal Gleam lockfile fixture for licence audit manifest parsing.\npackages = [\n  { name = \"gleam_stdlib\", version = \"1.0.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"gleam_stdlib\", source = \"hex\", outer_checksum = \"AAAA\" },\n  { name = \"argv\", version = \"1.1.0\", build_tools = [\"gleam\"], requirements = [], otp_app = \"argv\", source = \"hex\", outer_checksum = \"BBBB\" },\n  { name = \"local_dep\", version = \"0.1.0\", build_tools = [\"gleam\"], requirements = [], source = \"path\", path = \"../local_dep\" },\n  { name = \"git_dep\", version = \"2.0.0\", build_tools = [\"gleam\"], requirements = [], source = \"git\", repo = \"https://example.invalid/git_dep\" },\n]\n\n[requirements]\ngleam_stdlib = { version = \">= 1.0.0 and < 2.0.0\" }\n"
 
+fn audit_fixture(input: String) -> String {
+  input
+  |> string.replace("AAAA", string.repeat("A", 64))
+  |> string.replace("BBBB", string.repeat("B", 64))
+  |> string.replace(
+    "source = \"hex\", requirements",
+    "source = \"hex\", outer_checksum = \""
+      <> string.repeat("A", 64)
+      <> "\", requirements",
+  )
+}
+
 pub fn parse_returns_only_hex_packages_and_skipped_packages_test() {
-  let assert Ok(parsed) = manifest.parse(manifest_fixture)
+  let assert Ok(parsed) = manifest.parse(audit_fixture(manifest_fixture))
 
   should.equal(parsed.packages, [
-    manifest.Package(name: "gleam_stdlib", version: "1.0.0", requirements: []),
-    manifest.Package(name: "argv", version: "1.1.0", requirements: []),
+    manifest.Package(
+      name: "gleam_stdlib",
+      version: "1.0.0",
+      requirements: [],
+      outer_checksum: string.repeat("A", 64),
+    ),
+    manifest.Package(
+      name: "argv",
+      version: "1.1.0",
+      requirements: [],
+      outer_checksum: string.repeat("B", 64),
+    ),
   ])
   should.equal(list.length(parsed.skipped_packages), 2)
   should.equal(parsed.direct_names, ["gleam_stdlib"])
@@ -56,13 +78,22 @@ pub fn load_reads_manifest_from_file_test() {
   should.equal(list.length(parsed.skipped_packages), 2)
 }
 
-pub fn audit_accepts_missing_source_specific_fields_test() {
+pub fn audit_requires_hex_checksum_but_not_skipped_source_fields_test() {
   let input =
     "packages = [
   { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\" },
   { name = \"git_dep\", version = \"2.0.0\", source = \"git\" },
 ]"
-  let assert Ok(parsed) = manifest.parse(input)
+  should.equal(
+    manifest.parse(input),
+    Error(manifest.InvalidPackageField("hex_dep", "outer_checksum", "String")),
+  )
+  let assert Ok(parsed) =
+    manifest.parse(string.replace(
+      input,
+      "source = \"hex\"",
+      "source = \"hex\", outer_checksum = \"" <> string.repeat("a", 64) <> "\"",
+    ))
   should.equal(list.length(parsed.packages), 1)
   should.equal(parsed.skipped_packages, [
     manifest.SkippedPackage(
@@ -167,7 +198,7 @@ app_a = { version = \">= 1.0.0\" }
 "
 
 pub fn dep_paths_reconstructs_direct_and_transitive_chains_test() {
-  let assert Ok(parsed) = manifest.parse(path_fixture)
+  let assert Ok(parsed) = manifest.parse(audit_fixture(path_fixture))
   let paths = manifest.dep_paths(parsed)
 
   should.equal(dict.get(paths, "app_a"), Ok(["app_a"]))
@@ -179,7 +210,7 @@ pub fn dep_paths_reconstructs_direct_and_transitive_chains_test() {
 }
 
 pub fn parse_preserves_direct_requirements_and_package_edges_test() {
-  let assert Ok(parsed) = manifest.parse(path_fixture)
+  let assert Ok(parsed) = manifest.parse(audit_fixture(path_fixture))
   should.equal(parsed.direct_names, ["app_a"])
   let assert Ok(app) = list.find(parsed.packages, fn(p) { p.name == "app_a" })
   let assert Ok(lib) = list.find(parsed.packages, fn(p) { p.name == "lib_b" })
@@ -355,7 +386,7 @@ pub fn prod_direct_names_malformed_is_error_test() {
 }
 
 pub fn dep_scopes_classifies_prod_wins_test() {
-  let assert Ok(locked) = manifest.parse(scope_fixture)
+  let assert Ok(locked) = manifest.parse(audit_fixture(scope_fixture))
   let scopes = manifest.dep_scopes(locked, ["app_a"])
 
   should.equal(dict.get(scopes, "app_a"), Ok(manifest.Prod))
@@ -365,7 +396,7 @@ pub fn dep_scopes_classifies_prod_wins_test() {
 }
 
 pub fn dep_scopes_all_prod_fallback_test() {
-  let assert Ok(locked) = manifest.parse(scope_fixture)
+  let assert Ok(locked) = manifest.parse(audit_fixture(scope_fixture))
   let scopes = manifest.dep_scopes(locked, locked.direct_names)
 
   should.equal(dict.get(scopes, "app_a"), Ok(manifest.Prod))
