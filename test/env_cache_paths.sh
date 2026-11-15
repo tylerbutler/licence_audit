@@ -69,7 +69,7 @@ for variable in XDG_CACHE_HOME HOME; do
   (
     cd "$work"
     if ! "${environment[@]}" timeout --kill-after=5s 30s "$binary" \
-      --verbose --color=never >cli.log 2>&1; then
+      report --verbose --color=never >cli.log 2>&1; then
       cat cli.log >&2
       exit 1
     fi
