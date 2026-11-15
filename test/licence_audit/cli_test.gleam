@@ -561,7 +561,6 @@ pub fn update_subcommand_parses_defaults_test() {
 
   should.equal(options.manifest_path, None)
   should.equal(options.config_path, None)
-  should.equal(options.ignore_config, False)
   should.equal(options.verbosity, progress.Normal)
   should.equal(options.color, color.Auto)
   should.equal(options.no_cache, False)
@@ -574,7 +573,6 @@ pub fn update_subcommand_parses_supported_flags_test() {
       "update",
       "--config=audit.toml",
       "--manifest=locked.toml",
-      "--ignore-config",
       "--verbose",
       "--color=never",
       "--no-cache",
@@ -583,11 +581,36 @@ pub fn update_subcommand_parses_supported_flags_test() {
 
   should.equal(options.config_path, Some("audit.toml"))
   should.equal(options.manifest_path, Some("locked.toml"))
-  should.equal(options.ignore_config, True)
   should.equal(options.verbosity, progress.Verbose)
   should.equal(options.color, color.Never)
   should.equal(options.no_cache, True)
   should.equal(options.cache_path, Some("/tmp/licence-audit.dets"))
+}
+
+pub fn update_rejects_ignore_config_forms_but_read_only_commands_keep_them_test() {
+  list.each(
+    [
+      ["--ignore-config"],
+      ["--ignore-config=true"],
+      ["--ignore-config=false"],
+      ["--ignore-config="],
+      ["--ignore-config", "true"],
+      ["--ignore-config", "false"],
+    ],
+    fn(flags) {
+      let message = usage_error(["update", ..flags])
+      assert string.contains(message, "ignore-config")
+    },
+  )
+  list.each([[], ["check"], ["vulns"], ["notices"]], fn(command) {
+    list.each(
+      ["--ignore-config", "--ignore-config=true", "--ignore-config=false"],
+      fn(flag) {
+        let assert Ok(glint.Out(_)) =
+          glint.execute(cli.app(), list.append(command, [flag]))
+      },
+    )
+  })
 }
 
 pub fn default_color_mode_is_auto_test() {
@@ -873,7 +896,7 @@ pub fn all_commands_reject_conflicting_aliases_and_invalid_colors_test() {
 pub fn command_specific_flag_matrix_test() {
   use entry <- list.each([
     #("--config=custom.toml", [True, True, True, False, True, True]),
-    #("--ignore-config", [True, True, True, False, True, True]),
+    #("--ignore-config", [True, True, False, False, True, True]),
     #("--no-cache", [True, True, True, True, False, True]),
     #("--cache-path=custom.cache", [True, True, True, True, False, True]),
     #("--scope=prod", [True, True, False, False, True, True]),

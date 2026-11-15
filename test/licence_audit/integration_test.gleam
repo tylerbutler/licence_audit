@@ -488,15 +488,15 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
     )
 
   [
-    ["report"],
-    ["check", "--allow=MIT"],
-    ["check", "--allow=MIT", "--checks=all"],
+    ["report", "--ignore-config"],
+    ["check", "--allow=MIT", "--ignore-config"],
+    ["check", "--allow=MIT", "--checks=all", "--ignore-config"],
     ["update"],
   ]
   |> list.each(fn(args) {
     let audit =
       licence_audit.run_configured(
-        list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+        list.append(args, ["--manifest=" <> path]),
         test_clients(fake_fetcher),
         progress.disabled(),
       ).0
@@ -1969,7 +1969,6 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
       root <> "/manifest.toml",
       root,
       None,
-      False,
       True,
       None,
       clients.notice_clients,
