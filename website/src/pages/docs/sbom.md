@@ -159,7 +159,8 @@ normalized path as the lockfile.
 Every local package must have a readable, valid `gleam.toml`. Its name and
 semantic version must match the lockfile. Production dependency names must
 match locked requirements, and nested local paths must match locked targets.
-The root project's local declarations are also checked against locked targets.
+The root project's local declarations must match locked targets and direct
+dependency names.
 Missing paths or metadata, malformed metadata fields, stale identities or
 edges, duplicate locked names, and cycles involving local components exit `2`
 before output is written. Run `gleam deps download` to refresh a stale lockfile.

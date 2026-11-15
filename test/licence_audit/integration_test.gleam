@@ -2584,9 +2584,16 @@ pub fn sbom_subcommand_output_file_is_formatted_json_test() {
 }
 
 pub fn sbom_subcommand_errors_on_missing_local_metadata_test() {
+  let root = "build/tmp/sbom-local-absent-metadata"
+  prepare_local_sbom_project(
+    root,
+    "name = \"local_dep\"\nversion = \"1.0.0\"\n",
+    "",
+  )
+  let assert Ok(_) = simplifile.delete(root <> "/local_dep/gleam.toml")
   let result =
     licence_audit.run_configured(
-      ["sbom", "--manifest=test/fixtures/manifest_path_dep.toml"],
+      ["sbom", "--manifest=" <> root <> "/manifest.toml"],
       test_clients(sbom_fetcher),
       progress.disabled(),
     ).0
@@ -2594,6 +2601,7 @@ pub fn sbom_subcommand_errors_on_missing_local_metadata_test() {
   let assert True = string.contains(result.output, "local_dep")
   let assert True = string.contains(result.output, "gleam.toml")
   let assert True = string.contains(result.output, "No such file or directory")
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 fn local_sbom_clients() -> licence_audit.Clients {
@@ -3050,6 +3058,40 @@ pub fn sbom_local_missing_metadata_and_root_path_mismatch_are_errors_test() {
   let result = run_local_sbom(root, [])
   should.equal(result.exit_code, 2)
   assert string.contains(result.output, "path does not match the lockfile")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn sbom_local_stale_root_edges_fail_before_network_or_output_test() {
+  let root = "build/tmp/sbom-local-root-edges"
+  let output = root <> "/existing.json"
+  use file <- list.each(["gleam.toml", "manifest.toml"])
+  prepare_local_sbom_project(
+    root,
+    "name = \"local_dep\"\nversion = \"1.0.0\"\n",
+    "",
+  )
+  let assert Ok(contents) = simplifile.read(root <> "/" <> file)
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/" <> file,
+      string.replace(contents, "local_dep = { path = \"local_dep\" }\n", ""),
+    )
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each(
+    [
+      [],
+      ["--offline"],
+      ["--reproducible"],
+      ["--reproducible", "--offline"],
+    ],
+    fn(flags) {
+      let result = run_local_sbom(root, ["--output=" <> output, ..flags])
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "local_dep")
+      assert string.contains(result.output, "direct dependency does not match")
+      should.equal(simplifile.read(output), Ok("previous output"))
+    },
+  )
   let assert Ok(_) = simplifile.delete(root)
 }
 

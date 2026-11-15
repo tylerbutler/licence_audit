@@ -51,7 +51,11 @@ pub fn resolve_local(
       }
     }),
   )
-  use _ <- result.try(validate_root_local_targets(root_directory, index))
+  use _ <- result.try(validate_root_local_targets(
+    root_directory,
+    index,
+    locked.root_requirements,
+  ))
   use resolved <- result.try(
     list.try_map(locked.entries, fn(entry) {
       case entry.provenance {
@@ -278,6 +282,7 @@ fn dependency_names(document: toml.Document) -> Result(List(String), Nil) {
 fn validate_root_local_targets(
   root: String,
   index: Dict(String, manifest.SbomEntry),
+  root_requirements: List(String),
 ) -> Result(Nil, error.Error) {
   let file = path.join(root, "gleam.toml")
   let invalid = fn(reason: String) {
@@ -292,24 +297,56 @@ fn validate_root_local_targets(
   use document <- result.try(
     toml.parse(contents) |> result.replace_error(invalid("invalid TOML")),
   )
-  list.try_each(["dependencies", "dev-dependencies"], fn(section) {
-    use names <- result.try(case toml.get_table(document, [section]) {
-      Error(toml.TableLookupMissing) -> Ok([])
-      Error(toml.TableLookupNotTable) ->
-        Error(invalid(section <> " must be a table"))
-      Ok(_) ->
-        toml.table_keys(document, [section])
-        |> result.replace_error(invalid(section <> " must be a table"))
-    })
-    list.try_each(names, fn(name) {
-      case dict.get(index, name), toml.get(document, [section, name, "path"]) {
-        Ok(dependency), declared ->
-          validate_local_target(declared, name, dependency, root, root)
-        Error(_), Ok(_) ->
-          Error(invalid("local dependency " <> name <> " is not locked"))
-        Error(_), Error(_) -> Ok(Nil)
-      }
-    })
+  use direct_names <- result.try(
+    list.try_fold(
+      ["dependencies", "dev-dependencies"],
+      [],
+      fn(direct_names, section) {
+        use names <- result.try(case toml.get_table(document, [section]) {
+          Error(toml.TableLookupMissing) -> Ok([])
+          Error(toml.TableLookupNotTable) ->
+            Error(invalid(section <> " must be a table"))
+          Ok(_) ->
+            toml.table_keys(document, [section])
+            |> result.replace_error(invalid(section <> " must be a table"))
+        })
+        use _ <- result.try(
+          list.try_each(names, fn(name) {
+            case
+              dict.get(index, name),
+              toml.get(document, [section, name, "path"])
+            {
+              Ok(dependency), declared ->
+                validate_local_target(declared, name, dependency, root, root)
+              Error(_), Ok(_) ->
+                Error(invalid("local dependency " <> name <> " is not locked"))
+              Error(_), Error(_) -> Ok(Nil)
+            }
+          }),
+        )
+        Ok(list.append(direct_names, names))
+      },
+    ),
+  )
+  list.try_each(dict.values(index), fn(dependency) {
+    case dependency.provenance {
+      manifest.PathProvenance(_) ->
+        case
+          list.contains(direct_names, dependency.name)
+          == list.contains(root_requirements, dependency.name)
+        {
+          True -> Ok(Nil)
+          False ->
+            Error(invalid(
+              "local dependency "
+              <> dependency.name
+              <> ": direct dependency does not match the lockfile",
+            ))
+        }
+      manifest.HexProvenance(_, _)
+      | manifest.GitProvenance(_, _, _)
+      | manifest.UnknownProvenance(_) -> Ok(Nil)
+    }
   })
 }
 
