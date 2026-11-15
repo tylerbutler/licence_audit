@@ -21,6 +21,11 @@ Both the default and named report read declarations from the locked Hex
 archives and verify their SHA-256 checksums against `manifest.toml`.
 Checksum-keyed metadata caches avoid repeated archive downloads.
 
+Both report forms default to `--scope=all`. Use `--scope=prod` to exclude
+development-only dependencies while keeping dependencies reachable from
+production roots, including shared transitive packages. See
+[production scope rules](/docs/check#production-only-gates).
+
 You can report licences without a policy. If you select a configuration file,
 it must contain a valid `[tools.licence_audit]` section. Use `--ignore-config`
 for a read-only report that ignores policy files. See
@@ -70,7 +75,7 @@ licence_audit report [--flags]
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- cli-referencestop -->

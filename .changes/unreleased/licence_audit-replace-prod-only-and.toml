@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Removed"
+body = "Replace `--prod-only` and `--include-dev` with `--scope=prod|all` on licence reports, `check`, `vulns`, and `notices`. Reports, checks, and vulnerability reports still default to all dependencies; notices still defaults to production dependencies. The removed flags, including boolean forms, are rejected. `sbom` keeps its full graph and `update` has no scope option."

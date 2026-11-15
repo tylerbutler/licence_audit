@@ -80,7 +80,8 @@ class CliStreamTest(unittest.TestCase):
         for flags in (
             [], ["--manifest=locked.toml", "--config=policy.toml"],
             ["--ignore-config", "--allow=MIT", "--deny=GPL-3.0-only"],
-            ["--prod-only", "--no-cache", "-q", "--colour=never"],
+            ["--scope=prod", "--no-cache", "-q", "--colour=never"],
+            ["--scope=all", "--no-cache", "-q", "--colour=never"],
             ["--cache-path=explicit-cache", "-v", "--color=never"],
         ):
             with self.subTest(flags=flags):
@@ -353,7 +354,7 @@ class CliStreamTest(unittest.TestCase):
 
         (self.project / "local").mkdir()
         (self.project / "local/LICENSE").write_text("Local dev licence\n")
-        result = self.run_cli("notices", "--include-dev", "--quiet", "--no-cache")
+        result = self.run_cli("notices", "--scope=all", "--quiet", "--no-cache")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("local 1.0.0", result.stdout)
         self.assertIn("Local dev licence", result.stdout)

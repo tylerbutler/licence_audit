@@ -6,6 +6,11 @@ import licence_audit/internal/vendor/glint
 import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
 
+pub type DependencyScope {
+  Prod
+  All
+}
+
 pub type Checks {
   Licences
   Vulnerabilities
@@ -23,7 +28,7 @@ pub type ReportOptions {
     color: color.Mode,
     no_cache: Bool,
     cache_path: Option(String),
-    prod_only: Bool,
+    scope: DependencyScope,
   )
 }
 
@@ -42,7 +47,7 @@ pub type Options {
     checks: Checks,
     vuln_severity: Option(String),
     vuln_block_unknown: Bool,
-    prod_only: Bool,
+    scope: DependencyScope,
   )
 }
 
@@ -79,7 +84,7 @@ pub type VulnsOptions {
     ignore_config: Bool,
     verbosity: progress.Verbosity,
     color: color.Mode,
-    prod_only: Bool,
+    scope: DependencyScope,
   )
 }
 
@@ -91,7 +96,7 @@ pub type NoticesOptions {
     verbosity: progress.Verbosity,
     color: color.Mode,
     output: Option(String),
-    include_dev: Bool,
+    scope: DependencyScope,
     no_cache: Bool,
     cache_path: Option(String),
   )
@@ -170,7 +175,7 @@ fn report_command(
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.optional_flag(cache_path_flag())
-  use prod_only <- glint.flag(prod_only_flag())
+  use scope <- glint.flag(scope_flag("all"))
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -183,7 +188,7 @@ fn report_command(
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
-  let assert Ok(prod_only_value) = prod_only(flags)
+  let assert Ok(scope_value) = scope(flags)
   case
     show_version(flags),
     verbosity(quiet, verbose),
@@ -205,7 +210,7 @@ fn report_command(
         color: color_mode,
         no_cache: no_cache,
         cache_path: cache_path_value,
-        prod_only: prod_only_value,
+        scope: scope_from_string(scope_value),
       ))
   }
 }
@@ -223,7 +228,7 @@ fn check_command() -> glint.Command(CliAction) {
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.optional_flag(cache_path_flag())
-  use prod_only <- glint.flag(prod_only_flag())
+  use scope <- glint.flag(scope_flag("all"))
   use checks <- glint.flag(checks_flag())
   use vuln_severity <- glint.optional_flag(vuln_severity_flag())
   use vuln_block_unknown <- glint.optional_flag(vuln_block_unknown_flag())
@@ -239,7 +244,7 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
-  let assert Ok(prod_only_value) = prod_only(flags)
+  let assert Ok(scope_value) = scope(flags)
   let assert Ok(checks_value) = checks(flags)
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
   let assert Ok(vuln_block_unknown_value) = vuln_block_unknown(flags)
@@ -280,7 +285,7 @@ fn check_command() -> glint.Command(CliAction) {
         },
         vuln_severity: vuln_severity_value,
         vuln_block_unknown: option.unwrap(vuln_block_unknown_value, False),
-        prod_only: prod_only_value,
+        scope: scope_from_string(scope_value),
       ))
   }
 }
@@ -345,12 +350,20 @@ fn version_flag() -> glint.Flag(Bool) {
   |> glint.flag_help("Print the installed version")
 }
 
-fn prod_only_flag() -> glint.Flag(Bool) {
-  glint.bool_flag("prod-only")
-  |> glint.flag_default(False)
+fn scope_flag(default: String) -> glint.Flag(String) {
+  glint.string_flag("scope")
+  |> glint.flag_default(default)
+  |> glint.flag_constraint(constraint.one_of(["prod", "all"]))
   |> glint.flag_help(
-    "Only scan production dependencies; exclude dev dependencies",
+    "Dependency scope: prod|all (production only or all dependencies)",
   )
+}
+
+fn scope_from_string(value: String) -> DependencyScope {
+  case value {
+    "prod" -> Prod
+    _ -> All
+  }
 }
 
 fn cache_path_flag() -> glint.Flag(String) {
@@ -445,12 +458,6 @@ fn update_command() -> glint.Command(CliAction) {
 fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
   |> glint.flag_help(help)
-}
-
-fn include_dev_flag() -> glint.Flag(Bool) {
-  glint.bool_flag("include-dev")
-  |> glint.flag_default(False)
-  |> glint.flag_help("Include dev-only dependencies in the notice file")
 }
 
 fn offline_flag() -> glint.Flag(Bool) {
@@ -568,7 +575,7 @@ fn notices_command() -> glint.Command(CliAction) {
   use output <- glint.optional_flag(output_flag(
     "Write notices to PATH instead of stdout",
   ))
-  use include_dev <- glint.flag(include_dev_flag())
+  use scope <- glint.flag(scope_flag("prod"))
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.optional_flag(cache_path_flag())
   use _, _, flags <- glint.command()
@@ -580,7 +587,7 @@ fn notices_command() -> glint.Command(CliAction) {
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(output_value) = output(flags)
-  let assert Ok(include_dev_value) = include_dev(flags)
+  let assert Ok(scope_value) = scope(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
 
@@ -596,7 +603,7 @@ fn notices_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         output: output_value,
-        include_dev: include_dev_value,
+        scope: scope_from_string(scope_value),
         no_cache: no_cache,
         cache_path: cache_path_value,
       ))
@@ -604,7 +611,7 @@ fn notices_command() -> glint.Command(CliAction) {
 }
 
 const vulns_help =
-  "Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --prod-only is set. Queries OSV directly and uses no on-disk cache."
+  "Report known vulnerabilities for locked dependencies using the OSV.dev database. Does not evaluate licence policy. Includes dev dependencies unless --scope=prod is set. Queries OSV directly and uses no on-disk cache."
 
 fn vulns_command() -> glint.Command(CliAction) {
   use <- glint.command_help(vulns_help)
@@ -615,7 +622,7 @@ fn vulns_command() -> glint.Command(CliAction) {
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
-  use prod_only <- glint.flag(prod_only_flag())
+  use scope <- glint.flag(scope_flag("all"))
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -624,7 +631,7 @@ fn vulns_command() -> glint.Command(CliAction) {
   let assert Ok(quiet) = quiet(flags)
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
-  let assert Ok(prod_only_value) = prod_only(flags)
+  let assert Ok(scope_value) = scope(flags)
 
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
@@ -637,7 +644,7 @@ fn vulns_command() -> glint.Command(CliAction) {
         ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
-        prod_only: prod_only_value,
+        scope: scope_from_string(scope_value),
       ))
   }
 }
