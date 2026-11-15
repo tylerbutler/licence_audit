@@ -3,15 +3,16 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit/config
-import licence_audit/hex
+import licence_audit/notice
 import licence_audit/picker
 import licence_audit/progress
+import licence_audit/source_archive_test
 import licence_audit/update
 import simplifile
 
 const tmp_dir = "build/tmp/update_test"
 
-const manifest_path = "test/fixtures/transitive_manifest.toml"
+const manifest_path = "test/fixtures/update_manifest.toml"
 
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
@@ -24,20 +25,26 @@ fn reporter() -> progress.Reporter {
   progress.capturing(progress.Verbose, "update")
 }
 
-fn successful_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
-  case name {
-    "app_a" -> Ok(hex.licences_only(["MIT"]))
-    "lib_b" -> Ok(hex.licences_only(["Apache-2.0", "MIT"]))
-    "lib_c" -> Ok(hex.licences_only(["BSD-3-Clause"]))
-    _ -> Error(hex.NotFound)
-  }
+fn successful_fetcher() -> notice.Clients {
+  notice.Clients(..notice.default_clients(), fetch_hex_tarball: fn(name, _) {
+    Ok(
+      source_archive_test.metadata_archive(case name {
+        "app_a" -> ["MIT"]
+        "lib_b" -> ["Apache-2.0", "MIT"]
+        "lib_c" -> ["BSD-3-Clause"]
+        _ -> panic as "unexpected package"
+      }),
+    )
+  })
 }
 
-fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
-  case name {
-    "lib_b" -> Error(hex.NetworkFailure("connection refused"))
-    _ -> successful_fetcher(name)
-  }
+fn failing_fetcher() -> notice.Clients {
+  notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(name, version) {
+    case name {
+      "lib_b" -> Error(notice.FetchNetworkFailure)
+      _ -> successful_fetcher().fetch_hex_tarball(name, version)
+    }
+  })
 }
 
 fn cancelling_pick(_title, _labels, _allow, _deny) {
@@ -81,7 +88,7 @@ pub fn user_cancel_exits_130_without_writing_file_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       cancelling_pick,
       reporter(),
     )
@@ -102,7 +109,7 @@ pub fn not_interactive_exits_1_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       not_interactive_pick,
       reporter(),
     )
@@ -123,7 +130,7 @@ pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
       True,
       True,
       None,
-      failing_fetcher,
+      failing_fetcher(),
       should_not_pick,
       reporter(),
     )
@@ -135,7 +142,7 @@ pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
     case event {
       progress.Event(progress.Failure, message) ->
         string.contains(message, "lib_b@")
-        && string.contains(message, "connection refused")
+        && string.contains(message, "network failure")
       _ -> False
     }
   })
@@ -152,7 +159,7 @@ pub fn manifest_load_failure_exits_2_without_picker_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       should_not_pick,
       reporter(),
     )
@@ -178,7 +185,7 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selecting_pick,
       reporter(),
     )
@@ -207,7 +214,7 @@ pub fn empty_allow_selection_is_saved_with_check_warning_test() {
         True,
         True,
         None,
-        successful_fetcher,
+        successful_fetcher(),
         fn(_, _, _, _) { Ok(picker.Selection(allow: [], deny: deny)) },
         reporter(),
       )
@@ -241,7 +248,7 @@ pub fn invalid_target_parent_fails_before_writing_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -263,7 +270,7 @@ pub fn toml_edit_failure_exits_2_without_changing_file_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -284,7 +291,7 @@ pub fn file_write_failure_exits_2_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -306,7 +313,7 @@ pub fn update_preserves_unreadable_text_before_picker_test() {
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       should_not_pick,
       reporter(),
     )
@@ -319,7 +326,7 @@ pub fn update_preserves_unreadable_text_before_picker_test() {
       True,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -345,7 +352,7 @@ pub fn update_preserves_writable_file_without_read_permission_test() {
           False,
           True,
           None,
-          successful_fetcher,
+          successful_fetcher(),
           should_not_pick,
           reporter(),
         )
@@ -371,7 +378,7 @@ pub fn update_preserves_file_when_read_fails_after_selection_test() {
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       fn(_title, _labels, _allow, _deny) {
         let assert Ok(_) = simplifile.write_bits(to: path, bits: original)
         Ok(picker.Selection(["MIT"], []))
@@ -394,7 +401,7 @@ pub fn update_creates_missing_explicit_config_test() {
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -441,7 +448,7 @@ reason = \"Reviewed affected code\"
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -491,7 +498,7 @@ pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test()
         False,
         True,
         None,
-        successful_fetcher,
+        successful_fetcher(),
         selected_pick,
         reporter(),
       )
@@ -538,7 +545,7 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       selected_pick,
       reporter(),
     )
@@ -580,7 +587,7 @@ pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
       False,
       True,
       None,
-      successful_fetcher,
+      successful_fetcher(),
       should_not_pick,
       reporter(),
     )

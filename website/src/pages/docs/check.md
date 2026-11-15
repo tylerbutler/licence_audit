@@ -6,6 +6,13 @@ description: Select licence checks, vulnerability checks, or both. Return a nonz
 
 Use `check` in CI to enforce the selected gates. Select them with
 `--checks=licences|vulns|all`. The default is `licences`.
+Licence checks run the same scan as [`report`](/docs/report), then enforce
+your policy. A gate violation returns a nonzero exit code.
+
+The licence verdict uses declarations from the checksum-verified locked Hex
+archive, even if the Hex API reports different licences for the latest release.
+Reports and `update` use the same evidence and
+[checksum-keyed cache](/docs/#caching).
 
 ```sh
 licence_audit check
@@ -119,7 +126,7 @@ Use `--config=other.toml` to read a different file. The file must have a
 accept a valid file without this section. Both flows validate supplied settings,
 including exceptions. Use `--ignore-config` to use only CLI options.
 
-> **Note:** `--allow` and `--deny` also work on the command with no subcommand. These options
+> **Note:** `--allow` and `--deny` also work on [`report`](/docs/report). These options
 > show a policy preview. Findings return exit code `0` when the scan completes.
 > Use `check` to return a failure for a violation.
 
@@ -127,8 +134,13 @@ including exceptions. Use `--ignore-config` to use only CLI options.
 
 Completed licence checks exit `0` when the policy passes and `1` for policy
 violations. Unavailable or invalid package metadata exits `2`, even when a
-partial report is available or other packages violate the policy. The command
-with no subcommand also exits `2` for these metadata failures.
+partial report is available or other packages violate the policy. The
+`report` command also exits `2` for these metadata failures.
+
+Required evidence includes a valid `outer_checksum` and the locked archive's
+`metadata.config`. A checksum mismatch, failed download, or invalid or missing
+metadata cannot fall back to API licences. Create a checksum-bearing lockfile
+with `gleam deps download`.
 
 ## Production-only gates
 
@@ -294,7 +306,7 @@ their own; matching expired findings follow normal policy and severity rules.
 An entry is `not evaluated` if its scan is disabled, `--prod-only` excludes
 the package, or the command cannot get the evidence. Do not treat these
 entries as stale. Licence-only runs do not evaluate advisory exceptions.
-The command with no subcommand previews licence exceptions without enforcing them, and
+[`report`](/docs/report) previews licence exceptions without enforcing them, and
 [`vulns`](/docs/vulns) displays advisory exceptions without enforcing a gate.
 
 Exceptions cannot accept failed network requests, malformed metadata, missing

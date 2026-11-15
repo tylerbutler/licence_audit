@@ -53,7 +53,7 @@ grep -Fq 'USAGE:' help.log
 run version --version
 grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' version.log
 
-run report --no-cache --color=never
+run report report --no-cache --color=never
 grep -Eq 'gleam_stdlib[[:space:]]+1\.0\.5[[:space:]]+Apache-2\.0' report.log
 grep -Fq 'Skipped non-Hex packages: 0' report.log
 

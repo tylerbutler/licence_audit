@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Add `licence_audit report` as an explicit form of the default non-enforcing licence report. Bare invocation and root scan flags remain supported, with the same report options, findings, and operational exit codes."
