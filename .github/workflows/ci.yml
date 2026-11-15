@@ -118,9 +118,6 @@ jobs:
       - name: Lint (glinter)
         run: just glint
 
-      - name: Type check
-        run: just check
-
       # Later --no-deps steps reuse this escript and its production BEAM files.
       - name: Build (warnings as errors)
         run: just build-strict
