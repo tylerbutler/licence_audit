@@ -171,7 +171,7 @@ to the existing task runner, or document shell commands if there is none.
 Reuse existing matching tasks and tool execution wrappers (such as
 `mise exec --`); do not overwrite a generic `check` task. Keep local and CI
 commands on the same policy and version. Do not add severity flags that
-override the configured policy. Use `--prod-only` only when requested.
+override the configured policy. Use `--scope=prod` only when requested.
 
 Licence auditing covers locked Hex packages. Vulnerability checks cover Hex
 and GitHub dependencies; other sources are skipped and reported. Surface
@@ -179,7 +179,7 @@ skipped packages rather than claiming complete dependency coverage. Hex
 metadata can be cached; OSV advisories require network access and are not
 cached. An unavailable OSV service is an incomplete check, not a clean result.
 Adding the tool as a dev dependency also adds it and its dependencies to the
-lockfile being audited. Do not hide these packages or add `--prod-only` to
+lockfile being audited. Do not hide these packages or add `--scope=prod` to
 remove them unless the user requests production-only coverage.
 
 ## 5. Add CI only on request
