@@ -129,7 +129,15 @@ def smoke(binary, escript=False):
                 work, isolated_env, f"isolated-{name}-bypass")
             assert snapshot == {file: file.read_bytes() for file in explicit.rglob("*.json")}
             for variable in ("HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA"):
-                assert not Path(isolated_env[variable]).exists(), variable
+                default = Path(isolated_env[variable])
+                if escript:
+                    assert not default.exists(), variable
+                elif default.exists():
+                    # Queso unpacks its runtime before CLI option parsing.
+                    assert {path.name for path in default.iterdir()} == {"licence_audit"}
+                    assert {path.name for path in (default / "licence_audit").iterdir()} <= {
+                        "app", "erts",
+                    }, f"Application cache leaked into {variable}"
             assert not list(explicit.rglob("*.tmp"))
             bypass = work / ("bypassed-" + name)
             run(command + args + [f"--cache-dir={bypass}", "--no-cache"],

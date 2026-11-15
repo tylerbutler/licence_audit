@@ -192,6 +192,10 @@ and a scratch `LOCALAPPDATA`. Its relocated escript smoke test checks the
 default metadata and notice caches through real CLI commands. It also checks
 cold notices and licence-text SBOM runs under explicit Unicode roots, warm
 reuse, cache bypass without deletion, and absence of default-root accesses.
+For native executables, Queso still unpacks its runtime into `app/` and `erts/`
+in its platform cache before parsing CLI flags. The isolation check permits
+only those launcher directories; application cache families must use the
+explicit root. Escript checks require the default directories to stay absent.
 
 ## File cache
 
