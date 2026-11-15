@@ -1,12 +1,13 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: check
-description: Report Hex package licence metadata and enforce your licence policy. Return a nonzero exit code for violations.
+description: Select licence checks, vulnerability checks, or both. Return a nonzero exit code for violations.
 ---
 
-`check` runs the same licence scan as [`report`](/docs/report). It then
-**enforces** your policy. It returns a nonzero exit code when it finds a
-violation. Use `check` in CI.
+Use `check` in CI to enforce the selected gates. Select them with
+`--checks=licences|vulns|all`. The default is `licences`.
+Licence checks run the same scan as [`report`](/docs/report), then enforce
+your policy. A gate violation returns a nonzero exit code.
 
 The licence verdict uses declarations from the checksum-verified locked Hex
 archive, even if the Hex API reports different licences for the latest release.
@@ -15,7 +16,23 @@ Reports and `update` use the same evidence and
 
 ```sh
 licence_audit check
+licence_audit check --checks=vulns
+licence_audit check --checks=all
 ```
+
+| Selection | Licence policy | Network requests |
+|---|---|---|
+| `licences` (default) | Requires a non-empty `allow` list | Licence metadata only |
+| `vulns` | No licence enforcement or required `allow` list | OSV only |
+| `all` | Requires a non-empty `allow` list | Licence metadata and OSV |
+
+Adding or removing a licence policy does not change the selected scans.
+Vulnerability settings in configuration do not enable a scan.
+
+**Migration:** Replace the removed `check --vulns` flag with
+`check --checks=all` to keep the previous combined gate. Use
+`check --checks=vulns` for a vulnerability-only gate. Standalone `vulns`
+remains report-only, and `sbom --vulns` still embeds advisories.
 
 ## Define a policy
 
@@ -52,11 +69,11 @@ forms remain supported. Validation does not change the entry text.
 
 ### 1.0 allow-list requirement
 
-For version 1.0, `check` requires a non-empty `allow` list. A deny-only policy
-returns exit code `2` and asks you to add `allow`. This also applies to
-`check --vulns`: it remains a combined licence and vulnerability gate, not a
-vulnerability-only check. This requirement replaces deny-only checks supported
-by earlier releases.
+For version 1.0, `check --checks=licences` (the default) and
+`check --checks=all` require a non-empty `allow` list. A deny-only policy
+returns exit code `2` and asks you to add `allow`. This requirement replaces
+deny-only licence checks supported by earlier releases.
+`check --checks=vulns` does not require or enforce a licence policy.
 
 `deny` is an exact-match override and wins over `allow`. Matching does not
 normalise deprecated identifiers, a trailing `+`, `-or-later` identifiers, or
@@ -105,7 +122,9 @@ licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
 ```
 
 Use `--config=other.toml` to read a different file. The file must have a
-`[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
+`[tools.licence_audit]` section for licence checks. Vulnerability-only checks
+accept a valid file without this section. Both flows validate supplied settings,
+including exceptions. Use `--ignore-config` to use only CLI options.
 
 > **Note:** `--allow` and `--deny` also work on [`report`](/docs/report). These options
 > show a policy preview. Findings return exit code `0` when the scan completes.
@@ -132,7 +151,7 @@ option prevents tooling-only packages from causing a CI failure.
 Production dependencies are the packages reachable from `[dependencies]` in
 the `gleam.toml` beside the selected manifest. A valid file without that table,
 or with an empty table, has no production dependencies. This rule also applies
-to `check --vulns --prod-only`.
+to `check --checks=all --prod-only` and `check --checks=vulns --prod-only`.
 
 A missing `gleam.toml` uses all lockfile direct dependencies as production
 roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
@@ -141,13 +160,20 @@ scope validation.
 
 ## Also fail on vulnerabilities
 
-Add `--vulns` to run the licence audit and query OSV.dev. The command fails
+Select `--checks=all` to run the licence audit and query OSV.dev. The command fails
 when an advisory meets or exceeds the severity threshold:
 
 ```sh
-licence_audit check --vulns
-licence_audit check --vulns --vuln-severity=medium
-licence_audit check --vulns --vuln-block-unknown
+licence_audit check --checks=all
+licence_audit check --checks=all --vuln-severity=medium
+licence_audit check --checks=all --vuln-block-unknown
+```
+
+Use `--checks=vulns` with the same gate flags to query OSV without licence
+metadata requests or licence enforcement, even with a configured licence policy:
+
+```sh
+licence_audit check --checks=vulns --vuln-severity=medium
 ```
 
 The threshold is `low` \| `medium` \| `high` (default) \| `critical`.
@@ -164,10 +190,11 @@ vuln_severity = "high"
 vuln_block_unknown = true
 ```
 
-The CLI flags `--vuln-severity` and `--vuln-block-unknown` require `--vulns`.
-Without it, they cause a usage error (exit 1), including an explicit
+The CLI flags `--vuln-severity` and `--vuln-block-unknown` require
+`--checks=vulns` or `--checks=all`.
+With licence-only selection, they cause a usage error (exit 1), including an explicit
 `--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
-remain valid without `--vulns` and apply only when the scan is enabled.
+remain valid with any selection and apply only to selected vulnerability gates.
 
 `--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
 can only enable blocking: if you omit it, a configured `true` still applies.
@@ -253,7 +280,9 @@ The command evaluates global rules first, then applies each matching
 exception. An active exception can accept an explicit deny, including a deny
 added through the CLI. It does not modify the global lists or declared
 metadata. Exceptions alone do not replace the licence policy required by
-`check`. `--ignore-config` ignores the exceptions along with other settings.
+licence-only or combined checks. Vulnerability-only checks use advisory
+exceptions and report licence exceptions as `not evaluated`.
+`--ignore-config` ignores the exceptions along with other settings.
 
 Set `expires = "YYYY-MM-DD"` for a temporary waiver. The date must be a valid,
 quoted calendar date. An exception dated `2026-12-31` remains active through
@@ -288,7 +317,7 @@ requirements. `update` preserves exception entries and their comments.
 ## Flags
 
 <!-- cli-reference -->
-Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations.
+Enforce selected checks: licences (default), vulns, or all. Licence checks require a licence policy. Vulnerability-only checks do not evaluate licence policy or fetch licence metadata.
 
 **Usage:**
 
@@ -302,6 +331,7 @@ licence_audit check [--flags]
 |------|------|---------|-------------|
 | `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
+| `--checks` | `STRING` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
@@ -311,7 +341,6 @@ licence_audit check [--flags]
 | `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
-| `--vuln-block-unknown` | `BOOL` |  | Fail `check --vulns` on advisories whose severity is unknown (default false; requires --vulns) |
-| `--vuln-severity` | `STRING` |  | Minimum severity that triggers `check --vulns` failure: low\|medium\|high\|critical (default high; requires --vulns) |
-| `--vulns` | `BOOL` | `false` | When used with `check`, also query OSV.dev and fail on vulnerabilities at or above --vuln-severity |
+| `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (default false; requires --checks=vulns or --checks=all) |
+| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (default high; requires --checks=vulns or --checks=all) |
 <!-- cli-referencestop -->

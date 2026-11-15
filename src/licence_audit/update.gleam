@@ -231,7 +231,7 @@ fn write_selection(
         [] ->
           progress.warn(
             reporter,
-            "The saved policy has an empty allow list. Add allow rules before running check, including check --vulns.",
+            "The saved policy has an empty allow list. Add allow rules before running check --checks=licences or check --checks=all.",
           )
         _ -> reporter
       }

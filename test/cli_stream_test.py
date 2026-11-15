@@ -118,12 +118,31 @@ class CliStreamTest(unittest.TestCase):
             ["--vuln-block-unknown=false"],
             ["--vuln-severity=high", "--vuln-block-unknown"],
         ):
-            for scan in ([], ["--vulns=false"]):
+            for scan in ([], ["--checks=licences"]):
                 with self.subTest(flags=flags, scan=scan):
                     result = self.run_cli("check", "--quiet", *flags, *scan)
                     self.assert_diagnostic(result, status=1)
-                    self.assertIn("require --vulns", result.stderr)
+                    self.assertIn("require --checks=vulns or --checks=all", result.stderr)
                     self.assertNotIn("manifest", result.stderr)
+
+    def test_check_selection_usage_and_missing_policy_diagnostics(self):
+        for flag in (
+            "--checks=invalid", "--checks=", "--vulns",
+            "--vulns=true", "--vulns=false",
+        ):
+            with self.subTest(flag=flag):
+                result = self.run_cli("check", flag, "--quiet")
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("invalid flag", result.stderr)
+        for selection in ("licences", "all"):
+            result = self.run_cli("check", f"--checks={selection}", "--quiet")
+            self.assert_diagnostic(result)
+            self.assertIn("requires a non-empty allow list", result.stderr)
+        result = self.run_cli("check", "--checks=vulns", "--quiet")
+        self.assert_diagnostic(result)
+        self.assertIn("manifest.toml", result.stderr)
+        self.assertNotIn("allow list", result.stderr)
 
     def test_help_alias_and_root_only_version(self):
         for command in ("", "report", "check", "sbom", "vulns", "notices", "update"):
@@ -477,6 +496,10 @@ class CliStreamTest(unittest.TestCase):
         # formatting/severity functions and main's stream dispatch.
         evaluation = """
             {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
+            SourceResult = case os:getenv("STREAM_CHECK_SELECTION") of
+                "vulns" -> {error, fetch_network_failure};
+                _ -> {ok, Archive}
+            end,
             Notice = 'licence_audit@notice',
             {ok, {Notice, [{abstract_code, {raw_abstract_v1, NoticeForms}}]}} =
                 beam_lib:chunks(code:which(Notice), [abstract_code]),
@@ -484,7 +507,7 @@ class CliStreamTest(unittest.TestCase):
                 ({function, Line, fetch_hex_tarball_from_hex, 2, _}) ->
                     {function, Line, fetch_hex_tarball_from_hex, 2, [
                         {clause, Line, [{var, Line, '_'}, {var, Line, '_'}], [],
-                            [erl_parse:abstract({ok, Archive})]}
+                            [erl_parse:abstract(SourceResult)]}
                     ]};
                 (Form) -> Form
             end, NoticeForms),
@@ -524,17 +547,29 @@ class CliStreamTest(unittest.TestCase):
             licence_audit:main().
         """
         cases = (
-            ("high", False, 1),
-            ("unknown", False, 1),
-            ("batch_failure", False, 2),
-            ("detail_failure", False, 2),
-            ("batch_failure", True, 2),
-            ("detail_failure", True, 2),
+            (mode, deny, status, selection)
+            for selection in ("all", "vulns")
+            for mode, deny, status in (
+                ("high", False, 1),
+                ("unknown", False, 1),
+                ("batch_failure", False, 2),
+                ("detail_failure", False, 2),
+                ("batch_failure", True, 2),
+                ("detail_failure", True, 2),
+            )
         )
-        for mode, deny_licence, status in cases:
+        for mode, deny_licence, status, selection in cases:
             for quiet in (False, True):
-                with self.subTest(mode=mode, deny_licence=deny_licence, quiet=quiet):
-                    arguments = ["check", "--allow=Apache-2.0", "--vulns", "--no-cache"]
+                with self.subTest(
+                    mode=mode, deny_licence=deny_licence, quiet=quiet,
+                    selection=selection,
+                ):
+                    cache_path = self.project / "vulnerability-only-cache"
+                    arguments = ["check", f"--checks={selection}"]
+                    if selection == "all":
+                        arguments += ["--allow=Apache-2.0", "--no-cache"]
+                    else:
+                        arguments += [f"--cache-dir={cache_path}"]
                     if mode == "unknown":
                         arguments += ["--vuln-block-unknown"]
                     if deny_licence:
@@ -552,11 +587,19 @@ class CliStreamTest(unittest.TestCase):
                         env={
                             **os.environ, "NO_COLOR": "1",
                             "STREAM_OSV_MODE": mode,
+                            "STREAM_CHECK_SELECTION": selection,
                             "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
                         },
                     )
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-                    self.assertIn("example", result.stdout)
+                    if selection == "all" or status == 1:
+                        self.assertIn("example", result.stdout)
+                    else:
+                        self.assertEqual(result.stdout, "")
+                    if selection == "vulns":
+                        self.assertNotIn("Licence audit", result.stderr)
+                        self.assertNotIn("unexpected licence fetch", result.stdout)
+                        self.assertFalse(cache_path.exists())
                     if status == 1:
                         self.assertIn("CVE-STREAM-0001", result.stdout)
                         self.assertIn("Vulnerability check failed:", result.stdout)

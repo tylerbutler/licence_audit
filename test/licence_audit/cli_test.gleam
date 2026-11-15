@@ -34,7 +34,7 @@ fn parse_options(args: List(String)) -> cli.Options {
         color: options.color,
         no_cache: options.no_cache,
         cache_dir: options.cache_dir,
-        check_vulns: False,
+        checks: cli.Licences,
         vuln_severity: None,
         vuln_block_unknown: False,
         prod_only: options.prod_only,
@@ -89,6 +89,7 @@ pub fn check_subcommand_enables_check_mode_test() {
   let options = parse_options(["check"])
 
   should.equal(options.check, True)
+  should.equal(options.checks, cli.Licences)
   should.equal(options.vuln_severity, None)
   should.equal(options.vuln_block_unknown, False)
 }
@@ -148,7 +149,7 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
 
 pub fn optional_string_flags_still_require_values_when_supplied_test() {
   use command <- list.each([
-    #(["check"], ["vuln-severity"]),
+    #(["check"], ["vuln-severity", "checks"]),
     ..optional_path_flags
   ])
   let #(command, names) = command
@@ -160,7 +161,7 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
 }
 
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
-  let options = parse_options(["check", "--vulns", "--vuln-block-unknown"])
+  let options = parse_options(["check", "--checks=all", "--vuln-block-unknown"])
 
   should.equal(options.vuln_block_unknown, True)
 }
@@ -378,7 +379,7 @@ pub fn invalid_check_vuln_severity_returns_usage_error_test() {
 pub fn check_vuln_severity_preserves_supported_values_test() {
   use severity <- list.each(["low", "medium", "high", "critical"])
   let options =
-    parse_options(["check", "--vulns", "--vuln-severity=" <> severity])
+    parse_options(["check", "--checks=all", "--vuln-severity=" <> severity])
 
   should.equal(options.vuln_severity, Some(severity))
 }
@@ -391,21 +392,21 @@ pub fn check_vulnerability_flags_require_enabled_scan_test() {
     ["--vuln-block-unknown=false"],
     ["--vuln-severity=high", "--vuln-block-unknown"],
   ])
-  use scan <- list.each([[], ["--vulns=false"]])
+  use scan <- list.each([[], ["--checks=licences"]])
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
     glint.execute(cli.app(), list.append(["check", ..scan], flags))
-  assert string.contains(message, "require --vulns")
+  assert string.contains(message, "require --checks=vulns or --checks=all")
 }
 
 pub fn check_enabled_scan_preserves_explicit_boolean_values_test() {
   use value <- list.each([#("true", True), #("false", False)])
   let #(text, expected) = value
   use flags <- list.each([
-    ["--vulns", "--vuln-block-unknown=" <> text],
-    ["--vuln-block-unknown=" <> text, "--vulns=true"],
+    ["--checks=all", "--vuln-block-unknown=" <> text],
+    ["--vuln-block-unknown=" <> text, "--checks=vulns"],
   ])
   let options = parse_options(["check", ..flags])
-  should.equal(options.check_vulns, True)
+  assert options.checks != cli.Licences
   should.equal(options.vuln_block_unknown, expected)
 }
 
@@ -680,7 +681,8 @@ pub fn command_specific_flag_matrix_test() {
     #("--allow=MIT", [True, True, False, False, False, False]),
     #("--deny=MIT", [True, True, False, False, False, False]),
     #("--output=out", [False, False, False, True, False, True]),
-    #("--vulns", [False, True, False, True, False, False]),
+    #("--vulns", [False, False, False, True, False, False]),
+    #("--checks=all", [False, True, False, False, False, False]),
     #("--offline", [False, False, False, True, False, False]),
     #("--reproducible", [False, False, False, True, False, False]),
     #("--license-text", [False, False, False, True, False, False]),
@@ -707,6 +709,40 @@ pub fn standalone_vulns_scope_defaults_and_flag_test() {
   let assert Ok(glint.Out(cli.RunVulns(options))) =
     glint.execute(cli.app(), list.append(["vulns"], flags))
   should.equal(options.prod_only, prod_only)
+}
+
+pub fn check_selection_accepts_only_supported_values_test() {
+  list.each(
+    [
+      #("licences", cli.Licences),
+      #("vulns", cli.Vulnerabilities),
+      #("all", cli.AllChecks),
+    ],
+    fn(selection) {
+      let options = parse_options(["check", "--checks=" <> selection.0])
+      should.equal(options.checks, selection.1)
+    },
+  )
+  use value <- list.each([
+    "",
+    "licenses",
+    "none",
+    "true",
+    "ALL",
+    "licences,vulns",
+  ])
+  let message = usage_error(["check", "--checks=" <> value])
+  assert string.contains(message, "checks")
+  assert string.contains(message, "must be one of")
+}
+
+pub fn removed_check_vulns_flag_and_help_test() {
+  list.each(["--vulns", "--vulns=true", "--vulns=false"], fn(flag) {
+    assert string.contains(usage_error(["check", flag]), "vulns")
+  })
+  let help = help_text(["check", "--help"])
+  assert string.contains(help, "--checks")
+  assert !string.contains(help, "--vulns")
 }
 
 pub fn bare_root_matches_named_report_and_lists_report_test() {
