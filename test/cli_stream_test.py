@@ -19,6 +19,7 @@ class CliStreamTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.project)
         (self.project / "gleam.toml").write_text(
             'name = "stream_fixture"\nversion = "1.0.0"\n'
+            '[tools.licence_audit]\nallow = ["MIT"]\n'
         )
 
     def run_cli(self, *arguments, environment=None):
@@ -48,13 +49,34 @@ class CliStreamTest(unittest.TestCase):
                 arguments += ["--quiet"]
                 if command != "vulns":
                     arguments += ["--no-cache"]
-                if command == "check":
-                    arguments += ["--allow=MIT"]
                 self.assert_diagnostic(self.run_cli(*arguments))
 
     def test_invalid_config_is_a_diagnostic(self):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("--quiet", "--no-cache"))
+
+    def test_removed_policy_flags_are_usage_errors_with_any_config(self):
+        missing = self.project / "missing.toml"
+        alternate = self.project / "alternate.toml"
+        alternate.write_text('[tools.licence_audit]\nallow = ["Apache-2.0"]\n')
+        for command in ([], ["check"]):
+            for config in (
+                [], [f"--config={alternate}"],
+                [f"--config={alternate}", "--ignore-config"],
+                [f"--config={missing}"],
+                [f"--config={missing}", "--ignore-config"],
+            ):
+                for name in ("allow", "deny"):
+                    for flags in (
+                        [f"--{name}"], [f"--{name}="],
+                        [f"--{name}=MIT"], [f"--{name}", "MIT"],
+                        [f"--{name}", ""],
+                    ):
+                        with self.subTest(command=command, config=config, flags=flags):
+                            result = self.run_cli(*command, *config, *flags)
+                            self.assertEqual(result.returncode, 1, result.stderr)
+                            self.assertEqual(result.stdout, "")
+                            self.assertIn("invalid flag", result.stderr)
 
     def test_vulnerability_flags_require_scan_before_reading_manifest(self):
         for flags in (
@@ -121,8 +143,6 @@ class CliStreamTest(unittest.TestCase):
             for mode, environment, colored in cases:
                 with self.subTest(command=command, mode=mode, env=environment):
                     arguments = [command] if command else []
-                    if command == "check":
-                        arguments += ["--allow=MIT"]
                     result = self.run_cli(
                         *arguments, "--verbose", f"--color={mode}",
                         environment=environment,
@@ -146,7 +166,7 @@ class CliStreamTest(unittest.TestCase):
             ):
                 with self.subTest(command=command, mode=mode):
                     arguments = (
-                        ["--allow=MIT"] if command == "check"
+                        [] if command == "check"
                         else ["--offline", "--reproducible"]
                     )
                     result = self.run_cli(
@@ -188,7 +208,7 @@ class CliStreamTest(unittest.TestCase):
                 try:
                     result = subprocess.run(
                         [
-                            str(ROOT / "licence_audit"), "check", "--allow=MIT",
+                            str(ROOT / "licence_audit"), "check",
                             f"--color={mode}",
                         ],
                         cwd=self.project, stdout=subprocess.PIPE, stderr=slave,
@@ -377,10 +397,14 @@ class CliStreamTest(unittest.TestCase):
         )
         self.assertEqual(seed.returncode, 0, seed.stdout + seed.stderr)
         for licence, status in (("Apache-2.0", 1), ("MIT", 0)):
+            policy = self.project / "gate-policy.toml"
+            policy.write_text(
+                f'[tools.licence_audit]\nallow = ["{licence}"]\n'
+            )
             for quiet in (False, True):
                 with self.subTest(licence=licence, quiet=quiet):
                     result = self.run_cli(
-                        "check", f"--allow={licence}",
+                        "check", f"--config={policy}",
                         f"--cache-path={cache_path}",
                         *(["--quiet"] if quiet else []),
                     )
@@ -460,11 +484,16 @@ class CliStreamTest(unittest.TestCase):
         for mode, deny_licence, status in cases:
             for quiet in (False, True):
                 with self.subTest(mode=mode, deny_licence=deny_licence, quiet=quiet):
-                    arguments = ["check", "--allow=MIT", "--vulns", "--no-cache"]
+                    policy = self.project / "vulnerability-policy.toml"
+                    policy.write_text(
+                        '[tools.licence_audit]\nallow = ["MIT"]\n'
+                        + ('deny = ["MIT"]\n' if deny_licence else '')
+                    )
+                    arguments = [
+                        "check", f"--config={policy}", "--vulns", "--no-cache"
+                    ]
                     if mode == "unknown":
                         arguments += ["--vuln-block-unknown"]
-                    if deny_licence:
-                        arguments += ["--deny=MIT"]
                     if quiet:
                         arguments += ["--quiet"]
                     result = subprocess.run(
@@ -509,7 +538,7 @@ class CliStreamTest(unittest.TestCase):
         blocker = self.project / "cache"
         blocker.write_text("not a directory")
         env = {**os.environ, "XDG_CACHE_HOME": str(blocker)}
-        for arguments in (["check", "--allow=MIT"], ["sbom", "--offline"]):
+        for arguments in (["check"], ["sbom", "--offline"]):
             for no_cache in (False, True):
                 with self.subTest(command=arguments[0], no_cache=no_cache):
                     flags = ["--quiet", "--no-cache"] if no_cache else []
@@ -571,7 +600,7 @@ class CliStreamTest(unittest.TestCase):
         """
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
-            for command in ([], ["check", "--allow=MIT"])
+            for command in ([], ["check"])
             for mode, environment, colored in (
                 ("never", {"FORCE_COLOR": "1"}, False),
                 ("always", {"NO_COLOR": "1"}, True),
@@ -659,7 +688,7 @@ class CliStreamTest(unittest.TestCase):
             'otp_app = "gleam_stdlib", source = "hex", outer_checksum = "ABC" }]\n'
             '[requirements]\ngleam_stdlib = ">= 0.60.0"\n'
         )
-        for arguments in (["check", "--allow=MIT", "--no-cache"], ["vulns"]):
+        for arguments in (["check", "--no-cache"], ["vulns"]):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(
                     [str(ROOT / "licence_audit"), *arguments],
@@ -670,7 +699,8 @@ class CliStreamTest(unittest.TestCase):
                     env={
                         **os.environ,
                         "NO_COLOR": "1",
-                        "ERL_FLAGS": "-public_key cacerts_path [47,110,111]",
+                        "ERL_FLAGS": os.environ.get("ERL_FLAGS", "")
+                        + " -public_key cacerts_path [47,110,111]",
                     },
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)

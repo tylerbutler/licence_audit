@@ -139,23 +139,25 @@ pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
   should.equal(options.vuln_block_unknown, True)
 }
 
-pub fn comma_separated_allow_options_are_preserved_test() {
-  let options = parse_options(["--allow=MIT,Apache-2.0"])
-
-  should.equal(options.allow_licences, ["MIT", "Apache-2.0"])
-}
-
-pub fn comma_separated_deny_options_are_preserved_test() {
-  let options = parse_options(["--deny=GPL-3.0-only,AGPL-3.0-only"])
-
-  should.equal(options.deny_licences, ["GPL-3.0-only", "AGPL-3.0-only"])
+pub fn removed_policy_flags_reject_all_forms_test() {
+  use command <- list.each([[], ["check"]])
+  use name <- list.each(["allow", "deny"])
+  use flags <- list.each([
+    ["--" <> name],
+    ["--" <> name <> "="],
+    ["--" <> name <> "=MIT"],
+    ["--" <> name <> "=MIT,Apache-2.0"],
+    ["--" <> name, "MIT"],
+    ["--" <> name, ""],
+  ])
+  let message = usage_error(list.append(command, flags))
+  assert string.contains(message, "invalid flag")
+  assert string.contains(message, name)
 }
 
 pub fn default_report_mode_accepts_empty_policy_test() {
   let options = parse_options([])
 
-  should.equal(options.allow_licences, [])
-  should.equal(options.deny_licences, [])
   should.equal(options.check, False)
 }
 
@@ -269,8 +271,6 @@ pub fn help_text_includes_usage_and_supported_options_test() {
 
   [
     "licence_audit",
-    "--allow",
-    "--deny",
     "--config",
     "--manifest",
     "--ignore-config",
@@ -626,8 +626,8 @@ pub fn command_specific_flag_matrix_test() {
     #("--cache-path=custom.cache", [True, True, True, True, False, True]),
     #("--prod-only", [True, True, False, False, True, False]),
     #("--include-dev", [False, False, False, False, False, True]),
-    #("--allow=MIT", [True, True, False, False, False, False]),
-    #("--deny=MIT", [True, True, False, False, False, False]),
+    #("--allow=MIT", [False, False, False, False, False, False]),
+    #("--deny=MIT", [False, False, False, False, False, False]),
     #("--output=out", [False, False, False, True, False, True]),
     #("--vulns", [False, True, False, True, False, False]),
     #("--offline", [False, False, False, True, False, False]),

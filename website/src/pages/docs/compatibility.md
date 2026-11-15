@@ -49,6 +49,36 @@ interfaces remain usable until the next major release.
 
 ## Commands and configuration
 
+### Migration before 1.0
+
+The licence report and `check` reject `--allow` and `--deny`, including empty
+values. They have no aliases. Ad-hoc CLI additions can no longer widen a
+configured allow list or add deny rules for one run.
+
+Move those entries into `[tools.licence_audit]` in a TOML file, then select it:
+
+```toml
+[tools.licence_audit]
+allow = ["MIT", "Apache-2.0"]
+deny = ["GPL-3.0-only"]
+```
+
+```sh
+licence_audit check --config=policies/release.toml
+licence_audit --config=policies/release.toml
+```
+
+Include the complete policy in the alternate file; its lists replace the
+default file selection. Keep the file in version control for review.
+Use interactive `update` or edit TOML to change it. `update` does not provide
+non-interactive list editing flags.
+
+Reports can run without policy, including with `--ignore-config`. Licence
+enforcement requires a non-empty configured `allow` list, so
+`check --ignore-config` returns exit code `2`.
+
+### Guarantees from 1.0
+
 Existing documented commands, flags, aliases, and valid argument forms remain
 available within a major version. We preserve their meanings, defaults, and
 documented environment-variable controls.

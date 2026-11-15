@@ -32,8 +32,8 @@ These commands use the same project-root rule, but read different settings:
 | `sbom` | Read project metadata for the root component; do not read or enforce licence policy. |
 
 If the default configuration file or policy section is absent, reporting can
-proceed without a policy. `check` requires a licence policy from the file or
-CLI flags. `update` can create the section in the project's `gleam.toml`.
+proceed without a policy. `check` requires a licence policy from the selected
+file. `update` can create the section in the project's `gleam.toml`.
 Invalid configuration still causes an error.
 
 ## Explicit configuration files
@@ -47,8 +47,8 @@ licence_audit check --manifest=apps/server/manifest.toml --config=policies/serve
 
 For the audit report, `check`, `update`, and `vulns`, the explicit file must
 contain `[tools.licence_audit]`. A file without this section causes an error
-with exit code `2`, even when CLI flags supply a policy. The error names the
-file and missing section. An empty section counts as present, but does not
+with exit code `2`. The error names the file and missing section.
+An empty section counts as present, but does not
 supply the licence rules that `check` requires.
 
 ```toml
@@ -65,11 +65,12 @@ Selecting another configuration file does not change the project root.
 Dependency scope and project metadata still come from the `gleam.toml` beside
 the manifest. `sbom` does not accept `--config`; it uses that project's metadata.
 
-## CLI policy and ignoring configuration
+## Policy selection and ignoring configuration
 
-CLI `--allow` and `--deny` values add to their corresponding configured lists.
-The command removes duplicates; the CLI lists do not replace the file lists.
-See [policy rules](/docs/check) for how the combined lists affect findings.
+Reports and checks read `allow` and `deny` from the selected TOML file.
+Use `--config=policies/release.toml` to select an alternate policy.
+Edit the TOML file or use the interactive `update` command to change the lists.
+See [policy rules](/docs/check) for how the lists affect findings.
 
 On commands that accept `--ignore-config`, this option bypasses tool
 configuration reads, including exceptions and notices filters. It takes
@@ -77,8 +78,12 @@ precedence over `--config`: the command does not read or validate the named
 policy file. It does not disable project metadata reads.
 
 ```sh
-licence_audit check --ignore-config --allow=MIT,Apache-2.0
+licence_audit --ignore-config
 ```
+
+This produces a licence report without policy findings. `check --ignore-config`
+returns exit code `2` because licence enforcement requires a non-empty `allow`
+list from a policy file. Read-only commands do not change the selected file.
 
 ## Update write target
 

@@ -39,7 +39,7 @@ exit code `2`. The policy keys are `allow`, `deny`, `vuln_severity`,
 and `exclude`. The error names the unknown key. An older binary therefore
 rejects keys added by a newer release instead of silently ignoring them.
 
-Every `allow` and `deny` entry, from config or CLI, must parse as an SPDX
+Every configured `allow` and `deny` entry must parse as an SPDX
 expression. Empty entries and malformed expressions such as `MIT/Apache-2.0`
 or `Apache 2.0` cause exit code `2`. Validation checks syntax, not membership in
 the SPDX License List. Custom identifiers and `LicenseRef-`/`DocumentRef-`
@@ -85,26 +85,22 @@ For untrusted metadata, the parser limits each expression to 64 KiB,
 1024 tokens, and 64 nested parentheses. Expressions above these limits fail
 the gate.
 
-## Ad-hoc and merged policy
+## Select an alternate policy
 
-CLI `--allow` and `--deny` values form a union with the corresponding
-configuration lists; duplicates are removed. `--allow` adds permitted licences
-for this run and can widen the gate. `--deny` adds denied licences for this run.
-Neither option replaces the configured list, and `deny` still takes precedence
-over `allow`.
-
-For example, add permitted and denied licences to the configured policy:
+Use `--config` to select a different policy file:
 
 ```sh
-licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
+licence_audit check --config=policies/release.toml
 ```
 
-Use `--config=other.toml` to read a different file. The file must have a
-`[tools.licence_audit]` section. Use `--ignore-config` to use only CLI options.
+The file must have a `[tools.licence_audit]` section with a non-empty `allow`
+list. `check` uses that file's lists and exceptions without adding rules from
+the default configuration. Edit the TOML file or run `update` to change policy.
 
-> **Note:** `--allow` and `--deny` also work on the command with no subcommand. These options
-> show a policy preview. Findings return exit code `0` when the scan completes.
-> Use `check` to return a failure for a violation.
+The command with no subcommand previews the selected policy and returns
+exit code `0` for findings when the scan completes. Use `--ignore-config`
+for a report without policy evaluation. `check --ignore-config` returns exit
+code `2` because it has no licence policy to enforce.
 
 ## Exit codes
 
@@ -161,9 +157,8 @@ remain valid without `--vulns` and apply only when the scan is enabled.
 
 `--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
 can only enable blocking: if you omit it, a configured `true` still applies.
-There is no CLI flag to turn this setting off. Use `--ignore-config` to ignore
-both configured vulnerability settings and use CLI-only defaults, which do
-not block unknown severity.
+There is no CLI flag to turn this setting off. Select an alternate policy with
+`--config` to use a different value while retaining the required licence rules.
 
 ## Scoped policy exceptions
 
@@ -240,9 +235,9 @@ one entry instead of relying on file order.
 ### Precedence and expiry
 
 The command evaluates global rules first, then applies each matching
-exception. An active exception can accept an explicit deny, including a deny
-added through the CLI. It does not modify the global lists or declared
-metadata. Exceptions alone do not replace the licence policy required by
+exception. An active exception can accept an explicit configured deny.
+It does not modify the global lists or declared metadata.
+Exceptions alone do not replace the licence policy required by
 `check`. `--ignore-config` ignores the exceptions along with other settings.
 
 Set `expires = "YYYY-MM-DD"` for a temporary waiver. The date must be a valid,
@@ -290,11 +285,9 @@ licence_audit check [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
 | `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

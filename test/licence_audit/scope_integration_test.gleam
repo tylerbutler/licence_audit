@@ -9,6 +9,7 @@ import licence_audit/notice
 import licence_audit/osv
 import licence_audit/progress
 import licence_audit/source_archive
+import licence_audit/test_policy
 import simplifile
 
 const project_header = "name = \"scope_fixture\"\nversion = \"1.0.0\"\n"
@@ -173,8 +174,8 @@ pub fn dev_only_and_empty_production_tables_filter_all_commands_test() {
   list.each(
     [
       ["--ignore-config", "--prod-only"],
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only"],
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--vulns"],
+      ["check", test_policy.flag(["MIT"], []), "--prod-only"],
+      ["check", test_policy.flag(["MIT"], []), "--prod-only", "--vulns"],
       ["vulns", "--ignore-config", "--prod-only"],
       ["notices", "--ignore-config"],
     ],
@@ -204,14 +205,14 @@ pub fn dev_only_project_preserves_command_defaults_and_include_dev_test() {
   assert string.contains(audit.output, "dev_dep")
   assert string.contains(audit.output, "dev_leaf")
   let check =
-    run(manifest_path, ["check", "--ignore-config", "--allow=MIT"], clients)
+    run(manifest_path, ["check", test_policy.flag(["MIT"], [])], clients)
   should.equal(check.exit_code, 1)
   assert string.contains(check.output, "dev_dep")
   assert string.contains(check.output, "dev_leaf")
   let combined =
     run(
       manifest_path,
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--vulns"],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--vulns"],
       clients,
     )
   should.equal(combined.exit_code, 1)
@@ -240,7 +241,7 @@ pub fn mixed_project_keeps_shared_transitive_production_dependencies_test() {
   let clients = selected_clients(["prod_dep", "shared"])
   list.each(
     [
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--prod-only"],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--prod-only"],
       ["notices", "--ignore-config"],
       ["vulns", "--ignore-config", "--prod-only"],
     ],
@@ -275,7 +276,7 @@ pub fn missing_project_file_keeps_direct_dependency_fallback_test() {
   let clients = selected_clients(["dev_dep", "dev_leaf", "shared"])
   list.each(
     [
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--prod-only"],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--prod-only"],
       ["vulns", "--ignore-config", "--prod-only"],
       ["notices", "--ignore-config"],
     ],
@@ -300,9 +301,10 @@ pub fn invalid_project_configuration_fails_even_with_ignore_config_test() {
   let manifest_path = write_project(name, project, False)
   list.each(
     [
-      ["check", "--ignore-config", "--allow=MIT"],
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only"],
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--vulns"],
+      ["--ignore-config", "--prod-only"],
+      ["check", test_policy.flag(["MIT"], [])],
+      ["check", test_policy.flag(["MIT"], []), "--prod-only"],
+      ["check", test_policy.flag(["MIT"], []), "--prod-only", "--vulns"],
       ["vulns", "--ignore-config", "--prod-only"],
       ["vulns", "--ignore-config"],
       ["notices", "--ignore-config"],
@@ -331,7 +333,7 @@ pub fn unreadable_project_configuration_fails_in_scoped_commands_test() {
   let assert Ok(_) = simplifile.create_directory_all(project_path)
   list.each(
     [
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only"],
+      ["check", test_policy.flag(["MIT"], []), "--prod-only"],
       ["vulns", "--ignore-config", "--prod-only"],
       ["notices", "--ignore-config"],
       ["sbom"],

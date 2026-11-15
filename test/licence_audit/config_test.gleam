@@ -6,6 +6,7 @@ import licence_audit
 import licence_audit/config
 import licence_audit/hex
 import licence_audit/progress
+import licence_audit/test_policy
 import licence_audit/toml
 import simplifile
 
@@ -142,41 +143,46 @@ pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {
   })
 }
 
-pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
+pub fn check_reads_selected_allow_and_deny_without_widening_test() {
   [
-    #("MIT", [], 1, "unknown: MIT"),
-    #("MIT", ["--allow=MIT"], 0, "allowed"),
-    #("BSD-3-Clause", ["--allow=MIT"], 0, "allowed"),
-    #("AGPL-3.0-only", ["--allow=AGPL-3.0-only"], 1, "denied: AGPL-3.0-only"),
+    #("MIT", ["BSD-3-Clause"], ["AGPL-3.0-only"], 1, "unknown: MIT"),
+    #("MIT", ["MIT"], [], 0, "allowed"),
+    #("BSD-3-Clause", ["MIT"], [], 1, "unknown: BSD-3-Clause"),
+    #(
+      "AGPL-3.0-only",
+      ["AGPL-3.0-only"],
+      ["AGPL-3.0-only"],
+      1,
+      "denied: AGPL-3.0-only",
+    ),
     #(
       "GPL-3.0-only",
-      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      ["AGPL-3.0-only", "GPL-3.0-only"],
+      ["GPL-3.0-only"],
       1,
       "denied: GPL-3.0-only",
     ),
     #(
       "AGPL-3.0-only",
-      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      ["AGPL-3.0-only", "GPL-3.0-only"],
+      ["AGPL-3.0-only", "GPL-3.0-only"],
       1,
       "denied: AGPL-3.0-only",
     ),
   ]
   |> list.each(fn(test_case) {
-    let #(licence, additions, expected_exit_code, expected_output) = test_case
+    let #(licence, allow, deny, expected_exit_code, expected_output) = test_case
     let clients =
       licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
         Ok(hex.licences_only([licence]))
       })
     let #(result, _) =
       licence_audit.run_configured(
-        list.append(
-          [
-            "check",
-            "--manifest=test/fixtures/manifest.toml",
-            "--config=test/fixtures/licence_audit_config.toml",
-          ],
-          additions,
-        ),
+        [
+          "check",
+          "--manifest=test/fixtures/manifest.toml",
+          test_policy.flag(allow, deny),
+        ],
         clients,
         progress.disabled(),
       )
@@ -351,8 +357,6 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
   [
     [],
     [
-      "--allow=MIT",
-      "--deny=GPL-3.0-only",
       "--vulns",
       "--vuln-severity=critical",
     ],
@@ -407,8 +411,6 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "check",
           "--manifest=test/fixtures/manifest.toml",
           "--config=" <> path,
-          "--allow=MIT",
-          "--deny=GPL-3.0-only",
           "--vulns",
           "--vuln-severity=critical",
           "--vuln-block-unknown",

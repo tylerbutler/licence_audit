@@ -144,16 +144,14 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   let preview = run(root, [], licences, batch, detail)
   should.equal(preview.exit_code, 0)
   assert string.contains(preview.output, "excepted #1")
-  let ignored =
-    run(
-      root,
-      ["check", "--ignore-config", "--allow=MIT", "--deny=GPL-3.0-only"],
-      licences,
-      batch,
-      detail,
-    )
-  should.equal(ignored.exit_code, 1)
+  let ignored = run(root, ["check", "--ignore-config"], licences, batch, detail)
+  should.equal(ignored.exit_code, 2)
+  assert string.contains(ignored.output, "requires a non-empty allow list")
   assert !string.contains(ignored.output, "Policy exceptions:")
+  let ignored_preview = run(root, ["--ignore-config"], licences, batch, detail)
+  should.equal(ignored_preview.exit_code, 0)
+  assert !string.contains(ignored_preview.output, "excepted #1")
+  assert !string.contains(ignored_preview.output, "Policy exceptions:")
 }
 
 pub fn whole_expression_exception_ignores_token_whitespace_test() {

@@ -159,6 +159,12 @@ For the manual policy picker, use
 or `licence_audit update` with a standalone setup. Put policy flags such as
 `--config` after `--` in module commands.
 
+Reports and checks read `allow` and `deny` from the selected TOML policy.
+Use `--config=policies/release.toml` to select a complete alternate policy.
+Do not pass `--allow` or `--deny`: reports and checks reject those flags.
+`check --ignore-config` cannot enforce licences because it has no allow list.
+Use `update` for interactive editing or edit the TOML file.
+
 Report commands do not fail because they find violations or vulnerabilities.
 Use the combined `check --vulns` command for enforcement. It returns `1` for
 gate failures and `2` for input, configuration, or network errors. Do not hide
