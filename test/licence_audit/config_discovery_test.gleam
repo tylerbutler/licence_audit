@@ -161,7 +161,7 @@ pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
   })
 }
 
-pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() {
+pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Nil {
   let assert Ok(original) = simplifile.read(missing_section)
   use path <- list.each([missing_section, fixture_root <> "/absent.toml"])
   use #(command, expected_exit) <- list.each([#([], 0), #(["check"], 2)])
@@ -184,7 +184,7 @@ pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() {
   should.equal(simplifile.read(missing_section), Ok(original))
 }
 
-pub fn explicit_missing_config_stops_reports_and_checks_test() {
+pub fn explicit_missing_config_stops_reports_and_checks_test() -> Nil {
   let path = fixture_root <> "/absent.toml"
   use command <- list.each([[], ["check"]])
   let #(result, _) =

@@ -139,7 +139,7 @@ pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
   should.equal(options.vuln_block_unknown, True)
 }
 
-pub fn removed_policy_flags_reject_all_forms_test() {
+pub fn removed_policy_flags_reject_all_forms_test() -> Nil {
   use command <- list.each([[], ["check"]])
   use name <- list.each(["allow", "deny"])
   use flags <- list.each([
