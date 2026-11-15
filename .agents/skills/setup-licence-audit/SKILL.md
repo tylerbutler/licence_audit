@@ -149,7 +149,7 @@ Use the column for the selected installation:
 
 | Purpose | Gleam module | Standalone |
 | --- | --- | --- |
-| Licence report or policy preview | `gleam run --target erlang -m licence_audit` | `licence_audit` |
+| Licence report or policy preview | `gleam run --target erlang -m licence_audit -- report` (or omit `-- report`) | `licence_audit report` (or `licence_audit`) |
 | Vulnerability report | `gleam run --target erlang -m licence_audit -- vulns` | `licence_audit vulns` |
 | Enforce licence policy | `gleam run --target erlang -m licence_audit -- check` | `licence_audit check` |
 | Enforce licences and vulnerability threshold | `gleam run --target erlang -m licence_audit -- check --vulns` | `licence_audit check --vulns` |

@@ -57,7 +57,7 @@ with_tar_gz(Entries, Check) ->
     ok = filelib:ensure_dir(Path),
     ok = erl_tar:create(Path, [
         {unicode:characters_to_list(Name), Contents} || {Name, Contents} <- Entries
-    ], [compressed]),
+    ], [compressed, {mtime, 0}, {atime, 0}, {ctime, 0}, {uid, 0}, {gid, 0}]),
     try
         {ok, Bytes} = file:read_file(Path),
         Check(Bytes)

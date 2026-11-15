@@ -49,6 +49,12 @@ interfaces remain usable until the next major release.
 
 ## Commands and configuration
 
+`licence_audit report` is an explicit form of the default licence report.
+Bare invocation and root scan flags remain supported, except for the removed
+policy flags below. Both forms use the same report options and behavior.
+There is no `audit` alias. Root `--help`, `-h`, and `--version` still work
+without reading project files or making network calls.
+
 ### Migration before 1.0
 
 The licence report and `check` reject `--allow` and `--deny`, including empty
@@ -66,6 +72,7 @@ deny = ["GPL-3.0-only"]
 ```sh
 licence_audit check --config=policies/release.toml
 licence_audit --config=policies/release.toml
+licence_audit report --config=policies/release.toml
 ```
 
 Include the complete policy in the alternate file; its lists replace the

@@ -8,6 +8,7 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/picker
 import licence_audit/progress
+import licence_audit/source_archive_test
 import licence_audit/update
 import simplifile
 
@@ -40,6 +41,7 @@ fn clients() -> licence_audit.Clients {
   licence_audit.Clients(
     ..licence_audit.default_clients(),
     fetcher: unused_fetcher,
+    notice_clients: source_archive_test.metadata_clients(unused_fetcher),
     osv_batch_fetcher: fn(_) {
       panic as "invalid configuration must stop before OSV fetch"
     },
@@ -139,7 +141,7 @@ pub fn implicit_missing_section_keeps_report_and_cli_policy_behavior_test() {
 }
 
 pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
-  [[], ["check"], ["vulns"]]
+  [["report"], ["check"], ["vulns"]]
   |> list.each(fn(command) {
     let #(result, _) =
       licence_audit.run_configured(
@@ -164,7 +166,11 @@ pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
 pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Nil {
   let assert Ok(original) = simplifile.read(missing_section)
   use path <- list.each([missing_section, fixture_root <> "/absent.toml"])
-  use #(command, expected_exit) <- list.each([#([], 0), #(["check"], 2)])
+  use #(command, expected_exit) <- list.each([
+    #([], 0),
+    #(["report"], 0),
+    #(["check"], 2),
+  ])
   let #(result, _) =
     licence_audit.run_configured(
       list.append(command, [
@@ -175,6 +181,7 @@ pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Ni
       licence_audit.Clients(
         ..licence_audit.default_clients(),
         fetcher: metadata_fetcher,
+        notice_clients: source_archive_test.metadata_clients(metadata_fetcher),
       ),
       progress.disabled(),
     )
@@ -186,7 +193,7 @@ pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Ni
 
 pub fn explicit_missing_config_stops_reports_and_checks_test() -> Nil {
   let path = fixture_root <> "/absent.toml"
-  use command <- list.each([[], ["check"]])
+  use command <- list.each([[], ["report"], ["check"]])
   let #(result, _) =
     licence_audit.run_configured(
       list.append(command, [
@@ -207,6 +214,7 @@ pub fn discovery_uses_manifest_sibling_not_current_directory_or_parent_test() {
       licence_audit.Clients(
         ..licence_audit.default_clients(),
         fetcher: metadata_fetcher,
+        notice_clients: source_archive_test.metadata_clients(metadata_fetcher),
       ),
       progress.disabled(),
     )
@@ -238,7 +246,7 @@ pub fn update_rejects_missing_section_before_fetch_picker_or_write_test() {
       False,
       True,
       None,
-      unused_fetcher,
+      source_archive_test.metadata_clients(unused_fetcher),
       fn(_title, _labels, _allow, _deny) {
         panic as "invalid configuration must stop before selection"
       },
@@ -261,7 +269,7 @@ pub fn update_ignore_config_keeps_explicit_write_target_test() {
       True,
       True,
       None,
-      metadata_fetcher,
+      source_archive_test.metadata_clients(metadata_fetcher),
       fn(_title, _labels, allow, deny) {
         should.equal(allow, [])
         should.equal(deny, [])

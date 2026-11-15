@@ -6,6 +6,8 @@ import licence_audit
 import licence_audit/config
 import licence_audit/hex
 import licence_audit/progress
+import licence_audit/source_archive
+import licence_audit/source_archive_test
 import licence_audit/test_policy
 import licence_audit/toml
 import simplifile
@@ -172,15 +174,28 @@ pub fn check_reads_selected_allow_and_deny_without_widening_test() {
   ]
   |> list.each(fn(test_case) {
     let #(licence, allow, deny, expected_exit_code, expected_output) = test_case
+    let archive = source_archive_test.metadata_archive([licence])
+    let assert Ok(checksum) = source_archive.sha256_hex(archive)
+    let manifest_path = "build/config-locked-licence.toml"
+    let assert Ok(_) =
+      simplifile.write(
+        manifest_path,
+        "packages = [{ name = \"example\", version = \"1.0.0\", source = \"hex\", outer_checksum = \""
+          <> checksum
+          <> "\" }]\n",
+      )
     let clients =
-      licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
-        Ok(hex.licences_only([licence]))
-      })
+      licence_audit.Clients(
+        ..licence_audit.default_clients(),
+        notice_clients: source_archive_test.metadata_clients(fn(_) {
+          Ok(hex.licences_only([licence]))
+        }),
+      )
     let #(result, _) =
       licence_audit.run_configured(
         [
           "check",
-          "--manifest=test/fixtures/manifest.toml",
+          "--manifest=" <> manifest_path,
           test_policy.flag(allow, deny),
         ],
         clients,
@@ -189,6 +204,7 @@ pub fn check_reads_selected_allow_and_deny_without_widening_test() {
 
     should.equal(result.exit_code, expected_exit_code)
     assert string.contains(result.output, expected_output)
+    let assert Ok(_) = simplifile.delete(manifest_path)
   })
 }
 

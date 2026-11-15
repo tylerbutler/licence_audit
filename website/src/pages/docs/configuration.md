@@ -24,7 +24,7 @@ These commands use the same project-root rule, but read different settings:
 
 | Command | Configuration use |
 |---|---|
-| `licence_audit` (no subcommand) | Read `[tools.licence_audit]` for a policy preview. |
+| Bare invocation or `report` | Read `[tools.licence_audit]` for a policy preview. |
 | `check` | Read `[tools.licence_audit]` and enforce the policy. |
 | `update` | Read the existing policy to preselect entries, then write the selected policy. |
 | `vulns` | Read policy exceptions for the advisory report; do not enforce licence rules. |
@@ -45,7 +45,7 @@ of the default policy file:
 licence_audit check --manifest=apps/server/manifest.toml --config=policies/server.toml
 ```
 
-For the audit report, `check`, `update`, and `vulns`, the explicit file must
+For `report`, `check`, `update`, and `vulns`, the explicit file must
 contain `[tools.licence_audit]`. A file without this section causes an error
 with exit code `2`. The error names the file and missing section.
 An empty section counts as present, but does not

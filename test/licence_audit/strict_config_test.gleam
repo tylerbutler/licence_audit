@@ -227,7 +227,7 @@ fn assert_invalid_cli(
 }
 
 pub fn removed_cli_entries_fail_before_fetching_test() {
-  list.each(["", "check"], fn(command) {
+  list.each(["", "report", "check"], fn(command) {
     let commands = case command {
       "" -> []
       _ -> [command]

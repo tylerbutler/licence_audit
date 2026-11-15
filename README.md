@@ -4,6 +4,10 @@ A CLI for the locked dependencies in a Gleam project. It reports Hex package
 licences, previews or enforces a licence policy, creates CycloneDX SBOMs and
 third-party notices, and checks for known vulnerabilities through OSV.dev.
 
+Licence reports, `check`, and `update` read declarations from the locked Hex
+archive and verify its SHA-256 against `manifest.toml`. The first scan downloads
+the archives; later scans reuse checksum-keyed metadata without expiry.
+
 ## Install
 
 Download a self-contained archive for your platform from the
@@ -38,6 +42,7 @@ documentation. It contains installation and setup guidance, generated CLI
 usage and flag tables, and command behavior:
 
 - [Quick start](https://licence-audit.tylerbutler.com/docs)
+- [Licence reports](https://licence-audit.tylerbutler.com/docs/report)
 - [GitHub Actions](https://licence-audit.tylerbutler.com/docs#optional-github-actions-usage)
 - [Licence policy and checks](https://licence-audit.tylerbutler.com/docs/check)
 - [Create a policy](https://licence-audit.tylerbutler.com/docs/update)
@@ -55,6 +60,10 @@ Reports and checks read `allow` and `deny` from `[tools.licence_audit]` in TOML.
 Use `--config=policies/release.toml` to select an alternate policy.
 See the [migration notes](https://licence-audit.tylerbutler.com/docs/compatibility#migration-before-10)
 if your scripts use removed `--allow` or `--deny` flags.
+
+Run `licence_audit` or `licence_audit report` to inspect licences or preview
+policy findings. Both use the same options and non-enforcing report behavior.
+The named command is optional. Both forms reject the removed policy flags.
 
 ## Contributing and security
 
