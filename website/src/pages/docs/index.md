@@ -41,7 +41,7 @@ Inspect the dependencies, create a policy, and enforce the policy.
 ```sh
 # 1. Create manifest.toml and report the dependency tree
 gleam deps download
-licence_audit
+licence_audit report
 
 # 2. Select the licences to allow or deny
 licence_audit update
@@ -50,10 +50,14 @@ licence_audit update
 licence_audit check
 ```
 
-The `licence_audit` command reports policy findings without enforcing them and
-returns exit code `0` when the scan completes. An incomplete licence report
+The `licence_audit report` command reports policy findings without enforcing
+them and returns exit code `0` when the scan completes. An incomplete licence report
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
+
+A bare `licence_audit` runs the same non-enforcing report. Both forms accept
+the same scan options. Use `licence_audit --help` to show help without
+reading project files, opening caches, or making network calls.
 
 See [configuration discovery](/docs/configuration#discovery) for how the
 manifest selects the project and policy file.
@@ -262,12 +266,12 @@ options available in your installed version.
 use `licence_audit --version`, not `licence_audit sbom --version`.
 
 <!-- cli-reference -->
-Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy.
+Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.
 
 **Usage:**
 
 ```
-licence_audit (check | notices | sbom | update | vulns) [--flags]
+licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 ```
 
 **Flags:**

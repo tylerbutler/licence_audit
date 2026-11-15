@@ -172,7 +172,7 @@ pub fn dev_only_and_empty_production_tables_filter_all_commands_test() {
   let manifest_path = write_project(name, project, False)
   list.each(
     [
-      ["--ignore-config", "--prod-only"],
+      ["report", "--ignore-config", "--prod-only"],
       ["check", "--ignore-config", "--allow=MIT", "--prod-only"],
       ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--vulns"],
       ["vulns", "--ignore-config", "--prod-only"],
@@ -199,7 +199,7 @@ pub fn dev_only_and_empty_production_tables_filter_all_commands_test() {
 pub fn dev_only_project_preserves_command_defaults_and_include_dev_test() {
   let manifest_path = write_project("defaults", dev_dependencies, False)
   let clients = selected_clients(["dev_dep", "dev_leaf", "shared"])
-  let audit = run(manifest_path, ["--ignore-config"], clients)
+  let audit = run(manifest_path, ["report", "--ignore-config"], clients)
   should.equal(audit.exit_code, 0)
   assert string.contains(audit.output, "dev_dep")
   assert string.contains(audit.output, "dev_leaf")
