@@ -174,7 +174,7 @@ pub fn dev_only_and_empty_production_tables_filter_all_commands_test() {
     [
       ["report", "--ignore-config", "--prod-only"],
       ["check", "--ignore-config", "--allow=MIT", "--prod-only"],
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--vulns"],
+      ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--checks=all"],
       ["vulns", "--ignore-config", "--prod-only"],
       ["notices", "--ignore-config"],
     ],
@@ -211,7 +211,7 @@ pub fn dev_only_project_preserves_command_defaults_and_include_dev_test() {
   let combined =
     run(
       manifest_path,
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--vulns"],
+      ["check", "--ignore-config", "--allow=Apache-2.0", "--checks=all"],
       clients,
     )
   should.equal(combined.exit_code, 1)
@@ -302,7 +302,7 @@ pub fn invalid_project_configuration_fails_even_with_ignore_config_test() {
     [
       ["check", "--ignore-config", "--allow=MIT"],
       ["check", "--ignore-config", "--allow=MIT", "--prod-only"],
-      ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--vulns"],
+      ["check", "--ignore-config", "--allow=MIT", "--prod-only", "--checks=all"],
       ["vulns", "--ignore-config", "--prod-only"],
       ["vulns", "--ignore-config"],
       ["notices", "--ignore-config"],
