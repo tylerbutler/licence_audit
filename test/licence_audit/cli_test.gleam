@@ -703,14 +703,95 @@ pub fn sbom_subcommand_parses_defaults_test() {
   should.equal(options.license_text, False)
 }
 
-pub fn sbom_license_text_allows_reproducible_but_rejects_offline_test() {
+pub fn sbom_licence_text_spellings_preserve_boolean_values_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use value <- list.each([#("", True), #("=true", True), #("=false", False)])
+  let #(suffix, expected) = value
   let assert Ok(glint.Out(cli.RunSbom(options))) =
-    glint.execute(cli.app(), ["sbom", "--license-text", "--reproducible"])
+    glint.execute(cli.app(), cli.normalize_args(["sbom", spelling <> suffix]))
+  should.equal(options.license_text, expected)
+}
+
+pub fn sbom_licence_text_spellings_reject_malformed_booleans_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use value <- list.each(["", "yes", "1", "true=false"])
+  let message = usage_error(["sbom", spelling <> "=" <> value])
+  assert string.contains(message, "licence-text")
+  assert string.contains(message, "cannot parse")
+}
+
+pub fn sbom_licence_text_mixed_spellings_follow_repeated_flag_behavior_test() {
+  use first <- list.each(["", "=true", "=false"])
+  use second <- list.each(["", "=true", "=false"])
+  let assert Ok(glint.Out(cli.RunSbom(expected))) =
+    glint.execute(cli.app(), [
+      "sbom",
+      "--licence-text" <> first,
+      "--licence-text" <> second,
+    ])
+  use spellings <- list.each([
+    #("--licence-text", "--license-text"),
+    #("--license-text", "--licence-text"),
+    #("--license-text", "--license-text"),
+  ])
+  let assert Ok(glint.Out(cli.RunSbom(actual))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args([
+        "sbom",
+        spellings.0 <> first,
+        spellings.1 <> second,
+      ]),
+    )
+  should.equal(actual, expected)
+}
+
+pub fn sbom_licence_text_alias_does_not_rewrite_flag_values_test() {
+  use value <- list.each([
+    "--license-text",
+    "--license-text=true",
+    "--license-text=false",
+    "prefix--license-text",
+  ])
+  use flags <- list.each([
+    ["--output=" <> value],
+    ["--output", value],
+  ])
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(cli.app(), cli.normalize_args(["sbom", ..flags]))
+  should.equal(options.output, Some(value))
+  should.equal(options.license_text, False)
+}
+
+pub fn sbom_licence_text_help_lists_primary_and_supported_alias_test() {
+  let help = help_text(["sbom", "--help"])
+  assert string.contains(help, "--licence-text")
+  assert string.contains(help, "alias: --license-text")
+}
+
+pub fn sbom_licence_text_allows_reproducible_but_rejects_offline_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use suffix <- list.each(["", "=true"])
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(["sbom", spelling <> suffix, "--reproducible"]),
+    )
   should.equal(options.license_text, True)
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), ["sbom", "--license-text", "--offline"])
-  assert string.contains(message, "--license-text")
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(["sbom", spelling <> suffix, "--offline"]),
+    )
+  assert string.contains(message, "--licence-text")
   assert string.contains(message, "--offline")
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(["sbom", spelling <> "=false", "--offline"]),
+    )
+  should.equal(options.license_text, False)
+  should.equal(options.offline, True)
 }
 
 pub fn sbom_subcommand_parses_reproducible_flag_test() {
@@ -804,11 +885,16 @@ pub fn command_specific_flag_matrix_test() {
     #("--checks=all", [False, True, False, False, False, False]),
     #("--offline", [False, False, False, True, False, False]),
     #("--reproducible", [False, False, False, True, False, False]),
+    #("--licence-text", [False, False, False, True, False, False]),
     #("--license-text", [False, False, False, True, False, False]),
     #("--version", [False, False, False, False, False, False]),
   ])
   use command <- list.each(list.zip(commands, entry.1))
-  let result = glint.execute(cli.app(), list.append(command.0, [entry.0]))
+  let result =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(list.append(command.0, [entry.0])),
+    )
   case command.1 {
     True -> {
       let assert Ok(glint.Out(_)) = result

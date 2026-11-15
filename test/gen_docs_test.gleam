@@ -21,7 +21,8 @@ pub fn all_cli_commands_have_reference_pages_test() {
   assert list.any(commands, fn(page) {
     let #(path, body) = page
     path == "website/src/pages/docs/sbom.md"
-    && string.contains(body, "`--license-text`")
+    && string.contains(body, "`--licence-text`")
+    && string.contains(body, "alias: --license-text")
     && string.contains(body, "conflicts with --offline")
   })
 }

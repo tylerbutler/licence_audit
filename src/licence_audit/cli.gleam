@@ -170,11 +170,18 @@ fn normalize_alias(arg: String) -> String {
     "-q" -> "--quiet"
     "-v" -> "--verbose"
     "--colour" -> "--color"
+    "--license-text" -> "--licence-text"
     other -> {
-      case string.starts_with(other, "--colour=") {
-        True ->
+      case
+        string.starts_with(other, "--colour="),
+        string.starts_with(other, "--license-text=")
+      {
+        True, _ ->
           "--color=" <> string.drop_start(other, string.length("--colour="))
-        False -> other
+        _, True ->
+          "--licence-text="
+          <> string.drop_start(other, string.length("--license-text="))
+        False, False -> other
       }
     }
   }
@@ -539,10 +546,10 @@ fn sbom_command() -> glint.Command(CliAction) {
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
   use license_text <- glint.flag(
-    glint.bool_flag("license-text")
+    glint.bool_flag("licence-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline)",
+      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline; alias: --license-text)",
     ),
   )
   use _, _, flags <- glint.command()
@@ -577,7 +584,7 @@ fn sbom_command() -> glint.Command(CliAction) {
         "--vulns uses mutable advisory data and cannot be combined with --reproducible",
       )
     _, _, _, True, _ ->
-      InvalidUsage("--license-text cannot be combined with --offline")
+      InvalidUsage("--licence-text cannot be combined with --offline")
     _, _, _, _, Error(color_error) ->
       InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), False, False, False, Ok(color_mode) ->
