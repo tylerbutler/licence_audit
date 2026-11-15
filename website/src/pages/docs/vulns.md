@@ -21,7 +21,7 @@ available, it uses the CVSS vector. The report ends with the numbers of checked,
 affected, and clean packages.
 
 A valid CVSS score of `0.0` has severity `none`, not `low` or `unknown`.
-It remains in the report but never blocks `check --vulns`, even with
+It remains in the report but never blocks a selected vulnerability gate, even with
 `--vuln-block-unknown`. When OSV supplies multiple vectors, the highest known
 severity applies. A recognised `database_specific.severity` remains authoritative.
 
@@ -42,7 +42,7 @@ them.
 Hex queries identify the package and locked version. GitHub queries send the
 locked commit through OSV's `commit` field. Reports, scoped exceptions, and
 SBOM component references keep the GitHub purl. These query rules also apply
-to `check --vulns` and `sbom --vulns`.
+to `check --checks=vulns`, `check --checks=all`, and `sbom --vulns`.
 
 ## Reviewed advisory exceptions
 
@@ -68,16 +68,24 @@ TOML schema, exact version/commit matching, advisory aliases, and UTC expiry.
 ## Failing a build on vulnerabilities
 
 `vulns` reports results and does not enforce a threshold. To return a failure
-when advisories meet a severity threshold, add `--vulns` to
+when advisories meet a severity threshold, select `--checks=vulns` on
 [`check`](/docs/check):
 
 ```sh
-licence_audit check --vulns
-licence_audit check --vulns --vuln-severity=medium
-licence_audit check --vulns --vuln-block-unknown
+licence_audit check --checks=vulns
+licence_audit check --checks=vulns --vuln-severity=medium
+licence_audit check --checks=vulns --vuln-block-unknown
 ```
 
-The command runs the licence audit and then queries OSV.dev. It fails when an
+This selection queries OSV.dev without licence metadata requests or licence
+enforcement. It works with or without a licence policy. Use `--checks=all`
+to retain the combined licence and vulnerability gate:
+
+```sh
+licence_audit check --checks=all
+```
+
+The vulnerability gate fails when an
 advisory meets or exceeds the threshold. An advisory with unknown severity does
 not cause a failure by default. Use `--vuln-block-unknown` to make unknown
 severity cause a failure. See [`check`](/docs/check#also-fail-on-vulnerabilities)

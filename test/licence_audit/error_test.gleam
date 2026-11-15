@@ -41,7 +41,7 @@ pub fn missing_policy_maps_to_exit_two_and_message_test() {
   should.equal(error.exit_code(error.MissingPolicy), 2)
   should.equal(
     error.message(error.MissingPolicy),
-    "The `check` subcommand requires a non-empty allow list, including with --vulns. Add allow to [tools.licence_audit] in gleam.toml or pass --allow.",
+    "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or pass --allow.",
   )
 }
 

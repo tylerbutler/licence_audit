@@ -141,7 +141,8 @@ vuln_block_unknown = true
 ```
 
 This is an example of vulnerability settings, not a complete licence policy.
-The settings do not enable OSV checks on their own; the command needs `--vulns`.
+The settings do not enable OSV checks on their own; select `--checks=vulns` or
+`--checks=all` on `check`.
 
 ## 4. Add local commands
 
@@ -152,7 +153,8 @@ Use the column for the selected installation:
 | Licence report or policy preview | `gleam run --target erlang -m licence_audit -- report` (or omit `-- report`) | `licence_audit report` (or `licence_audit`) |
 | Vulnerability report | `gleam run --target erlang -m licence_audit -- vulns` | `licence_audit vulns` |
 | Enforce licence policy | `gleam run --target erlang -m licence_audit -- check` | `licence_audit check` |
-| Enforce licences and vulnerability threshold | `gleam run --target erlang -m licence_audit -- check --vulns` | `licence_audit check --vulns` |
+| Enforce vulnerability threshold only | `gleam run --target erlang -m licence_audit -- check --checks=vulns` | `licence_audit check --checks=vulns` |
+| Enforce licences and vulnerability threshold | `gleam run --target erlang -m licence_audit -- check --checks=all` | `licence_audit check --checks=all` |
 
 For the manual policy picker, use
 `gleam run --target erlang -m licence_audit -- update` with a module setup,
@@ -160,7 +162,7 @@ or `licence_audit update` with a standalone setup. Put policy flags such as
 `--config` after `--` in module commands.
 
 Report commands do not fail because they find violations or vulnerabilities.
-Use the combined `check --vulns` command for enforcement. It returns `1` for
+Use the combined `check --checks=all` command for enforcement. It returns `1` for
 gate failures and `2` for input, configuration, or network errors. Do not hide
 these failures with `|| true` or equivalent settings.
 

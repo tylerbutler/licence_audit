@@ -95,8 +95,9 @@ Optional enrichment has separate completion rules:
 
 - `vulns` and `sbom --vulns` tolerate individual advisory-detail failures:
   they warn and retain the advisory ID with unknown severity, then exit `0`.
-  An OSV batch request failure exits `2`. `check --vulns` also exits `2` when
-  advisory details are unavailable because it cannot evaluate severity.
+  An OSV batch request failure exits `2`. `check --checks=vulns` and
+  `check --checks=all` also exit `2` when
+  advisory details are unavailable because the gate cannot evaluate severity.
 - Default `sbom` generation tolerates missing Hex or local Git dependency
   enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
   deliberately skips Hex enrichment. Without `--offline`, `--reproducible`

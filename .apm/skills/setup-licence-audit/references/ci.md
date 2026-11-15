@@ -13,7 +13,7 @@ enforced licence policy.
 
 Reuse the existing checkout, tool installation, and dependency-download
 steps. If the pinned CLI is already installed by the project's mise setup,
-call its task or `mise exec -- licence_audit check --vulns`; a second install
+call its task or `mise exec -- licence_audit check --checks=all`; a second install
 action is unnecessary.
 
 For a module setup, reuse the project's pinned Gleam/OTP setup and dependency
@@ -22,7 +22,7 @@ dependency pin from local setup. Run the existing local audit task, or:
 
 ```yaml
 - name: Check licences and vulnerabilities
-  run: gleam run --target erlang -m licence_audit -- check --vulns
+  run: gleam run --target erlang -m licence_audit -- check --checks=all
 ```
 
 Do not add a CLI installation action for this path. Module execution builds
@@ -58,7 +58,7 @@ resolve and verify commit SHAs if it requires immutable action references.
     setup-beam: "false"
 
 - name: Check licences and vulnerabilities
-  run: licence_audit check --vulns
+  run: licence_audit check --checks=all
 ```
 
 Prefer the existing local audit task over a duplicate command. For a nested
