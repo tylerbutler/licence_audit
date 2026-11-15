@@ -186,10 +186,16 @@ disabled. It then writes cache entries, runs the cache-enabled
 CLI, and checks for cache hits. It also checks conversion failures and the
 deferred warning when neither environment variable is set.
 The isolated Python checks also cover Unicode paths with caching enabled,
-empty values, explicit metadata overrides, and notice cache persistence.
+empty values, explicit application roots, and notice/SPDX cache persistence.
 The Windows CI job runs these checks with `HOME` and `XDG_CACHE_HOME` removed
 and a scratch `LOCALAPPDATA`. Its relocated escript smoke test checks the
-default metadata and notice caches through real CLI commands.
+default metadata and notice caches through real CLI commands. It also checks
+cold notices and licence-text SBOM runs under explicit Unicode roots, warm
+reuse, cache bypass without deletion, and absence of default-root accesses.
+For native executables, Queso still unpacks its runtime into `app/` and `erts/`
+in its platform cache before parsing CLI flags. The isolation check permits
+only those launcher directories; application cache families must use the
+explicit root. Escript checks require the default directories to stay absent.
 
 ## File cache
 
@@ -262,12 +268,12 @@ reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Pass `flags` or `["report", ..flags]` for a licence report; an empty
 argument list runs the default report. Both runners add `--no-cache` to default
-and named reports and other cache-capable
-commands, so they do not touch the on-disk caches or add unsupported flags
+and named reports and other cache-capable commands, so they do not touch
+the on-disk caches or add unsupported flags
 to root help/version or standalone `vulns`. Concurrent CLI runs can share
-cache paths. `--no-cache` bypasses
-the caches, and `--cache-path=DIR` overrides the licence metadata cache
-directory.
+cache paths. `--no-cache` bypasses the caches without deleting entries.
+`--cache-dir=DIR` selects the application root for metadata, notice materials,
+and SPDX text. Stores use versioned subdirectories below that root.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 

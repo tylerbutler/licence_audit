@@ -79,7 +79,7 @@ pub fn default_and_named_report_preserve_output_errors_and_cache_bypass_test() {
     "--manifest=test/fixtures/manifest.toml",
     "--ignore-config",
     "--deny=MIT",
-    "--cache-path=build/default-report-unused-cache",
+    "--cache-dir=build/default-report-unused-cache",
   ]
   use #(fetcher, expected_exit) <- list.each([
     #(fake_fetcher, 0),
@@ -1009,7 +1009,7 @@ pub fn run_with_source_clients_disables_disk_cache_for_audits_test() {
 
   let result =
     licence_audit.run_configured(
-      manifest_args(["--cache-path=" <> cache_path]),
+      manifest_args(["--cache-dir=" <> cache_path]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
         notice_clients: source_archive_test.metadata_clients(fake_fetcher),

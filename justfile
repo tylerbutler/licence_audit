@@ -2,7 +2,7 @@
 
 # Persisted package metadata cache path. Kept in-repo so CI can restore
 # .hex-cache/ between runs via actions/cache and avoid repeated downloads.
-hex_cache := ".hex-cache/hex-v2"
+hex_cache := ".hex-cache"
 
 # OSS Review Toolkit image used to cross-check our SBOM (see docs/sbom-comparison-ort.md).
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
@@ -165,7 +165,7 @@ notices: build
 # Generate a reproducible CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
 sbom-generate: build
     mkdir -p dist
-    ./licence_audit sbom --reproducible --output=dist/sbom.json --cache-path={{hex_cache}}
+    ./licence_audit sbom --reproducible --output=dist/sbom.json --cache-dir={{hex_cache}}
 
 # Fail if regenerating the checked-in SBOM changes ./dist/sbom.json.
 sbom-drift-check: sbom-generate
