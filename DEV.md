@@ -175,6 +175,15 @@ the escript with an invalid CA bundle path
 These runtime failures must exit 2 without a raw
 stack trace. Policy and usage failures must still exit 1.
 
+`just test-cli-streams` keeps process-level checks for stdout, stderr, exit
+codes, terminal detection, and disk caches. Keep argument combinations in
+`cli_test.gleam` and configuration precedence in `integration_test.gleam`.
+The stream tests compile repeated fetch fixtures into temporary directories
+once per variant, then start a fresh VM for each case. They do not change
+production BEAM files. After a build, use `just --no-deps test-cli-streams`
+to run them without another export. Complete builds and exports before running
+the stream tests. These tests check completed output, not live arrival timing.
+
 To test environment conversion and cache paths without network access:
 
 ```sh

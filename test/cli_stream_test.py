@@ -13,6 +13,7 @@ import uuid
 ROOT = Path(__file__).resolve().parent.parent
 HEX_ARCHIVE = ROOT / "test/fixtures/sbom_metadata/hex.tar"
 HEX_CHECKSUM = hashlib.sha256(HEX_ARCHIVE.read_bytes()).hexdigest().upper()
+EBINS = sorted(map(str, (ROOT / "build/prod/erlang").glob("*/ebin")))
 
 
 class CliStreamTest(unittest.TestCase):
@@ -25,20 +26,42 @@ class CliStreamTest(unittest.TestCase):
             '[tools.licence_audit]\nallow = ["MIT"]\n'
         )
 
-    def run_cli(self, *arguments, environment=None):
+    def run_cli(self, *arguments, environment=None, fixture=None):
         env = {**os.environ, "NO_COLOR": "1"}
         if environment is not None:
             for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
                 env.pop(name, None)
             env.update(environment)
+        command = [str(ROOT / "licence_audit"), *arguments]
+        if fixture is not None:
+            command = [
+                "erl", "-noshell", "-pa", *EBINS, "-pa", str(fixture),
+                "-eval", "licence_audit:main().", "-extra", *arguments,
+            ]
         return subprocess.run(
-            [str(ROOT / "licence_audit"), *arguments],
+            command,
             cwd=self.project,
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
+
+    def compile_fixture(self, evaluation, environment):
+        directory = self.project / f"fixture_{uuid.uuid4().hex}"
+        directory.mkdir()
+        result = subprocess.run(
+            ["erl", "-noshell", "-pa", *EBINS, "-eval", evaluation],
+            cwd=self.project, capture_output=True, text=True, timeout=30,
+            env={
+                **os.environ, **environment,
+                "STREAM_FIXTURE_EBIN": str(directory),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
+        return directory
 
     def assert_diagnostic(self, result, status=2):
         self.assertEqual(result.returncode, status, result.stderr)
@@ -79,11 +102,11 @@ class CliStreamTest(unittest.TestCase):
             "NO_COLOR": "1",
         }
         for flags in (
-            [], ["--manifest=locked.toml", "--config=policy.toml"],
-            ["--ignore-config"],
-            ["--scope=prod", "--no-cache", "-q", "--colour=never"],
-            ["--scope=all", "--no-cache", "-q", "--colour=never"],
-            ["--cache-dir=explicit-cache", "-v", "--color=never"],
+            [],
+            [
+                "--manifest=locked.toml", "--config=policy.toml",
+                "--scope=all", "--cache-dir=explicit-cache", "-v", "--colour=never",
+            ],
         ):
             with self.subTest(flags=flags):
                 root = self.run_cli(*flags, environment=environment)
@@ -111,28 +134,16 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("report", "--quiet", "--no-cache"))
 
-    def test_removed_policy_flags_are_usage_errors_with_any_config(self):
-        missing = self.project / "missing.toml"
-        alternate = self.project / "alternate.toml"
-        alternate.write_text('[tools.licence_audit]\nallow = ["Apache-2.0"]\n')
+    def test_removed_policy_flags_keep_usage_errors_on_stderr(self):
         for command in ([], ["report"], ["check"]):
-            for config in (
-                [], [f"--config={alternate}"],
-                [f"--config={alternate}", "--ignore-config"],
-                [f"--config={missing}"],
-                [f"--config={missing}", "--ignore-config"],
-            ):
-                for name in ("allow", "deny"):
-                    for flags in (
-                        [f"--{name}"], [f"--{name}="],
-                        [f"--{name}=MIT"], [f"--{name}", "MIT"],
-                        [f"--{name}", ""],
-                    ):
-                        with self.subTest(command=command, config=config, flags=flags):
-                            result = self.run_cli(*command, *config, *flags)
-                            self.assertEqual(result.returncode, 1, result.stderr)
-                            self.assertEqual(result.stdout, "")
-                            self.assertIn("invalid flag", result.stderr)
+            for name in ("allow", "deny"):
+                with self.subTest(command=command, name=name):
+                    result = self.run_cli(
+                        *command, "--config=missing.toml", f"--{name}=MIT"
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn("invalid flag", result.stderr)
 
     def test_update_rejects_ignore_config_before_loading_files(self):
         for flags in (
@@ -217,17 +228,16 @@ class CliStreamTest(unittest.TestCase):
         self.assertIn("manifest.toml", result.stderr)
         self.assertNotIn("allow list", result.stderr)
 
-    def test_help_alias_and_root_only_version(self):
-        for command in ("", "report", "check", "sbom", "vulns", "notices", "update"):
-            arguments = [command] if command else []
-            with self.subTest(command=command):
-                help_result = self.run_cli(*arguments, "-h")
-                self.assertEqual(help_result.returncode, 0, help_result.stderr)
-                if command:
-                    self.assertIn("--quiet", help_result.stdout)
-                    self.assertIn("-q", help_result.stdout)
-                version = self.run_cli(*arguments, "--version")
-                self.assertEqual(version.returncode, 1 if command else 0)
+    def test_subcommand_help_and_version_streams(self):
+        help_result = self.run_cli("check", "-h")
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertEqual(help_result.stderr, "")
+        self.assertIn("--quiet", help_result.stdout)
+        self.assertIn("-q", help_result.stdout)
+        version = self.run_cli("check", "--version")
+        self.assertEqual(version.returncode, 1)
+        self.assertEqual(version.stdout, "")
+        self.assertIn("invalid flag", version.stderr)
 
     def test_vulns_removed_cache_flags_and_short_quiet(self):
         for flag in ("--no-cache", "--cache-dir=cache"):
@@ -258,19 +268,20 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(destination.read_text(), plain.stdout)
 
     def test_progress_color_mode_on_every_command(self):
+        forced = ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True)
         cases = (
             ("never", {"FORCE_COLOR": "1"}, False),
-            ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True),
+            forced,
             ("auto", {"NO_COLOR": "1", "FORCE_COLOR": "1"}, False),
             ("auto", {"FORCE_COLOR": "1"}, True),
             ("auto", {"TERM": "dumb"}, False),
         )
         for command in ("report", "check", "sbom", "vulns", "notices", "update"):
-            for mode, environment, colored in cases:
+            command_cases = cases if command == "report" else (forced,)
+            for mode, environment, colored in command_cases:
                 with self.subTest(command=command, mode=mode, env=environment):
-                    arguments = [command] if command else []
                     result = self.run_cli(
-                        *arguments, "--verbose", f"--color={mode}",
+                        command, "--verbose", f"--color={mode}",
                         environment=environment,
                     )
                     self.assert_diagnostic(result)
@@ -567,8 +578,7 @@ class CliStreamTest(unittest.TestCase):
             f'otp_app = "example", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
-        # Replace only fetch functions in a fresh VM, retaining the real OSV
-        # formatting/severity functions and main's stream dispatch.
+        # Precompile only fetch replacements; keep real formatting and stream dispatch.
         evaluation = """
             {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
             SourceResult = case os:getenv("STREAM_CHECK_SELECTION") of
@@ -587,7 +597,9 @@ class CliStreamTest(unittest.TestCase):
                 (Form) -> Form
             end, NoticeForms),
             {ok, Notice, NoticeBinary} = compile:forms(SourceForms, [binary]),
-            {module, Notice} = code:load_binary(Notice, "stream_fixture", NoticeBinary),
+            Directory = os:getenv("STREAM_FIXTURE_EBIN"),
+            ok = file:write_file(
+                filename:join(Directory, atom_to_list(Notice) ++ ".beam"), NoticeBinary),
             Mode = os:getenv("STREAM_OSV_MODE"),
             Severity = case Mode of "unknown" -> unknown_severity; _ -> high end,
             Batch = case Mode of
@@ -618,8 +630,9 @@ class CliStreamTest(unittest.TestCase):
                 (Form) -> Form
             end, Forms),
             {ok, Osv, OsvBinary} = compile:forms(Replaced, [binary]),
-            {module, Osv} = code:load_binary(Osv, "stream_fixture", OsvBinary),
-            licence_audit:main().
+            ok = file:write_file(
+                filename:join(Directory, atom_to_list(Osv) ++ ".beam"), OsvBinary),
+            halt(0).
         """
         cases = (
             (mode, deny, status, selection)
@@ -633,7 +646,18 @@ class CliStreamTest(unittest.TestCase):
                 ("detail_failure", True, 2),
             )
         )
+        fixtures = {}
         for mode, deny_licence, status, selection in cases:
+            key = (mode, selection)
+            if key not in fixtures:
+                fixtures[key] = self.compile_fixture(
+                    evaluation,
+                    {
+                        "STREAM_OSV_MODE": mode,
+                        "STREAM_CHECK_SELECTION": selection,
+                        "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
+                    },
+                )
             for quiet in (False, True):
                 with self.subTest(
                     mode=mode, deny_licence=deny_licence, quiet=quiet,
@@ -656,21 +680,7 @@ class CliStreamTest(unittest.TestCase):
                         arguments += ["--vuln-block-unknown"]
                     if quiet:
                         arguments += ["--quiet"]
-                    result = subprocess.run(
-                        [
-                            "erl", "-noshell", "-pa",
-                            *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
-                            "-eval", evaluation, "-extra", *arguments,
-                        ],
-                        cwd=self.project, capture_output=True, text=True,
-                        timeout=30,
-                        env={
-                            **os.environ, "NO_COLOR": "1",
-                            "STREAM_OSV_MODE": mode,
-                            "STREAM_CHECK_SELECTION": selection,
-                            "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
-                        },
-                    )
+                    result = self.run_cli(*arguments, fixture=fixtures[key])
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
                     if selection == "all" or status == 1:
                         self.assertIn("example", result.stdout)
@@ -751,7 +761,7 @@ class CliStreamTest(unittest.TestCase):
             "packages = [" + ", ".join(packages) + "]\n"
             '[requirements]\nhealthy = ">= 1.0.0"\nunavailable = ">= 1.0.0"\n'
         )
-        # Replace archive fetching in a fresh VM; retain verification and decoding.
+        # All cases share an immutable fetch fixture, but run in separate VMs.
         evaluation = """
             {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
             Module = 'licence_audit@notice',
@@ -768,9 +778,14 @@ class CliStreamTest(unittest.TestCase):
                 (Form) -> Form
             end, Forms),
             {ok, Module, Binary} = compile:forms(Replaced, [binary]),
-            {module, Module} = code:load_binary(Module, "stream_fixture", Binary),
-            licence_audit:main().
+            ok = file:write_file(
+                filename:join(os:getenv("STREAM_FIXTURE_EBIN"),
+                    atom_to_list(Module) ++ ".beam"), Binary),
+            halt(0).
         """
+        fixture = self.compile_fixture(
+            evaluation, {"STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE)}
+        )
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
             for command in ([], ["report"], ["check", f"--config={policy}"])
@@ -781,23 +796,9 @@ class CliStreamTest(unittest.TestCase):
             )
         ):
             with self.subTest(command=command, mode=mode):
-                env = dict(os.environ)
-                for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
-                    env.pop(name, None)
-                env.update(environment)
-                env["STREAM_ARCHIVE_PATH"] = str(HEX_ARCHIVE)
-                result = subprocess.run(
-                    [
-                        "erl", "-noshell", "-pa",
-                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
-                        "-eval", evaluation, "-extra",
-                        *command, "--no-cache", f"--color={mode}",
-                    ],
-                    cwd=self.project,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    env=env,
+                result = self.run_cli(
+                    *command, "--no-cache", f"--color={mode}",
+                    environment=environment, fixture=fixture,
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn("healthy", result.stdout)

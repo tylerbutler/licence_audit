@@ -1048,11 +1048,30 @@ pub fn root_scan_options_match_named_report_test() {
     ["--quiet"],
     ["--verbose"],
     ["--color=never"],
+    ["--manifest=locked.toml", "--config=policy.toml"],
+    ["--scope=prod", "--no-cache", "-q", "--colour=never"],
+    ["--scope=all", "--no-cache", "-q", "--colour=never"],
+    ["--cache-dir=explicit-cache", "-v", "--color=never"],
+    [
+      "--manifest=locked.toml",
+      "--config=policy.toml",
+      "--scope=all",
+      "--cache-dir=explicit-cache",
+      "-v",
+      "--colour=never",
+    ],
   ])
   should.equal(
     parse_options(flags),
     parse_options(list.append(["report"], flags)),
   )
+}
+
+pub fn version_flag_is_root_only_test() {
+  use command <- list.each(commands)
+  let message = usage_error(list.append(command, ["--version"]))
+  assert string.contains(message, "invalid flag")
+  assert string.contains(message, "version")
 }
 
 pub fn audit_alias_remains_unsupported_test() {
