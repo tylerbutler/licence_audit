@@ -58,7 +58,7 @@ class DocsGenerationTest(unittest.TestCase):
         page.write_text(
             before
             + "<!-- cli-reference -->"
-            + reference.replace("`--license-text`", "`--stale`")
+            + reference.replace("`--licence-text`", "`--stale`")
         )
         stale = self.snapshot()
         result = self.run_generator(check=True)
