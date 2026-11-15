@@ -431,7 +431,7 @@ fn offline_flag() -> glint.Flag(Bool) {
   glint.bool_flag("offline")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git",
+    "Skip Hex metadata fetch; with --reproducible, skip Git enrichment too. Local path metadata is always required",
   )
 }
 
@@ -439,7 +439,7 @@ fn reproducible_flag() -> glint.Flag(Bool) {
   glint.bool_flag("reproducible")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
+    "Reproducible output from locked archives (unless --offline) and current local path metadata; serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
   )
 }
 

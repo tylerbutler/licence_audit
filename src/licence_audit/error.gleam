@@ -54,7 +54,7 @@ pub fn message(error: Error) -> String {
       <> source
       <> ", "
       <> detail
-      <> "). SBOM generation supports source = \"hex\" and source = \"git\" with a github.com repository."
+      <> "). Published package URLs support source = \"hex\" and source = \"git\" with a github.com repository. Local SBOM components use local references instead."
     SbomMetadataFailed(package, reason) ->
       "Failed to read reproducible SBOM metadata for "
       <> package

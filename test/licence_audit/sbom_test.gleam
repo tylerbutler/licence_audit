@@ -493,7 +493,7 @@ pub fn render_errors_on_unsupported_source_test() {
       name: "foo",
       version: "1.0.0",
       requirements: [],
-      provenance: manifest.PathProvenance(path: "../foo"),
+      provenance: manifest.UnknownProvenance("unsupported"),
     )
   let input =
     sbom.SbomInput(
@@ -504,6 +504,96 @@ pub fn render_errors_on_unsupported_source_test() {
     )
   let assert Error(err) = sbom.try_render(input)
   let assert error.UnsupportedSourceForSbom(_, _, _) = err
+}
+
+pub fn render_local_identity_and_graph_without_published_provenance_test() {
+  let local =
+    manifest.SbomEntry(
+      "local_dep",
+      "1.0.0",
+      ["birch"],
+      manifest.PathProvenance("../local dir"),
+    )
+  let assert Ok(ref) = sbom.component_ref(local)
+  assert string.starts_with(ref, "local:")
+  let input = minimal_input()
+  let output =
+    render(
+      sbom.SbomInput(
+        ..input,
+        manifest: manifest.SbomManifest([local, ..input.manifest.entries], [
+          "local_dep",
+        ]),
+        scopes: dict.from_list([#("local_dep", manifest.Dev)]),
+        package_metadata: dict.insert(
+          input.package_metadata,
+          "local_dep",
+          hex.licences_only(["MIT"]),
+        ),
+      ),
+    )
+  let assert Ok(components) =
+    json.parse(
+      output,
+      decode.at(
+        ["components"],
+        decode.list({
+          use name <- decode.field("name", decode.string)
+          use ref <- decode.field("bom-ref", decode.string)
+          use scope <- decode.field("scope", decode.string)
+          use purl <- decode.optional_field("purl", "", decode.string)
+          use hashes <- decode.optional_field(
+            "hashes",
+            [],
+            decode.list(decode.dynamic),
+          )
+          use supplier <- decode.optional_field(
+            "supplier",
+            "",
+            decode.at(["name"], decode.string),
+          )
+          decode.success(#(
+            name,
+            ref,
+            scope,
+            purl,
+            list.length(hashes),
+            supplier,
+          ))
+        }),
+      ),
+    )
+  should.equal(components, [
+    #("local_dep", ref, "optional", "", 0, ""),
+    #(
+      "birch",
+      "pkg:hex/birch@0.2.1",
+      "required",
+      "pkg:hex/birch@0.2.1",
+      1,
+      "Hex",
+    ),
+  ])
+  let assert Ok(dependencies) =
+    json.parse(
+      output,
+      decode.at(
+        ["dependencies"],
+        decode.list({
+          use ref <- decode.field("ref", decode.string)
+          use children <- decode.field("dependsOn", decode.list(decode.string))
+          decode.success(#(ref, children))
+        }),
+      ),
+    )
+  should.equal(dependencies, [
+    #("root", [ref]),
+    #(ref, ["pkg:hex/birch@0.2.1"]),
+    #("pkg:hex/birch@0.2.1", []),
+  ])
+  assert string.contains(output, "\"licence_audit:local_path\"")
+  assert !string.contains(output, "pkg:hex/local_dep")
+  assert !string.contains(output, "tarballs/local_dep")
 }
 
 pub fn reproducible_serial_is_byte_stable_test() {

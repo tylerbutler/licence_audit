@@ -95,9 +95,10 @@ Optional enrichment has separate completion rules:
   enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
   deliberately skips Hex enrichment. Without `--offline`, `--reproducible`
   requires metadata from locked source archives and exits `2` if it cannot
-  obtain it. `--reproducible --offline` skips all dependency enrichment,
-  including Git, and can exit `0` without dependency licence fields. Root
-  metadata, supported sources, and artifact generation/writes remain required.
+  obtain it. `--reproducible --offline` skips Hex/Git enrichment but still
+  requires current local path metadata. Local metadata, locked identities,
+  paths, and edges must be valid in every mode; local cycles fail.
+  Root metadata, supported sources, and artifact generation/writes remain required.
 
 These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.
@@ -169,8 +170,10 @@ For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
 `SOURCE_DATE_EPOCH`. Without `--offline`, Hex metadata comes from
 checksum-verified locked package archives and Git metadata comes from the
-archive at the locked commit. The combined flags omit all dependency
-enrichment, including Git. Mutable Hex publisher and OSV advisory data are not
+archive at the locked commit. The combined flags omit Hex/Git enrichment.
+Local path metadata is always read from current `gleam.toml` files and is
+not cached. Local references use normalized manifest-relative paths; local
+source contents are not hashed or attested. Mutable Hex publisher and OSV advisory data are not
 included. Reproducibility does not extend across tool versions.
 
 ## Internal details

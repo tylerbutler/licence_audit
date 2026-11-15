@@ -7,13 +7,16 @@ import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/error as licence_audit_error
 import licence_audit/gleam_toml
 import licence_audit/hex
+import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/osv
 import licence_audit/path_test
 import licence_audit/progress
 import licence_audit/repository
+import licence_audit/sbom
 import licence_audit/source_archive
 import licence_audit/source_archive_test
 import licence_audit/spdx
@@ -2030,6 +2033,423 @@ pub fn sbom_subcommand_errors_on_path_dep_test() {
   should.equal(result.exit_code, 2)
   let assert True = string.contains(result.output, "local_dep")
   let assert True = string.contains(result.output, "path")
+}
+
+fn local_sbom_clients() -> licence_audit.Clients {
+  licence_audit.Clients(
+    ..test_clients(fn(_) { panic as "offline must not fetch Hex metadata" }),
+    osv_batch_fetcher: fn(_) { panic as "offline must not query OSV" },
+    osv_detail_fetcher: fn(_) { panic as "offline must not fetch OSV details" },
+    notice_clients: notice.Clients(
+      ..notice.default_clients(),
+      fetch_hex_tarball: fn(_, _) {
+        panic as "offline must not fetch Hex archives"
+      },
+      fetch_git_archive: fn(_, _) {
+        panic as "offline must not fetch Git archives"
+      },
+      fetch_spdx: fn(_) { panic as "offline must not fetch SPDX text" },
+    ),
+  )
+}
+
+fn run_local_sbom(
+  root: String,
+  flags: List(String),
+) -> licence_audit.RunResult {
+  licence_audit.run_configured(
+    ["sbom", "--manifest=" <> root <> "/manifest.toml", ..flags],
+    local_sbom_clients(),
+    progress.disabled(),
+  ).0
+}
+
+fn prepare_local_sbom_workspace() -> String {
+  let root = "build/tmp/sbom-local-workspace"
+  list.each(
+    ["app", "local_parent", "nested/local_child", "local_dev"],
+    fn(directory) {
+      let assert Ok(_) =
+        simplifile.create_directory_all(root <> "/" <> directory)
+      let assert Ok(contents) =
+        simplifile.read(
+          "test/fixtures/sbom_local/" <> directory <> "/gleam.toml.txt",
+        )
+      let assert Ok(_) =
+        simplifile.write(root <> "/" <> directory <> "/gleam.toml", contents)
+    },
+  )
+  let assert Ok(_) =
+    simplifile.copy_file(
+      "test/fixtures/sbom_local/app/manifest.toml",
+      root <> "/app/manifest.toml",
+    )
+  root <> "/app"
+}
+
+pub fn sbom_local_workspace_offline_graph_scopes_and_metadata_test() {
+  let root = prepare_local_sbom_workspace()
+  let assert Ok(parent) =
+    sbom.component_ref(manifest.SbomEntry(
+      "local_parent",
+      "2.0.0",
+      [],
+      manifest.PathProvenance("../local_parent"),
+    ))
+  let assert Ok(child) =
+    sbom.component_ref(manifest.SbomEntry(
+      "local_child",
+      "1.2.3",
+      [],
+      manifest.PathProvenance("../nested/local_child"),
+    ))
+  let assert Ok(dev) =
+    sbom.component_ref(manifest.SbomEntry(
+      "local_dev",
+      "0.1.0",
+      [],
+      manifest.PathProvenance("../local_dev"),
+    ))
+  list.each([["--offline"], ["--offline", "--reproducible"]], fn(flags) {
+    let output = run_local_sbom(root, flags)
+    should.equal(output.exit_code, 0)
+    let assert Ok(components) =
+      json.parse(
+        output.output,
+        decode.at(
+          ["components"],
+          decode.list({
+            use name <- decode.field("name", decode.string)
+            use scope <- decode.field("scope", decode.string)
+            decode.success(#(name, scope))
+          }),
+        ),
+      )
+    should.equal(components, [
+      #("local_child", "required"),
+      #("local_dev", "optional"),
+      #("local_parent", "required"),
+      #("gleam_stdlib", "required"),
+    ])
+    let assert Ok(edges) =
+      json.parse(
+        output.output,
+        decode.at(
+          ["dependencies"],
+          decode.list({
+            use ref <- decode.field("ref", decode.string)
+            use children <- decode.field(
+              "dependsOn",
+              decode.list(decode.string),
+            )
+            decode.success(#(ref, children))
+          }),
+        ),
+      )
+    should.equal(edges, [
+      #("root", list.sort([dev, parent], string.compare)),
+      #(child, [
+        "pkg:hex/gleam_stdlib@1.0.0",
+      ]),
+      #(dev, ["pkg:hex/gleam_stdlib@1.0.0"]),
+      #(parent, [
+        child,
+        "pkg:hex/gleam_stdlib@1.0.0",
+      ]),
+      #("pkg:hex/gleam_stdlib@1.0.0", []),
+    ])
+    assert string.contains(
+      output.output,
+      "\"description\": \"Local parent package\"",
+    )
+    assert string.contains(output.output, "\"id\": \"MIT\"")
+    assert string.contains(output.output, "\"id\": \"Apache-2.0\"")
+    assert string.contains(
+      output.output,
+      "https://github.com/example/workspace",
+    )
+    assert !string.contains(output.output, "pkg:hex/local_")
+    assert !string.contains(output.output, "unlocked_member_test_tool")
+  })
+}
+
+fn prepare_local_sbom_project(
+  root: String,
+  metadata: String,
+  requirements: String,
+) -> Nil {
+  let assert Ok(_) = simplifile.create_directory_all(root <> "/local_dep")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nlocal_dep = { path = \"local_dep\" }\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      "packages = [{ name = \"local_dep\", version = \"1.0.0\", source = \"local\", path = \"./local_dep/\", requirements = ["
+        <> requirements
+        <> "] }]\n[requirements]\nlocal_dep = { path = \"local_dep\" }\n",
+    )
+  let assert Ok(_) = simplifile.write(root <> "/local_dep/gleam.toml", metadata)
+  Nil
+}
+
+pub fn sbom_local_invalid_metadata_fails_before_network_or_output_test() {
+  let root = "build/tmp/sbom-local-invalid"
+  let output = root <> "/existing.json"
+  list.each(
+    [
+      #("name = [", "", "invalid TOML"),
+      #("version = \"1.0.0\"\n", "", "required name"),
+      #("name = \"local_dep\"\n", "", "required version"),
+      #("name = \"wrong\"\nversion = \"1.0.0\"\n", "", "name/version"),
+      #("name = \"local_dep\"\nversion = \"2.0.0\"\n", "", "name/version"),
+      #("name = \"local_dep\"\nversion = \"\"\n", "", "name/version"),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\nlicences = [1]\n",
+        "",
+        "invalid description",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\nlinks = [{ title = \"Docs\" }]\n",
+        "",
+        "invalid description",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\nrepository = { type = \"github\", user = \"a b\", repo = \"c\" }\n",
+        "",
+        "invalid description",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\nrepository = { type = \"github\" }\n",
+        "",
+        "invalid description",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\nlinks = [{ title = \"Docs\", href = \"not a URL\" }]\n",
+        "",
+        "invalid description",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\n[dependencies]\nmissing = \"*\"\n",
+        "",
+        "production dependencies",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\n[dependencies]\nmissing = \"*\"\n",
+        "\"missing\"",
+        "is not locked",
+      ),
+      #(
+        "name = \"local_dep\"\nversion = \"1.0.0\"\n[dependencies]\nlocal_dep = { path = \".\" }\n",
+        "\"local_dep\"",
+        "dependency cycle",
+      ),
+    ],
+    fn(example) {
+      prepare_local_sbom_project(root, example.0, example.1)
+      let assert Ok(_) = simplifile.write(output, "previous output")
+      list.each(
+        [[], ["--offline"], ["--reproducible"], ["--reproducible", "--offline"]],
+        fn(flags) {
+          let result = run_local_sbom(root, ["--output=" <> output, ..flags])
+          should.equal(result.exit_code, 2)
+          assert string.contains(result.output, "local_dep")
+          assert string.contains(result.output, example.2)
+          should.equal(simplifile.read(output), Ok("previous output"))
+        },
+      )
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn sbom_local_paths_cycles_and_locked_targets_are_validated_test() {
+  let root = prepare_local_sbom_workspace()
+  let assert Ok(locked) = manifest.load_sbom(root <> "/manifest.toml")
+  list.each(["", "\u{0000}", "../absent"], fn(directory) {
+    let altered =
+      manifest.SbomManifest(
+        ..locked,
+        entries: list.map(locked.entries, fn(entry) {
+          case entry.name {
+            "local_parent" ->
+              manifest.SbomEntry(
+                ..entry,
+                provenance: manifest.PathProvenance(directory),
+              )
+            _ -> entry
+          }
+        }),
+      )
+    let assert Error(error) = sbom.resolve_local(altered, root)
+    assert string.contains(licence_audit_error.message(error), "local_parent")
+  })
+  let altered =
+    manifest.SbomManifest(
+      ..locked,
+      entries: list.map(locked.entries, fn(entry) {
+        case entry.name {
+          "local_child" ->
+            manifest.SbomEntry(
+              ..entry,
+              provenance: manifest.PathProvenance("../local_dev"),
+            )
+          _ -> entry
+        }
+      }),
+    )
+  let assert Error(error) = sbom.resolve_local(altered, root)
+  assert string.contains(
+    licence_audit_error.message(error),
+    "does not match the lockfile",
+  )
+  let cyclic =
+    manifest.SbomManifest(
+      ..locked,
+      entries: list.map(locked.entries, fn(entry) {
+        case entry.name {
+          "gleam_stdlib" ->
+            manifest.SbomEntry(..entry, requirements: ["local_parent"])
+          _ -> entry
+        }
+      }),
+    )
+  let assert Error(error) = sbom.resolve_local(cyclic, root)
+  assert string.contains(licence_audit_error.message(error), "dependency cycle")
+}
+
+pub fn sbom_local_reproducibility_survives_relocation_and_uses_current_metadata_test() {
+  let first_root = "build/tmp/sbom-local-first"
+  let second_root = "build/tmp/sbom-local-second"
+  let metadata =
+    "name = \"local_dep\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]\n"
+  prepare_local_sbom_project(first_root, metadata, "")
+  prepare_local_sbom_project(second_root, metadata, "")
+  let flags = ["--offline", "--reproducible"]
+  let first = run_local_sbom(first_root, flags)
+  should.equal(first.exit_code, 0)
+  should.equal(run_local_sbom(first_root, flags), first)
+  should.equal(run_local_sbom(second_root, flags), first)
+  let assert Ok(absolute) = simplifile.resolve(second_root <> "/local_dep")
+  let assert Ok(manifest_text) =
+    simplifile.read(second_root <> "/manifest.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      second_root <> "/manifest.toml",
+      string.replace(manifest_text, "./local_dep/", absolute),
+    )
+  should.equal(run_local_sbom(second_root, flags), first)
+  let assert Ok(_) =
+    simplifile.write(first_root <> "/local_dep/source.txt", "source change")
+  should.equal(run_local_sbom(first_root, flags), first)
+  let assert Ok(_) =
+    simplifile.write(
+      first_root <> "/local_dep/gleam.toml",
+      metadata <> "description = \"changed\"\n",
+    )
+  let changed = run_local_sbom(first_root, flags)
+  should.equal(changed.exit_code, 0)
+  assert changed.output != first.output
+  assert string.contains(changed.output, "\"description\": \"changed\"")
+  let assert Ok(_) = simplifile.delete(first_root)
+  let assert Ok(_) = simplifile.delete(second_root)
+}
+
+pub fn sbom_local_metadata_survives_external_enrichment_and_osv_skips_locals_test() {
+  let root = "build/tmp/sbom-local-enrichment"
+  prepare_local_sbom_project(
+    root,
+    "name = \"local_dep\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]\n[dependencies]\nhex_dep = \"1.0.0\"\n",
+    "\"hex_dep\"",
+  )
+  let assert Ok(archive) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let assert Ok(locked) = simplifile.read(root <> "/manifest.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      string.replace(
+        locked,
+        "packages = [",
+        "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", requirements = [], outer_checksum = \""
+          <> checksum
+          <> "\" }, ",
+      ),
+    )
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(mutable_registry_metadata),
+      notice_clients: notice.Clients(
+        ..reproducible_sbom_clients(),
+        fetch_spdx: fn(requirement) {
+          should.equal(requirement, spdx.LicenseRequirement("MIT"))
+          Ok(Some("canonical MIT text"))
+        },
+      ),
+      osv_batch_fetcher: fn(purls) {
+        should.equal(purls, ["pkg:hex/hex_dep@1.0.0"])
+        Ok([osv.BatchEntry("pkg:hex/hex_dep@1.0.0", [])])
+      },
+      osv_detail_fetcher: fn(_) { panic as "no advisory details expected" },
+    )
+  list.each(
+    [[], ["--reproducible"], ["--vulns"], ["--license-text"]],
+    fn(flags) {
+      let result =
+        licence_audit.run_configured(
+          ["sbom", "--manifest=" <> root <> "/manifest.toml", ..flags],
+          clients,
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 0)
+      assert string.contains(result.output, "\"id\": \"MIT\"")
+      assert !string.contains(result.output, "pkg:hex/local_dep")
+      case flags {
+        ["--reproducible"] -> {
+          assert string.contains(
+            result.output,
+            "Metadata from the locked Hex archive",
+          )
+        }
+        ["--license-text"] -> {
+          assert string.contains(result.output, "canonical MIT text")
+        }
+        _ -> Nil
+      }
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn sbom_local_missing_metadata_and_root_path_mismatch_are_errors_test() {
+  let root = "build/tmp/sbom-local-missing"
+  prepare_local_sbom_project(
+    root,
+    "name = \"local_dep\"\nversion = \"1.0.0\"\n",
+    "",
+  )
+  let assert Ok(_) = simplifile.delete(root <> "/local_dep/gleam.toml")
+  let result = run_local_sbom(root, ["--offline", "--reproducible"])
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "local_dep/gleam.toml")
+  let assert Ok(_) =
+    simplifile.create_directory_all(root <> "/local_dep/gleam.toml")
+  let result = run_local_sbom(root, ["--offline"])
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "local_dep/gleam.toml")
+  let assert Ok(_) = simplifile.delete(root <> "/local_dep/gleam.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nlocal_dep = { path = \"different\" }\n",
+    )
+  let result = run_local_sbom(root, [])
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "path does not match the lockfile")
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn sbom_subcommand_errors_on_non_github_git_test() {

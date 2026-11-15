@@ -223,8 +223,8 @@ against a policy committed to version control.
 - **Manifest not found:** run `gleam deps download` to create `manifest.toml`.
 - **Hex request fails:** retry or reuse cached entries without `--no-cache`.
   Required metadata failures still make a licence report incomplete.
-- **Unsupported SBOM source:** `sbom` requires a valid purl for every dependency;
-  `--offline` does not bypass source validation.
+- **Unsupported SBOM source:** `sbom` requires valid Hex/GitHub package URLs or
+  validated local path metadata. `--offline` does not bypass source validation.
 - **OSV.dev unavailable:** vulnerability commands need access to `api.osv.dev`.
   Advisory responses are not cached.
 - **No colours in automated output:** use `--color=always` to force ANSI codes

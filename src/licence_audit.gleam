@@ -299,21 +299,31 @@ fn run_sbom_options(
       |> result.map_error(error.from_manifest_error),
     )
     use root <- result.try(read_root_component(project_root))
+    use #(sbom_manifest, local_metadata) <- result.try(sbom.resolve_local(
+      sbom_manifest,
+      project_root,
+    ))
     use prod_seed <- result.try(resolve_prod_seed(
       project_root,
       sbom_manifest.root_requirements,
     ))
-    Ok(#(sbom_manifest, root, manifest.sbom_scopes(sbom_manifest, prod_seed)))
+    Ok(#(
+      sbom_manifest,
+      root,
+      manifest.sbom_scopes(sbom_manifest, prod_seed),
+      local_metadata,
+    ))
   }
   case selection {
     Error(selection_error) -> #(diagnostic(selection_error), reporter)
-    Ok(#(sbom_manifest, root, scopes)) ->
+    Ok(#(sbom_manifest, root, scopes, local_metadata)) ->
       run_sbom_for_manifest(
         options,
         sbom_manifest,
         root,
         scopes,
         project_root,
+        local_metadata,
         fetcher,
         osv_batch_fetcher,
         osv_detail_fetcher,
@@ -771,6 +781,7 @@ fn run_sbom_for_manifest(
   root: sbom.RootComponent,
   scopes: dict.Dict(String, manifest.Scope),
   project_root: String,
+  local_metadata: dict.Dict(String, hex.PackageMetadata),
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
@@ -850,7 +861,7 @@ fn run_sbom_for_manifest(
             sbom_manifest,
             scopes,
             root,
-            package_metadata,
+            dict.merge(package_metadata, local_metadata),
             vulnerabilities,
             source_clients,
             reporter,
@@ -2330,8 +2341,7 @@ fn build_purl_pairs(
     let #(pairs, errors) = acc
     case sbom.purl_for(entry) {
       Ok(purl) -> #([#(entry, purl), ..pairs], errors)
-      // Skip path / unsupported sources silently — same packages SBOM
-      // generation rejects, but `vulns` should still report what it can.
+      // Skip local and other sources with no supported OSV identity.
       Error(_) -> #(pairs, [entry.name, ..errors])
     }
   })
