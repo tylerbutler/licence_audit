@@ -477,7 +477,7 @@ fn offline_flag() -> glint.Flag(Bool) {
   glint.bool_flag("offline")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git",
+    "Prohibit network access; use local files and usable cached evidence. Required metadata, publication verification, and requested SPDX text must remain available",
   )
 }
 
@@ -485,7 +485,7 @@ fn reproducible_flag() -> glint.Flag(Bool) {
   glint.bool_flag("reproducible")
   |> glint.flag_default(False)
   |> glint.flag_help(
-    "Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
+    "Reproducible output from locked metadata, current local metadata, and publication evidence; serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z)",
   )
 }
 
@@ -519,7 +519,7 @@ fn sbom_command() -> glint.Command(CliAction) {
     glint.bool_flag("licence-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline; alias: --license-text)",
+      "Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache; alias: --license-text)",
     ),
   )
   use _, _, flags <- glint.command()
@@ -540,24 +540,21 @@ fn sbom_command() -> glint.Command(CliAction) {
     verbosity(quiet, verbose),
     offline_value && with_vulns_value,
     reproducible_value && with_vulns_value,
-    offline_value && license_text_value,
     color.mode_from_string(color_value)
   {
-    Error(verbosity_error), _, _, _, _ ->
+    Error(verbosity_error), _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, True, _, _, _ ->
+    _, True, _, _ ->
       InvalidUsage(
         "--vulns requires network access and cannot be combined with --offline",
       )
-    _, _, True, _, _ ->
+    _, _, True, _ ->
       InvalidUsage(
         "--vulns uses mutable advisory data and cannot be combined with --reproducible",
       )
-    _, _, _, True, _ ->
-      InvalidUsage("--licence-text cannot be combined with --offline")
-    _, _, _, _, Error(color_error) ->
+    _, _, _, Error(color_error) ->
       InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), False, False, False, Ok(color_mode) ->
+    Ok(verbosity), False, False, Ok(color_mode) ->
       RunSbom(SbomOptions(
         manifest_path: manifest_path,
         verbosity: verbosity,

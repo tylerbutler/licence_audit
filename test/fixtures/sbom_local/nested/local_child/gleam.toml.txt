@@ -1,0 +1,6 @@
+name = "local_child"
+version = "1.2.3"
+licences = ["Apache-2.0"]
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"

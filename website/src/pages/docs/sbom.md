@@ -10,7 +10,7 @@ dependencies. It does **not** evaluate licence policy.
 ```sh
 licence_audit sbom                     # pretty JSON to stdout
 licence_audit sbom --output=sbom.json  # pretty JSON to a file
-licence_audit sbom --offline           # skip Hex fetch, omit licence fields
+licence_audit sbom --offline           # prohibit network; read files and caches
 licence_audit sbom --reproducible      # reproducible output
 licence_audit sbom --vulns             # embed OSV vulnerabilities
 licence_audit sbom --licence-text      # embed canonical SPDX licence text
@@ -19,7 +19,7 @@ licence_audit sbom --licence-text      # embed canonical SPDX licence text
 ## Document contents
 
 For each locked dependency, `sbom` creates a component with this information:
-a package URL, a SHA-256 hash for Hex packages, the package description,
+a package URL for published sources, a SHA-256 hash for Hex packages, the package description,
 declared licences, and external references. The package URL is `pkg:hex/...`
 for Hex and `pkg:github/owner/repo@<commit>` for GitHub git dependencies. The
 external references can identify the tarball, source, home page, and
@@ -83,9 +83,10 @@ Expression choices and `name` entries have no embedded text. Custom
 `LicenseRef-*` references and unknown names remain names. The command does
 not select an expression alternative or combine texts.
 
-This flag requires network access on a cache miss and **conflicts with
-`--offline`**. It works with `--reproducible` because the SPDX revision is
-fixed. Use `--no-cache` to bypass the caches without deleting entries.
+This flag works with `--offline` when the cache contains the required pinned
+text. Missing or invalid text exits `2`; the command does not make a network
+request or omit requested text. It also works with `--reproducible` because
+the SPDX revision is fixed. Use `--no-cache` to bypass the caches without deleting entries.
 `--cache-dir=DIR` selects the shared application root, including the
 `spdx-v1/` text cache and `hex-v2/` metadata cache.
 
@@ -95,38 +96,118 @@ remains unchanged: a dependency without licence metadata has no licence text.
 
 ## Supported sources
 
-`sbom` supports only `hex` and GitHub `git` sources. It **fails** on a
-dependency source that it cannot convert to a valid purl. Unsupported sources
-include path dependencies and non-GitHub git dependencies. `--offline` skips
-licence requests but continues to validate purls. The [`vulns`](/docs/vulns)
-command has different behavior: it identifies and skips unsupported sources.
+`sbom` supports `hex`, GitHub `git`, and local path sources (`source = "local"`
+or the `"path"` alias). Non-GitHub git and unknown sources still fail.
+`--offline` does not bypass source or local metadata validation.
+The standalone [`vulns`](/docs/vulns) command skips local sources; it does not
+verify their publication identities. `sbom --vulns` can query a verified local
+publication identity and retains the local component reference in `affects`.
+
+### Local workspace components
+
+Local components have `type: "library"`, a locked version, declared metadata,
+and the same scope rules as external components. Their `bom-ref` is
+`local:<deterministic UUID>`, derived from the package name, version, and
+normalized path relative to the manifest directory. These properties identify
+the local source:
+
+```json
+[
+  {"name": "licence_audit:source", "value": "local"},
+  {"name": "licence_audit:local_path", "value": "../local_package"}
+]
+```
+
+The reference identifies a component within the document. It does not verify
+local source contents. Local components have no archive hash, registry
+supplier, tarball reference, or signature. A declared repository supplies a
+source link; it does not prove a Hex publication.
+
+### Publication verification
+
+For each local package, `sbom` checks the Hex release endpoint for its locked
+name and version. A matching release response adds `pkg:hex/<name>@<version>`
+as the component's purl. The component keeps its local `bom-ref`, source
+properties, metadata, and graph edges. The lookup verifies publication of the
+name/version, not that your files match the release archive.
+
+Only a release-endpoint HTTP `404` confirms an unpublished package. That
+component has no purl. Network, rate-limit, server, decode, and identity
+mismatch errors do not prove absence. If the command has no usable cached
+verification result, these failures exit `2` before writing output.
+
+`--cache-dir=DIR` selects the application root for this evidence. The internal
+`publication-v1/` family stores name/version records. Confirmed published
+results have no expiry. Confirmed unpublished results remain usable for less
+than 24 hours after verification; at 24 hours, an online run must revalidate.
+Offline runs reject expired, missing, or invalid verification data.
+
+`--no-cache` bypasses verification storage without deleting it. Online runs
+must still verify local publication. Offline runs with local components and
+`--no-cache` exit `2`, even if the disk contains earlier evidence.
+
+### Paths and metadata
+
+Lockfile paths resolve relative to the directory containing `--manifest`.
+Nested local dependency declarations resolve relative to the declaring
+package's directory. Parent-relative paths are supported. Absolute paths must
+be on the same filesystem volume as the manifest and are emitted as relative
+paths. Normalization is lexical: `.` and `..` are collapsed before file access.
+Symlink aliases are not canonicalized; declarations must use the same
+normalized path as the lockfile.
+
+Every local package must have a readable, valid `gleam.toml`. Its name and
+semantic version must match the lockfile. Production dependency names must
+match locked requirements, and nested local paths must match locked targets.
+The root project's local declarations must match locked targets and direct
+dependency names.
+Missing paths or metadata, malformed metadata fields, stale identities or
+edges, duplicate locked names, and cycles involving local components exit `2`
+before output is written. Run `gleam deps download` to refresh a stale lockfile.
+
+The root lockfile supplies the complete graph. No member manifest is required,
+and workspace members' own development dependencies are not added.
+Local description, licence, link, and repository metadata is read on every
+run, including `--reproducible --offline`; it is not cached.
 
 ## Completion and optional enrichment
 
 Default `sbom` generation exits `0` when optional Hex or local Git dependency
 metadata is unavailable. It warns and omits the unavailable fields.
-`--offline` intentionally skips Hex enrichment. This differs from a licence
-audit, where unavailable package metadata makes the report incomplete (exit `2`).
+`--offline` reads cached Hex enrichment and local Git files, but does not
+fetch missing optional metadata. This differs from a licence audit, where
+unavailable required package metadata makes the report incomplete (exit `2`).
 
 These items are required. If one fails, the command exits `2`:
 
 - root metadata,
 - valid purls for supported sources,
+- valid local paths, package metadata, and dependency relationships,
+- usable publication verification for local packages,
+- locked Hex/Git metadata when `--reproducible` is selected,
+- pinned SPDX text when `--licence-text` is selected,
 - SBOM generation and file writes.
 
 How `--reproducible` and `--offline` combine:
 
 | Flags | Dependency metadata | If metadata is unavailable |
 |---|---|---|
-| `--reproducible` | Read from the locked source archives. | Exit `2`. |
-| `--reproducible --offline` | None. All enrichment, including local Git metadata, is skipped. Licence fields are omitted. | Not applicable. Can exit `0`. |
+| `--reproducible` | Hex/Git metadata from locked source archives or immutable cache entries; current local `gleam.toml` files and publication evidence. | Exit `2`. |
+| `--reproducible --offline` | The same required metadata, using local files and usable cached evidence without network access. | Missing required metadata or verification exits `2`. |
+
+To prepare an offline reproducible run, first run `sbom --reproducible` online
+with the same `--cache-dir`. Include `--licence-text` in that run if you need
+offline licence text. Preserve the cache root between runs or CI jobs.
+`--offline` does not relax evidence requirements selected by other flags.
 
 ## Embedded vulnerabilities
 
 `--vulns` queries OSV.dev and adds the results to the CycloneDX
 `vulnerabilities` array. Each advisory has an `id`, an `OSV` source link,
 ratings, and an `affects` list. The list refers to affected components by
-`bom-ref` or purl. Tools such as [Dependency-Track][dt] can read this
+`bom-ref`, including local references for verified published local packages.
+These advisories describe the published identity; they do not scan or verify
+local source changes. Tools such as [Dependency-Track][dt] can read this
 VEX-style document. Advisory data changes over time, so you cannot use
 `--vulns` with `--offline` or `--reproducible`.
 
@@ -143,14 +224,27 @@ the vectors. Raw vectors and their CVSS methods remain in the document.
 
 By default, `sbom` uses a random `serialNumber` and the current time for
 `timestamp`. The output from two runs is different. With
-`--reproducible` without `--offline`, the command reads Hex metadata from each
+`--reproducible`, the command reads Hex metadata from each
 checksum-verified package archive and Git metadata from the archive at the
 locked commit. It omits mutable Hex publisher data, uses a content hash for
 `serialNumber`, and gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
-the variable is not set. The same project files, lockfile, tool version,
-options, and timestamp produce byte-identical output.
+the variable is not set. The same project files, lockfile, publication evidence,
+tool version, options, and timestamp produce byte-identical output, including
+online and offline runs with matching usable cache inputs.
 The resolved timestamp is part of the serial hash. A different timestamp
 therefore produces a different `serialNumber`.
+
+Local references remain stable when an equivalent workspace layout moves to
+a different checkout directory. Changes to emitted local metadata, paths,
+versions, or edges change the reproducible BOM. Local source files are not
+scanned or hashed: unchanged output does **not** prove unchanged source code.
+Use separate source or build attestations when that evidence is required.
+
+The manifest alone does not fix local SBOM output over time. After an
+unpublished verification expires, a refreshed lookup can confirm a new
+publication and add a purl. This changes the output and content-derived serial
+without changing the local reference. No verification snapshot is required
+or created.
 
 Locked source archives use the same [archive limits as `notices`](/docs/notices#source-archive-limits):
 64 MiB per download and 256 MiB of tar data per extraction, including Hex's
@@ -182,13 +276,13 @@ licence_audit sbom [--flags]
 |------|------|---------|-------------|
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline; alias: --license-text) |
+| `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache; alias: --license-text) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--offline` | `BOOL` | `false` | Skip Hex metadata fetch; with --reproducible, skip all dependency enrichment including Git |
+| `--offline` | `BOOL` | `false` | Prohibit network access; use local files and usable cached evidence. Required metadata, publication verification, and requested SPDX text must remain available |
 | `--output` | `STRING` |  | Write SBOM to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--reproducible` | `BOOL` | `false` | Reproducible output from locked package archives (unless --offline): serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
+| `--reproducible` | `BOOL` | `false` | Reproducible output from locked metadata, current local metadata, and publication evidence; serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--vulns` | `BOOL` | `false` | Query OSV.dev and embed a CycloneDX vulnerabilities array (requires network; conflicts with --offline and --reproducible) |
 <!-- cli-referencestop -->

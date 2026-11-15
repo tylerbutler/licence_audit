@@ -387,6 +387,66 @@ pub fn injected_network_failure_maps_to_network_failure_test() {
   should.equal(error, hex.NetworkFailure("connection refused"))
 }
 
+pub fn publication_lookup_checks_the_requested_release_identity_test() {
+  let client = fn(req: request.Request(String)) {
+    should.equal(req.method, Get)
+    should.equal(
+      req |> request.to_uri |> uri.to_string,
+      "https://hex.pm/api/packages/example/releases/1.2.3",
+    )
+    Ok(Response(
+      status: 200,
+      headers: [],
+      body: "{\"version\":\"1.2.3\",\"package_url\":\"https://hex.pm/api/packages/example\",\"checksum\":\"not-local-evidence\"}",
+    ))
+  }
+  should.equal(
+    hex.fetch_publication("example", "1.2.3", client),
+    Ok(hex.Published),
+  )
+  list.each(
+    [
+      "{\"version\":\"9.9.9\",\"package_url\":\"https://hex.pm/api/packages/example\"}",
+      "{\"version\":\"1.2.3\",\"package_url\":\"https://hex.pm/api/packages/other\"}",
+      "{\"version\":\"1.2.3\"}",
+      "{}",
+      "not json",
+    ],
+    fn(body) {
+      let assert Error(_) =
+        hex.fetch_publication("example", "1.2.3", fn(_) {
+          Ok(Response(200, [], body))
+        })
+    },
+  )
+}
+
+pub fn publication_lookup_only_treats_a_release_404_as_unpublished_test() {
+  list.each(
+    [
+      #(404, Ok(hex.Unpublished)),
+      #(429, Error(hex.RateLimited)),
+      #(500, Error(hex.UnexpectedResponse(500))),
+      #(302, Error(hex.UnexpectedResponse(302))),
+      #(204, Error(hex.UnexpectedResponse(204))),
+    ],
+    fn(example) {
+      should.equal(
+        hex.fetch_publication("example", "1.2.3", fn(_) {
+          Ok(Response(example.0, [], ""))
+        }),
+        example.1,
+      )
+    },
+  )
+  should.equal(
+    hex.fetch_publication("example", "1.2.3", fn(_) {
+      Error(hex.NetworkFailure("TLS verification failed"))
+    }),
+    Error(hex.NetworkFailure("TLS verification failed")),
+  )
+}
+
 pub fn http_failures_include_request_and_connection_details_test() {
   let assert Ok(req) = request.to("https://hex.pm/api/packages/example")
   list.each(
