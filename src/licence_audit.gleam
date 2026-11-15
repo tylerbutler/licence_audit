@@ -239,7 +239,7 @@ fn execute_action(
           color: options.color,
           no_cache: options.no_cache,
           cache_path: options.cache_path,
-          check_vulns: False,
+          checks: cli.Licences,
           vuln_severity: None,
           vuln_block_unknown: False,
           scope: options.scope,
@@ -1187,7 +1187,7 @@ fn gather_embedded_vulnerabilities(
           let id_to_refs = build_id_to_refs(purl_pairs, entries)
           let unique_ids = unique_vuln_ids(entries)
           // SBOM embedding tolerates detail failures the same way the plain
-          // `vulns` report does; only the `check --vulns` gate blocks on them.
+          // `vulns` report does; selected vulnerability gates block on them.
           let #(vulns, _detail_failures, reporter) =
             fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
           #(Ok(to_embedded_vulnerabilities(vulns, id_to_refs)), reporter)
@@ -1484,6 +1484,18 @@ fn run_options_with_clients(
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
+  use <- bool.lazy_guard(
+    when: options.check && options.checks == cli.Vulnerabilities,
+    return: fn() {
+      run_vulnerability_check(
+        options,
+        osv_batch_fetcher,
+        osv_detail_fetcher,
+        reporter,
+        palette,
+      )
+    },
+  )
   let manifest_path = option_value(options.manifest_path, "manifest.toml")
   let project_root = project_root_for_manifest(manifest_path)
   let reporter = progress.phase(reporter, "Starting licence audit")
@@ -1545,15 +1557,17 @@ fn prepare_audit(
       #(diagnostic(error.from_manifest_error(e)), reporter)
     }),
   )
-  use sbom_manifest <- result.try(case options.check && options.check_vulns {
-    False -> Ok(None)
-    True ->
-      manifest.load_vulns(manifest_path)
-      |> result.map(Some)
-      |> result.map_error(fn(e) {
-        #(diagnostic(error.from_manifest_error(e)), reporter)
-      })
-  })
+  use sbom_manifest <- result.try(
+    case options.check && options.checks == cli.AllChecks {
+      False -> Ok(None)
+      True ->
+        manifest.load_vulns(manifest_path)
+        |> result.map(Some)
+        |> result.map_error(fn(e) {
+          #(diagnostic(error.from_manifest_error(e)), reporter)
+        })
+    },
+  )
   use scopes <- result.try(
     compute_scopes(project_root, locked)
     |> result.map_error(fn(scope_error) { #(diagnostic(scope_error), reporter) }),
@@ -1662,9 +1676,9 @@ fn audit_locked(
         palette,
       )
 
-    // Vulnerability gate: only when running `check` with --vulns.
+    // Vulnerability gate: combined checks also retain the licence findings.
     // Threshold resolution: CLI flag > config key > "high".
-    let vuln_outcome = case options.check && options.check_vulns {
+    let vuln_outcome = case options.check && options.checks == cli.AllChecks {
       False ->
         VulnGateOutcome(
           report_text: "",
@@ -1776,6 +1790,7 @@ fn audit_locked(
         vuln_outcome.unknown_failed,
         output,
         vuln_outcome.reporter,
+        "Licence audit completed",
       )
 
     let reporter = case cache_warning {
@@ -1800,6 +1815,7 @@ fn finalize_audit(
   vuln_unknown_failed: Bool,
   output: String,
   reporter: progress.Reporter,
+  completion_message: String,
 ) -> #(ActionResult, progress.Reporter) {
   use <- bool.guard(when: fetch_failed, return: #(
     report_result(2, output),
@@ -1831,7 +1847,7 @@ fn finalize_audit(
   ))
   #(
     report_result(0, output),
-    progress.defer_success(reporter, "Licence audit completed"),
+    progress.defer_success(reporter, completion_message),
   )
 }
 
@@ -1940,16 +1956,21 @@ fn load_policy(
   options: cli.Options,
   project_root: String,
 ) -> Result(config.Policy, config.Error) {
-  config.load(config.LoadOptions(
-    config_path: options.config_path,
-    project_root: project_root,
-    allow_licences: options.allow_licences,
-    deny_licences: options.deny_licences,
-    vuln_severity: options.vuln_severity,
-    vuln_block_unknown: options.vuln_block_unknown,
-    ignore_config: options.ignore_config,
-    check: options.check,
-  ))
+  let load_options =
+    config.LoadOptions(
+      config_path: options.config_path,
+      project_root: project_root,
+      allow_licences: options.allow_licences,
+      deny_licences: options.deny_licences,
+      vuln_severity: options.vuln_severity,
+      vuln_block_unknown: options.vuln_block_unknown,
+      ignore_config: options.ignore_config,
+      check: options.check,
+    )
+  case options.checks {
+    cli.Vulnerabilities -> config.load_vulns(load_options)
+    cli.Licences | cli.AllChecks -> config.load(load_options)
+  }
 }
 
 fn build_skipped_rows(
@@ -2116,6 +2137,100 @@ fn run_update_options(
 }
 
 // --- Vulnerability checking ---------------------------------------------
+
+fn run_vulnerability_check(
+  options: cli.Options,
+  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
+  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  reporter: progress.Reporter,
+  palette: color.Palette,
+) -> #(ActionResult, progress.Reporter) {
+  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let project_root = project_root_for_manifest(manifest_path)
+  let today = exception.utc_date(timestamp.system_time())
+  let reporter = progress.phase(reporter, "Checking for vulnerabilities")
+  let outcome = {
+    use configuration <- result.try(
+      load_policy(options, project_root)
+      |> result.map_error(fn(config_error) {
+        #(diagnostic(error.from_config_error(config_error)), reporter)
+      }),
+    )
+    use locked <- result.try(
+      manifest.load_vulns(manifest_path)
+      |> result.map_error(fn(manifest_error) {
+        #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
+      }),
+    )
+    use prod_seed <- result.try(
+      resolve_prod_seed(project_root, locked.root_requirements)
+      |> result.map_error(fn(scope_error) {
+        #(diagnostic(scope_error), reporter)
+      }),
+    )
+    let scopes = manifest.sbom_scopes(locked, prod_seed)
+    let #(all_pairs, _) = build_purl_pairs(locked)
+    use _ <- result.try(
+      validate_exception_identities(configuration.exceptions, all_pairs)
+      |> result.map_error(fn(review_error) {
+        #(diagnostic(review_error), reporter)
+      }),
+    )
+    let active =
+      list.filter(locked.entries, fn(entry) {
+        options.scope == cli.All
+        || scope_for(scopes, entry.name) == manifest.Prod
+      })
+    let excluded =
+      all_pairs
+      |> list.filter(fn(pair) {
+        options.scope == cli.Prod
+        && scope_for(scopes, pair.0.name) == manifest.Dev
+      })
+      |> list.map(fn(pair) { #(pair.1, "excluded by --scope=prod") })
+    let gate =
+      run_vuln_check_for_audit(
+        active,
+        resolve_vuln_threshold(
+          options.vuln_severity,
+          configuration.vuln_severity,
+        ),
+        configuration.vuln_block_unknown,
+        batch_fetcher,
+        detail_fetcher,
+        reporter,
+        palette,
+        configuration.exceptions,
+        today,
+      )
+    use _ <- result.try(case gate.config_error {
+      Some(review_error) -> Error(#(diagnostic(review_error), gate.reporter))
+      None -> Ok(Nil)
+    })
+    let output =
+      gate.report_text
+      <> exception.summary(
+        configuration.exceptions,
+        today,
+        exception.NotEvaluated("licence scan disabled"),
+        with_excluded_vulns(gate.coverage, excluded),
+      )
+    Ok(finalize_audit(
+      True,
+      False,
+      gate.incomplete,
+      False,
+      gate.gate_failed,
+      gate.unknown_failed,
+      output,
+      gate.reporter,
+      "Vulnerability check completed",
+    ))
+  }
+  case outcome {
+    Ok(outcome) | Error(outcome) -> outcome
+  }
+}
 
 fn run_vulns_options(
   options: cli.VulnsOptions,
@@ -2322,13 +2437,13 @@ type VulnOccurrence {
 
 /// An advisory whose detail lookup failed, with a human-readable reason.
 /// The `vulns` report tolerates these (placeholder + warning); the
-/// `check --vulns` gate cannot, since it can't evaluate severity for an
+/// selected vulnerability gate cannot, since it can't evaluate severity for an
 /// advisory it never fetched.
 type DetailFailure {
   DetailFailure(id: String, reason: String)
 }
 
-/// Result of running the `check --vulns` gate.
+/// Result of running a selected vulnerability gate.
 type VulnGateOutcome {
   VulnGateOutcome(
     report_text: String,
@@ -2555,7 +2670,7 @@ fn truncate(s: String, max: Int) -> String {
   string.slice(s, 0, max - 1) <> "…"
 }
 
-// --- Vulnerability gate for `check --vulns` -----------------------------
+// --- Vulnerability gate for selected checks -----------------------------
 
 fn resolve_vuln_threshold(
   cli_value: option.Option(String),
@@ -2635,7 +2750,7 @@ fn run_vuln_check_for_audit(
   }
 }
 
-/// Query OSV and evaluate the `check --vulns` gate.
+/// Query OSV and evaluate the vulnerability gate.
 fn query_vuln_gate(
   purls: List(String),
   purl_pairs: List(PurlPair),
