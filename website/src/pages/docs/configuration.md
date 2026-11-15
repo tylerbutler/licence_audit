@@ -24,7 +24,7 @@ These commands use the same project-root rule, but read different settings:
 
 | Command | Configuration use |
 |---|---|
-| `report` | Read `[tools.licence_audit]` for a policy preview. |
+| Bare invocation or `report` | Read `[tools.licence_audit]` for a policy preview. |
 | `check` | Read `[tools.licence_audit]` and enforce the policy. |
 | `update` | Read the existing policy to preselect entries, then write the selected policy. |
 | `vulns` | Read policy exceptions for the advisory report; do not enforce licence rules. |

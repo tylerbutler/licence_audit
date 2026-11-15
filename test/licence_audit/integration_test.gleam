@@ -46,31 +46,56 @@ fn test_clients(
   )
 }
 
-pub fn bare_help_and_root_scan_errors_do_not_call_clients_test() {
+pub fn help_and_version_do_not_call_clients_test() {
   let clients =
     licence_audit.Clients(
-      ..licence_audit.default_clients(),
       fetcher: fn(_) { panic as "root must not fetch Hex metadata" },
       osv_batch_fetcher: fn(_) { panic as "root must not query OSV" },
       osv_detail_fetcher: fn(_) { panic as "root must not fetch advisories" },
+      notice_clients: source_archive_test.metadata_clients(fn(_) {
+        panic as "help must not fetch locked sources"
+      }),
     )
-  use args <- list.each([[], ["--help"], ["-h"], ["--version"]])
+  use args <- list.each([
+    ["--help"],
+    ["-h"],
+    ["--version"],
+    ["report", "--help"],
+    ["--help", "--manifest=missing-manifest.toml"],
+    ["--version", "--config=missing-config.toml"],
+  ])
   let #(result, events) =
     licence_audit.run_configured(args, clients, progress.disabled())
   should.equal(result.exit_code, 0)
   should.equal(events, [])
   assert !string.contains(result.output, "Starting licence audit")
-  use args <- list.each([
-    ["--manifest=missing-manifest.toml"],
-    ["--config=missing-config.toml"],
-    ["--no-cache"],
-    ["audit"],
+}
+
+pub fn default_and_named_report_preserve_output_errors_and_cache_bypass_test() {
+  let args = [
+    "--manifest=test/fixtures/manifest.toml",
+    "--ignore-config",
+    "--deny=MIT",
+    "--cache-path=build/default-report-unused-cache",
+  ]
+  use #(fetcher, expected_exit) <- list.each([
+    #(fake_fetcher, 0),
+    #(failing_fetcher, 2),
   ])
-  let #(result, events) =
-    licence_audit.run_configured(args, clients, progress.disabled())
-  should.equal(result.exit_code, 1)
-  assert string.contains(result.output, "licence_audit report")
-  should.equal(events, [])
+  let clients = test_clients(fetcher)
+  let root = licence_audit.run_configured(args, clients, progress.disabled())
+  let named =
+    licence_audit.run_configured(
+      ["report", ..args],
+      clients,
+      progress.disabled(),
+    )
+  should.equal(root, named)
+  should.equal(root.0.exit_code, expected_exit)
+  assert string.contains(root.0.output, "gleam_stdlib")
+  assert string.contains(root.0.output, "MIT")
+  let assert Error(_) =
+    simplifile.read_directory("build/default-report-unused-cache")
 }
 
 pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {

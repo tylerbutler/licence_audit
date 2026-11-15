@@ -55,8 +55,9 @@ them and returns exit code `0` when the scan completes. An incomplete licence re
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
 
-A bare `licence_audit` shows help and exits `0`. It does not read project
-files, open caches, or contact Hex or OSV. Use [`report`](/docs/report) to scan.
+A bare `licence_audit` runs the same non-enforcing report. Both forms accept
+the same scan options. Use `licence_audit --help` to show help without
+reading project files, opening caches, or making network calls.
 
 See [configuration discovery](/docs/configuration#discovery) for how the
 manifest selects the project and policy file.
@@ -265,7 +266,7 @@ options available in your installed version.
 use `licence_audit --version`, not `licence_audit sbom --version`.
 
 <!-- cli-reference -->
-Select a command. Use `licence_audit report` to inspect licences, `check` to enforce a policy, and `update` to create a policy. Scan flags belong after the command name, for example `licence_audit report --manifest=PATH`.
+Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.
 
 **Usage:**
 
@@ -277,6 +278,17 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
+| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
+| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config` | `STRING` |  | Read configuration from PATH |
+| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
+| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
+| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
+| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
+| `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->
 

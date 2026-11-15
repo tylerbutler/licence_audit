@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Use fresh VMs: the Gleam test runner has already started the applications.
-for argument in "" --help -h --version; do
+for argument in --help -h --version; do
   timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
     ok = application:load({application, licence_audit, [
       {vsn, "test"}, {applications, [licence_audit_missing_runtime_dependency]}
@@ -45,19 +45,21 @@ for expected in 0 1 2 130; do
   fi
 done
 
-status=0
-output=$(timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
-  ok = application:load({application, licence_audit, [
-    {vsn, "test"}, {applications, [licence_audit_missing_runtime_dependency]}
-  ]}),
-  licence_audit:main().
-' -extra report 2>&1) || status=$?
-if [ "$status" -ne 2 ] || [[ "$output" != *"Error: Could not start runtime applications: licence_audit_missing_runtime_dependency:"* ]]; then
-  printf 'Expected startup diagnostic and exit 2, got exit %s:\n%s\n' "$status" "$output" >&2
-  exit 1
-fi
-if [[ "$output" == *"Runtime terminating"* ]]; then
-  printf 'Startup failure crashed the VM:\n%s\n' "$output" >&2
-  exit 1
-fi
+for command in "" report; do
+  status=0
+  output=$(timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
+    ok = application:load({application, licence_audit, [
+      {vsn, "test"}, {applications, [licence_audit_missing_runtime_dependency]}
+    ]}),
+    licence_audit:main().
+  ' -extra ${command:+"$command"} 2>&1) || status=$?
+  if [ "$status" -ne 2 ] || [[ "$output" != *"Error: Could not start runtime applications: licence_audit_missing_runtime_dependency:"* ]]; then
+    printf 'Expected startup diagnostic and exit 2, got exit %s:\n%s\n' "$status" "$output" >&2
+    exit 1
+  fi
+  if [[ "$output" == *"Runtime terminating"* ]]; then
+    printf 'Startup failure crashed the VM:\n%s\n' "$output" >&2
+    exit 1
+  fi
+done
 echo "Runtime startup tests passed."

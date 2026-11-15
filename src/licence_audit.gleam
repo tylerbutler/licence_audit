@@ -108,8 +108,7 @@ fn main_action() -> Nil {
     Ok(glint.Help(help)) -> io.println(help)
     Ok(glint.Out(action)) ->
       case action {
-        cli.ShowHelp | cli.ShowVersion | cli.InvalidUsage(_) ->
-          handle_action(action)
+        cli.ShowVersion | cli.InvalidUsage(_) -> handle_action(action)
         _ ->
           case start_runtime() {
             Ok(Nil) -> handle_action(action)
@@ -159,7 +158,7 @@ fn reporter_for_action(action: cli.CliAction) -> progress.Reporter {
       progress.enabled(options.verbosity, "vulns", options.color)
     cli.RunNotices(options) ->
       progress.enabled(options.verbosity, "notices", options.color)
-    cli.ShowHelp | cli.ShowVersion | cli.InvalidUsage(_) -> progress.disabled()
+    cli.ShowVersion | cli.InvalidUsage(_) -> progress.disabled()
   }
 }
 
@@ -197,7 +196,6 @@ fn library_args(args: List(String)) -> List(String) {
         False -> list.append(args, ["--no-cache"])
       }
     Ok(glint.Help(_))
-    | Ok(glint.Out(cli.ShowHelp))
     | Ok(glint.Out(cli.ShowVersion))
     | Ok(glint.Out(cli.InvalidUsage(_)))
     | Ok(glint.Out(cli.RunVulns(_)))
@@ -305,14 +303,6 @@ fn execute_action(
         reporter,
       )
     cli.ShowVersion -> #(report_result(0, tool_version() <> "\n"), reporter)
-    cli.ShowHelp ->
-      case glint.execute(cli.app(), ["--help"]) {
-        Ok(glint.Help(help)) -> #(report_result(0, help <> "\n"), reporter)
-        Ok(glint.Out(_)) | Error(_) -> #(
-          Diagnostic(RunResult(1, "Error: Could not show help\n")),
-          reporter,
-        )
-      }
   }
 }
 

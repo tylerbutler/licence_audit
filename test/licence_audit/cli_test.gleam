@@ -8,6 +8,7 @@ import licence_audit/internal/vendor/glint
 import licence_audit/progress
 
 const optional_path_flags = [
+  #([], ["manifest", "config", "cache-path"]),
   #(["report"], ["manifest", "config", "cache-path"]),
   #(["check"], ["manifest", "config", "cache-path"]),
   #(["update"], ["manifest", "config", "cache-path"]),
@@ -139,8 +140,7 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
       options.output,
     ]
     cli.RunVulns(options) -> [options.manifest_path, options.config_path]
-    cli.ShowHelp | cli.ShowVersion | cli.InvalidUsage(_) ->
-      panic as "expected parsed options"
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
   }
 
   should.equal(paths, list.map(names, fn(_) { expected }))
@@ -642,8 +642,7 @@ pub fn shared_aliases_and_color_modes_work_on_all_commands_test() {
     cli.RunSbom(options) -> #(options.verbosity, options.color)
     cli.RunVulns(options) -> #(options.verbosity, options.color)
     cli.RunNotices(options) -> #(options.verbosity, options.color)
-    cli.ShowHelp | cli.ShowVersion | cli.InvalidUsage(_) ->
-      panic as "expected options"
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected options"
   }
   should.equal(actual_verbosity, case verbosity {
     "-q" -> progress.Quiet
@@ -699,19 +698,18 @@ pub fn standalone_vulns_scope_defaults_and_flag_test() {
   should.equal(options.prod_only, prod_only)
 }
 
-pub fn bare_root_shows_help_action_and_lists_report_test() {
-  let assert Ok(glint.Out(cli.ShowHelp)) = glint.execute(cli.app(), [])
+pub fn bare_root_matches_named_report_and_lists_report_test() {
+  should.equal(parse_options([]), parse_options(["report"]))
   let help = help_text(["--help"])
   assert string.contains(help, "report")
   assert !string.contains(help, "audit --")
-  assert !string.contains(help, "--no-cache")
-  assert !string.contains(help, "--allow")
+  assert string.contains(help, "--no-cache")
+  assert string.contains(help, "--allow")
 }
 
-pub fn old_root_scan_forms_direct_users_to_report_test() {
+pub fn root_scan_options_match_named_report_test() {
   use flags <- list.each([
     ["--manifest=missing.toml"],
-    ["--manifest", "missing.toml"],
     ["--config=missing.toml"],
     ["--ignore-config"],
     ["--allow=MIT"],
@@ -722,8 +720,14 @@ pub fn old_root_scan_forms_direct_users_to_report_test() {
     ["--quiet"],
     ["--verbose"],
     ["--color=never"],
-    ["audit"],
   ])
-  let message = usage_error(flags)
-  assert string.contains(message, "licence_audit report")
+  should.equal(
+    parse_options(flags),
+    parse_options(list.append(["report"], flags)),
+  )
+}
+
+pub fn audit_alias_remains_unsupported_test() {
+  let message = usage_error(["audit"])
+  assert string.contains(message, "invalid number of arguments")
 }

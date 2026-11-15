@@ -100,7 +100,6 @@ pub type CliAction {
   RunVulns(VulnsOptions)
   RunNotices(NoticesOptions)
   ShowVersion
-  ShowHelp
   InvalidUsage(String)
 }
 
@@ -108,11 +107,11 @@ pub fn app() -> glint.Glint(CliAction) {
   glint.new()
   |> glint.with_name("licence_audit")
   |> glint.global_help(
-    "Inspect locked dependencies. Use `licence_audit report` for a licence report. Use --help (alias: -h) for help.",
+    "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.",
   )
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: [], do: root_command())
-  |> glint.add(at: ["report"], do: report_command())
+  |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
   |> glint.add(at: ["sbom"], do: sbom_command())
@@ -138,25 +137,20 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   })
 }
 
-const root_help =
-  "Select a command. Use `licence_audit report` to inspect licences, `check` to enforce a policy, and `update` to create a policy. Scan flags belong after the command name, for example `licence_audit report --manifest=PATH`."
-
 fn root_command() -> glint.Command(CliAction) {
-  use <- glint.command_help(root_help)
-  use <- glint.unnamed_args(glint.EqArgs(0))
   use show_version <- glint.flag(version_flag())
-  use _, _, flags <- glint.command()
-  let assert Ok(show_version) = show_version(flags)
-  case show_version {
-    True -> ShowVersion
-    False -> ShowHelp
-  }
+  report_command(fn(flags) {
+    let assert Ok(value) = show_version(flags)
+    value
+  })
 }
 
 const check_help =
   "Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations."
 
-fn report_command() -> glint.Command(CliAction) {
+fn report_command(
+  show_version: fn(glint.Flags) -> Bool,
+) -> glint.Command(CliAction) {
   use <- glint.command_help(
     "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.",
   )
@@ -185,11 +179,17 @@ fn report_command() -> glint.Command(CliAction) {
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
   let assert Ok(prod_only_value) = prod_only(flags)
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
-    Error(verbosity_error), _ ->
+  case
+    show_version(flags),
+    verbosity(quiet, verbose),
+    color.mode_from_string(color_value)
+  {
+    True, _, _ -> ShowVersion
+    False, Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), Ok(color_mode) ->
+    False, _, Error(color_error) ->
+      InvalidUsage(color.mode_error_message(color_error))
+    False, Ok(verbosity), Ok(color_mode) ->
       RunReport(ReportOptions(
         manifest_path: manifest_path,
         config_path: config_path,

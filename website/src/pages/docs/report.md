@@ -7,6 +7,7 @@ description: Inspect locked licences and preview policy findings without enforci
 Run a licence report for your Gleam project's locked dependencies:
 
 ```sh
+licence_audit
 licence_audit report
 licence_audit report --manifest=apps/server/manifest.toml
 ```
@@ -15,6 +16,10 @@ Text is the default and current report format. The report shows the dependency
 tree, licence declarations, policy findings, scoped exceptions, and skipped
 non-Hex sources. A completed report returns `0`, including when it finds policy
 violations. Use [`check`](/docs/check) to enforce a policy.
+
+Both the default and named report read declarations from the locked Hex
+archives and verify their SHA-256 checksums against `manifest.toml`.
+Checksum-keyed metadata caches avoid repeated archive downloads.
 
 You can report licences without a policy. If you select a configuration file,
 it must contain a valid `[tools.licence_audit]` section. Use `--ignore-config`
@@ -27,21 +32,20 @@ to select `auto`, `always`, or `never`. Reports use stdout; input and
 configuration diagnostics use stderr. Missing or invalid manifest/config
 files and incomplete required metadata return `2`.
 
-## Migrate an unnamed scan
+## Default and named reports
 
-Put `report` before the flags in an old root scan:
+The named command is optional. These commands use the same options and
+produce the same non-enforcing report:
 
 ```sh
-# Before
 licence_audit --manifest=apps/server/manifest.toml --no-cache
-# Now
 licence_audit report --manifest=apps/server/manifest.toml --no-cache
 ```
 
-A bare `licence_audit` now shows help with exit `0`, including outside a
-project. It does not read project files, open caches, or make network calls.
-Root scan flags produce a usage error that directs you to `report`.
-Root `--help`, `-h`, and `--version` remain available; there is no `audit` alias.
+A bare `licence_audit` runs the default report. Outside a project, missing
+project inputs cause an operational error, as with the named command.
+Use root `--help`, `-h`, or `--version` without reading project files,
+opening caches, or making network calls. There is no `audit` alias.
 
 ## CLI reference
 

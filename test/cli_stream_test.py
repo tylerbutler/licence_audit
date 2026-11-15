@@ -44,14 +44,14 @@ class CliStreamTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("Error:", result.stderr)
 
-    def test_bare_help_outside_project_does_not_open_cache(self):
+    def test_help_outside_project_does_not_open_cache(self):
         (self.project / "gleam.toml").unlink()
         cache = self.project / "unused-cache"
         env = {
             **os.environ, "HOME": str(self.project / "unused-home"),
             "XDG_CACHE_HOME": str(cache), "NO_COLOR": "1",
         }
-        for arguments in ([], ["--help"], ["-h"], ["--version"]):
+        for arguments in (["--help"], ["-h"], ["--version"], ["report", "-h"]):
             result = subprocess.run(
                 [str(ROOT / "licence_audit"), *arguments],
                 cwd=self.project, env=env, capture_output=True, text=True,
@@ -61,27 +61,43 @@ class CliStreamTest(unittest.TestCase):
             self.assertEqual(result.stderr, "")
             self.assertTrue(result.stdout)
             if arguments != ["--version"]:
-                self.assertIn("licence_audit report", result.stdout)
+                self.assertIn("report", result.stdout)
                 self.assertIn("USAGE:", result.stdout)
             self.assertFalse(cache.exists())
             self.assertFalse((self.project / "unused-home").exists())
 
-    def test_root_scan_flags_and_audit_alias_are_usage_errors(self):
-        for arguments in (
-            ["--manifest=missing.toml"], ["--manifest", "missing.toml"],
-            ["--config=missing.toml"], ["--ignore-config"], ["--allow=MIT"],
-            ["--no-cache"], ["--cache-path=cache"], ["--prod-only"],
-            ["--quiet"], ["--colour=never"], ["audit"],
+    def test_default_report_matches_named_report_with_root_options(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        (self.project / "locked.toml").write_text("packages = []\n")
+        (self.project / "policy.toml").write_text(
+            '[tools.licence_audit]\nallow = ["MIT"]\n'
+        )
+        environment = {
+            "HOME": str(self.project / "home"),
+            "XDG_CACHE_HOME": str(self.project / "cache"),
+            "NO_COLOR": "1",
+        }
+        for flags in (
+            [], ["--manifest=locked.toml", "--config=policy.toml"],
+            ["--ignore-config", "--allow=MIT", "--deny=GPL-3.0-only"],
+            ["--prod-only", "--no-cache", "-q", "--colour=never"],
+            ["--cache-path=explicit-cache", "-v", "--color=never"],
         ):
-            with self.subTest(arguments=arguments):
-                result = self.run_cli(*arguments)
-                self.assertEqual(result.returncode, 1)
-                self.assertEqual(result.stdout, "")
-                self.assertIn("licence_audit report", result.stderr)
-                self.assertNotIn("Could not read", result.stderr)
+            with self.subTest(flags=flags):
+                root = self.run_cli(*flags, environment=environment)
+                named = self.run_cli("report", *flags, environment=environment)
+                self.assertEqual(root.returncode, 0, root.stderr)
+                self.assertEqual(
+                    (root.returncode, root.stdout),
+                    (named.returncode, named.stdout),
+                )
+                self.assertIn("Skipped non-Hex packages: 0", root.stdout)
+        result = self.run_cli("audit")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
 
     def test_missing_manifest_diagnostics_ignore_quiet(self):
-        for command in ("report", "check", "sbom", "vulns", "notices", "update"):
+        for command in ("", "report", "check", "sbom", "vulns", "notices", "update"):
             with self.subTest(command=command):
                 arguments = [command] if command else []
                 arguments += ["--quiet"]
@@ -626,7 +642,7 @@ class CliStreamTest(unittest.TestCase):
         """
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
-            for command in (["report"], ["check", "--allow=Apache-2.0"])
+            for command in ([], ["report"], ["check", "--allow=Apache-2.0"])
             for mode, environment, colored in (
                 ("never", {"FORCE_COLOR": "1"}, False),
                 ("always", {"NO_COLOR": "1"}, True),

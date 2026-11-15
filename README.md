@@ -56,10 +56,9 @@ Use `licence_audit --help` or `licence_audit <command> --help` for the CLI
 options in your installed version. `-h` is an alias for `--help`.
 `--version` is available only at the root.
 
-Run `licence_audit report` to inspect licences or preview policy findings.
-A bare `licence_audit` shows help, including outside a Gleam project.
-To migrate an old root scan, put `report` before its flags:
-`licence_audit report --manifest=path/to/manifest.toml`.
+Run `licence_audit` or `licence_audit report` to inspect licences or preview
+policy findings. Both use the same options and non-enforcing report behavior.
+Existing root scan commands still work; adding `report` is optional.
 
 ## Contributing and security
 
