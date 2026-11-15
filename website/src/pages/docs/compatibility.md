@@ -12,6 +12,24 @@ you upgrade.
 The CLI is the only supported interface. We do not provide a supported Gleam
 library API.
 
+## Canonical documentation
+
+The [documentation website](/docs) is the canonical source for user-facing
+CLI and configuration behavior. Its source is `website/src/pages/docs/**`.
+Usage and flag tables are generated from the CLI definitions; the surrounding
+guides explain configuration, command behavior, and limits. CI checks the
+generated sections for drift and checks and builds the website.
+
+The repository README and command files in `docs/` link to these guides.
+They are not separate compatibility contracts. Release notes and contributor
+decision records describe changes or design history, not additional CLI
+interfaces.
+
+Compatibility applies to the documentation and CLI definitions for the
+installed release. The latest website can describe options introduced after
+an older release; use that release's tagged website sources and its `--help`
+output when checking an older installation.
+
 ## Versioning
 
 We use [Semantic Versioning](https://semver.org/):
@@ -53,12 +71,53 @@ We preserve the documented exit-code categories:
 | `2` | An input, configuration, manifest, network, decode, or artifact-generation error prevented completion. |
 | `130` | The user cancelled `update`. |
 
+These categories apply after the CLI starts on a supported runtime. Escript
+installations require Erlang/OTP 28 or newer for every command. An unsupported
+runtime can fail while loading the program, before CLI error handling starts
+(for example, a corrupt atom table error with exit `127`). Such failures are
+outside this exit-code contract. Prefer a self-contained executable for CI.
+
 A report-only command can still fail when it cannot complete its work.
 Missing or invalid policy configuration is an error, not a passing check.
 
-Reports and generated artifacts go to stdout unless the user selects an output
-file. Progress, warnings, and errors go to stderr. Commands that support
-`--output` keep stdout empty when they write the artifact to that file.
+Licence reports exit `2` if required package metadata cannot be fetched or
+decoded, even when they show results for other packages. Policy findings in a
+completed report still exit `0`. `update` TOML edit and file-write failures
+also exit `2`, not the gate/usage category `1`.
+
+Optional enrichment has separate completion rules:
+
+- `vulns` and `sbom --vulns` tolerate individual advisory-detail failures:
+  they warn and retain the advisory ID with unknown severity, then exit `0`.
+  An OSV batch request failure exits `2`. `check --vulns` also exits `2` when
+  advisory details are unavailable because it cannot evaluate severity.
+- Default `sbom` generation tolerates missing Hex or local Git dependency
+  enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
+  deliberately skips Hex enrichment. Without `--offline`, `--reproducible`
+  requires metadata from locked source archives and exits `2` if it cannot
+  obtain it. `--reproducible --offline` skips all dependency enrichment,
+  including Git, and can exit `0` without dependency licence fields. Root
+  metadata, supported sources, and artifact generation/writes remain required.
+
+These exit-code corrections precede the 1.0 contract: incomplete licence
+reports previously exited `0`, and `update` edit/write failures exited `1`.
+Scripts that relied on those codes must use `2` for operational failure.
+
+Reports, gate verdicts, and generated artifacts go to stdout unless the user
+selects an output file. Progress, warnings, and operational errors go to stderr.
+Commands that support `--output` keep stdout empty when they write the artifact
+to that file.
+
+Reports stay on stdout even when an enforced gate fails or a report is
+incomplete. A completed `check` that fails a licence or vulnerability policy
+prints its verdict after the report and exits `1`, without a duplicate stderr
+error. Operational failures, such as OSV batch or advisory-detail request
+failures, go to stderr and exit `2`; any available report and exception
+coverage stay on stdout.
+
+`--quiet` hides INFO and WARN messages on stderr, but never errors. Erlang
+runtime reports, including native-library load errors, also go to stderr.
+If SBOM generation fails before a document is available, stdout stays empty.
 
 Use exit codes to determine command status. Do not parse diagnostic messages.
 
@@ -108,10 +167,11 @@ defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
-`SOURCE_DATE_EPOCH`. Hex metadata comes from checksum-verified locked package
-archives. Git metadata comes from the archive at the locked commit. Mutable Hex
-publisher and OSV advisory data are not included. Reproducibility does not
-extend across tool versions.
+`SOURCE_DATE_EPOCH`. Without `--offline`, Hex metadata comes from
+checksum-verified locked package archives and Git metadata comes from the
+archive at the locked commit. The combined flags omit all dependency
+enrichment, including Git. Mutable Hex publisher and OSV advisory data are not
+included. Reproducibility does not extend across tool versions.
 
 ## Internal details
 

@@ -1,0 +1,49 @@
+name = "glint_markdown"
+version = "0.0.0"
+
+description = "Auto-generate Markdown reference documentation from a glint CLI."
+licences = ["Apache-2.0"]
+repository = { type = "github", user = "tylerbutler", repo = "glint_markdown" }
+
+gleam = ">= 1.16.0 and < 2.0.0"
+
+[dependencies]
+filepath = ">= 1.1.0 and < 2.0.0"
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+# Pinned to a fork commit on tylerbutler/glint that exposes glint.document/1
+# and the public glint/help module. Replace `ref` with a tag once one is cut.
+glint = { git = "https://github.com/tylerbutler/glint.git", ref = "glint-markdown" }
+glugify = ">= 3.0.0 and < 4.0.0"
+simplifile = ">= 2.0.0 and < 3.0.0"
+
+[dev_dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+glinter = ">= 2.19.0 and < 3.0.0"
+
+[tools]
+
+[tools.trellis]
+
+[tools.trellis.publish]
+exact_tag_format = "v{version}"
+
+[tools.trellis.publish.lifecycle]
+default = "git_only"
+
+[tools.trellis.changelog]
+strictness = "warn"
+header_format = "# Changelog"
+
+[tools.glinter]
+include = ["src/", "test/"]
+
+[tools.glinter.rules]
+# Disabled: heavily stylistic and overwhelmingly noisy.
+label_possible = "off"
+# Disabled: `let assert` is the idiomatic test pattern.
+assert_ok_pattern = "off"
+
+[tools.glinter.ignore]
+# gleeunit discovers `pub` test functions by reflection, and assertions are
+# the idiomatic way for a test to fail.
+"test/**/*.gleam" = ["unused_exports", "avoid_panic"]

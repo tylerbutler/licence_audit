@@ -57,7 +57,6 @@ pub fn purl_for_hex_test() {
     manifest.SbomEntry(
       name: "birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",
@@ -72,7 +71,6 @@ pub fn purl_for_hex_lowercases_name_segment_only_test() {
     manifest.SbomEntry(
       name: "Birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",
@@ -167,11 +165,11 @@ pub fn purl_for_non_github_git_errors_test() {
     manifest.SbomEntry(
       name: "foo",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.GitProvenance(
         repo: "https://gitlab.com/x/foo",
         commit: "abc",
+        path: None,
       ),
     )
   let assert Error(err) = sbom.purl_for(entry)
@@ -180,12 +178,41 @@ pub fn purl_for_non_github_git_errors_test() {
   should.equal(source, "git")
 }
 
+pub fn git_purl_includes_encoded_package_subpath_test() {
+  let entry = github_git_entry("https://github.com/example/beryl")
+  list.each(
+    [
+      #(Some("./packages/beryl_protocol/"), "#packages/beryl_protocol"),
+      #(
+        Some("packages/with space#%/中文"),
+        "#packages/with%20space%23%25/%E4%B8%AD%E6%96%87",
+      ),
+      #(Some("."), ""),
+      #(None, ""),
+    ],
+    fn(pair) {
+      let entry =
+        manifest.SbomEntry(
+          ..entry,
+          provenance: manifest.GitProvenance(
+            "https://github.com/example/beryl",
+            "abcdef",
+            pair.0,
+          ),
+        )
+      should.equal(
+        sbom.purl_for(entry),
+        Ok("pkg:github/example/beryl@abcdef" <> pair.1),
+      )
+    },
+  )
+}
+
 pub fn purl_for_path_dep_errors_test() {
   let entry =
     manifest.SbomEntry(
       name: "local_dep",
       version: "0.1.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.PathProvenance(path: "../local_dep"),
     )
@@ -200,7 +227,6 @@ pub fn purl_for_unknown_source_errors_test() {
     manifest.SbomEntry(
       name: "weird",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.UnknownProvenance(source: "rebar3"),
     )
@@ -213,11 +239,11 @@ fn github_git_entry(repo: String) -> manifest.SbomEntry {
   manifest.SbomEntry(
     name: "gluegun",
     version: "0.1.0",
-    kind: manifest.Direct,
     requirements: [],
     provenance: manifest.GitProvenance(
       repo: repo,
       commit: "fa4c8ee919138fc8ffddd2642165a89654e61999",
+      path: None,
     ),
   )
 }
@@ -364,7 +390,8 @@ pub fn render_root_metadata_component_emits_purl_when_version_empty_test() {
 
 pub fn render_emits_provenance_metadata_test() {
   let json_str = render(minimal_input())
-  let assert True = string.contains(json_str, "\"authors\":")
+  let assert False = string.contains(json_str, "\"authors\":")
+  let assert True = string.contains(json_str, "\"vendor\":\"tylerbutler\"")
   let assert True = string.contains(json_str, "\"supplier\":")
   let assert True = string.contains(json_str, "\"lifecycles\":")
   let assert True = string.contains(json_str, "\"phase\":\"build\"")
@@ -465,7 +492,6 @@ pub fn render_errors_on_unsupported_source_test() {
     manifest.SbomEntry(
       name: "foo",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.PathProvenance(path: "../foo"),
     )
@@ -487,6 +513,156 @@ pub fn reproducible_serial_is_byte_stable_test() {
   render(input) |> should.equal(render(input))
 }
 
+pub fn reproducible_serial_changes_with_timestamp_test() {
+  let first =
+    sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
+  let second = sbom.SbomInput(..first, timestamp: "2026-05-24T22:51:01Z")
+  assert serial_of(render(first)) != serial_of(render(second))
+  assert render(first) != render(second)
+  should.equal(render(second), render(second))
+}
+
+pub fn render_single_spdx_expression_for_root_and_dependency_test() {
+  list.each(
+    [
+      "MIT OR Apache-2.0",
+      "MIT AND Apache-2.0",
+      "GPL-2.0-only WITH Classpath-exception-2.0",
+      "(MIT OR Apache-2.0) AND BSD-3-Clause",
+    ],
+    fn(expression) {
+      let input = minimal_input()
+      let output =
+        render(
+          sbom.SbomInput(
+            ..input,
+            root: sbom.RootComponent(..input.root, licences: [expression]),
+            package_metadata: dict.from_list([
+              #("birch", hex.licences_only([expression])),
+            ]),
+            license_texts: dict.from_list([#(expression, "must not embed")]),
+          ),
+        )
+      let choices =
+        decode.at(
+          ["licenses"],
+          decode.list(decode.dict(decode.string, decode.string)),
+        )
+      let expected = [
+        dict.from_list([
+          #("expression", expression),
+          #("acknowledgement", "declared"),
+        ]),
+      ]
+      should.equal(
+        json.parse(output, decode.at(["metadata", "component"], choices)),
+        Ok(expected),
+      )
+      should.equal(
+        json.parse(output, decode.at(["components"], decode.list(choices))),
+        Ok([expected]),
+      )
+    },
+  )
+}
+
+pub fn render_custom_and_malformed_declarations_as_names_test() {
+  list.each(
+    [
+      "Custom Corporate Licence",
+      "LicenseRef-Local",
+      "Unknown",
+      "MIT OR",
+      "MIT and Apache-2.0",
+      "(MIT OR Apache-2.0",
+      "MIT WITH",
+      string.repeat("(", 65) <> "MIT" <> string.repeat(")", 65),
+      string.repeat("MIT OR ", 512) <> "MIT",
+      string.repeat("a", 65_537),
+    ],
+    fn(name) {
+      let input = minimal_input()
+      let output =
+        render(
+          sbom.SbomInput(
+            ..input,
+            root: sbom.RootComponent(..input.root, licences: [name]),
+            package_metadata: dict.from_list([
+              #("birch", hex.licences_only([name])),
+            ]),
+          ),
+        )
+      let names =
+        decode.at(
+          ["licenses"],
+          decode.list(decode.at(["license", "name"], decode.string)),
+        )
+      should.equal(
+        json.parse(output, decode.at(["metadata", "component"], names)),
+        Ok([name]),
+      )
+      should.equal(
+        json.parse(output, decode.at(["components"], decode.list(names))),
+        Ok([[name]]),
+      )
+    },
+  )
+}
+
+pub fn render_multiple_declarations_as_independent_license_entries_test() {
+  let input = minimal_input()
+  let declarations = ["MIT", "Apache-2.0", "MIT OR Apache-2.0"]
+  let output =
+    render(
+      sbom.SbomInput(
+        ..input,
+        root: sbom.RootComponent(..input.root, licences: declarations),
+        package_metadata: dict.from_list([
+          #("birch", hex.licences_only(declarations)),
+        ]),
+      ),
+    )
+  let licenses =
+    decode.at(
+      ["licenses"],
+      decode.list(decode.at(
+        ["license"],
+        decode.dict(decode.string, decode.string),
+      )),
+    )
+  let expected =
+    list.map(
+      [#("id", "MIT"), #("id", "Apache-2.0"), #("name", "MIT OR Apache-2.0")],
+      fn(declaration) {
+        dict.from_list([declaration, #("acknowledgement", "declared")])
+      },
+    )
+  should.equal(
+    json.parse(output, decode.at(["metadata", "component"], licenses)),
+    Ok(expected),
+  )
+  should.equal(
+    json.parse(output, decode.at(["components"], decode.list(licenses))),
+    Ok([expected]),
+  )
+}
+
+pub fn reproducible_serial_includes_embedded_root_license_text_test() {
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      serial_number: sbom.ContentDerivedSerial,
+      package_metadata: dict.new(),
+    )
+  let enriched =
+    sbom.SbomInput(
+      ..input,
+      license_texts: dict.from_list([#("Apache-2.0", "canonical")]),
+    )
+  should.equal(render(enriched), render(enriched))
+  assert serial_of(render(input)) != serial_of(render(enriched))
+}
+
 pub fn reproducible_serial_is_a_content_derived_urn_uuid_test() {
   let input =
     sbom.SbomInput(..minimal_input(), serial_number: sbom.ContentDerivedSerial)
@@ -502,7 +678,6 @@ pub fn reproducible_serial_changes_with_dependency_set_test() {
     manifest.SbomEntry(
       name: "gleam_stdlib",
       version: "1.0.0",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "ABCD",
@@ -542,11 +717,11 @@ pub fn render_omits_component_version_when_empty_test() {
     manifest.SbomEntry(
       name: "GlueGun",
       version: "",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.GitProvenance(
         repo: "https://github.com/TylerButler/GlueGun",
         commit: "fa4c8ee919138fc8ffddd2642165a89654e61999",
+        path: None,
       ),
     )
   let input =
@@ -604,7 +779,6 @@ fn hex_entry(name: String, version: String) -> manifest.SbomEntry {
   manifest.SbomEntry(
     name: name,
     version: version,
-    kind: manifest.Direct,
     requirements: [],
     provenance: manifest.HexProvenance(
       outer_checksum: "DEADBEEF",
@@ -618,7 +792,6 @@ fn minimal_input() -> sbom.SbomInput {
     manifest.SbomEntry(
       name: "birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",
@@ -655,6 +828,7 @@ fn minimal_input() -> sbom.SbomInput {
     package_metadata: package_metadata,
     scopes: dict.new(),
     vulnerabilities: [],
+    license_texts: dict.new(),
   )
 }
 
@@ -662,6 +836,80 @@ pub fn render_omits_vulnerabilities_when_absent_test() {
   // A plain SBOM (no embedded vulns) must keep its existing shape.
   let assert False =
     string.contains(render(minimal_input()), "\"vulnerabilities\":")
+}
+
+pub fn render_license_text_enriches_root_and_dependency_without_changing_default_test() {
+  let input = minimal_input()
+  let text = "Copyright \"holder\"\nCanonical licence text\n"
+  let enriched =
+    render(
+      sbom.SbomInput(
+        ..input,
+        license_texts: dict.from_list([#("Apache-2.0", text)]),
+      ),
+    )
+  let text_decoder =
+    decode.at(
+      ["licenses"],
+      decode.list(decode.at(["license", "text", "content"], decode.string)),
+    )
+  should.equal(
+    json.parse(enriched, decode.at(["metadata", "component"], text_decoder)),
+    Ok([text]),
+  )
+  should.equal(
+    json.parse(enriched, decode.at(["components"], decode.list(text_decoder))),
+    Ok([[text]]),
+  )
+  assert string.contains(enriched, "\"contentType\":\"text/plain\"")
+  assert string.contains(enriched, "\"acknowledgement\":\"declared\"")
+  assert !string.contains(render(input), "\"text\":")
+}
+
+pub fn render_license_text_preserves_expressions_and_unknown_names_test() {
+  let input = minimal_input()
+  let declarations = [
+    "apache-2.0", "MIT OR Apache-2.0",
+    "GPL-2.0-only WITH Classpath-exception-2.0", "LicenseRef-Local", "Unknown",
+  ]
+  let rendered =
+    render(
+      sbom.SbomInput(
+        ..input,
+        root: sbom.RootComponent(..input.root, licences: declarations),
+        package_metadata: dict.new(),
+        license_texts: dict.from_list(
+            list.map(declarations, fn(id) { #(id, "must not embed for names") }),
+          )
+          |> dict.insert("Apache-2.0", "canonical"),
+      ),
+    )
+  let assert Ok(licenses) =
+    json.parse(
+      rendered,
+      decode.at(
+        ["metadata", "component", "licenses"],
+        decode.list(
+          decode.at(["license"], {
+            use id <- decode.optional_field("id", "", decode.string)
+            use text <- decode.optional_field(
+              "text",
+              "",
+              decode.at(["content"], decode.string),
+            )
+            decode.success(#(id, text))
+          }),
+        ),
+      ),
+    )
+  should.equal(licenses, [
+    #("Apache-2.0", "canonical"),
+    #("", ""),
+    #("", ""),
+    #("", ""),
+    #("", ""),
+  ])
+  assert string.contains(rendered, "\"name\":\"MIT OR Apache-2.0\"")
 }
 
 pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
@@ -723,6 +971,36 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
   assert string.contains(out, "\"id\":\"CVE-2024-0002\"")
   assert string.contains(out, "\"severity\":\"medium\"")
   assert !string.contains(out, "\"method\":")
+}
+
+pub fn render_none_rating_without_vector_test() -> Nil {
+  let vuln =
+    osv.Vulnerability(
+      id: "OSV-none",
+      aliases: [],
+      summary: "",
+      severity: osv.NoSeverity,
+      scores: [],
+    )
+  let output =
+    render(
+      sbom.SbomInput(..minimal_input(), vulnerabilities: [
+        sbom.EmbeddedVulnerability(vuln, ["pkg:hex/birch@0.2.1"]),
+      ]),
+    )
+  let assert Ok(ratings) =
+    json.parse(
+      output,
+      decode.at(
+        ["vulnerabilities"],
+        decode.list(decode.at(
+          ["ratings"],
+          decode.list(decode.at(["severity"], decode.string)),
+        )),
+      ),
+    )
+  should.equal(ratings, [["none"]])
+  assert !string.contains(output, "\"method\":")
 }
 
 pub fn render_emits_optional_scope_for_dev_dependencies_test() {
@@ -813,7 +1091,6 @@ pub fn render_emits_inner_checksum_property_when_present_test() {
     manifest.SbomEntry(
       name: "birch",
       version: "0.2.1",
-      kind: manifest.Direct,
       requirements: [],
       provenance: manifest.HexProvenance(
         outer_checksum: "DEADBEEF",

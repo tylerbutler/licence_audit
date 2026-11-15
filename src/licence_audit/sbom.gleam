@@ -1,17 +1,36 @@
 import gleam/list
 import gleam/option
 import gleam/string
+import gleam/uri
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
 import licence_audit/repository
+import licence_audit/spdx_expression
 
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
     manifest.HexProvenance(_, _) ->
       Ok("pkg:hex/" <> string.lowercase(entry.name) <> "@" <> entry.version)
-    manifest.GitProvenance(repo, commit) ->
+    manifest.GitProvenance(repo, commit, path) -> {
+      use directory <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(error.UnsupportedSourceForSbom(
+          entry.name,
+          "git",
+          "invalid package path",
+        )),
+      )
+      let subpath = case directory {
+        "" -> ""
+        _ ->
+          "#"
+          <> string.join(
+            list.map(string.split(directory, "/"), uri.percent_encode),
+            "/",
+          )
+      }
       case repository.parse_github_source(repo) {
         Ok(repository.Repository(owner: owner, repo: name, ..)) ->
           Ok(
@@ -20,7 +39,8 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
             <> "/"
             <> string.lowercase(name)
             <> "@"
-            <> commit,
+            <> commit
+            <> subpath,
           )
         Error(_) ->
           Error(error.UnsupportedSourceForSbom(
@@ -29,6 +49,7 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
             detail: "repo: " <> repo,
           ))
       }
+    }
     manifest.PathProvenance(path) ->
       Error(error.UnsupportedSourceForSbom(
         package: entry.name,
@@ -47,6 +68,7 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
 pub type LicenseEntry {
   LicenseId(id: String)
   LicenseName(name: String)
+  LicenseExpression(expression: String)
 }
 
 const spdx_ids = [
@@ -215,12 +237,26 @@ const spdx_ids_outside_cyclonedx_16 = [
   "Brian-Gladman-3-Clause-no-conversion", "MVT-1.1",
 ]
 
-/// Map raw declared licence strings to CycloneDX licence entries, one per
-/// declared licence. When a package declares more than one, they are emitted as
-/// separate entries: Hex does not record whether the relationship is
+/// Map a single compound SPDX declaration to an expression choice.
+/// Otherwise emit one licence entry per declaration. Multiple declarations
+/// remain separate: Hex does not record whether the relationship is
 /// conjunctive ("AND") or disjunctive ("OR"), so we do not synthesise an SPDX
 /// expression that would assert an operator we cannot verify.
 pub fn license_entries(licences: List(String)) -> List(LicenseEntry) {
+  case licences {
+    [raw] ->
+      case spdx_expression.parse(raw) {
+        Ok(spdx_expression.And(_, _))
+        | Ok(spdx_expression.Or(_, _))
+        | Ok(spdx_expression.With(_, _)) -> [LicenseExpression(raw)]
+        Ok(spdx_expression.Licence(_)) | Error(_) ->
+          declared_license_entries(licences)
+      }
+    _ -> declared_license_entries(licences)
+  }
+}
+
+fn declared_license_entries(licences: List(String)) -> List(LicenseEntry) {
   licences
   |> list.map(fn(raw) {
     case match_spdx(raw) {
@@ -228,18 +264,7 @@ pub fn license_entries(licences: List(String)) -> List(LicenseEntry) {
       Error(_) -> LicenseName(raw)
     }
   })
-  |> dedupe_license_entries
-}
-
-fn dedupe_license_entries(entries: List(LicenseEntry)) -> List(LicenseEntry) {
-  entries
-  |> list.fold([], fn(acc, entry) {
-    case list.contains(acc, entry) {
-      True -> acc
-      False -> [entry, ..acc]
-    }
-  })
-  |> list.reverse
+  |> list.unique
 }
 
 fn match_spdx(raw: String) -> Result(String, Nil) {
@@ -277,7 +302,7 @@ pub type SerialNumber {
   /// Use this exact `urn:uuid` string (a random v4 in normal runs).
   FixedSerial(String)
   /// Derive a deterministic `urn:uuid` from a hash of the BOM content, so the
-  /// same dependency set always yields the same serial number.
+  /// same content and timestamp always yield the same serial number.
   ContentDerivedSerial
 }
 
@@ -299,6 +324,8 @@ pub type SbomInput {
     scopes: Dict(String, manifest.Scope),
     /// Vulnerabilities to embed (CycloneDX `vulnerabilities`); empty omits it.
     vulnerabilities: List(EmbeddedVulnerability),
+    /// Canonical SPDX text by licence ID; empty preserves the default output.
+    license_texts: Dict(String, String),
   )
 }
 
@@ -315,7 +342,12 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
     manifest.SbomManifest(..input.manifest, entries: sorted_entries)
   use components <- result.try(
     list.try_map(sorted_entries, fn(entry) {
-      build_component(entry, input.package_metadata, input.scopes)
+      build_component(
+        entry,
+        input.package_metadata,
+        input.scopes,
+        input.license_texts,
+      )
     }),
   )
   let dependencies = build_dependencies(sorted_manifest)
@@ -342,7 +374,7 @@ fn sort_key(entry: manifest.SbomEntry) -> String {
 
 /// Resolve the BOM `serialNumber`: either the caller-supplied fixed value, or a
 /// deterministic UUID derived from a hash of the rendered components and
-/// dependencies plus the described project.
+/// dependencies plus the described project, tool version, and timestamp.
 fn resolve_serial(
   input: SbomInput,
   components: List(json.Json),
@@ -356,8 +388,9 @@ fn resolve_serial(
         json.to_string(json.preprocessed_array(components))
         <> json.to_string(json.preprocessed_array(dependencies))
         <> json.to_string(json.preprocessed_array(vulnerabilities))
-        <> json.to_string(root_component_json(input.root))
+        <> json.to_string(root_component_json(input.root, input.license_texts))
         <> input.tool_version
+        <> input.timestamp
       sbom_uuid.serial_number_from_content(content)
       |> result.replace_error(error.SbomSerialNumberFailed)
     }
@@ -368,6 +401,7 @@ fn build_component(
   entry: manifest.SbomEntry,
   package_metadata: Dict(String, hex.PackageMetadata),
   scopes: Dict(String, manifest.Scope),
+  license_texts: Dict(String, String),
 ) -> Result(json.Json, error.Error) {
   use purl <- result.try(purl_for(entry))
   let metadata = dict.get(package_metadata, entry.name)
@@ -385,7 +419,7 @@ fn build_component(
     |> append_publisher(metadata)
     |> append_description(metadata)
     |> append_hashes(entry)
-    |> append_licenses(metadata)
+    |> append_licenses(metadata, license_texts)
     |> append_external_references(entry, metadata)
     |> append_properties(entry)
 
@@ -440,7 +474,7 @@ fn append_supplier(
           ]),
         ),
       ])
-    manifest.GitProvenance(_, _)
+    manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
@@ -477,7 +511,7 @@ fn append_hashes(
           ]),
         ),
       ])
-    manifest.GitProvenance(_, _)
+    manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
@@ -486,6 +520,7 @@ fn append_hashes(
 fn append_licenses(
   fields: List(Field),
   metadata: Result(hex.PackageMetadata, Nil),
+  license_texts: Dict(String, String),
 ) -> List(Field) {
   case metadata {
     Ok(meta) ->
@@ -495,7 +530,11 @@ fn append_licenses(
           list.append(fields, [
             #(
               "licenses",
-              json.preprocessed_array(list.map(entries, license_to_json)),
+              json.preprocessed_array(
+                list.map(entries, fn(entry) {
+                  license_to_json(entry, license_texts)
+                }),
+              ),
             ),
           ])
       }
@@ -558,7 +597,7 @@ fn append_properties(
         ),
       ])
     manifest.HexProvenance(_, option.None)
-    | manifest.GitProvenance(_, _)
+    | manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
@@ -585,7 +624,7 @@ fn external_references(
       hex_distribution_reference(entry),
       ..from_links
     ]
-    manifest.GitProvenance(_, _)
+    manifest.GitProvenance(_, _, _)
     | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> from_links
   }
@@ -625,14 +664,42 @@ fn reference_type(label: String) -> String {
   }
 }
 
-fn license_to_json(entry: LicenseEntry) -> json.Json {
+fn license_to_json(
+  entry: LicenseEntry,
+  license_texts: Dict(String, String),
+) -> json.Json {
   // `acknowledgement: declared` (CycloneDX 1.6) records that these licences are
   // as declared by the package's own metadata (Hex / gleam.toml), not concluded
   // by scanning the source.
-  let fields = case entry {
-    LicenseId(id) -> [#("id", json.string(id))]
-    LicenseName(name) -> [#("name", json.string(name))]
+  case entry {
+    LicenseId(id) -> {
+      let fields = [#("id", json.string(id))]
+      let fields = case dict.get(license_texts, id) {
+        Error(_) -> fields
+        Ok(text) ->
+          list.append(fields, [
+            #(
+              "text",
+              json.object([
+                #("contentType", json.string("text/plain")),
+                #("content", json.string(text)),
+              ]),
+            ),
+          ])
+      }
+      declared_license_to_json(fields)
+    }
+    LicenseName(name) ->
+      declared_license_to_json([#("name", json.string(name))])
+    LicenseExpression(expression) ->
+      json.object([
+        #("expression", json.string(expression)),
+        #("acknowledgement", json.string("declared")),
+      ])
   }
+}
+
+fn declared_license_to_json(fields: List(Field)) -> json.Json {
   json.object([
     #(
       "license",
@@ -702,7 +769,10 @@ const bom_vendor = "tylerbutler"
 
 /// Build the `metadata.component` object for the project being described,
 /// enriching the bare name/version with whatever `gleam.toml` provided.
-fn root_component_json(root: RootComponent) -> json.Json {
+fn root_component_json(
+  root: RootComponent,
+  license_texts: Dict(String, String),
+) -> json.Json {
   [
     #("bom-ref", json.string("root")),
     #("type", json.string("application")),
@@ -732,7 +802,11 @@ fn root_component_json(root: RootComponent) -> json.Json {
         list.append(fields, [
           #(
             "licenses",
-            json.preprocessed_array(list.map(entries, license_to_json)),
+            json.preprocessed_array(
+              list.map(entries, fn(entry) {
+                license_to_json(entry, license_texts)
+              }),
+            ),
           ),
         ])
     }
@@ -812,15 +886,7 @@ fn build_document(
             ]),
           ]),
         ),
-        // The BOM is authored by the licence_audit maintainer, independent of
-        // whichever project it describes.
-        #(
-          "authors",
-          json.preprocessed_array([
-            json.object([#("name", json.string(bom_vendor))]),
-          ]),
-        ),
-        #("component", root_component_json(input.root)),
+        #("component", root_component_json(input.root, input.license_texts)),
       ]),
     ),
     #("components", json.preprocessed_array(components)),

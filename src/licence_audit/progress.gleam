@@ -3,6 +3,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
+import licence_audit/color
 import spruce
 import spruce/message as spruce_message
 import spruce/style
@@ -53,10 +54,15 @@ pub type Reporter {
     events: List(Event),
     deferred: List(Event),
     command: String,
+    color: color.Mode,
   )
 }
 
-pub fn enabled(verbosity: Verbosity, command: String) -> Reporter {
+pub fn enabled(
+  verbosity: Verbosity,
+  command: String,
+  color: color.Mode,
+) -> Reporter {
   Reporter(
     enabled: True,
     verbosity: verbosity,
@@ -64,6 +70,7 @@ pub fn enabled(verbosity: Verbosity, command: String) -> Reporter {
     events: [],
     deferred: [],
     command: command,
+    color: color,
   )
 }
 
@@ -75,6 +82,7 @@ pub fn capturing(verbosity: Verbosity, command: String) -> Reporter {
     events: [],
     deferred: [],
     command: command,
+    color: color.Auto,
   )
 }
 
@@ -86,6 +94,7 @@ pub fn disabled() -> Reporter {
     events: [],
     deferred: [],
     command: "",
+    color: color.Never,
   )
 }
 
@@ -93,8 +102,8 @@ pub fn events(reporter: Reporter) -> List(Event) {
   list.reverse(reporter.events)
 }
 
-pub fn stderr_color_enabled(level: tty.ColorLevel) -> Bool {
-  level != tty.NoColor
+pub fn stderr_color_enabled(mode: color.Mode, level: tty.ColorLevel) -> Bool {
+  color.resolve_with_color_level(mode, level).enabled
 }
 
 pub fn format_level(level: Level, _use_color: Bool) -> String {
@@ -312,7 +321,8 @@ fn emit(
       message: message,
       metadata: metadata,
     )
-  let use_color = stderr_color_enabled(tty.detect_color_level(tty.Stderr))
+  let use_color =
+    stderr_color_enabled(reporter.color, tty.detect_color_level(tty.Stderr))
   case tty.is_tty(tty.Stderr) {
     True -> format_tty_record(entry, use_color)
     False -> format_standard_record(entry, use_color)

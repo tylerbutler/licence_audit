@@ -97,7 +97,8 @@ note = \"leave me alone\"
   should.be_true(string.contains(after_both, "\"GPL-3.0\""))
 }
 
-const packages_doc = "packages = [
+const packages_doc =
+  "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
   { name = \"lib_b\", version = \"2.0.0\", source = \"hex\", requirements = [] },
 ]
@@ -191,4 +192,30 @@ pub fn get_string_test() {
   let assert Ok(doc) = toml.parse("name = \"hello\"\nversion = \"1.2.3\"\n")
   should.equal(toml.get_string(doc, ["name"]), Ok("hello"))
   should.equal(toml.get_string(doc, ["missing"]), Error(Nil))
+}
+
+pub fn string_accessors_decode_basic_escapes_but_keep_literal_strings_test() {
+  let assert Ok(doc) =
+    toml.parse(
+      "description = \"Caf\\u00e9 \\\"x\\\"\"\nliteral = 'Caf\\u00e9'\n",
+    )
+  let expected = "Caf\u{00e9} \"x\""
+  should.equal(toml.get_string(doc, ["description"]), Ok(expected))
+  let assert Ok(value) = toml.get(doc, ["description"])
+  should.equal(toml.as_string(value), Ok(expected))
+  should.equal(toml.get_string(doc, ["literal"]), Ok("Caf\\u00e9"))
+  let assert Ok(literal) = toml.get(doc, ["literal"])
+  should.equal(toml.as_string(literal), Ok("Caf\\u00e9"))
+}
+
+pub fn unchanged_array_preserves_exact_source_test() {
+  let input =
+    "[tools.licence_audit]\nallow = [\n  \"MIT\", # needed by foo\n  'Apache-2.0',\n]\n"
+  should.equal(
+    toml.set_string_array(input, ["tools", "licence_audit"], "allow", [
+      "MIT",
+      "Apache-2.0",
+    ]),
+    Ok(input),
+  )
 }

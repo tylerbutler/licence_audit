@@ -1,0 +1,3 @@
+package = "glint_markdown"
+kind = "Fixed"
+body = "Preflight destination aliases and replace files atomically, preserving permissions and symbolic links. Refuse changed hardlinked files and compare exact bytes, including UTF-8 byte-order marks, on both targets."

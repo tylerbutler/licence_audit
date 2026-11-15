@@ -24,6 +24,7 @@ import licence_audit/cvss
 import licence_audit/httpc_adaptive
 
 pub type Severity {
+  NoSeverity
   Low
   Medium
   High
@@ -82,6 +83,7 @@ const max_batch_pages = 32
 /// Query OSV for vulnerabilities affecting each of `purls`. Returns one
 /// `BatchEntry` per input purl, preserving input order. Empty `vuln_ids`
 /// means OSV reports no known vulnerabilities for that purl.
+/// GitHub purls use commit queries; Hex purls use package queries.
 pub fn query_batch(
   purls: List(String),
   client: fn(Request(String)) -> Result(Response(String), Error),
@@ -181,9 +183,10 @@ fn encode_batch_body_with_tokens(
   let queries =
     list.map(purls, fn(entry) {
       let #(purl, page_token) = entry
-      let fields = [
-        #("package", json.object([#("purl", json.string(purl))])),
-      ]
+      let fields = case string.split(purl, "@") {
+        ["pkg:github/" <> _, commit] -> [#("commit", json.string(commit))]
+        _ -> [#("package", json.object([#("purl", json.string(purl))]))]
+      }
       let fields = case page_token {
         None -> fields
         Some(token) -> [#("page_token", json.string(token)), ..fields]
@@ -303,18 +306,7 @@ fn follow_paginated_entries(
   entries: List(BatchPageEntry),
   client: fn(Request(String)) -> Result(Response(String), Error),
 ) -> Result(List(BatchEntry), Error) {
-  case entries {
-    [] -> Ok([])
-    [entry, ..rest] ->
-      case follow_entry_pages(entry, client) {
-        Error(error) -> Error(error)
-        Ok(resolved) ->
-          case follow_paginated_entries(rest, client) {
-            Error(error) -> Error(error)
-            Ok(resolved_rest) -> Ok([resolved, ..resolved_rest])
-          }
-      }
-  }
+  list.try_map(entries, follow_entry_pages(_, client))
 }
 
 fn follow_entry_pages(
@@ -420,7 +412,7 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
   let severity = case database_severity {
     UnknownSeverity ->
       highest_severity_from_vectors(list.map(scores, severity_from_score))
-    known -> known
+    NoSeverity | Low | Medium | High | Critical -> database_severity
   }
 
   decode.success(Vulnerability(
@@ -444,9 +436,10 @@ fn score_decoder() -> decode.Decoder(Score) {
 }
 
 fn severity_from_score(score: Score) -> Severity {
-  case severity_from_cvss_vector(score.vector) {
+  let severity = severity_from_cvss_vector(score.vector)
+  case severity {
     UnknownSeverity -> severity_from_cvss_kind(score.kind, score.vector)
-    severity -> severity
+    NoSeverity | Low | Medium | High | Critical -> severity
   }
 }
 
@@ -462,32 +455,17 @@ fn severity_from_cvss_kind(kind: String, vector: String) -> Severity {
 
 fn highest_severity_from_vectors(severities: List(Severity)) -> Severity {
   list.fold(severities, UnknownSeverity, fn(acc, current) {
-    case compare_severity(current, acc) {
-      Greater -> current
-      _ -> acc
+    case severity_rank(current) > severity_rank(acc) {
+      True -> current
+      False -> acc
     }
   })
 }
 
-type SeverityOrder {
-  Less
-  Equal
-  Greater
-}
-
-fn compare_severity(a: Severity, b: Severity) -> SeverityOrder {
-  let rank_a = severity_rank(a)
-  let rank_b = severity_rank(b)
-  case rank_a, rank_b {
-    x, y if x == y -> Equal
-    x, y if x > y -> Greater
-    _, _ -> Less
-  }
-}
-
-fn severity_rank(severity: Severity) -> Int {
+pub fn severity_rank(severity: Severity) -> Int {
   case severity {
-    UnknownSeverity -> 0
+    UnknownSeverity -> -1
+    NoSeverity -> 0
     Low -> 1
     Medium -> 2
     High -> 3
@@ -499,6 +477,7 @@ fn severity_rank(severity: Severity) -> Int {
 /// Treats "moderate" as `Medium` to match GHSA terminology.
 pub fn parse_severity_label(raw: String) -> Severity {
   case string.lowercase(string.trim(raw)) {
+    "none" -> NoSeverity
     "low" -> Low
     "medium" -> Medium
     "moderate" -> Medium
@@ -550,7 +529,7 @@ fn is_cvss_v2_vector(vector: String) -> Bool {
 
 fn severity_from_supported_vector(vector: String) -> Severity {
   case cvss.rating(vector) {
-    Ok(cvss.None) -> Low
+    Ok(cvss.None) -> NoSeverity
     Ok(cvss.Low) -> Low
     Ok(cvss.Medium) -> Medium
     Ok(cvss.High) -> High
@@ -561,6 +540,7 @@ fn severity_from_supported_vector(vector: String) -> Severity {
 
 pub fn severity_to_string(severity: Severity) -> String {
   case severity {
+    NoSeverity -> "none"
     Low -> "low"
     Medium -> "medium"
     High -> "high"

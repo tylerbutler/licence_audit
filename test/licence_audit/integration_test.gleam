@@ -1,4 +1,5 @@
 import gleam/dynamic/decode
+import gleam/http/response
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -10,12 +11,20 @@ import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/notice
 import licence_audit/osv
+import licence_audit/path_test
 import licence_audit/progress
 import licence_audit/repository
 import licence_audit/source_archive
+import licence_audit/source_archive_test
 import licence_audit/spdx
 import licence_audit/toml
 import simplifile
+
+@external(erlang, "integration_test_ffi", "record_detail_fetch")
+fn record_detail_fetch(id: String) -> Int
+
+@external(erlang, "integration_test_ffi", "reset_detail_fetch")
+fn reset_detail_fetch(id: String) -> Nil
 
 fn fake_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
   case name {
@@ -29,6 +38,62 @@ fn test_clients(
   fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
 ) -> licence_audit.Clients {
   licence_audit.Clients(..licence_audit.default_clients(), fetcher:)
+}
+
+pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
+  let clients =
+    licence_audit.Clients(
+      ..licence_audit.default_clients(),
+      fetcher: fn(_) { panic as "invalid flags must stop before Hex fetch" },
+      osv_batch_fetcher: fn(_) {
+        panic as "invalid flags must stop before OSV batch fetch"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "invalid flags must stop before OSV detail fetch"
+      },
+    )
+  use flags <- list.each([
+    ["--vuln-severity=critical"],
+    ["--vuln-block-unknown"],
+    ["--vuln-block-unknown=false"],
+    ["--vuln-severity=high", "--vuln-block-unknown"],
+  ])
+  let #(result, events) =
+    licence_audit.run_configured(
+      ["check", "--manifest=missing-manifest.toml", ..flags],
+      clients,
+      progress.disabled(),
+    )
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "require --vulns")
+  should.equal(events, [])
+}
+
+pub fn configured_vulnerability_defaults_without_scan_remain_valid_test() {
+  let path = "build/vulnerability-prerequisite-config.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      path,
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\nvuln_severity = \"critical\"\nvuln_block_unknown = true\n",
+    )
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fake_fetcher),
+      osv_batch_fetcher: fn(_) { panic as "config must not enable an OSV scan" },
+      osv_detail_fetcher: fn(_) { panic as "config must not fetch advisories" },
+    )
+  let #(result, _) =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> path,
+      ],
+      clients,
+      progress.disabled(),
+    )
+  let assert Ok(_) = simplifile.delete(path)
+  should.equal(result.exit_code, 0)
 }
 
 fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
@@ -145,14 +210,17 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
       contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\" }]\n",
     )
 
-  let audit =
-    licence_audit.run_configured(
-      ["--manifest=" <> path, "--ignore-config"],
-      test_clients(fake_fetcher),
-      progress.disabled(),
-    ).0
-  should.equal(audit.exit_code, 0)
-  assert string.contains(audit.output, "gleam_stdlib")
+  [[], ["check", "--allow=MIT"]]
+  |> list.each(fn(args) {
+    let audit =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+        test_clients(fake_fetcher),
+        progress.disabled(),
+      ).0
+    should.equal(audit.exit_code, 0)
+    assert string.contains(audit.output, "gleam_stdlib")
+  })
 
   let sbom =
     licence_audit.run_configured(
@@ -165,6 +233,89 @@ pub fn audit_accepts_missing_checksum_but_sbom_reports_decode_error_test() {
     sbom.output,
     "Invalid manifest package gleam_stdlib field outer_checksum: expected String",
   )
+
+  [[], ["CVE-2024-0001"]]
+  |> list.each(fn(ids) {
+    [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+    |> list.each(fn(args) {
+      let result =
+        licence_audit.run_configured(
+          list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, ["pkg:hex/gleam_stdlib@1.0.0"])
+              Ok(
+                list.map(purls, fn(purl) {
+                  osv.BatchEntry(purl: purl, vuln_ids: ids)
+                }),
+              )
+            },
+            osv_detail_fetcher: vulnerability_with_severity(osv.Low),
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 0)
+      case ids {
+        [] -> {
+          assert string.contains(
+            result.output,
+            "No known vulnerabilities reported by OSV.dev.",
+          )
+        }
+        _ -> {
+          assert string.contains(result.output, "CVE-2024-0001")
+        }
+      }
+    })
+  })
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn vulnerability_commands_reject_invalid_required_manifest_fields_test() {
+  let path = "build/tmp/vulns-invalid-fields.toml"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) { panic as "invalid manifest must stop Hex fetch" }),
+      osv_batch_fetcher: fn(_) {
+        panic as "invalid manifest must stop OSV batch fetch"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "invalid manifest must stop OSV detail fetch"
+      },
+    )
+  ["name", "version", "source"]
+  |> list.each(fn(field) {
+    ["", field <> " = 42,"]
+    |> list.each(fn(invalid_field) {
+      let valid_fields =
+        [#("name", "gleam_stdlib"), #("version", "1.0.0"), #("source", "hex")]
+        |> list.filter(fn(pair) { pair.0 != field })
+        |> list.map(fn(pair) { pair.0 <> " = \"" <> pair.1 <> "\"" })
+        |> string.join(", ")
+      let assert Ok(_) =
+        simplifile.write(
+          to: path,
+          contents: "packages = [{ " <> invalid_field <> valid_fields <> " }]",
+        )
+      [["vulns"], ["check", "--allow=MIT", "--vulns"]]
+      |> list.each(fn(args) {
+        let result =
+          licence_audit.run_configured(
+            list.append(args, ["--manifest=" <> path, "--ignore-config"]),
+            clients,
+            progress.disabled(),
+          ).0
+        should.equal(result.exit_code, 2)
+        assert string.contains(
+          result.output,
+          "field " <> field <> ": expected String",
+        )
+      })
+    })
+  })
+  let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn notices_subcommand_prints_release_notice_text_test() {
@@ -183,7 +334,10 @@ gleam_stdlib = { version = \">= 1.0.0\" }
 
   let result =
     licence_audit.run_configured(
-      ["notices", "--manifest=" <> manifest_path],
+      [
+        "notices",
+        "--manifest=" <> path_test.absolute_native_path(manifest_path),
+      ],
       licence_audit.Clients(
         ..test_clients(notice_metadata_fetcher),
         notice_clients: notice_clients(fixture_hex_tarball),
@@ -196,6 +350,66 @@ gleam_stdlib = { version = \">= 1.0.0\" }
   assert string.contains(result.output, "gleam_stdlib 1.0.0")
   assert string.contains(result.output, "Declared licences: Apache-2.0")
   assert string.contains(result.output, "Fixture licence text")
+}
+
+fn missing_notices_manifest() -> String {
+  let path = "build/tmp/notices-missing-manifest.toml"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let assert Ok(bits) =
+    simplifile.read_bits(
+      "test/fixtures/notices/archive_fixture/notice_only_hex.tar",
+    )
+  let assert Ok(checksum) = source_archive.sha256_hex(bits)
+  let assert Ok(_) = simplifile.write(to: path, contents: "packages = [
+  { name = \"first\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> checksum <> "\" },
+  { name = \"second\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> checksum <> "\" },
+]
+[requirements]
+first = \"1.0.0\"
+second = \"1.0.0\"
+")
+  path
+}
+
+pub fn notices_aggregates_all_missing_packages_test() {
+  let result =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> missing_notices_manifest()],
+      licence_audit.Clients(
+        ..test_clients(fn(_name) { Ok(hex.licences_only([])) }),
+        notice_clients: notice_clients(notice_only_hex_tarball),
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Missing licence text for packages: first, second",
+  )
+  assert !string.contains(result.output, "Third-party licences")
+}
+
+pub fn notices_propagates_source_error_and_stops_resolution_test() {
+  let result =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> missing_notices_manifest()],
+      licence_audit.Clients(
+        ..test_clients(fn(_name) { Ok(hex.licences_only([])) }),
+        notice_clients: notice_clients(fn(name, _version) {
+          case name {
+            "first" -> Error(notice.FetchNetworkFailure)
+            _ -> panic as "source reads must stop at the first hard error"
+          }
+        }),
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(
+    result.output,
+    "Failed to fetch source archive for first: network failure",
+  )
+  assert !string.contains(result.output, "Missing licence text")
 }
 
 pub fn exceptions_do_not_change_sbom_or_notice_evidence_test() {
@@ -476,7 +690,7 @@ local_dep = { path = \"deps/local_dep\" }
     simplifile.write(
       to: manifest_path,
       contents: "packages = [
-  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"deps/local_dep\" },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"local\", path = \"deps/local_dep\" },
 ]
 
 [requirements]
@@ -486,7 +700,10 @@ local_dep = { path = \"deps/local_dep\" }
 
   let result =
     licence_audit.run_configured(
-      ["notices", "--manifest=" <> manifest_path],
+      [
+        "notices",
+        "--manifest=" <> path_test.absolute_native_path(manifest_path),
+      ],
       licence_audit.Clients(
         ..test_clients(notice_metadata_fetcher),
         notice_clients: notice_clients(fixture_hex_tarball),
@@ -500,7 +717,7 @@ local_dep = { path = \"deps/local_dep\" }
 }
 
 pub fn run_with_notice_clients_disables_cache_for_non_notices_test() {
-  let cache_path = "build/tmp/run-with-notice-clients-cache.dets"
+  let cache_path = "build/tmp/run-with-notice-clients-cache"
   let _ = simplifile.create_directory_all("build/tmp")
   let _ = simplifile.delete(cache_path)
 
@@ -594,8 +811,96 @@ pub fn missing_policy_in_check_mode_exits_two_test() {
   should.equal(exit_code, 2)
   assert string.contains(
     output,
-    "No licence policy supplied for the `check` subcommand",
+    "The `check` subcommand requires a non-empty allow list",
   )
+}
+
+pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_test() {
+  let clients =
+    licence_audit.Clients(
+      ..licence_audit.default_clients(),
+      fetcher: fn(_) { panic as "Hex must not be called without allow" },
+      osv_batch_fetcher: fn(_) {
+        panic as "OSV must not be called without allow"
+      },
+      osv_detail_fetcher: fn(_) {
+        panic as "OSV details must not be called without allow"
+      },
+    )
+  [
+    [],
+    ["--deny=GPL-3.0-only"],
+    ["--vulns"],
+    ["--vulns", "--vuln-severity=low"],
+    ["--vulns", "--vuln-block-unknown"],
+    ["--vulns", "--deny=GPL-3.0-only"],
+  ]
+  |> list.each(fn(flags) {
+    let result =
+      licence_audit.run_configured(
+        list.append(
+          [
+            "check",
+            "--ignore-config",
+            "--manifest=test/fixtures/missing_manifest.toml",
+          ],
+          flags,
+        ),
+        clients,
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "requires a non-empty allow list")
+    assert string.contains(result.output, "pass --allow")
+    assert !string.contains(result.output, "--allow/--deny")
+  })
+  let empty_identifier =
+    licence_audit.run_configured(
+      manifest_args(["check", "--allow="]),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(empty_identifier.exit_code, 2)
+  assert string.contains(
+    empty_identifier.output,
+    "Allow and deny entries must be valid SPDX expressions",
+  )
+}
+
+pub fn check_requires_allow_after_config_and_cli_merge_test() {
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let path = "build/tmp/check_allow_requirement.toml"
+  [
+    "allow = []",
+    "deny = [\"GPL-3.0-only\"]",
+    "vuln_severity = \"low\"",
+    "vuln_block_unknown = true",
+  ]
+  |> list.each(fn(fields) {
+    let assert Ok(_) =
+      simplifile.write("[tools.licence_audit]\n" <> fields <> "\n", to: path)
+    let arguments = [
+      "check",
+      "--config=" <> path,
+      "--manifest=test/fixtures/manifest.toml",
+    ]
+    let result =
+      licence_audit.run_configured(
+        arguments,
+        test_clients(fn(_) { panic as "Hex must not be called without allow" }),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "requires a non-empty allow list")
+    let with_allow =
+      licence_audit.run_configured(
+        list.append(arguments, ["--allow=MIT,Apache-2.0"]),
+        test_clients(fake_fetcher),
+        progress.disabled(),
+      ).0
+    should.equal(with_allow.exit_code, 0)
+  })
+  let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn denied_dependency_fails_in_check_mode_with_report_test() {
@@ -616,7 +921,7 @@ pub fn denied_dependency_fails_in_check_mode_with_report_test() {
   assert string.contains(output, "Dependency licence audit failed")
 }
 
-pub fn policy_failure_emits_error_progress_event_test() {
+pub fn policy_failure_does_not_emit_error_progress_event_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_configured(
       manifest_args(["check", "--allow=MIT,Apache-2.0", "--deny=MIT"]),
@@ -625,13 +930,7 @@ pub fn policy_failure_emits_error_progress_event_test() {
     )
 
   should.equal(exit_code, 1)
-  assert list.contains(
-    events,
-    progress.Event(
-      progress.Error,
-      "Licence audit failed: policy violations detected",
-    ),
-  )
+  assert !list.any(events, fn(event) { event.kind == progress.Error })
 }
 
 pub fn fetch_failure_in_check_mode_emits_error_progress_event_test() {
@@ -692,7 +991,7 @@ pub fn path_and_git_packages_are_skipped_and_counted_test() {
   // graph is visible) but are still tallied in the skipped summary.
   assert string.contains(output, "local_dep")
   assert string.contains(output, "git_dep")
-  assert string.contains(output, "non-hex (path)")
+  assert string.contains(output, "non-hex (local)")
   assert string.contains(output, "non-hex (git)")
   // The skipped summary names the omitted non-Hex packages (issue #3).
   assert string.contains(
@@ -717,18 +1016,64 @@ pub fn prod_only_skipped_summary_matches_displayed_non_hex_rows_test() {
   assert !string.contains(output, "Skipped non-Hex packages: 2")
 }
 
-pub fn hex_fetch_failure_in_report_mode_exits_zero_test() {
-  let licence_audit.RunResult(exit_code, output) =
+pub fn hex_fetch_failure_in_report_mode_exits_two_test() {
+  list.each([[], ["--deny=MIT"], ["--quiet"]], fn(flags) {
+    let #(result, events) =
+      licence_audit.run_configured(
+        manifest_args(flags),
+        test_clients(failing_fetcher),
+        progress.capturing(progress.Normal, "report"),
+      )
+
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "gleam_stdlib")
+    assert string.contains(result.output, "MIT")
+    assert string.contains(result.output, "argv")
+    assert string.contains(result.output, "Hex package not found")
+    assert list.contains(
+      events,
+      progress.Event(
+        progress.Error,
+        "Licence audit failed: package metadata could not be fetched",
+      ),
+    )
+    assert !list.contains(
+      events,
+      progress.Event(progress.Success, "Licence audit completed"),
+    )
+  })
+}
+
+pub fn report_metadata_errors_exit_two_test() {
+  list.each(
+    [
+      #(hex.NetworkFailure("connection refused"), "connection refused"),
+      #(hex.InvalidJson("invalid JSON"), "invalid JSON"),
+      #(hex.InvalidMetadata("missing licences"), "missing licences"),
+    ],
+    fn(test_case) {
+      let #(fetch_error, message) = test_case
+      let result =
+        licence_audit.run_configured(
+          manifest_args([]),
+          test_clients(fn(_) { Error(fetch_error) }),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, message)
+    },
+  )
+}
+
+pub fn report_policy_findings_still_exit_zero_test() {
+  let result =
     licence_audit.run_configured(
-      manifest_args([]),
-      test_clients(failing_fetcher),
+      manifest_args(["--deny=MIT"]),
+      test_clients(fake_fetcher),
       progress.disabled(),
     ).0
-
-  should.equal(exit_code, 0)
-  assert string.contains(output, "gleam_stdlib")
-  assert string.contains(output, "argv")
-  assert string.contains(output, "Hex package not found")
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "denied: MIT")
 }
 
 pub fn hex_fetch_failure_in_check_mode_exits_two_test() {
@@ -764,7 +1109,7 @@ fn transitive_manifest_args(extra: List(String)) -> List(String) {
   )
 }
 
-pub fn report_tags_direct_and_transitive_kinds_test() {
+pub fn report_shows_dependency_tree_without_kind_column_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
       transitive_manifest_args([]),
@@ -843,6 +1188,57 @@ pub fn check_failure_only_reports_failing_trees_test() {
   assert !string.contains(output, "argv")
 }
 
+pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
+  list.each(["fetch_root", "fetch_leaf"], fn(failed_package) {
+    list.each(
+      [#([], progress.Normal), #(["--quiet"], progress.Quiet)],
+      fn(mode) {
+        let #(extra, verbosity) = mode
+        let #(result, events) =
+          licence_audit.run_configured(
+            list.append(
+              [
+                "--manifest=test/fixtures/mixed_failure_manifest.toml",
+                "--ignore-config",
+                "check",
+                "--allow=MIT",
+                "--deny=GPL-3.0",
+              ],
+              extra,
+            ),
+            test_clients(fn(name) {
+              case name == failed_package, name {
+                True, _ -> Error(hex.NotFound)
+                False, "denied" -> Ok(hex.licences_only(["GPL-3.0"]))
+                False, _ -> Ok(hex.licences_only(["MIT"]))
+              }
+            }),
+            progress.capturing(verbosity, "report"),
+          )
+
+        should.equal(result.exit_code, 2)
+        assert string.contains(result.output, "denied: GPL-3.0")
+        assert string.contains(result.output, "fetch_root")
+        assert string.contains(result.output, "fetch_leaf")
+        assert string.contains(result.output, "Hex package not found")
+        assert !string.contains(result.output, "allowed_root")
+        assert !string.contains(result.output, "allowed_leaf")
+        assert !string.contains(
+          result.output,
+          "Dependency licence audit failed",
+        )
+        assert list.contains(
+          events,
+          progress.Event(
+            progress.Error,
+            "Licence audit failed: package metadata could not be fetched",
+          ),
+        )
+      },
+    )
+  })
+}
+
 fn failing_osv_batch(
   _purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
@@ -854,7 +1250,7 @@ fn unused_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
 }
 
 pub fn check_vulns_osv_batch_failure_exits_two_test() {
-  let result =
+  let #(result, events) =
     licence_audit.run_configured(
       manifest_args(["check", "--allow=MIT,Apache-2.0", "--vulns"]),
       licence_audit.Clients(
@@ -862,14 +1258,21 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
         osv_batch_fetcher: failing_osv_batch,
         osv_detail_fetcher: unused_vuln_detail,
       ),
-      progress.disabled(),
-    ).0
+      progress.capturing(progress.Quiet, "check"),
+    )
 
   should.equal(result.exit_code, 2)
-  assert string.contains(
+  assert !string.contains(
     result.output,
     "Vulnerability check failed: OSV request failed",
   )
+  assert string.contains(result.output, "gleam_stdlib")
+  should.equal(events, [
+    progress.Event(
+      progress.Error,
+      "Vulnerability check failed: OSV request failed",
+    ),
+  ])
 }
 
 fn unknown_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
@@ -900,41 +1303,286 @@ fn vulnerability_with_severity(
   }
 }
 
+fn zero_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
+  let assert Ok(body) = simplifile.read("test/fixtures/osv_vuln_none.json")
+  osv.decode_vuln_body(body, id)
+}
+
+pub fn zero_cvss_never_blocks_low_threshold_with_unknown_blocking_test() -> Nil {
+  list.each([[], ["--vuln-block-unknown"]], fn(flags) {
+    let result =
+      licence_audit.run_configured(
+        manifest_args(list.append(
+          [
+            "check",
+            "--allow=MIT,Apache-2.0",
+            "--vulns",
+            "--vuln-severity=low",
+          ],
+          flags,
+        )),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: one_vuln_batch,
+          osv_detail_fetcher: zero_vuln_detail,
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "[NONE    ]  CVE-2024-0001")
+    assert string.contains(
+      result.output,
+      "0 advisory/advisories at or above low",
+    )
+    assert !string.contains(result.output, "[LOW")
+    assert !string.contains(result.output, "[UNKNOWN")
+  })
+}
+
+pub fn zero_cvss_is_reported_as_none_in_vulns_and_sbom_test() -> Nil {
+  list.each([["vulns"], ["sbom", "--vulns"]], fn(args) {
+    let result =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=test/fixtures/manifest_github_git.toml"]),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: one_vuln_batch,
+          osv_detail_fetcher: zero_vuln_detail,
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "CVE-2024-0001")
+    case args {
+      ["sbom", ..] -> {
+        assert string.contains(result.output, "\"severity\": \"none\"")
+        assert string.contains(result.output, "\"method\": \"CVSSv31\"")
+        assert string.contains(result.output, "C:N/I:N/A:N")
+      }
+      _ -> {
+        assert string.contains(result.output, "[NONE    ]")
+        assert string.contains(result.output, "No impact")
+      }
+    }
+  })
+}
+
+pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
+  let result =
+    licence_audit.run_configured(
+      manifest_args([
+        "check",
+        "--allow=MIT,Apache-2.0",
+        "--vulns",
+        "--vuln-severity=none",
+      ]),
+      test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "low")
+  let config_path = "build/none-threshold-config.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      config_path,
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\nvuln_severity = \"none\"\n",
+    )
+  let configured =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--vulns",
+        "--manifest=test/fixtures/manifest.toml",
+        "--config=" <> config_path,
+      ],
+      test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
+      progress.disabled(),
+    ).0
+  let assert Ok(_) = simplifile.delete(config_path)
+  should.equal(configured.exit_code, 2)
+  assert string.contains(configured.output, "vuln_severity")
+}
+
 fn github_only_vuln_batch(
   purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
-  Ok(
-    list.map(purls, fn(purl) {
-      let vuln_ids = case string.contains(purl, "pkg:github/") {
-        True -> ["CVE-GITHUB-0001"]
-        False -> []
-      }
-      osv.BatchEntry(purl: purl, vuln_ids: vuln_ids)
-    }),
-  )
+  osv.query_batch(purls, fn(request) {
+    let assert Ok(commits) =
+      json.parse(
+        request.body,
+        decode.field(
+          "queries",
+          decode.list(decode.optional_field(
+            "commit",
+            "",
+            decode.string,
+            decode.success,
+          )),
+          decode.success,
+        ),
+      )
+    let results =
+      json.array(commits, fn(commit) {
+        let ids = case commit {
+          "" -> []
+          _ -> ["CVE-GITHUB-0001"]
+        }
+        json.object([
+          #(
+            "vulns",
+            json.array(ids, fn(id) { json.object([#("id", json.string(id))]) }),
+          ),
+        ])
+      })
+    Ok(response.Response(
+      status: 200,
+      headers: [],
+      body: json.to_string(json.object([#("results", results)])),
+    ))
+  })
 }
 
-pub fn check_vulns_gates_affected_github_dependency_test() {
-  let result =
-    licence_audit.run_configured(
-      [
-        "--manifest=test/fixtures/manifest_github_git.toml",
-        "--ignore-config",
-        "check",
-        "--allow=MIT",
-        "--vulns",
-      ],
-      licence_audit.Clients(
-        ..test_clients(fake_fetcher),
-        osv_batch_fetcher: github_only_vuln_batch,
-        osv_detail_fetcher: vulnerability_with_severity(osv.High),
-      ),
-      progress.disabled(),
-    ).0
+pub fn vulnerability_commands_preserve_mixed_source_identities_test() {
+  ["", ", outer_checksum = \"AAAA\"", ", outer_checksum = 42"]
+  |> list.each(fn(checksum) {
+    let manifest_path = mixed_vuln_manifest(checksum)
+    [#(["vulns"], 0), #(["check", "--allow=MIT", "--vulns"], 1)]
+    |> list.each(fn(command) {
+      let #(args, expected_exit) = command
+      let result =
+        licence_audit.run_configured(
+          list.append(args, [
+            "--manifest=" <> manifest_path,
+            "--ignore-config",
+          ]),
+          licence_audit.Clients(
+            ..test_clients(fake_fetcher),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, [
+                "pkg:hex/gleam_stdlib@1.0.0",
+                "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+              ])
+              github_only_vuln_batch(purls)
+            },
+            osv_detail_fetcher: vulnerability_with_severity(osv.High),
+          ),
+          progress.disabled(),
+        ).0
 
-  should.equal(result.exit_code, 1)
-  assert string.contains(result.output, "CVE-GITHUB-0001")
-  assert string.contains(result.output, "gluegun@0.1.0")
+      should.equal(result.exit_code, expected_exit)
+      assert string.contains(result.output, "CVE-GITHUB-0001")
+      assert string.contains(result.output, "gluegun")
+      assert string.contains(
+        result.output,
+        "Skipped 1 unsupported source(s): local_dep",
+      )
+    })
+  })
+}
+
+fn mixed_vuln_manifest(checksum: String) -> String {
+  let root = "build/tmp/mixed-vuln-provenance"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(_) =
+    simplifile.write(to: root <> "/manifest.toml", contents: "packages = [
+  { name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\"" <> checksum <> " },
+  { name = \"gluegun\", version = \"0.1.0\", source = \"git\", repo = \"https://github.com/tylerbutler/gluegun\", commit = \"fa4c8ee919138fc8ffddd2642165a89654e61999\", requirements = [\"gleam_stdlib\"] },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"local\", path = \"../local_dep\" },
+]
+[requirements]
+gleam_stdlib = \"1.0.0\"
+gluegun = { git = \"https://github.com/tylerbutler/gluegun\" }
+local_dep = { path = \"../local_dep\" }
+")
+  root <> "/manifest.toml"
+}
+
+pub fn check_vulns_missing_checksum_preserves_prod_only_git_scope_test() {
+  [#("gleam_stdlib", 0), #("gluegun", 1)]
+  |> list.each(fn(test_case) {
+    let #(production, expected_exit) = test_case
+    let manifest_path = mixed_vuln_manifest("")
+    let assert Ok(_) =
+      simplifile.write(
+        to: "build/tmp/mixed-vuln-provenance/gleam.toml",
+        contents: "[dependencies]\n" <> production <> " = \"1.0.0\"\n",
+      )
+    let result =
+      licence_audit.run_configured(
+        [
+          "--manifest=" <> manifest_path,
+          "--ignore-config",
+          "check",
+          "--allow=MIT",
+          "--vulns",
+          "--prod-only",
+        ],
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: fn(purls) {
+            let expected = case production {
+              "gleam_stdlib" -> ["pkg:hex/gleam_stdlib@1.0.0"]
+              _ -> [
+                "pkg:hex/gleam_stdlib@1.0.0",
+                "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+              ]
+            }
+            should.equal(purls, expected)
+            github_only_vuln_batch(purls)
+          },
+          osv_detail_fetcher: vulnerability_with_severity(osv.High),
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, expected_exit)
+    should.equal(
+      string.contains(result.output, "CVE-GITHUB-0001"),
+      expected_exit == 1,
+    )
+    assert !string.contains(result.output, "local_dep")
+  })
+}
+
+pub fn github_commit_queries_reach_vulns_and_sbom_test() {
+  [["vulns"], ["sbom", "--vulns"]]
+  |> list.each(fn(args) {
+    let result =
+      licence_audit.run_configured(
+        list.append(args, ["--manifest=test/fixtures/manifest_github_git.toml"]),
+        licence_audit.Clients(
+          ..test_clients(fake_fetcher),
+          osv_batch_fetcher: github_only_vuln_batch,
+          osv_detail_fetcher: vulnerability_with_severity(osv.High),
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(result.exit_code, 0)
+    assert string.contains(result.output, "CVE-GITHUB-0001")
+    case args {
+      ["sbom", ..] -> {
+        let assert Ok(affected) =
+          json.parse(
+            result.output,
+            decode.at(
+              ["vulnerabilities"],
+              decode.list(decode.field(
+                "affects",
+                decode.list(decode.field("ref", decode.string, decode.success)),
+                decode.success,
+              )),
+            ),
+          )
+        should.equal(affected, [
+          [
+            "pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999",
+          ],
+        ])
+      }
+      _ -> {
+        assert string.contains(result.output, "gluegun 0.1.0")
+      }
+    }
+  })
 }
 
 pub fn check_vulns_reports_unsupported_sources_test() {
@@ -1022,9 +1670,9 @@ pub fn check_vulns_detail_failure_exits_two_by_default_test() {
     ).0
 
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Vulnerability check incomplete")
-  assert string.contains(result.output, "CVE-2024-0001")
-  assert string.contains(result.output, "OSV resource not found")
+  assert string.contains(result.output, "gleam_stdlib")
+  assert !string.contains(result.output, "Vulnerability check incomplete")
+  assert !string.contains(result.output, "OSV resource not found")
 }
 
 pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
@@ -1056,7 +1704,7 @@ pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
   should.equal(error_events, [
     progress.Event(
       progress.Error,
-      "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories",
+      "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories. The gate cannot confirm these are safe, so the check fails:\n  CVE-2024-0001: OSV resource not found",
     ),
   ])
   assert !list.contains(
@@ -1089,9 +1737,9 @@ pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
     ).0
 
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Vulnerability check incomplete")
-  assert string.contains(result.output, "CVE-2024-0001")
-  assert string.contains(result.output, "OSV resource not found")
+  assert string.contains(result.output, "gleam_stdlib")
+  assert !string.contains(result.output, "Vulnerability check incomplete")
+  assert !string.contains(result.output, "OSV resource not found")
 }
 
 pub fn check_vulns_config_and_ignore_config_control_unknown_gate_test() {
@@ -1229,6 +1877,121 @@ pub fn sbom_subcommand_prints_cyclonedx_to_stdout_test() {
       "\"purl\": \"pkg:github/tylerbutler/gluegun@fa4c8ee919138fc8ffddd2642165a89654e61999\"",
     )
   let assert True = string.contains(result.output, "\"id\": \"Apache-2.0\"")
+}
+
+pub fn sbom_license_text_is_opt_in_and_fetches_shared_id_once_test() {
+  reset_detail_fetch("sbom-license-text")
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(sbom_fetcher),
+      fetcher: fn(name) {
+        sbom_fetcher(name)
+        |> result.map(fn(metadata) {
+          hex.PackageMetadata(..metadata, licences: [
+            "apache-2.0",
+            "MIT OR Apache-2.0",
+            "LicenseRef-Local",
+          ])
+        })
+      },
+      notice_clients: notice.Clients(
+        ..notice_clients(fixture_hex_tarball),
+        fetch_spdx: fn(requirement) {
+          should.equal(requirement, spdx.LicenseRequirement("Apache-2.0"))
+          let _ = record_detail_fetch("sbom-license-text")
+          Ok(Some("Canonical SPDX text\n"))
+        },
+      ),
+    )
+  let args = ["sbom", "--manifest=test/fixtures/manifest_github_git.toml"]
+  let plain = licence_audit.run_configured(args, clients, progress.disabled()).0
+  should.equal(plain.exit_code, 0)
+  assert !string.contains(plain.output, "\"text\":")
+  should.equal(record_detail_fetch("sbom-license-text"), 1)
+  reset_detail_fetch("sbom-license-text")
+  let enriched =
+    licence_audit.run_configured(
+      list.append(args, ["--license-text"]),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(enriched.exit_code, 0)
+  should.equal(record_detail_fetch("sbom-license-text"), 2)
+  assert string.contains(enriched.output, "\"contentType\": \"text/plain\"")
+  assert string.contains(enriched.output, "Canonical SPDX text\\n")
+}
+
+pub fn sbom_license_text_fetch_failures_leave_output_untouched_test() {
+  let output = "build/tmp/sbom-license-text-existing.json"
+  let assert Ok(Nil) = simplifile.create_directory_all("build/tmp")
+  list.each(
+    [
+      Error(notice.FetchNetworkFailure),
+      Ok(None),
+      Ok(Some(" \r\n\t")),
+    ],
+    fn(response) {
+      let assert Ok(Nil) = simplifile.write(output, "previous output")
+      let result =
+        licence_audit.run_configured(
+          [
+            "sbom",
+            "--manifest=test/fixtures/manifest_github_git.toml",
+            "--license-text",
+            "--output=" <> output,
+          ],
+          licence_audit.Clients(
+            ..test_clients(sbom_fetcher),
+            notice_clients: notice.Clients(
+              ..notice_clients(fixture_hex_tarball),
+              fetch_spdx: fn(_requirement) { response },
+            ),
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "SPDX")
+      assert string.contains(result.output, "Apache-2.0")
+      should.equal(simplifile.read(output), Ok("previous output"))
+    },
+  )
+  let assert Ok(Nil) = simplifile.delete(output)
+}
+
+pub fn sbom_optional_enrichment_failures_still_exit_zero_test() {
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(_) { Error(hex.NetworkFailure("offline")) }),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(_) { Error(osv.NetworkFailure) },
+      ),
+      progress.capturing(progress.Normal, "sbom"),
+    )
+
+  should.equal(result.exit_code, 0)
+  let assert Ok(format) =
+    json.parse(result.output, decode.at(["bomFormat"], decode.string))
+  should.equal(format, "CycloneDX")
+  assert string.contains(
+    result.output,
+    "\"purl\": \"pkg:hex/gleam_stdlib@1.0.0\"",
+  )
+  assert string.contains(result.output, "\"id\": \"CVE-2024-0001\"")
+  assert string.contains(result.output, "(details unavailable)")
+  assert list.any(events, fn(event) {
+    event.kind == progress.Warning
+    && string.contains(event.message, "No Hex metadata for gleam_stdlib")
+  })
+  assert list.any(events, fn(event) {
+    event.kind == progress.Warning
+    && string.contains(event.message, "Failed to fetch OSV details")
+  })
 }
 
 pub fn sbom_subcommand_output_file_is_formatted_json_test() {
@@ -1486,7 +2249,11 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
 
   let result =
     licence_audit.run_configured(
-      ["sbom", "--manifest=" <> manifest_path, "--offline"],
+      [
+        "sbom",
+        "--manifest=" <> path_test.absolute_native_path(manifest_path),
+        "--offline",
+      ],
       test_clients(sbom_fetcher),
       progress.disabled(),
     ).0
@@ -1571,6 +2338,112 @@ fn reproducible_sbom_clients() -> notice.Clients {
   )
 }
 
+pub fn git_subdirectory_sbom_and_notices_use_selected_package_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let root = "build/tmp/git-subdirectory-integration"
+    let manifest_path = root <> "/manifest.toml"
+    let assert Ok(Nil) = simplifile.create_directory_all(root)
+    let assert Ok(manifest_text) =
+      simplifile.read("test/fixtures/manifest_git_subdirectories.toml")
+    let assert Ok(Nil) =
+      simplifile.write(contents: manifest_text, to: manifest_path)
+    let assert Ok(Nil) =
+      simplifile.write(
+        contents: "name = \"fixture\"\nversion = \"1.0.0\"\n[dependencies]\nberyl_protocol = \"1.0.0\"\nberyl_sibling = \"1.0.0\"\n",
+        to: root <> "/gleam.toml",
+      )
+    let clients =
+      licence_audit.Clients(
+        ..test_clients(mutable_registry_metadata),
+        notice_clients: notice.Clients(
+          ..reproducible_sbom_clients(),
+          fetch_git_archive: fn(repo, commit) {
+            should.equal(
+              repo,
+              repository.Repository(repository.GitHub, "example", "beryl"),
+            )
+            should.equal(commit, "abcdef")
+            Ok(bytes)
+          },
+        ),
+      )
+    let sbom =
+      licence_audit.run_configured(
+        ["sbom", "--reproducible", "--manifest=" <> manifest_path],
+        clients,
+        progress.disabled(),
+      ).0
+    should.equal(sbom.exit_code, 0)
+    assert string.contains(sbom.output, "Selected protocol metadata")
+    assert string.contains(sbom.output, "Sibling package metadata")
+    assert string.contains(sbom.output, "\"id\": \"MIT\"")
+    assert string.contains(sbom.output, "\"id\": \"Apache-2.0\"")
+    assert !string.contains(sbom.output, "Repository root metadata")
+    assert string.contains(
+      sbom.output,
+      "pkg:github/example/beryl@abcdef#packages/beryl_protocol",
+    )
+    assert string.contains(
+      sbom.output,
+      "pkg:github/example/beryl@abcdef#packages/beryl_sibling",
+    )
+    should.equal(
+      licence_audit.run_configured(
+        ["sbom", "--reproducible", "--manifest=" <> manifest_path],
+        clients,
+        progress.disabled(),
+      ).0,
+      sbom,
+    )
+    let notices =
+      licence_audit.run_configured(
+        ["notices", "--manifest=" <> manifest_path],
+        clients,
+        progress.disabled(),
+      ).0
+    should.equal(notices.exit_code, 0)
+    assert string.contains(notices.output, "Protocol licence")
+    assert string.contains(notices.output, "Protocol attribution")
+    assert string.contains(notices.output, "Sibling licence")
+    assert !string.contains(notices.output, "Repository root licence")
+    assert !string.contains(notices.output, "Vendored licence")
+    assert !string.contains(notices.output, "Prefix sibling licence")
+  })
+}
+
+pub fn reproducible_git_subdirectory_missing_metadata_is_error_test() {
+  source_archive_test.with_beryl_archive(fn(bytes) {
+    let root = "build/tmp/git-subdirectory-missing-metadata"
+    let assert Ok(Nil) = simplifile.create_directory_all(root)
+    let assert Ok(Nil) =
+      simplifile.write(
+        contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+        to: root <> "/gleam.toml",
+      )
+    let assert Ok(Nil) =
+      simplifile.write(
+        contents: "packages = [{ name = \"notice_only\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/beryl\", commit = \"abcdef\", path = \"packages/notice_only\" }]\n[requirements]\nnotice_only = \"1.0.0\"\n",
+        to: root <> "/manifest.toml",
+      )
+    let output =
+      licence_audit.run_configured(
+        ["sbom", "--reproducible", "--manifest=" <> root <> "/manifest.toml"],
+        licence_audit.Clients(
+          ..test_clients(mutable_registry_metadata),
+          notice_clients: notice.Clients(
+            ..reproducible_sbom_clients(),
+            fetch_git_archive: fn(_repo, _commit) { Ok(bytes) },
+          ),
+        ),
+        progress.disabled(),
+      ).0
+    should.equal(output.exit_code, 2)
+    assert string.contains(output.output, "notice_only")
+    assert string.contains(output.output, "archive missing root file")
+    assert !string.contains(output.output, "Repository root metadata")
+  })
+}
+
 fn mutable_registry_metadata(
   _name: String,
 ) -> Result(hex.PackageMetadata, hex.Error) {
@@ -1638,6 +2511,7 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
   should.equal(first.exit_code, 0)
   should.equal(second, first)
   assert string.contains(first.output, "Metadata from the locked Hex archive")
+  assert string.contains(first.output, "中文")
   assert string.contains(first.output, "Metadata from the locked Git archive")
   assert string.contains(first.output, "\"id\": \"Apache-2.0\"")
   assert string.contains(first.output, "\"id\": \"MIT\"")
@@ -1647,6 +2521,55 @@ git_dep = { git = \"https://github.com/example/git_dep\" }
   assert !string.contains(first.output, "Mutable local checkout")
   assert !string.contains(first.output, "Changed local checkout")
   assert !string.contains(first.output, "\"publisher\"")
+}
+
+pub fn sbom_reproducible_offline_skips_all_dependency_enrichment_test() {
+  let root = "build/sbom-reproducible-offline"
+  let local_git_path = root <> "/build/packages/gluegun"
+  let assert Ok(_) = simplifile.create_directory_all(local_git_path)
+  let assert Ok(manifest) =
+    simplifile.read("test/fixtures/manifest_github_git.toml")
+  let assert Ok(_) =
+    simplifile.write(to: root <> "/manifest.toml", contents: manifest)
+  let assert Ok(_) =
+    simplifile.write(
+      to: root <> "/gleam.toml",
+      contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      to: local_git_path <> "/gleam.toml",
+      contents: "licences = [\"MIT\"]\ndescription = \"Local Git enrichment\"\n",
+    )
+  let result =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--reproducible",
+        "--offline",
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(_) { panic as "must not fetch Hex metadata" }),
+        notice_clients: notice.Clients(
+          ..reproducible_sbom_clients(),
+          fetch_hex_tarball: fn(_, _) { panic as "must not fetch Hex archive" },
+          fetch_git_archive: fn(_, _) { panic as "must not fetch Git archive" },
+        ),
+      ),
+      progress.disabled(),
+    ).0
+
+  should.equal(result.exit_code, 0)
+  let assert Ok(purls) =
+    json.parse(
+      result.output,
+      decode.at(["components"], decode.list(decode.at(["purl"], decode.string))),
+    )
+  should.equal(list.length(purls), 2)
+  assert !string.contains(result.output, "\"licenses\"")
+  assert !string.contains(result.output, "Local Git enrichment")
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn sbom_subcommand_vulns_conflicts_with_reproducible_test() {
@@ -1710,6 +2633,87 @@ pub fn vulns_report_labels_scope_test() {
   assert string.contains(output, "[prod]")
 }
 
+pub fn sbom_color_modes_preserve_plain_json_payload_test() {
+  let args = [
+    "sbom",
+    "--manifest=test/fixtures/manifest_github_git.toml",
+    "--offline",
+    "--reproducible",
+  ]
+  let plain =
+    licence_audit.run_configured(
+      list.append(args, ["--color=never"]),
+      test_clients(fake_fetcher),
+      progress.disabled(),
+    ).0
+  let forced =
+    licence_audit.run_configured(
+      list.append(args, ["--colour=always"]),
+      test_clients(fake_fetcher),
+      progress.disabled(),
+    ).0
+  should.equal(plain.exit_code, 0)
+  should.equal(forced, plain)
+  assert string.contains(plain.output, "\"bomFormat\"")
+  assert !string.contains(plain.output, "\u{001b}[")
+}
+
+pub fn vulns_reuses_shared_advisory_details_test() {
+  reset_detail_fetch("CVE-2024-0001")
+  let result =
+    licence_audit.run_configured(
+      [
+        "vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--ignore-config",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fake_fetcher),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(id) {
+          should.equal(record_detail_fetch(id), 1)
+          one_vuln_detail(id)
+        },
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "gleam_stdlib")
+  assert string.contains(result.output, "gluegun")
+  should.equal(list.length(string.split(result.output, "CVE-2024-0001")), 3)
+}
+
+pub fn vulns_reuses_shared_advisory_failures_test() {
+  reset_detail_fetch("CVE-2024-0001")
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--ignore-config",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fake_fetcher),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(id) {
+          should.equal(record_detail_fetch(id), 1)
+          Error(osv.NetworkFailure)
+        },
+      ),
+      progress.capturing(progress.Verbose, "vulns"),
+    )
+  should.equal(result.exit_code, 0)
+  should.equal(
+    list.length(string.split(result.output, "(details unavailable)")),
+    3,
+  )
+  let warnings =
+    list.filter(events, fn(event) {
+      string.contains(event.message, "Failed to fetch OSV details")
+    })
+  should.equal(list.length(warnings), 1)
+}
+
 fn write_project_root_fixture(project_root: String) -> String {
   let manifest_path = project_root <> "/manifest.toml"
   let assert Ok(Nil) = simplifile.create_directory_all(project_root)
@@ -1758,6 +2762,7 @@ fn project_root_fetcher(
 pub fn audit_manifest_path_uses_manifest_project_config_test() {
   let manifest_path =
     write_project_root_fixture("build/tmp/project-root-audit-config")
+    |> path_test.absolute_native_path
   let result =
     licence_audit.run_configured(
       ["--manifest=" <> manifest_path, "check"],
@@ -2041,7 +3046,7 @@ pub fn notices_path_dep_uses_declared_licence_from_gleam_toml_test() {
     simplifile.write(
       to: manifest_path,
       contents: "packages = [
-  { name = \"local_dep\", version = \"0.1.0\", source = \"path\", path = \"local_dep\" },
+  { name = \"local_dep\", version = \"0.1.0\", source = \"local\", path = \"local_dep\" },
 ]
 
 [requirements]

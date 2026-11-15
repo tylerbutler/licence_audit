@@ -26,7 +26,8 @@ fn parse(fields: String) -> Result(config.Policy, config.Error) {
   )
 }
 
-const base = "purl = \"pkg:hex/example@1.2.3\"\nfinding = \"advisory\"\nadvisory = \"CVE-2026-12345\"\nreason = \"Reviewed\"\n"
+const base =
+  "purl = \"pkg:hex/example@1.2.3\"\nfinding = \"advisory\"\nadvisory = \"CVE-2026-12345\"\nreason = \"Reviewed\"\n"
 
 pub fn parse_array_of_tables_and_optional_expiry_test() {
   let assert Ok(parsed) = parse(base <> "expires = \"2026-12-31\"\n")
@@ -138,7 +139,9 @@ pub fn duplicates_and_alias_overlaps_fail_test() {
       number: 2,
       finding: exception.Advisory("GHSA-example"),
     )
-  let assert Error(message) =
+  let assert Error(
+    exception.OverlappingEntries(first_match, second_match) as error,
+  ) =
     exception.decide(
       [first, second],
       first.purl,
@@ -146,9 +149,15 @@ pub fn duplicates_and_alias_overlaps_fail_test() {
       ["CVE-2026-12345"],
       "2026-12-01",
     )
-  assert string.contains(message, "exceptions[1] and exceptions[2]")
-  let assert Error(_) =
+  should.equal(first_match, first)
+  should.equal(second_match, second)
+  assert string.contains(
+    exception.describe_error(error),
+    "exceptions[1] and exceptions[2]",
+  )
+  let assert Error(exception.AmbiguousIdentity(ambiguous)) =
     exception.validate_identities([first], [first.purl, first.purl])
+  should.equal(ambiguous, first)
 }
 
 pub fn exact_scope_and_finding_match_test() {
@@ -159,15 +168,122 @@ pub fn exact_scope_and_finding_match_test() {
     #("pkg:hex/example@1.2.4", waiver.finding),
     #("pkg:hex/other@1.2.3", waiver.finding),
     #(waiver.purl, exception.UnallowedLicence("GPL-3.0-only")),
+    #(waiver.purl, exception.InvalidLicenceExpression("GPL-3.0-only")),
     #(waiver.purl, exception.DeniedLicence("MIT")),
     #(waiver.purl, exception.Advisory("GPL-3.0-only")),
   ]
   |> list.each(fn(pair) {
     should.equal(
+      exception.validate_unique([
+        waiver,
+        exception.Exception(..waiver, number: 2, purl: pair.0, finding: pair.1),
+      ]),
+      Ok(Nil),
+    )
+    should.equal(
       exception.decide([waiver], pair.0, pair.1, [], "2026-12-01"),
       Ok(exception.Unaccepted),
     )
   })
+}
+
+pub fn licence_selectors_use_policy_token_normalization_test() {
+  use constructor <- list.each([
+    exception.DeniedLicence,
+    exception.UnallowedLicence,
+  ])
+  use pair <- list.each([
+    #("gpl-3.0-only", "GPL-3.0-only"),
+    #(" (mit) OR apache-2.0 ", "(MIT)\tOR\nApache-2.0"),
+    #(
+      "LicenseRef-Custom WITH classpath-exception-2.0",
+      "LicenseRef-Custom WITH Classpath-exception-2.0",
+    ),
+    #(
+      "mit AND DocumentRef-Project:LicenseRef-Custom",
+      "MIT AND DocumentRef-Project:LicenseRef-Custom",
+    ),
+  ])
+  let waiver = entry(constructor(pair.0))
+  should.equal(
+    exception.decide(
+      [waiver],
+      waiver.purl,
+      constructor(pair.1),
+      [],
+      "2026-12-01",
+    ),
+    Ok(exception.Excepted(waiver)),
+  )
+}
+
+pub fn normalized_licence_duplicates_fail_validation_and_decision_test() {
+  use kind <- list.each(["denied-licence", "unallowed-licence"])
+  use pair <- list.each([
+    #("gpl-3.0-only", "GPL-3.0-only"),
+    #(" (mit) OR apache-2.0 ", "(MIT) OR Apache-2.0"),
+  ])
+  let fields =
+    "purl = \"pkg:hex/example@1.2.3\"\nfinding = \""
+    <> kind
+    <> "\"\nreason = \"Reviewed\"\nlicence = \""
+  let assert Error(config.InvalidException(message)) =
+    parse(
+      fields
+      <> pair.0
+      <> "\"\n[[tools.licence_audit.exceptions]]\n"
+      <> fields
+      <> pair.1
+      <> "\"\n",
+    )
+  assert string.contains(message, "exceptions[1] and exceptions[2]")
+  let constructor = case kind {
+    "denied-licence" -> exception.DeniedLicence
+    _ -> exception.UnallowedLicence
+  }
+  let first = entry(constructor(pair.0))
+  let second =
+    exception.Exception(..first, number: 2, finding: constructor(pair.1))
+  should.equal(
+    exception.decide(
+      [first, second],
+      first.purl,
+      second.finding,
+      [],
+      "2026-12-01",
+    ),
+    Error(exception.OverlappingEntries(first, second)),
+  )
+}
+
+pub fn licence_normalization_preserves_reference_case_and_token_identity_test() {
+  use constructor <- list.each([
+    exception.DeniedLicence,
+    exception.UnallowedLicence,
+  ])
+  use pair <- list.each([
+    #("LicenseRef-Custom", "LicenseRef-custom"),
+    #(
+      "DocumentRef-Project:LicenseRef-Custom",
+      "DocumentRef-project:LicenseRef-Custom",
+    ),
+    #(
+      "DocumentRef-Project:LicenseRef-Custom",
+      "DocumentRef-Project:LicenseRef-custom",
+    ),
+    #("MIT OR Apache-2.0", "(MIT OR Apache-2.0)"),
+    #("GPL-3.0-only", "GPL-3.0-or-later"),
+    #("GPL-3.0-only", "GPL-3.0-only+"),
+    #("MIT", "M IT"),
+  ])
+  let first = entry(constructor(pair.0))
+  let second =
+    exception.Exception(..first, number: 2, finding: constructor(pair.1))
+  should.equal(exception.validate_unique([first, second]), Ok(Nil))
+  should.equal(
+    exception.decide([first], first.purl, second.finding, [], "2026-12-01"),
+    Ok(exception.Unaccepted),
+  )
 }
 
 pub fn advisory_matching_uses_only_direct_aliases_test() {
@@ -200,6 +316,27 @@ pub fn advisory_matching_uses_only_direct_aliases_test() {
     ),
     Ok(exception.Unaccepted),
   )
+  should.equal(
+    exception.decide(
+      [waiver],
+      waiver.purl,
+      exception.Advisory("GHSA-example"),
+      ["cve-2026-12345"],
+      "2026-12-01",
+    ),
+    Ok(exception.Unaccepted),
+  )
+  should.equal(
+    exception.validate_unique([
+      waiver,
+      exception.Exception(
+        ..waiver,
+        number: 2,
+        finding: exception.Advisory("cve-2026-12345"),
+      ),
+    ]),
+    Ok(Nil),
+  )
 }
 
 pub fn utc_expiry_boundaries_and_dates_test() {
@@ -215,8 +352,14 @@ pub fn utc_expiry_boundaries_and_dates_test() {
     should.equal(exception.is_expired(waiver, exception.utc_date(now)), pair.1)
   })
   should.equal(exception.validate_date("2024-02-29"), Ok(Nil))
-  let assert Error(_) = exception.validate_date("2025-02-29")
-  let assert Error(_) = exception.validate_date("2026-04-31")
+  should.equal(
+    exception.validate_date("2025-02-29"),
+    Error(exception.InvalidDate),
+  )
+  should.equal(
+    exception.validate_date("2026-04-31"),
+    Error(exception.InvalidDate),
+  )
   should.equal(
     exception.is_expired(
       exception.Exception(..waiver, expires: None),
@@ -230,14 +373,18 @@ pub fn complete_licence_findings_preserve_deny_precedence_test() {
   let assert Ok(rules) =
     policy.new(allow: ["MIT"], deny: ["MIT", "GPL-3.0-only"], check_mode: True)
   should.equal(
-    policy.findings(rules, ["Apache-2.0", "MIT", "GPL-3.0-only", "MIT"]),
+    policy.findings(rules, ["Apache-2.0", "MIT", "GPL-3.0-only", "MIT"], fn(_) {
+      False
+    }),
     [
       exception.DeniedLicence("MIT"),
       exception.DeniedLicence("GPL-3.0-only"),
       exception.UnallowedLicence("Apache-2.0"),
     ],
   )
-  should.equal(policy.findings(rules, []), [exception.NoLicencesDeclared])
+  should.equal(policy.findings(rules, [], fn(_) { False }), [
+    exception.NoLicencesDeclared,
+  ])
 }
 
 pub fn summary_distinguishes_unused_disabled_and_expired_test() {

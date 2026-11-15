@@ -1,0 +1,16 @@
+name = "glint_markdown"
+version = "0.1.0"
+
+licences = ["Apache-2.0"]
+description = "Auto-generate Markdown reference documentation from a glint CLI."
+repository = { type = "github", user = "TanklesXL", repo = "glint" }
+
+gleam = ">= 1.4.0 and < 2.0.0"
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+glint = { path = ".." }
+
+[dev-dependencies]
+gleeunit = "~> 1.0"
+birdie = ">= 2.0.0 and < 3.0.0"

@@ -28,7 +28,6 @@ pub type Row {
     version: String,
     licences: List(String),
     status: Status,
-    kind: manifest.Kind,
     scope: manifest.Scope,
     path: List(String),
   )
@@ -65,15 +64,20 @@ pub fn format(
 }
 
 /// Keep only rows that belong to a dependency tree containing at least one
-/// policy failure. Used by `check` to focus output on offending trees.
+/// policy or metadata-fetch failure, or a matched exception. Used by `check`
+/// to focus output on trees that need attention.
 pub fn filter_failing_trees(rows: List(Row)) -> List(Row) {
   let by_name =
     list.fold(rows, dict.new(), fn(acc, r) { dict.insert(acc, r.package, r) })
   let failing_roots =
     list.fold(rows, dict.new(), fn(acc, row) {
-      case
-        is_failure(row.status) || exception.matched(decisions(row.status)) != []
-      {
+      let keep_tree = case row.status {
+        Failed(_) -> True
+        NotChecked | Checked(_) | Reviewed(_) | Skipped(_) ->
+          is_failure(row.status)
+          || exception.matched(decisions(row.status)) != []
+      }
+      case keep_tree {
         True -> dict.insert(acc, root_for(row, by_name), Nil)
         False -> acc
       }
@@ -84,23 +88,9 @@ pub fn filter_failing_trees(rows: List(Row)) -> List(Row) {
 }
 
 fn root_for(row: Row, by_name: Dict(String, Row)) -> String {
-  case visual_root_name(row.path, by_name) {
+  case find_present(row.path, by_name) {
     Some(name) -> name
     None -> row.package
-  }
-}
-
-fn visual_root_name(
-  path: List(String),
-  by_name: Dict(String, Row),
-) -> Option(String) {
-  case path {
-    [] -> None
-    [name, ..rest] ->
-      case dict.has_key(by_name, name) {
-        True -> Some(name)
-        False -> visual_root_name(rest, by_name)
-      }
   }
 }
 
@@ -109,6 +99,7 @@ pub fn is_failure(status: Status) -> Bool {
     Checked(policy.Allowed) -> False
     Checked(policy.NoLicencesDeclared)
     | Checked(policy.DeniedLicence(_))
+    | Checked(policy.InvalidLicenceExpression(_))
     | Checked(policy.UnallowedLicence(_)) -> True
     NotChecked | Failed(_) | Skipped(_) -> False
     Reviewed(findings) ->
@@ -201,12 +192,7 @@ fn build_tree(rows: List(Row)) -> Tree {
 
   let roots = list.reverse(roots_rev)
   let children =
-    dict.keys(children_rev)
-    |> list.fold(dict.new(), fn(acc, k) {
-      let ordered =
-        dict.get(children_rev, k) |> result.unwrap([]) |> list.reverse
-      dict.insert(acc, k, ordered)
-    })
+    dict.map_values(children_rev, fn(_, rows) { list.reverse(rows) })
 
   Tree(roots: roots, children: children, depths: depths(roots, children))
 }
@@ -246,14 +232,8 @@ fn find_present(
   candidates: List(String),
   by_name: Dict(String, Row),
 ) -> Option(String) {
-  case candidates {
-    [] -> None
-    [name, ..rest] ->
-      case dict.has_key(by_name, name) {
-        True -> Some(name)
-        False -> find_present(rest, by_name)
-      }
-  }
+  list.find(candidates, fn(name) { dict.has_key(by_name, name) })
+  |> option.from_result
 }
 
 fn tree_text(
@@ -474,6 +454,8 @@ fn status_text(status: Status) -> String {
     Checked(policy.NoLicencesDeclared) -> "no licences declared"
     Checked(policy.DeniedLicence(licence)) -> "denied: " <> licence
     Checked(policy.UnallowedLicence(licence)) -> "unknown: " <> licence
+    Checked(policy.InvalidLicenceExpression(licence)) ->
+      "invalid SPDX expression: " <> licence
     Reviewed(findings) ->
       findings
       |> list.map(fn(finding) {

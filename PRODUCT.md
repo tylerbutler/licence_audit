@@ -41,7 +41,8 @@ forget.
   compliance for Hex deps); (2) it's genuinely Gleam-native, not a bolted-on
   wrapper; (3) it's precise and trustworthy enough to gate CI on; (4) it's easy
   to install and run right now.
-- Proof on hand: shipped releases through v0.7.0, CycloneDX schema validation
+- Proof on hand: [published releases](https://github.com/tylerbutler/licence_audit/releases/latest),
+  CycloneDX schema validation
   against the official schema, OSV.dev vulnerability integration, and a GitHub
   Actions setup path. No testimonials, logos, or named users yet — proof is the
   track record and the correctness discipline, not social proof.

@@ -1,19 +1,11 @@
 import gleam/dict.{type Dict}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import licence_audit/toml
+import licence_audit/toml.{type Document, type Value}
 import simplifile
-import tomlet.{type Document, type Value}
-
-/// Where a package sits in the resolved dependency tree relative to the
-/// project. `Direct` packages are listed in the manifest's `[requirements]`
-/// table; everything else is `Transitive`.
-pub type Kind {
-  Direct
-  Transitive
-}
 
 /// Whether a package is part of the production dependency tree (`Prod`) or only
 /// reachable through development dependencies (`Dev`). Prod wins: a package
@@ -24,7 +16,7 @@ pub type Scope {
 }
 
 pub type Package {
-  Package(name: String, version: String, kind: Kind, requirements: List(String))
+  Package(name: String, version: String, requirements: List(String))
 }
 
 /// A node in the full dependency graph. Includes non-Hex packages so that
@@ -51,7 +43,6 @@ pub type SkippedPackage {
     name: String,
     version: String,
     source: String,
-    kind: Kind,
     requirements: List(String),
   )
 }
@@ -70,7 +61,7 @@ pub type Provenance {
   /// record it, but the field is accepted for forward compatibility with
   /// future lockfile formats so the SBOM can surface both checksums.
   HexProvenance(outer_checksum: String, inner_checksum: Option(String))
-  GitProvenance(repo: String, commit: String)
+  GitProvenance(repo: String, commit: String, path: Option(String))
   PathProvenance(path: String)
   UnknownProvenance(source: String)
 }
@@ -79,7 +70,6 @@ pub type SbomEntry {
   SbomEntry(
     name: String,
     version: String,
-    kind: Kind,
     requirements: List(String),
     provenance: Provenance,
   )
@@ -90,14 +80,22 @@ pub type SbomManifest {
 }
 
 pub fn sbom_entries(input: String) -> Result(SbomManifest, Error) {
+  parse_entries(input, decode_sbom_entry)
+}
+
+fn parse_entries(
+  input: String,
+  decode_entry: fn(Value) -> Result(SbomEntry, Error),
+) -> Result(SbomManifest, Error) {
   case toml.parse(input) {
     Error(_) -> Error(InvalidToml("Invalid TOML"))
-    Ok(document) -> sbom_entries_from_document(document)
+    Ok(document) -> sbom_entries_from_document(document, decode_entry)
   }
 }
 
 fn sbom_entries_from_document(
   document: Document,
+  decode_entry: fn(Value) -> Result(SbomEntry, Error),
 ) -> Result(SbomManifest, Error) {
   case toml.get_array(document, ["packages"]) {
     Error(toml.ArrayMissing) -> Error(MissingPackages)
@@ -105,11 +103,7 @@ fn sbom_entries_from_document(
       Error(InvalidPackageField("<manifest>", "packages", "Array"))
     Ok(packages) -> {
       let direct_names = decode_direct_names(document)
-      use entries <- result.try(
-        list.try_map(packages, fn(package) {
-          decode_sbom_entry(package, direct_names)
-        }),
-      )
+      use entries <- result.try(list.try_map(packages, decode_entry))
       Ok(SbomManifest(entries: entries, root_requirements: direct_names))
     }
   }
@@ -122,20 +116,39 @@ pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
   }
 }
 
-fn decode_sbom_entry(
-  package: Value,
-  direct_names: List(String),
-) -> Result(SbomEntry, Error) {
+/// Load vulnerability identities without requiring archive checksums. Missing
+/// source fields affect only that entry, not valid provenance elsewhere.
+pub fn load_vulns(path: String) -> Result(SbomManifest, Error) {
+  case simplifile.read(from: path) {
+    Ok(contents) -> parse_entries(contents, decode_vuln_entry)
+    Error(_) -> Error(FileReadError(path))
+  }
+}
+
+fn decode_vuln_entry(package: Value) -> Result(SbomEntry, Error) {
   use #(raw, table) <- result.try(decode_package(package))
-  use provenance <- result.try(decode_provenance(raw.source, table, raw.name))
-  let kind = case list.contains(direct_names, raw.name) {
-    True -> Direct
-    False -> Transitive
+  let provenance = case decode_provenance(raw.source, table, raw.name) {
+    Ok(provenance) -> provenance
+    Error(_) ->
+      case raw.source {
+        "hex" -> HexProvenance(outer_checksum: "", inner_checksum: None)
+        other -> UnknownProvenance(source: other)
+      }
   }
   Ok(SbomEntry(
     name: raw.name,
     version: raw.version,
-    kind: kind,
+    requirements: raw.requirements,
+    provenance: provenance,
+  ))
+}
+
+fn decode_sbom_entry(package: Value) -> Result(SbomEntry, Error) {
+  use #(raw, table) <- result.try(decode_package(package))
+  use provenance <- result.try(decode_provenance(raw.source, table, raw.name))
+  Ok(SbomEntry(
+    name: raw.name,
+    version: raw.version,
     requirements: raw.requirements,
     provenance: provenance,
   ))
@@ -162,14 +175,77 @@ fn decode_provenance(
     "git" -> {
       use repo <- result.try(required_string(table, "repo", package_name))
       use commit <- result.try(required_string(table, "commit", package_name))
-      Ok(GitProvenance(repo: repo, commit: commit))
+      use path <- result.try(git_path(table, package_name))
+      Ok(GitProvenance(repo: repo, commit: commit, path: path))
     }
-    "path" -> {
+    "local" | "path" -> {
       use path <- result.try(required_string(table, "path", package_name))
       Ok(PathProvenance(path: path))
     }
     other -> Ok(UnknownProvenance(source: other))
   }
+}
+
+fn git_path(
+  table: toml.Entry,
+  package_name: String,
+) -> Result(Option(String), Error) {
+  use path <- result.try(case toml.field(table, "path") {
+    Error(_) -> Ok(None)
+    Ok(value) ->
+      toml.as_string(value)
+      |> result.map(Some)
+      |> result.replace_error(InvalidPackageField(
+        package_name,
+        "path",
+        "String",
+      ))
+  })
+  use _ <- result.try(
+    git_subdirectory(path)
+    |> result.replace_error(InvalidPackageField(
+      package_name,
+      "path",
+      "relative package directory without parent traversal",
+    )),
+  )
+  Ok(path)
+}
+
+/// Normalize only for lookup; Git provenance retains the manifest spelling.
+pub fn git_subdirectory(path: Option(String)) -> Result(String, Nil) {
+  case path {
+    None -> Ok("")
+    Some(path) -> {
+      let parts = string.split(path, "/")
+      case
+        string.starts_with(path, "/")
+        || string.contains(path, "\\")
+        || string.contains(path, ":")
+        || list.contains(parts, "..")
+      {
+        True -> Error(Nil)
+        False ->
+          Ok(
+            parts
+            |> list.filter(fn(part) { part != "" && part != "." })
+            |> string.join("/"),
+          )
+      }
+    }
+  }
+}
+
+pub fn git_source_identity(
+  repo: String,
+  commit: String,
+  path: Option(String),
+) -> String {
+  let directory = case path {
+    None -> ""
+    Some(path) -> ":path:" <> json.to_string(json.string(path))
+  }
+  "git:" <> repo <> "@" <> commit <> directory
 }
 
 type RawPackage {
@@ -213,26 +289,16 @@ fn build_locked(
   raw_packages: List(RawPackage),
   direct_names: List(String),
 ) -> LockedPackages {
-  let direct_set =
-    list.fold(direct_names, dict.new(), fn(acc, name) {
-      dict.insert(acc, name, Nil)
-    })
-
   let #(hex_packages, skipped_pkgs, graph) =
     list.fold(raw_packages, #([], [], []), fn(acc, raw) {
       let #(hex_acc, skipped_pkgs_acc, graph_acc) = acc
       let node = GraphNode(name: raw.name, requirements: raw.requirements)
-      let kind = case dict.has_key(direct_set, raw.name) {
-        True -> Direct
-        False -> Transitive
-      }
       case raw.source {
         "hex" -> {
           let package =
             Package(
               name: raw.name,
               version: raw.version,
-              kind: kind,
               requirements: raw.requirements,
             )
           #([package, ..hex_acc], skipped_pkgs_acc, [node, ..graph_acc])
@@ -243,7 +309,6 @@ fn build_locked(
               name: raw.name,
               version: raw.version,
               source: raw.source,
-              kind: kind,
               requirements: raw.requirements,
             )
           #(hex_acc, [skipped_pkg, ..skipped_pkgs_acc], [node, ..graph_acc])
@@ -296,13 +361,15 @@ pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
 }
 
 /// Parse the names of direct production dependencies from `gleam.toml` source:
-/// the keys of the `[dependencies]` table. `Error(Nil)` when the TOML cannot be
-/// parsed or has no `[dependencies]` table — callers treat that as "cannot
-/// determine" and fall back to classifying everything as production.
+/// the keys of the `[dependencies]` table, or an empty list if it is absent.
+/// Return `Error(Nil)` for invalid TOML or a dependencies value that is not a
+/// table.
 pub fn prod_direct_names(gleam_toml: String) -> Result(List(String), Nil) {
-  case toml.parse(gleam_toml) {
-    Error(_) -> Error(Nil)
-    Ok(document) -> toml.table_keys(document, ["dependencies"])
+  use document <- result.try(toml.parse(gleam_toml))
+  case toml.get_table(document, ["dependencies"]) {
+    Error(toml.TableLookupMissing) -> Ok([])
+    Error(toml.TableLookupNotTable) -> Error(Nil)
+    Ok(_) -> toml.table_keys(document, ["dependencies"])
   }
 }
 
@@ -474,29 +541,15 @@ fn optional_string_list(
             field: field,
             expected: "Array",
           ))
-        Ok(items) -> decode_string_list(items, package_name, field, [])
-      }
-  }
-}
-
-fn decode_string_list(
-  items: List(Value),
-  package_name: String,
-  field: String,
-  acc: List(String),
-) -> Result(List(String), Error) {
-  case items {
-    [] -> Ok(list.reverse(acc))
-    [item, ..rest] ->
-      case toml.as_string(item) {
-        Error(_) ->
-          Error(InvalidPackageField(
-            package: package_name,
-            field: field,
-            expected: "String",
-          ))
-        Ok(value) ->
-          decode_string_list(rest, package_name, field, [value, ..acc])
+        Ok(items) ->
+          list.try_map(items, fn(item) {
+            toml.as_string(item)
+            |> result.replace_error(InvalidPackageField(
+              package: package_name,
+              field: field,
+              expected: "String",
+            ))
+          })
       }
   }
 }

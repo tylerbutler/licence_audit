@@ -1,0 +1,87 @@
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix `sbom --license-text --cache-path` to keep SPDX text in the default versioned notice cache and apply the custom path only to metadata."
+
+[fragments.source]
+commit = "f5dc6fbc90acf81e5de1b414e6fc2937a3f517d3"
+
+[[fragments.source.issues]]
+number = 249
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix `sbom` output: omit false BOM author attribution, preserve single SPDX expressions, and include the timestamp in reproducible serial numbers."
+
+[fragments.source]
+commit = "1c69189d1645442a3b411abfad0123d007008e54"
+
+[[fragments.source.issues]]
+number = 252
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Fix `vulns` rejecting Hex manifest entries without `outer_checksum`; use the same identity loader as `check --vulns` while keeping SBOM checksum validation."
+
+[fragments.source]
+commit = "0af5332bd62818b3aa078849d692fc3b7dbe5403"
+
+[[fragments.source.issues]]
+number = 245
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `--color` and `--colour` control stderr progress and diagnostics on every command. Explicit `never` suppresses color even with `FORCE_COLOR`; `always` forces color even with `NO_COLOR`. JSON and notice payloads remain plain."
+
+[fragments.source]
+commit = "61d92e56f9d33f59b736e64d99ce044de020d422"
+
+[[fragments.source.issues]]
+number = 250
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Make licence exception selectors ignore ordinary SPDX identifier case and token whitespace, matching licence policy rules. Reject duplicate selectors after normalization while preserving custom reference case and exact package scope."
+
+[fragments.source]
+commit = "c46e2e2643d28efaf1ae5f4d51656481c3d72cb4"
+
+[[fragments.source.issues]]
+number = 246
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Network-backed commands use IPv4 without a warning when the IPv6 DNS lookup finds no AAAA record; connection failures and timeouts still produce warnings."
+
+[fragments.source]
+commit = "53323a3b41f7f2aaf754f8d9cda4b2baf91c574b"
+
+[[fragments.source.issues]]
+number = 247
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Report valid CVSS scores of `0.0` as `none` in `vulns`, `check --vulns`, and `sbom --vulns`; never block these ratings, even with a low threshold and unknown-severity blocking."
+
+[fragments.source]
+commit = "1cfee4057dda5b30a592def0f40b788d2b4efdef"
+
+[[fragments.source.issues]]
+number = 248
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Use the Windows user cache directory for CLI metadata and notices when `XDG_CACHE_HOME` and `HOME` are unset or empty. Preserve `--cache-path` and existing environment overrides."
+
+[fragments.source]
+commit = "63f5413f3530df815b9daac6165d8af468174435"
+
+[[fragments.source.issues]]
+number = 251

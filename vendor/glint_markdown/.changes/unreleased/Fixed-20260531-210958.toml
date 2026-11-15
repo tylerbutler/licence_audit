@@ -1,0 +1,3 @@
+package = "glint_markdown"
+kind = "Fixed"
+body = "`to_topics_index_body` now emits its section heading as an H2 (`## Subcommands`) instead of an H1, matching its docstring and preserving heading hierarchy when injected into a README."

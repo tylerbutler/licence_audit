@@ -1,0 +1,4 @@
+[tools]
+gleam = "1.16.0"
+erlang = "27.3.4"
+rebar = "3.26.0"

@@ -8,7 +8,8 @@ import licence_audit/osv
 import licence_audit/progress
 import simplifile
 
-const manifest = "packages = [
+const manifest =
+  "packages = [
 { name = \"first\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"AAAA\", requirements = [] },
 { name = \"second\", version = \"2.0.0\", source = \"hex\", outer_checksum = \"BBBB\", requirements = [] },
 { name = \"git_dep\", version = \"0.1.0\", source = \"git\", repo = \"https://github.com/owner/repo\", commit = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", requirements = [] },
@@ -20,7 +21,8 @@ second = { version = \"2.0.0\" }
 git_dep = { git = \"https://github.com/owner/repo\", ref = \"main\" }
 "
 
-const licence_rules = "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\n"
+const licence_rules =
+  "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\n"
 
 fn waiver(purl: String, selector: String, extra: String) -> String {
   "\n[[tools.licence_audit.exceptions]]\npurl = \""
@@ -126,12 +128,18 @@ fn run(
 }
 
 pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test() {
-  let root = project("licence_match", licence_rules <> licence_waiver(""))
+  let root =
+    project(
+      "licence_match",
+      licence_rules
+        <> string.replace(licence_waiver(""), "GPL-3.0-only", "gpl-3.0-only"),
+    )
   let result = run(root, ["check"], licences, batch, detail)
   should.equal(result.exit_code, 0)
   assert string.contains(result.output, "denied: GPL-3.0-only [excepted #1")
   assert string.contains(result.output, "Reviewed scope (no expiry)")
   assert string.contains(result.output, "Policy exceptions:")
+  assert !string.contains(result.output, "unused #1")
   assert string.contains(result.output, "local_dep")
   let preview = run(root, [], licences, batch, detail)
   should.equal(preview.exit_code, 0)
@@ -146,6 +154,60 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
     )
   should.equal(ignored.exit_code, 1)
   assert !string.contains(ignored.output, "Policy exceptions:")
+}
+
+pub fn whole_expression_exception_ignores_token_whitespace_test() {
+  let root =
+    project(
+      "normalized_expression",
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"MIT OR Apache-2.0\"]\n"
+        <> waiver(
+        "pkg:hex/first@1.0.0",
+        "denied-licence",
+        "licence = \" mit  OR  apache-2.0 \"",
+      ),
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(name) {
+        Ok(
+          hex.licences_only(case name {
+            "first" -> ["MIT\tOR\nApache-2.0"]
+            _ -> ["MIT"]
+          }),
+        )
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 0)
+  assert string.contains(
+    result.output,
+    "denied: MIT\tOR\nApache-2.0 [excepted #1",
+  )
+  assert !string.contains(result.output, "unused #1")
+}
+
+pub fn normalized_duplicate_licence_exceptions_fail_before_fetching_test() {
+  let root =
+    project(
+      "normalized_duplicates",
+      licence_rules
+        <> licence_waiver("")
+        <> string.replace(licence_waiver(""), "GPL-3.0-only", " gpl-3.0-only "),
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(_) { panic as "must reject duplicates before fetching" },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "exceptions[1] and exceptions[2]")
 }
 
 pub fn accepted_licence_cannot_hide_a_second_finding_or_tree_test() {
@@ -170,6 +232,80 @@ pub fn accepted_licence_cannot_hide_a_second_finding_or_tree_test() {
   should.equal(result.exit_code, 1)
   assert string.contains(result.output, "first")
   assert string.contains(result.output, "excepted #1")
+}
+
+pub fn expression_exceptions_follow_and_or_without_hiding_findings_test() {
+  let root =
+    project("expression_decisions", licence_rules <> licence_waiver(""))
+  [
+    #("GPL-3.0-only AND Apache-2.0", 1),
+    #("GPL-3.0-only OR Apache-2.0", 0),
+    #("GPL-3.0-only AND", 1),
+  ]
+  |> list.each(fn(test_case) {
+    let #(expression, expected_exit) = test_case
+    let result =
+      run(
+        root,
+        ["check"],
+        fn(name) {
+          Ok(
+            hex.licences_only(case name {
+              "first" -> [expression]
+              _ -> ["MIT"]
+            }),
+          )
+        },
+        batch,
+        detail,
+      )
+    should.equal(result.exit_code, expected_exit)
+    case expression {
+      "GPL-3.0-only AND" -> {
+        assert string.contains(result.output, "invalid SPDX expression:")
+      }
+      _ -> {
+        assert string.contains(
+          result.output,
+          "denied: GPL-3.0-only [excepted #1",
+        )
+      }
+    }
+    case expected_exit, expression {
+      1, "GPL-3.0-only AND Apache-2.0" -> {
+        assert string.contains(result.output, "unknown: Apache-2.0")
+      }
+      _, _ -> Nil
+    }
+  })
+}
+
+pub fn custom_reference_exception_casing_cannot_bypass_deny_test() {
+  let root =
+    project(
+      "custom_reference_casing",
+      "[tools.licence_audit]\nallow = [\"MIT\", \"LicenseRef-Custom WITH Classpath-exception-2.0\"]\ndeny = [\"LicenseRef-Custom WITH Classpath-exception-2.0\"]\n",
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(name) {
+        Ok(
+          hex.licences_only(case name {
+            "first" -> ["LicenseRef-Custom WITH classpath-exception-2.0"]
+            _ -> ["MIT"]
+          }),
+        )
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 1)
+  assert string.contains(
+    result.output,
+    "denied: LicenseRef-Custom WITH classpath-exception-2.0",
+  )
 }
 
 pub fn expired_and_updated_scope_do_not_accept_findings_test() {
@@ -520,6 +656,105 @@ pub fn disabled_and_production_filtered_scans_are_not_unused_test() {
     result.output,
     "not evaluated: excluded by --prod-only #2",
   )
+}
+
+pub fn standalone_vulns_prod_only_filters_queries_and_exception_coverage_test() {
+  let root =
+    project(
+      "standalone-prod",
+      licence_rules
+        <> advisory_waiver("pkg:hex/second@2.0.0", "CVE-2026-12345", ""),
+    )
+  let query = fn(purls) {
+    should.equal(list.contains(purls, "pkg:hex/second@2.0.0"), False)
+    assert list.contains(purls, "pkg:hex/first@1.0.0")
+    first_batch(purls)
+  }
+  let result =
+    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+  should.equal(result.exit_code, 0)
+  assert string.contains(
+    result.output,
+    "not evaluated: excluded by --prod-only",
+  )
+  assert !string.contains(result.output, "second 2.0.0")
+  assert !string.contains(result.output, "unused")
+}
+
+pub fn standalone_vulns_prod_only_skips_all_dev_sources_without_query_test() {
+  let root = project("standalone-all-dev", "")
+  let assert Ok(_) =
+    simplifile.write(
+      "[dev-dependencies]\nfirst = \"1.0.0\"\nsecond = \"2.0.0\"\ngit_dep = \"0.1.0\"\nlocal_dep = { path = \"local\" }\n"
+        <> advisory_waiver("pkg:hex/second@2.0.0", "CVE-2026-12345", ""),
+      to: root <> "/gleam.toml",
+    )
+  let query = fn(_) { panic as "No production packages should reach OSV" }
+  let result =
+    run(root, ["vulns", "--prod-only"], clean_licences, query, detail)
+  should.equal(result.exit_code, 0)
+  assert !string.contains(result.output, "local_dep")
+  assert !string.contains(result.output, "git_dep")
+  assert string.contains(
+    result.output,
+    "not evaluated: excluded by --prod-only",
+  )
+  assert !string.contains(result.output, "unused")
+}
+
+pub fn standalone_vulns_prod_only_keeps_shared_production_dependencies_test() {
+  let root = project("standalone-shared", "")
+  let assert Ok(_) =
+    simplifile.write(
+      string.replace(
+        manifest,
+        "outer_checksum = \"AAAA\", requirements = []",
+        "outer_checksum = \"AAAA\", requirements = [\"second\"]",
+      ),
+      to: root <> "/manifest.toml",
+    )
+  let query = fn(purls) {
+    assert list.contains(purls, "pkg:hex/first@1.0.0")
+    assert list.contains(purls, "pkg:hex/second@2.0.0")
+    first_batch(purls)
+  }
+  should.equal(
+    run(root, ["vulns", "--prod-only"], clean_licences, query, detail).exit_code,
+    0,
+  )
+}
+
+pub fn standalone_vulns_rejects_explicit_removed_cache_flag_test() {
+  let root = project("standalone-no-cache", "")
+  let result = run(root, ["vulns", "--no-cache"], clean_licences, batch, detail)
+  should.equal(result.exit_code, 1)
+  assert string.contains(result.output, "no-cache")
+}
+
+pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_test() {
+  let root = project("standalone-leading-flags", "")
+  let expected =
+    run(
+      root,
+      ["vulns", "--prod-only", "-q"],
+      clean_licences,
+      first_batch,
+      detail,
+    )
+  use quiet <- list.each(["--quiet", "-q"])
+  let actual =
+    run(
+      root,
+      [quiet, "vulns", "--prod-only"],
+      clean_licences,
+      first_batch,
+      detail,
+    )
+  should.equal(actual.exit_code, 0)
+  should.equal(actual, expected)
+  let explicit =
+    run(root, [quiet, "vulns", "--no-cache"], clean_licences, batch, detail)
+  should.equal(explicit.exit_code, 1)
 }
 
 pub fn unknown_severity_obeys_exception_and_existing_threshold_rules_test() {

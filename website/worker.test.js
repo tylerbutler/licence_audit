@@ -3,12 +3,14 @@ import test from "node:test";
 
 import worker from "./worker.js";
 
-test("redirects the alias and preserves the request target", async () => {
+test("redirects the alias and preserves the request target", async (t) => {
+  const redirect = t.mock.method(Response, "redirect");
   const response = await worker.fetch(
     new Request("http://license-audit.tylerbutler.com/docs/check/?strict=true"),
     { ASSETS: { fetch: assert.fail } },
   );
 
+  assert.equal(typeof redirect.mock.calls[0].arguments[0], "string");
   assert.equal(response.status, 301);
   assert.equal(
     response.headers.get("location"),
@@ -16,13 +18,16 @@ test("redirects the alias and preserves the request target", async () => {
   );
 });
 
-test("serves assets on the canonical host", async () => {
-  const request = new Request(
-    "https://licence-audit.tylerbutler.com/docs/check/",
-  );
-  const response = await worker.fetch(request, {
-    ASSETS: { fetch: (assetRequest) => new Response(assetRequest.url) },
-  });
+for (const host of [
+  "licence-audit.tylerbutler.com",
+  "branch-preview.example.workers.dev",
+]) {
+  test(`serves assets on ${host}`, async () => {
+    const request = new Request(`https://${host}/docs/check/`);
+    const response = await worker.fetch(request, {
+      ASSETS: { fetch: (assetRequest) => new Response(assetRequest.url) },
+    });
 
-  assert.equal(await response.text(), request.url);
-});
+    assert.equal(await response.text(), request.url);
+  });
+}

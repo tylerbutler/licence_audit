@@ -2,8 +2,8 @@
 
 Configure CI only when requested. Use the existing provider and repository
 conventions; do not add GitHub Actions alongside another provider by default.
-Use the same CLI release, configuration file, project directory, and
-vulnerability settings as the local setup.
+Use the same invocation, CLI release, configuration file, project directory,
+and vulnerability settings as the local setup.
 
 Before adding a gate, establish the user's approved licence policy. If that
 decision is pending, explain the blocker rather than calling a report an
@@ -16,7 +16,21 @@ steps. If the pinned CLI is already installed by the project's mise setup,
 call its task or `mise exec -- licence_audit check --vulns`; a second install
 action is unnecessary.
 
-Otherwise, use
+For a module setup, reuse the project's pinned Gleam/OTP setup and dependency
+download. Include dev dependencies and use the committed manifest and Git
+dependency pin from local setup. Run the existing local audit task, or:
+
+```yaml
+- name: Check licences and vulnerabilities
+  run: gleam run --target erlang -m licence_audit -- check --vulns
+```
+
+Do not add a CLI installation action for this path. Module execution builds
+the project for Erlang; use a standalone release if the CI toolchain or
+dependency graph cannot build it. Do not change the project's runtime or
+default target to accommodate the audit.
+
+For an escript setup, use
 [`tylerbutler/actions/setup-licence-audit`](https://github.com/tylerbutler/actions/tree/v1/setup-licence-audit).
 Confirm the action's current `action.yml` inputs before editing:
 
@@ -55,8 +69,9 @@ the policy-aware command.
 If there is no workflow, create one for pull requests and pushes to the
 repository's default branch, with `permissions: contents: read`. Include
 checkout, the project's pinned Gleam/runtime setup, dependency download,
-CLI installation, and the gate. Do not assume `.tool-versions` exists when
-choosing a Gleam setup action. Do not add schedules or write permissions
+the selected module dependency or standalone installation, and the gate.
+Do not assume `.tool-versions` exists when choosing a Gleam setup action.
+Do not add schedules or write permissions
 without a requirement.
 
 Do not use `licence_audit vulns` as a gate: it reports vulnerabilities but
@@ -68,6 +83,7 @@ overriding them with CI-only flags.
 ## Other CI providers
 
 Reuse their existing job and installation conventions. Prepare the committed
-Gleam lockfile, install the same pinned CLI and any required runtime, and
-run the local audit task with its exit status intact. Consult that provider's
+Gleam lockfile and the same pinned module dependency and toolchain or
+standalone CLI and any required runtime. Run the local audit task with its
+exit status intact. Consult that provider's
 documentation instead of translating GitHub-specific action inputs.
