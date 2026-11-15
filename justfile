@@ -103,7 +103,7 @@ test-env-cache-paths: build
     mise exec -- python3 -B test/cache_default_paths.py
     mise exec -- bash test/env_cache_paths.sh
 
-# Type check without producing artifacts
+# Type check the project without generating its executable code
 check:
     mise exec -- gleam check
 
@@ -278,6 +278,6 @@ website-build:
 # === CI ===
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint check test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
 
 alias pr := ci

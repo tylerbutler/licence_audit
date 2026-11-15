@@ -227,13 +227,32 @@ just format         # gleam format src test dev
 just format-check   # gleam format --check src test dev
 just glint          # gleam run -m glinter (linter; fails only on error-level rules)
 just lint           # format-check + glint
-just ci             # full validation (vendoring + formatting + lint + check + tests + builds + docs + SBOM)
+just ci             # full validation (vendoring + formatting + lint + tests + builds + docs + SBOM)
 just clean          # remove build artifacts
 ```
 
 Run `just` with no arguments to see the full recipe list. The local `just ci`
 recipe and GitHub Actions both validate the SBOM after checking the committed
 SBOM for drift.
+
+CI and `just ci` omit a separate `gleam check`: `gleam build` and `gleam test`
+type check the same development sources (`src`, `test`, and `dev`) and
+dependencies. In Gleam 1.19.2, `check` generates dependency code but skips code
+generation for the root package.
+
+`just build-strict` runs `gleam build --warnings-as-errors` to reject Gleam
+warnings in the root package, including cached warnings. `gleam test` has no
+warnings-as-errors option. The recipe also runs `gleam export escript`, which
+rebuilds production sources without dev-only dependencies and writes
+`./licence_audit` and `build/prod/erlang`. The production boundary, CLI stream,
+and escript smoke tests need these artifacts, as do the docs and SBOM commands.
+Development builds also compile native Erlang files; `gleam check` skips this
+for the root package. Compiler checks do not prove that an external function
+exists at runtime.
+
+See the pinned compiler's [check and build options](https://github.com/gleam-lang/gleam/blob/v1.19.2/compiler-cli/src/lib.rs#L1039-L1083),
+[test build options](https://github.com/gleam-lang/gleam/blob/v1.19.2/compiler-cli/src/run.rs#L127-L153),
+and [escript exporter](https://github.com/gleam-lang/gleam/blob/v1.19.2/compiler-cli/src/export.rs#L23-L51).
 
 For PRs from `release/pending`, CI and PR Validation cancel older queued
 and running workflow runs when a new run arrives. Each workflow has its own
