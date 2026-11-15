@@ -8,6 +8,7 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/picker
 import licence_audit/progress
+import licence_audit/source_archive_test
 import licence_audit/update
 import simplifile
 
@@ -139,7 +140,7 @@ pub fn implicit_missing_section_keeps_report_and_cli_policy_behavior_test() {
 }
 
 pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
-  [[], ["check"], ["vulns"]]
+  [["report"], ["check"], ["vulns"]]
   |> list.each(fn(command) {
     let overrides = case command {
       ["vulns"] -> [[]]
@@ -175,6 +176,7 @@ pub fn discovery_uses_manifest_sibling_not_current_directory_or_parent_test() {
       licence_audit.Clients(
         ..licence_audit.default_clients(),
         fetcher: metadata_fetcher,
+        notice_clients: source_archive_test.metadata_clients(metadata_fetcher),
       ),
       progress.disabled(),
     )
@@ -206,7 +208,7 @@ pub fn update_creates_missing_section_in_explicit_write_target_test() {
       Some(path),
       True,
       None,
-      metadata_fetcher,
+      source_archive_test.metadata_clients(metadata_fetcher),
       fn(_title, _labels, allow, deny) {
         should.equal(allow, [])
         should.equal(deny, [])

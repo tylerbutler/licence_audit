@@ -19,7 +19,8 @@ See [configuration discovery](/docs/configuration#discovery) for policy
 selection and the [write target](/docs/configuration#update-write-target).
 
 1. `update` validates the target's TOML, policy, and exceptions.
-2. It resolves the dependency tree and gets licence metadata from Hex.
+2. It resolves the dependency tree and reads licence declarations from
+   checksum-verified locked Hex archives.
 3. It shows an interactive list of the licences. Existing allow and deny
    entries are preselected.
 4. It writes the result to the selected target. Existing comments and formatting do
@@ -46,6 +47,12 @@ them from the configuration.
 
 Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
 file read/write failures exit `2`.
+
+Discovery shares the [immutable metadata cache](/docs/#caching) with licence
+reports, checks, and reproducible SBOMs. A cold cache requires larger archive
+downloads. Missing checksums, checksum mismatches, and invalid or missing
+archive metadata stop discovery before the picker or write. API licences
+cannot replace this evidence.
 
 An empty `allow` selection is saved, including a deny-only policy. `update`
 warns that you must add allow rules before running `check` or `check --vulns`.

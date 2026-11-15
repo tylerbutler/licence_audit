@@ -1,10 +1,25 @@
 import gleam/list
-import gleam/option.{type Option, None}
+import gleam/option.{type Option}
 import gleam/string
 import licence_audit/color
 import licence_audit/internal/vendor/glint
 import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
+
+pub type ReportOptions {
+  ReportOptions(
+    manifest_path: Option(String),
+    config_path: Option(String),
+    allow_licences: List(String),
+    deny_licences: List(String),
+    ignore_config: Bool,
+    verbosity: progress.Verbosity,
+    color: color.Mode,
+    no_cache: Bool,
+    cache_path: Option(String),
+    prod_only: Bool,
+  )
+}
 
 pub type Options {
   Options(
@@ -77,6 +92,7 @@ pub type NoticesOptions {
 }
 
 pub type CliAction {
+  RunReport(ReportOptions)
   RunAudit(Options)
   UpdateConfig(UpdateOptions)
   RunSbom(SbomOptions)
@@ -90,10 +106,11 @@ pub fn app() -> glint.Glint(CliAction) {
   glint.new()
   |> glint.with_name("licence_audit")
   |> glint.global_help(
-    "Audit locked Hex package licences. Use --help (alias: -h) for help.",
+    "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.",
   )
   |> glint.pretty_help(glint.default_pretty_help())
-  |> glint.add(at: [], do: audit_command(check_mode: False, help: root_help))
+  |> glint.add(at: [], do: root_command())
+  |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
   |> glint.add(at: ["sbom"], do: sbom_command())
@@ -119,17 +136,23 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   })
 }
 
-const root_help =
-  "Reports Hex package licence metadata. It displays a summary of the licences for the project's dependencies. Use the `check` subcommand to enforce a licence policy, and the `update` subcommand to create a policy."
+fn root_command() -> glint.Command(CliAction) {
+  use show_version <- glint.flag(version_flag())
+  report_command(fn(flags) {
+    let assert Ok(value) = show_version(flags)
+    value
+  })
+}
 
 const check_help =
   "Reports Hex package licence metadata and enforces the configured licence policy, exiting non-zero on violations."
 
-fn audit_command(
-  check_mode check_mode: Bool,
-  help help: String,
+fn report_command(
+  show_version: fn(glint.Flags) -> Bool,
 ) -> glint.Command(CliAction) {
-  use <- glint.command_help(help)
+  use <- glint.command_help(
+    "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.",
+  )
   use <- glint.unnamed_args(glint.EqArgs(0))
   use allow <- glint.flag(allow_flag())
   use deny <- glint.flag(deny_flag())
@@ -142,7 +165,6 @@ fn audit_command(
   use no_cache <- glint.flag(no_cache_flag())
   use cache_path <- glint.optional_flag(cache_path_flag())
   use prod_only <- glint.flag(prod_only_flag())
-  use show_version <- glint.flag(version_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(allow_licences) = allow(flags)
@@ -156,32 +178,27 @@ fn audit_command(
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_path_value) = cache_path(flags)
   let assert Ok(prod_only_value) = prod_only(flags)
-  let assert Ok(show_version) = show_version(flags)
   case
-    show_version,
+    show_version(flags),
     verbosity(quiet, verbose),
     color.mode_from_string(color_value)
   {
     True, _, _ -> ShowVersion
-    _, Error(verbosity_error), _ ->
+    False, Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, _, Error(color_error) ->
+    False, _, Error(color_error) ->
       InvalidUsage(color.mode_error_message(color_error))
-    _, Ok(verbosity), Ok(color_mode) ->
-      RunAudit(Options(
+    False, Ok(verbosity), Ok(color_mode) ->
+      RunReport(ReportOptions(
         manifest_path: manifest_path,
         config_path: config_path,
         allow_licences: allow_licences,
         deny_licences: deny_licences,
         ignore_config: ignore_config,
-        check: check_mode,
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
         cache_path: cache_path_value,
-        check_vulns: False,
-        vuln_severity: None,
-        vuln_block_unknown: False,
         prod_only: prod_only_value,
       ))
   }
