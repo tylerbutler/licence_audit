@@ -131,8 +131,8 @@ VEX-style document. Advisory data changes over time, so you cannot use
 
 An OSV batch request failure exits `2`. An individual advisory-detail failure
 warns and retains its ID with unknown severity; generation still exits `0`.
-In contrast, `check --vulns` exits `2` when details are unavailable because it
-cannot evaluate the severity gate.
+`check --checks=vulns` and `check --checks=all` exit `2` when advisory details
+are unavailable: the vulnerability gate cannot evaluate their severity.
 
 Ratings use the advisory's resolved severity, including `none` for a valid
 CVSS score of `0.0`. A recognised OSV `database_specific.severity` overrides

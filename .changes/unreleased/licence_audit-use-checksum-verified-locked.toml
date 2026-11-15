@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Use checksum-verified locked Hex archive licence declarations for reports, `check`, and `update`, with immutable cache reuse and no API licence fallback."

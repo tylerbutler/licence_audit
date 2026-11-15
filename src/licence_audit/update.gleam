@@ -14,6 +14,7 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/notice
 import licence_audit/picker
 import licence_audit/progress
 import licence_audit/toml
@@ -31,7 +32,7 @@ pub fn run(
   ignore_config: Bool,
   no_cache: Bool,
   cache_path: Option(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   run_with_picker(
@@ -41,7 +42,7 @@ pub fn run(
     ignore_config,
     no_cache,
     cache_path,
-    fetcher,
+    source_clients,
     picker.pick,
     reporter,
   )
@@ -56,7 +57,7 @@ pub fn run_with_picker(
   ignore_config: Bool,
   no_cache: Bool,
   cache_path: Option(String),
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
+  source_clients: notice.Clients,
   pick: fn(String, List(String), List(String), List(String)) ->
     Result(picker.Selection, picker.PickerError),
   reporter: progress.Reporter,
@@ -101,7 +102,15 @@ pub fn run_with_picker(
       False -> cache.Enabled(path: cache_path)
     }
     let cache_handle = cache.open(cache_mode)
-    let cached_fetcher = cache.wrap(cache_handle, fetcher)
+    let cached_fetcher =
+      cache.wrap_locked(cache_handle, fn(name, version, checksum) {
+        notice.hex_metadata_from_locked_source(
+          name,
+          version,
+          checksum,
+          source_clients.fetch_hex_tarball,
+        )
+      })
 
     let #(discovered, fetch_failed, reporter) =
       discover_licences(locked.packages, cached_fetcher, reporter, [], False)
@@ -222,7 +231,7 @@ fn write_selection(
         [] ->
           progress.warn(
             reporter,
-            "The saved policy has an empty allow list. Add allow rules before running check, including check --vulns.",
+            "The saved policy has an empty allow list. Add allow rules before running check --checks=licences or check --checks=all.",
           )
         _ -> reporter
       }
@@ -238,7 +247,7 @@ fn write_selection(
 fn discover_licences(
   packages: List(manifest.Package),
   fetcher: fn(manifest.Package, progress.Reporter) ->
-    #(Result(hex.PackageMetadata, hex.Error), progress.Reporter),
+    #(Result(hex.PackageMetadata, notice.Error), progress.Reporter),
   reporter: progress.Reporter,
   collected: List(String),
   failed: Bool,
@@ -257,7 +266,7 @@ fn discover_licences(
                 <> "@"
                 <> pkg.version
                 <> ": "
-                <> hex.describe_error(fetch_error),
+                <> notice.describe_error(fetch_error),
             )
           discover_licences(rest, fetcher, reporter, collected, True)
         }

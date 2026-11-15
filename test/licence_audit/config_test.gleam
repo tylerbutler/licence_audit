@@ -6,6 +6,8 @@ import licence_audit
 import licence_audit/config
 import licence_audit/hex
 import licence_audit/progress
+import licence_audit/source_archive
+import licence_audit/source_archive_test
 import licence_audit/toml
 import simplifile
 
@@ -163,16 +165,29 @@ pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
   ]
   |> list.each(fn(test_case) {
     let #(licence, additions, expected_exit_code, expected_output) = test_case
+    let archive = source_archive_test.metadata_archive([licence])
+    let assert Ok(checksum) = source_archive.sha256_hex(archive)
+    let manifest_path = "build/config-locked-licence.toml"
+    let assert Ok(_) =
+      simplifile.write(
+        manifest_path,
+        "packages = [{ name = \"example\", version = \"1.0.0\", source = \"hex\", outer_checksum = \""
+          <> checksum
+          <> "\" }]\n",
+      )
     let clients =
-      licence_audit.Clients(..licence_audit.default_clients(), fetcher: fn(_) {
-        Ok(hex.licences_only([licence]))
-      })
+      licence_audit.Clients(
+        ..licence_audit.default_clients(),
+        notice_clients: source_archive_test.metadata_clients(fn(_) {
+          Ok(hex.licences_only([licence]))
+        }),
+      )
     let #(result, _) =
       licence_audit.run_configured(
         list.append(
           [
             "check",
-            "--manifest=test/fixtures/manifest.toml",
+            "--manifest=" <> manifest_path,
             "--config=test/fixtures/licence_audit_config.toml",
           ],
           additions,
@@ -183,6 +198,7 @@ pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
 
     should.equal(result.exit_code, expected_exit_code)
     assert string.contains(result.output, expected_output)
+    let assert Ok(_) = simplifile.delete(manifest_path)
   })
 }
 
@@ -353,7 +369,7 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
     [
       "--allow=MIT",
       "--deny=GPL-3.0-only",
-      "--vulns",
+      "--checks=all",
       "--vuln-severity=critical",
     ],
   ]
@@ -409,7 +425,7 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "--config=" <> path,
           "--allow=MIT",
           "--deny=GPL-3.0-only",
-          "--vulns",
+          "--checks=all",
           "--vuln-severity=critical",
           "--vuln-block-unknown",
         ],

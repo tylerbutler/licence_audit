@@ -47,15 +47,21 @@ windows_worker() ->
         [binary, {active, false}, {packet, 4}], 10000),
     case os:getenv("POLICY_TEST_MODE") of
         "update" ->
-            Fetcher = fun(_) ->
-                {ok, licence_audit@hex:licences_only([<<"MIT">>])}
+            Fetcher = fun(Name) ->
+                Licences = case Name of
+                    <<"app_a">> -> [<<"MIT">>];
+                    <<"lib_b">> -> [<<"Apache-2.0">>, <<"MIT">>];
+                    <<"lib_c">> -> [<<"BSD-3-Clause">>]
+                end,
+                {ok, licence_audit@hex:licences_only(Licences)}
             end,
+            Clients = licence_audit@source_archive_test:metadata_clients(Fetcher),
             Picker = fun(_, _, _, _) ->
                 {ok, {selection, lists:duplicate(1000, <<"MIT-long-policy-entry">>), []}}
             end,
             {{update_result, 0, _}, _} = licence_audit@update:run_with_picker(
-                <<"test/fixtures/transitive_manifest.toml">>, <<".">>,
-                {some, Path}, true, true, none, Fetcher, Picker,
+                <<"test/fixtures/update_manifest.toml">>, <<".">>,
+                {some, Path}, true, true, none, Clients, Picker,
                 licence_audit@progress:capturing(verbose, <<"update">>)
             );
         "failure" ->
