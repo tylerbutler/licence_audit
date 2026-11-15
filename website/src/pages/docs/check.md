@@ -144,14 +144,16 @@ with `gleam deps download`.
 
 ## Production-only gates
 
-Use `--prod-only` when your gate should consider only production dependencies.
+Use `--scope=prod` when your gate should consider only production dependencies.
 The command then ignores licence violations in development dependencies. This
 option prevents tooling-only packages from causing a CI failure.
 
 Production dependencies are the packages reachable from `[dependencies]` in
 the `gleam.toml` beside the selected manifest. A valid file without that table,
 or with an empty table, has no production dependencies. This rule also applies
-to `check --checks=all --prod-only` and `check --checks=vulns --prod-only`.
+to `check --checks=all --scope=prod` and `check --checks=vulns --scope=prod`.
+The default, `--scope=all`, includes development
+dependencies. A dependency reachable from both root sets remains production.
 
 A missing `gleam.toml` uses all lockfile direct dependencies as production
 roots. An unreadable file, invalid TOML, or a `dependencies` value that is not a
@@ -303,7 +305,7 @@ finding. Remove these stale entries after a dependency update, resolved
 advisory, or global policy change. Expired and unused entries do not fail on
 their own; matching expired findings follow normal policy and severity rules.
 
-An entry is `not evaluated` if its scan is disabled, `--prod-only` excludes
+An entry is `not evaluated` if its scan is disabled, `--scope=prod` excludes
 the package, or the command cannot get the evidence. Do not treat these
 entries as stale. Licence-only runs do not evaluate advisory exceptions.
 [`report`](/docs/report) previews licence exceptions without enforcing them, and
@@ -338,8 +340,8 @@ licence_audit check [--flags]
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--prod-only` | `BOOL` | `false` | Only scan production dependencies; exclude dev dependencies |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
+| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (default false; requires --checks=vulns or --checks=all) |
 | `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (default high; requires --checks=vulns or --checks=all) |

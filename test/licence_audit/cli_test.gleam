@@ -37,7 +37,7 @@ fn parse_options(args: List(String)) -> cli.Options {
         checks: cli.Licences,
         vuln_severity: None,
         vuln_block_unknown: False,
-        prod_only: options.prod_only,
+        scope: options.scope,
       )
     _ -> panic as "expected report or check options"
   }
@@ -514,7 +514,7 @@ pub fn notices_subcommand_parses_defaults_test() {
 
   should.equal(options.manifest_path, None)
   should.equal(options.output, None)
-  should.equal(options.include_dev, False)
+  should.equal(options.scope, cli.Prod)
   should.equal(options.verbosity, progress.Normal)
 }
 
@@ -524,13 +524,13 @@ pub fn notices_subcommand_parses_supported_flags_test() {
       "notices",
       "--manifest=locked.toml",
       "--output=THIRD_PARTY_LICENSES.txt",
-      "--include-dev",
+      "--scope=all",
       "--verbose",
     ])
 
   should.equal(options.manifest_path, Some("locked.toml"))
   should.equal(options.output, Some("THIRD_PARTY_LICENSES.txt"))
-  should.equal(options.include_dev, True)
+  should.equal(options.scope, cli.All)
   should.equal(options.verbosity, progress.Verbose)
 }
 
@@ -665,8 +665,8 @@ pub fn command_specific_flag_matrix_test() {
     #("--ignore-config", [True, True, True, False, True, True]),
     #("--no-cache", [True, True, True, True, False, True]),
     #("--cache-path=custom.cache", [True, True, True, True, False, True]),
-    #("--prod-only", [True, True, False, False, True, False]),
-    #("--include-dev", [False, False, False, False, False, True]),
+    #("--scope=prod", [True, True, False, False, True, True]),
+    #("--scope=all", [True, True, False, False, True, True]),
     #("--allow=MIT", [True, True, False, False, False, False]),
     #("--deny=MIT", [True, True, False, False, False, False]),
     #("--output=out", [False, False, False, True, False, True]),
@@ -689,15 +689,51 @@ pub fn command_specific_flag_matrix_test() {
   }
 }
 
-pub fn standalone_vulns_scope_defaults_and_flag_test() {
-  use prod_only <- list.each([False, True])
-  let flags = case prod_only {
-    False -> []
-    True -> ["--prod-only"]
+pub fn dependency_scope_defaults_and_values_test() {
+  use command <- list.each([[], ["report"], ["check"], ["vulns"], ["notices"]])
+  use flags <- list.each([[], ["--scope=prod"], ["--scope=all"]])
+  let assert Ok(glint.Out(action)) =
+    glint.execute(cli.app(), list.append(command, flags))
+  let scope = case action {
+    cli.RunReport(options) -> options.scope
+    cli.RunAudit(options) -> options.scope
+    cli.RunVulns(options) -> options.scope
+    cli.RunNotices(options) -> options.scope
+    cli.UpdateConfig(_)
+    | cli.RunSbom(_)
+    | cli.ShowVersion
+    | cli.InvalidUsage(_) -> panic as "expected scoped command"
   }
-  let assert Ok(glint.Out(cli.RunVulns(options))) =
-    glint.execute(cli.app(), list.append(["vulns"], flags))
-  should.equal(options.prod_only, prod_only)
+  should.equal(scope, case flags, command {
+    ["--scope=prod"], _ | [], ["notices"] -> cli.Prod
+    _, _ -> cli.All
+  })
+}
+
+pub fn dependency_scope_rejects_missing_and_invalid_values_test() {
+  use command <- list.each([[], ["report"], ["check"], ["vulns"], ["notices"]])
+  use flag <- list.each([
+    "--scope",
+    "--scope=",
+    "--scope=dev",
+    "--scope=Prod",
+    "--scope=true",
+    "--scope=false",
+  ])
+  let message = usage_error(list.append(command, [flag]))
+  assert string.contains(message, "scope")
+}
+
+pub fn removed_dependency_flags_are_rejected_on_all_commands_test() {
+  use command <- list.each([[], ..commands])
+  use name <- list.each(["prod-only", "include-dev"])
+  use suffix <- list.each(["", "=true", "=false"])
+  let message = usage_error(list.append(command, ["--" <> name <> suffix]))
+  assert string.contains(message, name)
+  assert !string.contains(
+    help_text(list.append(command, ["--help"])),
+    "--" <> name,
+  )
 }
 
 pub fn check_selection_accepts_only_supported_values_test() {
@@ -750,7 +786,8 @@ pub fn root_scan_options_match_named_report_test() {
     ["--ignore-config"],
     ["--allow=MIT"],
     ["--deny=MIT"],
-    ["--prod-only"],
+    ["--scope=prod"],
+    ["--scope=all"],
     ["--cache-path=cache"],
     ["--no-cache"],
     ["--quiet"],

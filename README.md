@@ -60,6 +60,12 @@ Run `licence_audit` or `licence_audit report` to inspect licences or preview
 policy findings. Both use the same options and non-enforcing report behavior.
 Existing root scan commands still work; adding `report` is optional.
 
+Licence reports, `check`, and `vulns` default to `--scope=all`. Use
+`--scope=prod` for production dependencies only. `notices` defaults to
+`--scope=prod`; use `--scope=all` to include development dependencies.
+These values replace `--prod-only` and `--include-dev`, which are no longer
+accepted. `sbom` retains the full graph and has no scope flag.
+
 ## Contributing and security
 
 See [DEV.md](./DEV.md) for development commands and [SECURITY.md](./SECURITY.md)
