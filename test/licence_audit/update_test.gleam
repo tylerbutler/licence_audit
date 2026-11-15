@@ -227,7 +227,7 @@ pub fn empty_allow_selection_is_saved_with_check_warning_test() {
     assert list.any(progress.events(updated_reporter), fn(event) {
       event.kind == progress.Warning
       && string.contains(event.message, "empty allow list")
-      && string.contains(event.message, "check --vulns")
+      && string.contains(event.message, "check --checks=all")
     })
     let assert Ok(_) = simplifile.delete(path)
   })

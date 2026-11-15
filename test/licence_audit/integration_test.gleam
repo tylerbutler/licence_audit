@@ -123,7 +123,10 @@ pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
       progress.disabled(),
     )
   should.equal(result.exit_code, 1)
-  assert string.contains(result.output, "require --vulns")
+  assert string.contains(
+    result.output,
+    "require --checks=vulns or --checks=all",
+  )
   should.equal(events, [])
 }
 
@@ -159,6 +162,218 @@ fn failing_fetcher(name: String) -> Result(hex.PackageMetadata, hex.Error) {
     "argv" -> Error(hex.NotFound)
     _ -> fake_fetcher(name)
   }
+}
+
+fn selection_project(name: String, configuration: String) -> String {
+  let root = "build/check-selection-" <> name
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(contents) = simplifile.read("test/fixtures/manifest.toml")
+  let assert Ok(_) = simplifile.write(root <> "/manifest.toml", contents)
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"fixture\"\n" <> configuration,
+    )
+  root
+}
+
+pub fn selected_checks_do_not_depend_on_present_licence_policy_test() {
+  use policy <- list.each(["", "allow = [\"MIT\"]\ndeny = [\"MIT\"]\n"])
+  use selection <- list.each(["licences", "vulns", "all"])
+  let root =
+    selection_project("policy-boundary", case policy {
+      "" -> ""
+      _ -> "[tools.licence_audit]\n" <> policy
+    })
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(name) {
+        assert selection != "vulns"
+        fake_fetcher(name)
+      }),
+      fetcher: fn(_) { panic as "selected gates must not fetch API licences" },
+      osv_batch_fetcher: fn(purls) {
+        assert selection != "licences"
+        one_vuln_batch(purls)
+      },
+      osv_detail_fetcher: one_vuln_detail,
+    )
+  let result =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=" <> selection,
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      clients,
+      progress.disabled(),
+    ).0
+  case selection, policy {
+    "licences", "" | "all", "" -> {
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "requires a non-empty allow list")
+      assert string.contains(result.output, "--checks=licences")
+      assert string.contains(result.output, "--checks=all")
+    }
+    _, _ -> {
+      should.equal(result.exit_code, 1)
+      should.equal(
+        string.contains(result.output, "denied: MIT"),
+        selection != "vulns",
+      )
+      should.equal(
+        string.contains(result.output, "CVE-2024-0001"),
+        selection != "licences",
+      )
+      should.equal(
+        string.contains(result.output, "Package"),
+        selection != "vulns",
+      )
+    }
+  }
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn vulnerability_only_config_and_cli_thresholds_work_without_allow_test() {
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) {
+        panic as "vulnerability-only must not fetch licences"
+      }),
+      osv_batch_fetcher: one_vuln_batch,
+      osv_detail_fetcher: one_vuln_detail,
+    )
+  use settings <- list.each([
+    #("", [], 1),
+    #("vuln_severity = \"critical\"\n", [], 0),
+    #("", ["--vuln-severity=critical"], 0),
+    #("vuln_severity = \"critical\"\n", ["--vuln-severity=high"], 1),
+  ])
+  let root = selection_project("thresholds", "")
+  let config_path = root <> "/selected.toml"
+  let assert Ok(_) =
+    simplifile.write(config_path, case settings.0 {
+      "" -> "name = \"no_policy\"\n"
+      _ -> "[tools.licence_audit]\n" <> settings.0
+    })
+  let result =
+    licence_audit.run_configured(
+      list.append(
+        [
+          "check",
+          "--checks=vulns",
+          "--manifest=" <> root <> "/manifest.toml",
+          "--config=" <> config_path,
+        ],
+        settings.1,
+      ),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, settings.2)
+  assert string.contains(result.output, "CVE-2024-0001")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn vulnerability_only_unknown_gate_config_and_cli_settings_test() {
+  use settings <- list.each([
+    #("", [], 0),
+    #("vuln_block_unknown = true\n", [], 1),
+    #("", ["--vuln-block-unknown"], 1),
+  ])
+  let root =
+    selection_project("unknown", "[tools.licence_audit]\n" <> settings.0)
+  let result =
+    licence_audit.run_configured(
+      list.append(
+        ["check", "--checks=vulns", "--manifest=" <> root <> "/manifest.toml"],
+        settings.1,
+      ),
+      licence_audit.Clients(
+        ..test_clients(fn(_) {
+          panic as "vulnerability-only must not fetch licences"
+        }),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: unknown_vuln_detail,
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, settings.2)
+  assert string.contains(result.output, "CVE-2024-0001")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn vulnerability_only_validates_explicit_configuration_before_clients_test() {
+  use input <- list.each([
+    "invalid = [",
+    "[tools.licence_audit]\nvuln_severity = \"invalid\"\n",
+    "[tools.licence_audit]\nvuln_block_unknown = \"true\"\n",
+    "[tools.licence_audit]\nunknown_setting = true\n",
+    "[[tools.licence_audit.exceptions]]\npurl = \"invalid\"\n",
+  ])
+  let root = selection_project("invalid-config", "")
+  let config_path = root <> "/invalid.toml"
+  let assert Ok(_) = simplifile.write(config_path, input)
+  let result =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=vulns",
+        "--manifest=" <> root <> "/manifest.toml",
+        "--config=" <> config_path,
+        "--vuln-severity=high",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(_) { panic as "invalid config must stop Hex" }),
+        osv_batch_fetcher: fn(_) { panic as "invalid config must stop OSV" },
+        osv_detail_fetcher: unused_vuln_detail,
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Error:")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn selected_vulnerability_gates_keep_incomplete_exit_priority_test() {
+  use selection <- list.each(["vulns", "all"])
+  use batch_failed <- list.each([False, True])
+  let root =
+    selection_project(
+      "incomplete",
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"MIT\"]\n",
+    )
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=" <> selection,
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(name) {
+          assert selection == "all"
+          fake_fetcher(name)
+        }),
+        fetcher: fn(_) { panic as "selected gates must not fetch API licences" },
+        osv_batch_fetcher: fn(purls) {
+          case batch_failed {
+            True -> failing_osv_batch(purls)
+            False -> one_vuln_batch(purls)
+          }
+        },
+        osv_detail_fetcher: unused_vuln_detail,
+      ),
+      progress.capturing(progress.Normal, "check"),
+    )
+  should.equal(result.exit_code, 2)
+  should.equal(
+    string.contains(result.output, "denied: MIT"),
+    selection == "all",
+  )
+  assert !string.contains(result.output, "Dependency licence audit failed")
+  assert list.any(events, fn(event) { event.kind == progress.Error })
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 fn notice_metadata_fetcher(
@@ -273,7 +488,13 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
       contents: "packages = [{ name = \"gleam_stdlib\", version = \"1.0.0\", source = \"hex\" }]\n",
     )
 
-  [[], ["report"], ["check", test_policy.flag(["MIT"], [])], ["update"]]
+  [
+    [],
+    ["report"],
+    ["check", test_policy.flag(["MIT"], [])],
+    ["check", test_policy.flag(["MIT"], []), "--checks=all"],
+    ["update"],
+  ]
   |> list.each(fn(args) {
     let audit =
       licence_audit.run_configured(
@@ -300,7 +521,7 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
 
   [[], ["CVE-2024-0001"]]
   |> list.each(fn(ids) {
-    [["vulns"]]
+    [["vulns"], ["check", "--checks=vulns"]]
     |> list.each(fn(args) {
       let result =
         licence_audit.run_configured(
@@ -363,7 +584,7 @@ pub fn vulnerability_commands_reject_invalid_required_manifest_fields_test() {
           to: path,
           contents: "packages = [{ " <> invalid_field <> valid_fields <> " }]",
         )
-      [["vulns"], ["check", test_policy.flag(["MIT"], []), "--vulns"]]
+      [["vulns"], ["check", test_policy.flag(["MIT"], []), "--checks=all"]]
       |> list.each(fn(args) {
         let result =
           licence_audit.run_configured(
@@ -893,9 +1114,9 @@ pub fn check_without_allow_rejects_before_loading_manifest_or_calling_clients_te
     )
   [
     [],
-    ["--vulns"],
-    ["--vulns", "--vuln-severity=low"],
-    ["--vulns", "--vuln-block-unknown"],
+    ["--checks=all"],
+    ["--checks=all", "--vuln-severity=low"],
+    ["--checks=all", "--vuln-block-unknown"],
   ]
   |> list.each(fn(flags) {
     let result =
@@ -1330,7 +1551,7 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
       ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -1395,7 +1616,7 @@ pub fn zero_cvss_never_blocks_low_threshold_with_unknown_blocking_test() -> Nil 
           [
             "check",
             test_policy.flag(["MIT", "Apache-2.0"], []),
-            "--vulns",
+            "--checks=all",
             "--vuln-severity=low",
           ],
           flags,
@@ -1452,7 +1673,7 @@ pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
         "--vuln-severity=none",
       ]),
       test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
@@ -1470,7 +1691,7 @@ pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
     licence_audit.run_configured(
       [
         "check",
-        "--vulns",
+        "--checks=all",
         "--manifest=test/fixtures/manifest.toml",
         "--config=" <> config_path,
       ],
@@ -1525,7 +1746,7 @@ pub fn vulnerability_commands_preserve_mixed_source_identities_test() {
   ["", ", outer_checksum = \"AAAA\"", ", outer_checksum = 42"]
   |> list.each(fn(checksum) {
     let manifest_path = mixed_vuln_manifest(checksum)
-    [#(["vulns"], 0)]
+    [#(["vulns"], 0), #(["check", "--checks=vulns"], 1)]
     |> list.each(fn(command) {
       let #(args, expected_exit) = command
       let result =
@@ -1594,7 +1815,7 @@ pub fn check_vulns_locked_checksum_preserves_prod_only_git_scope_test() {
           "--manifest=" <> manifest_path,
           "check",
           test_policy.flag(["MIT"], []),
-          "--vulns",
+          "--checks=all",
           "--prod-only",
         ],
         licence_audit.Clients(
@@ -1676,7 +1897,7 @@ pub fn check_vulns_reports_unsupported_sources_test() {
         "--manifest=" <> path,
         "check",
         test_policy.flag(["MIT"], []),
-        "--vulns",
+        "--checks=all",
       ],
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -1893,7 +2114,7 @@ pub fn check_vulns_unknown_severity_is_non_blocking_by_default_test() {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
       ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -1917,7 +2138,7 @@ pub fn check_vulns_unknown_severity_blocks_when_enabled_test() {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
         "--vuln-block-unknown",
       ]),
       licence_audit.Clients(
@@ -1944,7 +2165,7 @@ pub fn check_vulns_detail_failure_exits_two_by_default_test() {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
       ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -1972,7 +2193,7 @@ pub fn check_vulns_detail_failure_reports_one_specific_error_event_test() {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
       ]),
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -2014,7 +2235,7 @@ pub fn check_vulns_detail_failure_exits_two_with_block_unknown_test() {
       manifest_args([
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
         "--vuln-block-unknown",
       ]),
       licence_audit.Clients(
@@ -2048,7 +2269,7 @@ vuln_block_unknown = true
         "--manifest=test/fixtures/manifest.toml",
         "--config=" <> config_path,
         "check",
-        "--vulns",
+        "--checks=all",
       ],
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -2063,7 +2284,7 @@ vuln_block_unknown = true
         "--manifest=test/fixtures/manifest.toml",
         "check",
         test_policy.flag(["MIT", "Apache-2.0"], []),
-        "--vulns",
+        "--checks=all",
       ],
       licence_audit.Clients(
         ..test_clients(fake_fetcher),
@@ -2105,7 +2326,7 @@ pub fn check_vulns_known_severity_thresholds_are_unchanged_test() {
         manifest_args([
           "check",
           test_policy.flag(["MIT", "Apache-2.0"], []),
-          "--vulns",
+          "--checks=all",
           "--vuln-severity=" <> threshold,
         ]),
         licence_audit.Clients(
@@ -3189,7 +3410,7 @@ pub fn check_prod_only_vulns_ignores_dev_dependency_advisory_test() {
         "check",
         test_policy.flag(["MIT"], []),
         "--prod-only",
-        "--vulns",
+        "--checks=all",
       ],
       licence_audit.Clients(
         ..test_clients(prod_dev_fetcher),

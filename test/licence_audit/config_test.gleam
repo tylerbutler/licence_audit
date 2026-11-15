@@ -373,7 +373,7 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
   [
     [],
     [
-      "--vulns",
+      "--checks=all",
       "--vuln-severity=critical",
     ],
   ]
@@ -427,7 +427,7 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "check",
           "--manifest=test/fixtures/manifest.toml",
           "--config=" <> path,
-          "--vulns",
+          "--checks=all",
           "--vuln-severity=critical",
           "--vuln-block-unknown",
         ],

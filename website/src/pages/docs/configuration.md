@@ -32,8 +32,9 @@ These commands use the same project-root rule, but read different settings:
 | `sbom` | Read project metadata for the root component; do not read or enforce licence policy. |
 
 If the default configuration file or policy section is absent, reporting can
-proceed without a policy. `check` requires a licence policy from the selected
-file. `update` can create the section in the project's `gleam.toml`.
+proceed without a policy. Licence-only and combined checks require a licence
+policy from the selected file. Vulnerability-only checks do not require one.
+`update` can create the section in the project's `gleam.toml`.
 Invalid configuration still causes an error.
 
 ## Explicit configuration files
@@ -45,11 +46,12 @@ of the default policy file:
 licence_audit check --manifest=apps/server/manifest.toml --config=policies/server.toml
 ```
 
-For `report`, `check`, `update`, and `vulns`, the explicit file must
+For `report`, licence-only or combined `check`, `update`, and `vulns`, the explicit file must
 contain `[tools.licence_audit]`. A file without this section causes an error
 with exit code `2`. The error names the file and missing section.
 An empty section counts as present, but does not
-supply the licence rules that `check` requires.
+supply the licence rules that licence-only and combined checks require.
+`check --checks=vulns` accepts a valid file without this section.
 
 ```toml
 [tools.licence_audit]
@@ -81,9 +83,11 @@ policy file. It does not disable project metadata reads.
 licence_audit --ignore-config
 ```
 
-This produces a licence report without policy findings. `check --ignore-config`
-returns exit code `2` because licence enforcement requires a non-empty `allow`
-list from a policy file. Read-only commands do not change the selected file.
+This produces a licence report without policy findings. Licence-only and
+combined checks with `--ignore-config` return exit code `2` because licence
+enforcement requires a non-empty `allow` list from a policy file.
+Vulnerability-only checks can use `--ignore-config` without licence rules.
+Read-only commands do not change the selected file.
 
 ## Update write target
 
