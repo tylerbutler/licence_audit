@@ -1,13 +1,511 @@
+import filepath
+import gleam/bool
 import gleam/list
 import gleam/option
 import gleam/string
 import gleam/uri
 import licence_audit/error
+import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
+import licence_audit/path
 import licence_audit/repository
+import licence_audit/semver
 import licence_audit/spdx_expression
+import licence_audit/toml
+import simplifile
+
+/// Validate current local metadata against the locked graph. Returned paths
+/// are normalized relative to the manifest directory, never the checkout root.
+pub fn resolve_local(
+  locked: manifest.SbomManifest,
+  project_root: String,
+) -> Result(
+  #(manifest.SbomManifest, Dict(String, hex.PackageMetadata)),
+  error.Error,
+) {
+  let locals =
+    list.filter(locked.entries, fn(entry) {
+      case entry.provenance {
+        manifest.PathProvenance(_) -> True
+        manifest.HexProvenance(_, _)
+        | manifest.GitProvenance(_, _, _)
+        | manifest.UnknownProvenance(_) -> False
+      }
+    })
+  use <- bool.guard(when: locals == [], return: Ok(#(locked, dict.new())))
+  use root_directory <- result.try(
+    simplifile.resolve(project_root)
+    |> result.map_error(fn(reason) {
+      error.Input(
+        "Invalid SBOM project path: " <> simplifile.describe_error(reason),
+      )
+    }),
+  )
+  use index <- result.try(
+    list.try_fold(locked.entries, dict.new(), fn(index, entry) {
+      case dict.has_key(index, entry.name) {
+        True -> Error(local_error(entry.name, "duplicate locked package name"))
+        False -> Ok(dict.insert(index, entry.name, entry))
+      }
+    }),
+  )
+  use _ <- result.try(validate_root_local_targets(root_directory, index))
+  use resolved <- result.try(
+    list.try_map(locked.entries, fn(entry) {
+      case entry.provenance {
+        manifest.PathProvenance(directory) -> {
+          use absolute <- result.try(local_directory(
+            root_directory,
+            directory,
+            entry.name,
+          ))
+          use relative <- result.try(relative_directory(
+            root_directory,
+            absolute,
+            entry.name,
+          ))
+          Ok(
+            manifest.SbomEntry(
+              ..entry,
+              provenance: manifest.PathProvenance(relative),
+            ),
+          )
+        }
+        manifest.HexProvenance(_, _)
+        | manifest.GitProvenance(_, _, _)
+        | manifest.UnknownProvenance(_) -> Ok(entry)
+      }
+    }),
+  )
+  use metadata <- result.try(
+    list.try_fold(locals, dict.new(), fn(metadata, entry) {
+      case entry.provenance {
+        manifest.PathProvenance(directory) -> {
+          use directory <- result.try(local_directory(
+            root_directory,
+            directory,
+            entry.name,
+          ))
+          use package_metadata <- result.try(read_local_metadata(
+            entry,
+            directory,
+            root_directory,
+            index,
+          ))
+          use _ <- result.try(validate_local_cycle(
+            entry,
+            entry.requirements,
+            dict.new(),
+            index,
+          ))
+          Ok(dict.insert(metadata, entry.name, package_metadata))
+        }
+        manifest.HexProvenance(_, _)
+        | manifest.GitProvenance(_, _, _)
+        | manifest.UnknownProvenance(_) -> Ok(metadata)
+      }
+    }),
+  )
+  Ok(#(manifest.SbomManifest(..locked, entries: resolved), metadata))
+}
+
+fn local_error(package: String, reason: String) -> error.Error {
+  error.Input("Invalid local SBOM package `" <> package <> "`: " <> reason)
+}
+
+fn local_directory(
+  root: String,
+  directory: String,
+  package: String,
+) -> Result(String, error.Error) {
+  use <- bool.guard(
+    when: string.trim(directory) == "" || string.contains(directory, "\u{0000}"),
+    return: Error(local_error(package, "empty or invalid path")),
+  )
+  simplifile.resolve(path.join(root, directory))
+  |> result.map_error(fn(reason) {
+    local_error(
+      package,
+      "path " <> directory <> ": " <> simplifile.describe_error(reason),
+    )
+  })
+}
+
+fn relative_directory(
+  root: String,
+  directory: String,
+  package: String,
+) -> Result(String, error.Error) {
+  case filepath.split(root), filepath.split(directory) {
+    [root_volume, ..root_parts], [volume, ..parts] if root_volume == volume ->
+      Ok(relative_parts(root_parts, parts))
+    _, _ ->
+      Error(local_error(
+        package,
+        "path must be on the same filesystem volume as the manifest",
+      ))
+  }
+}
+
+fn relative_parts(root: List(String), parts: List(String)) -> String {
+  case root, parts {
+    [first, ..root], [part, ..parts] if first == part ->
+      relative_parts(root, parts)
+    _, _ -> {
+      let relative =
+        string.join(list.append(list.map(root, fn(_) { ".." }), parts), "/")
+      case relative {
+        "" -> "."
+        _ -> relative
+      }
+    }
+  }
+}
+
+fn read_local_metadata(
+  entry: manifest.SbomEntry,
+  directory: String,
+  root: String,
+  index: Dict(String, manifest.SbomEntry),
+) -> Result(hex.PackageMetadata, error.Error) {
+  let file = path.join(directory, "gleam.toml")
+  let invalid = fn(reason: String) {
+    local_error(entry.name, file <> ": " <> reason)
+  }
+  use contents <- result.try(
+    simplifile.read(file)
+    |> result.map_error(fn(reason) {
+      invalid(simplifile.describe_error(reason))
+    }),
+  )
+  use document <- result.try(
+    toml.parse(contents) |> result.replace_error(invalid("invalid TOML")),
+  )
+  use name <- result.try(
+    toml.get_string(document, ["name"])
+    |> result.replace_error(invalid("required name must be a string")),
+  )
+  use version <- result.try(
+    toml.get_string(document, ["version"])
+    |> result.replace_error(invalid("required version must be a string")),
+  )
+  use <- bool.guard(
+    when: !valid_package_name(name)
+      || !semver.is_valid(version)
+      || name != entry.name
+      || version != entry.version,
+    return: Error(invalid(
+      "name/version must be valid and match locked "
+      <> entry.name
+      <> "@"
+      <> entry.version,
+    )),
+  )
+  use _ <- result.try(
+    validate_optional_metadata(document)
+    |> result.replace_error(invalid(
+      "invalid description, licences, links, or repository",
+    )),
+  )
+  use dependencies <- result.try(
+    dependency_names(document)
+    |> result.replace_error(invalid("dependencies must be a table")),
+  )
+  use <- bool.guard(
+    when: list.sort(dependencies, string.compare)
+      != list.sort(list.unique(entry.requirements), string.compare),
+    return: Error(invalid(
+      "production dependencies do not match locked requirements",
+    )),
+  )
+  use _ <- result.try(
+    list.try_each(dependencies, fn(name) {
+      use dependency <- result.try(
+        dict.get(index, name)
+        |> result.replace_error(invalid(
+          "dependency " <> name <> " is not locked",
+        )),
+      )
+      validate_local_target(
+        toml.get(document, ["dependencies", name, "path"]),
+        name,
+        dependency,
+        directory,
+        root,
+      )
+    }),
+  )
+  Ok(hex.PackageMetadata(
+    description: option.from_result(toml.get_string(document, ["description"])),
+    licences: gleam_toml.declared_licences(document),
+    links: local_links(document),
+    publisher: option.None,
+  ))
+}
+
+fn valid_package_name(name: String) -> Bool {
+  case string.to_graphemes(name) {
+    [first, ..rest] ->
+      string.contains("abcdefghijklmnopqrstuvwxyz", first)
+      && list.all(rest, fn(character) {
+        string.contains("abcdefghijklmnopqrstuvwxyz0123456789_", character)
+      })
+    [] -> False
+  }
+}
+
+fn dependency_names(document: toml.Document) -> Result(List(String), Nil) {
+  case toml.get_table(document, ["dependencies"]) {
+    Error(toml.TableLookupMissing) -> Ok([])
+    Error(toml.TableLookupNotTable) -> Error(Nil)
+    Ok(table) -> {
+      use _ <- result.try(
+        list.try_each(table, fn(field) {
+          case toml.as_string(field.1), toml.as_table(field.1) {
+            Ok(""), _ -> Error(Nil)
+            Ok(_), _ | _, Ok(_) -> Ok(Nil)
+            Error(_), Error(_) -> Error(Nil)
+          }
+        }),
+      )
+      toml.table_keys(document, ["dependencies"])
+    }
+  }
+}
+
+fn validate_root_local_targets(
+  root: String,
+  index: Dict(String, manifest.SbomEntry),
+) -> Result(Nil, error.Error) {
+  let file = path.join(root, "gleam.toml")
+  let invalid = fn(reason: String) {
+    error.Input("Invalid local SBOM dependency in " <> file <> ": " <> reason)
+  }
+  use contents <- result.try(
+    simplifile.read(file)
+    |> result.map_error(fn(reason) {
+      invalid(simplifile.describe_error(reason))
+    }),
+  )
+  use document <- result.try(
+    toml.parse(contents) |> result.replace_error(invalid("invalid TOML")),
+  )
+  list.try_each(["dependencies", "dev-dependencies"], fn(section) {
+    use names <- result.try(case toml.get_table(document, [section]) {
+      Error(toml.TableLookupMissing) -> Ok([])
+      Error(toml.TableLookupNotTable) ->
+        Error(invalid(section <> " must be a table"))
+      Ok(_) ->
+        toml.table_keys(document, [section])
+        |> result.replace_error(invalid(section <> " must be a table"))
+    })
+    list.try_each(names, fn(name) {
+      case dict.get(index, name), toml.get(document, [section, name, "path"]) {
+        Ok(dependency), declared ->
+          validate_local_target(declared, name, dependency, root, root)
+        Error(_), Ok(_) ->
+          Error(invalid("local dependency " <> name <> " is not locked"))
+        Error(_), Error(_) -> Ok(Nil)
+      }
+    })
+  })
+}
+
+fn validate_local_target(
+  declared_path: Result(toml.Value, Nil),
+  name: String,
+  dependency: manifest.SbomEntry,
+  directory: String,
+  root: String,
+) -> Result(Nil, error.Error) {
+  let invalid = fn(reason: String) {
+    local_error(name, path.join(directory, "gleam.toml") <> ": " <> reason)
+  }
+  case dependency.provenance, declared_path {
+    manifest.PathProvenance(locked_path), Ok(value) -> {
+      use declared <- result.try(
+        toml.as_string(value)
+        |> result.replace_error(invalid(
+          "dependency " <> name <> " path must be a string",
+        )),
+      )
+      use target <- result.try(
+        local_directory(directory, declared, name)
+        |> result.replace_error(invalid("invalid dependency path for " <> name)),
+      )
+      use locked_target <- result.try(
+        local_directory(root, locked_path, name)
+        |> result.replace_error(invalid("invalid locked path for " <> name)),
+      )
+      case target == locked_target {
+        True -> Ok(Nil)
+        False ->
+          Error(invalid(
+            "dependency " <> name <> " path does not match the lockfile",
+          ))
+      }
+    }
+    manifest.PathProvenance(_), Error(_) ->
+      Error(invalid("dependency " <> name <> " requires a local path"))
+    manifest.HexProvenance(_, _), Ok(_)
+    | manifest.GitProvenance(_, _, _), Ok(_)
+    | manifest.UnknownProvenance(_), Ok(_)
+    ->
+      Error(invalid(
+        "dependency " <> name <> " is local but the lockfile is not",
+      ))
+    manifest.HexProvenance(_, _), Error(_)
+    | manifest.GitProvenance(_, _, _), Error(_)
+    | manifest.UnknownProvenance(_), Error(_)
+    -> Ok(Nil)
+  }
+}
+
+fn validate_optional_metadata(document: toml.Document) -> Result(Nil, Nil) {
+  use _ <- result.try(
+    optional_value(document, "description", fn(value) {
+      toml.as_string(value) |> result.map(fn(_) { Nil })
+    }),
+  )
+  use _ <- result.try(
+    optional_value(document, "licences", fn(value) {
+      use values <- result.try(toml.as_array(value))
+      list.try_each(values, fn(value) {
+        toml.as_string(value) |> result.map(fn(_) { Nil })
+      })
+    }),
+  )
+  use _ <- result.try(
+    optional_value(document, "links", fn(_value) {
+      use values <- result.try(
+        toml.get_array(document, ["links"]) |> result.replace_error(Nil),
+      )
+      list.try_each(values, fn(value) {
+        use table <- result.try(toml.as_table(value))
+        use title <- result.try(toml.field(table, "title"))
+        use href <- result.try(toml.field(table, "href"))
+        use _ <- result.try(toml.as_string(title))
+        toml.as_string(href) |> result.map(fn(_) { Nil })
+      })
+    }),
+  )
+  use _ <- result.try(
+    optional_value(document, "repository", fn(value) {
+      use table <- result.try(toml.as_table(value))
+      use _ <- result.try(
+        list.try_each(table, fn(field) {
+          toml.as_string(field.1) |> result.map(fn(_) { Nil })
+        }),
+      )
+      use kind <- result.try(
+        toml.field(table, "type") |> result.try(toml.as_string),
+      )
+      case kind {
+        "github" | "gitlab" | "bitbucket" | "sourcehut" -> {
+          use user <- result.try(
+            toml.field(table, "user") |> result.try(toml.as_string),
+          )
+          use repo <- result.try(
+            toml.field(table, "repo") |> result.try(toml.as_string),
+          )
+          case user != "" && repo != "" {
+            True -> Ok(Nil)
+            False -> Error(Nil)
+          }
+        }
+        _ -> Ok(Nil)
+      }
+    }),
+  )
+  list.try_each(local_links(document), fn(link) {
+    use parsed <- result.try(uri.parse(link.1))
+    case parsed.scheme {
+      option.Some(scheme) if scheme != "" -> Ok(Nil)
+      option.Some(_) | option.None -> Error(Nil)
+    }
+  })
+}
+
+fn optional_value(
+  document: toml.Document,
+  field: String,
+  validate: fn(toml.Value) -> Result(Nil, Nil),
+) -> Result(Nil, Nil) {
+  case toml.get(document, [field]) {
+    Error(_) -> Ok(Nil)
+    Ok(value) -> validate(value)
+  }
+}
+
+fn local_links(document: toml.Document) -> List(#(String, String)) {
+  let links = gleam_toml.links(document)
+  case
+    toml.get_string(document, ["repository", "type"]),
+    toml.get_string(document, ["repository", "user"]),
+    toml.get_string(document, ["repository", "repo"])
+  {
+    Ok("github"), Ok(user), Ok(repo) ->
+      list.append(links, [
+        #("Repository", "https://github.com/" <> user <> "/" <> repo),
+      ])
+    _, _, _ -> links
+  }
+}
+
+fn validate_local_cycle(
+  entry: manifest.SbomEntry,
+  pending: List(String),
+  visited: Dict(String, Nil),
+  index: Dict(String, manifest.SbomEntry),
+) -> Result(Nil, error.Error) {
+  case pending {
+    [] -> Ok(Nil)
+    [name, ..rest] -> {
+      use <- bool.guard(
+        when: name == entry.name,
+        return: Error(local_error(entry.name, "dependency cycle")),
+      )
+      case dict.has_key(visited, name) {
+        True -> validate_local_cycle(entry, rest, visited, index)
+        False -> {
+          use dependency <- result.try(
+            dict.get(index, name)
+            |> result.replace_error(local_error(
+              entry.name,
+              "dependency " <> name <> " is not locked",
+            )),
+          )
+          validate_local_cycle(
+            entry,
+            list.append(dependency.requirements, rest),
+            dict.insert(visited, name, Nil),
+            index,
+          )
+        }
+      }
+    }
+  }
+}
+
+/// Local references identify metadata within this BOM, not a publication.
+pub fn component_ref(entry: manifest.SbomEntry) -> Result(String, error.Error) {
+  case entry.provenance {
+    manifest.PathProvenance(directory) ->
+      sbom_uuid.serial_number_from_content(
+        json.to_string(json.array(
+          [entry.name, entry.version, directory],
+          json.string,
+        )),
+      )
+      |> result.map(fn(uuid) { "local:" <> string.drop_start(uuid, 9) })
+      |> result.replace_error(error.SbomSerialNumberFailed)
+    manifest.HexProvenance(_, _)
+    | manifest.GitProvenance(_, _, _)
+    | manifest.UnknownProvenance(_) -> purl_for(entry)
+  }
+}
 
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
@@ -62,6 +560,31 @@ pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
         source: source,
         detail: "unsupported source",
       ))
+  }
+}
+
+/// A verified publication can add a purl without changing local provenance.
+/// This identity rule is shared by SBOM formats and vulnerability enrichment.
+pub fn verified_purl(
+  entry: manifest.SbomEntry,
+  publications: Dict(String, hex.Publication),
+) -> Result(option.Option(String), error.Error) {
+  case entry.provenance {
+    manifest.PathProvenance(_) ->
+      case dict.get(publications, entry.name) {
+        Ok(hex.Published) ->
+          Ok(option.Some("pkg:hex/" <> entry.name <> "@" <> entry.version))
+        Ok(hex.Unpublished) -> Ok(option.None)
+        Error(_) ->
+          Error(error.SbomPublicationFailed(
+            entry.name <> "@" <> entry.version,
+            "required publication evidence is missing",
+          ))
+      }
+    manifest.HexProvenance(_, _)
+    | manifest.GitProvenance(_, _, _)
+    | manifest.UnknownProvenance(_) ->
+      purl_for(entry) |> result.map(option.Some)
   }
 }
 
@@ -321,6 +844,7 @@ pub type SbomInput {
     serial_number: SerialNumber,
     timestamp: String,
     package_metadata: Dict(String, hex.PackageMetadata),
+    publications: Dict(String, hex.Publication),
     scopes: Dict(String, manifest.Scope),
     /// Vulnerabilities to embed (CycloneDX `vulnerabilities`); empty omits it.
     vulnerabilities: List(EmbeddedVulnerability),
@@ -329,8 +853,7 @@ pub type SbomInput {
   )
 }
 
-/// Returns the rendered JSON, or an `Error` if any entry has an unsupported
-/// source for purl generation.
+/// Render components and graph edges, including validated local sources.
 pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
   // Emit components and dependencies in a stable, content-defined order so the
   // output is canonical regardless of how the manifest happened to be ordered.
@@ -347,6 +870,7 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
         input.package_metadata,
         input.scopes,
         input.license_texts,
+        input.publications,
       )
     }),
   )
@@ -363,12 +887,18 @@ pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
   Ok(json.to_string(document))
 }
 
-/// Sort key for a component: its purl when available, falling back to the
-/// package name for sources without one.
+/// Keep local ordering readable; external components retain purl ordering.
 fn sort_key(entry: manifest.SbomEntry) -> String {
-  case purl_for(entry) {
-    Ok(purl) -> purl
-    Error(_) -> entry.name
+  case entry.provenance {
+    manifest.PathProvenance(directory) ->
+      "local:" <> entry.name <> ":" <> directory
+    manifest.HexProvenance(_, _)
+    | manifest.GitProvenance(_, _, _)
+    | manifest.UnknownProvenance(_) ->
+      case component_ref(entry) {
+        Ok(ref) -> ref
+        Error(_) -> entry.name
+      }
   }
 }
 
@@ -402,17 +932,19 @@ fn build_component(
   package_metadata: Dict(String, hex.PackageMetadata),
   scopes: Dict(String, manifest.Scope),
   license_texts: Dict(String, String),
+  publications: Dict(String, hex.Publication),
 ) -> Result(json.Json, error.Error) {
-  use purl <- result.try(purl_for(entry))
+  use ref <- result.try(component_ref(entry))
+  use purl <- result.try(verified_purl(entry, publications))
   let metadata = dict.get(package_metadata, entry.name)
 
   let fields =
     [
-      #("bom-ref", json.string(purl)),
+      #("bom-ref", json.string(ref)),
       #("type", json.string("library")),
       #("name", json.string(entry.name)),
-      #("purl", json.string(purl)),
     ]
+    |> append_purl(purl)
     |> append_version(entry.version)
     |> append_scope(entry, scopes)
     |> append_supplier(entry, metadata)
@@ -428,6 +960,16 @@ fn build_component(
 
 type Field =
   #(String, json.Json)
+
+fn append_purl(
+  fields: List(Field),
+  purl: option.Option(String),
+) -> List(Field) {
+  case purl {
+    option.None -> fields
+    option.Some(value) -> list.append(fields, [#("purl", json.string(value))])
+  }
+}
 
 fn append_version(fields: List(Field), version: String) -> List(Field) {
   case version {
@@ -596,9 +1138,24 @@ fn append_properties(
           ]),
         ),
       ])
+    manifest.PathProvenance(directory) ->
+      list.append(fields, [
+        #(
+          "properties",
+          json.preprocessed_array([
+            json.object([
+              #("name", json.string("licence_audit:source")),
+              #("value", json.string("local")),
+            ]),
+            json.object([
+              #("name", json.string("licence_audit:local_path")),
+              #("value", json.string(directory)),
+            ]),
+          ]),
+        ),
+      ])
     manifest.HexProvenance(_, option.None)
     | manifest.GitProvenance(_, _, _)
-    | manifest.PathProvenance(_)
     | manifest.UnknownProvenance(_) -> fields
   }
 }
@@ -717,7 +1274,7 @@ fn build_dependencies(
 ) -> List(json.Json) {
   let purl_index =
     list.fold(manifest_value.entries, dict.new(), fn(acc, entry) {
-      case purl_for(entry) {
+      case component_ref(entry) {
         Ok(purl) -> dict.insert(acc, entry.name, purl)
         Error(_) -> acc
       }
@@ -734,7 +1291,7 @@ fn build_dependencies(
   [root_entry, ..other_entries]
 }
 
-/// Map dependency names to their purls, dropping any not present in the index.
+/// Map dependency names to component references.
 fn resolve_purls(
   names: List(String),
   purl_index: Dict(String, String),
@@ -742,13 +1299,12 @@ fn resolve_purls(
   list.filter_map(names, fn(name) { dict.get(purl_index, name) })
 }
 
-/// Build the `dependencies` entry for a single component, or `Error(Nil)` if
-/// the entry has no purl (e.g. a non-Hex package).
+/// Build a graph entry for a supported component.
 fn component_entry(
   entry: manifest.SbomEntry,
   purl_index: Dict(String, String),
 ) -> Result(json.Json, Nil) {
-  case purl_for(entry) {
+  case component_ref(entry) {
     Error(_) -> Error(Nil)
     Ok(self_purl) ->
       Ok(component_refs(

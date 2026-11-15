@@ -301,7 +301,8 @@ the on-disk caches or add unsupported flags
 to root help/version or standalone `vulns`. Concurrent CLI runs can share
 cache paths. `--no-cache` bypasses the caches without deleting entries.
 `--cache-dir=DIR` selects the application root for metadata, notice materials,
-and SPDX text. Stores use versioned subdirectories below that root.
+SPDX text, and local publication evidence. Stores use versioned subdirectories
+below that root.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 
@@ -322,6 +323,19 @@ comes from that package subdirectory's `gleam.toml`, not the repository root.
 The cache key includes the package path. Hex publisher data is omitted because package
 owners can change after publication. `--vulns` is incompatible with
 `--reproducible` because OSV advisory data also changes over time.
+
+Local path components use current validated `gleam.toml` metadata and
+manifest-relative references. A verified Hex release can add a purl without
+adding release checksums or registry provenance. Publication records use
+`publication-v1` under the same cache root: positive results have no expiry;
+negative results expire at 24 hours. Separate keys prevent concurrent negative
+writes from erasing positive evidence.
+
+`--offline` prevents network calls, including in reproducible mode. Required
+locked metadata, publication evidence, and requested pinned SPDX text must
+come from local files or usable cache entries. Offline mode does not omit
+required evidence. Default optional enrichment can read cached API metadata
+and local Git files. `--no-cache` bypasses storage without waiving verification.
 
 The flag exists rather than being always-on for these reasons:
 

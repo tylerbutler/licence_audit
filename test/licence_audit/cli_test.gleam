@@ -799,22 +799,20 @@ pub fn sbom_licence_text_help_lists_primary_and_supported_alias_test() {
   assert string.contains(help, "alias: --license-text")
 }
 
-pub fn sbom_licence_text_allows_reproducible_but_rejects_offline_test() {
+pub fn sbom_licence_text_spellings_allow_reproducible_and_offline_test() {
   use spelling <- list.each(["--licence-text", "--license-text"])
   use suffix <- list.each(["", "=true"])
+  use flags <- list.each([
+    ["--reproducible"],
+    ["--offline"],
+    ["--reproducible", "--offline"],
+  ])
   let assert Ok(glint.Out(cli.RunSbom(options))) =
     glint.execute(
       cli.app(),
-      cli.normalize_args(["sbom", spelling <> suffix, "--reproducible"]),
+      cli.normalize_args(["sbom", spelling <> suffix, ..flags]),
     )
   should.equal(options.license_text, True)
-  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(
-      cli.app(),
-      cli.normalize_args(["sbom", spelling <> suffix, "--offline"]),
-    )
-  assert string.contains(message, "--licence-text")
-  assert string.contains(message, "--offline")
   let assert Ok(glint.Out(cli.RunSbom(options))) =
     glint.execute(
       cli.app(),

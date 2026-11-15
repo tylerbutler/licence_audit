@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Include local path dependencies in CycloneDX `sbom` output with validated current metadata, dependency edges, scopes, and stable manifest-relative references. Require Hex publication verification in online, offline, and reproducible modes; add a Hex purl only for a confirmed published name/version while retaining local provenance without release checksums. Store permanent positive and 24-hour negative verification records under `--cache-dir`; `--no-cache` does not bypass verification."

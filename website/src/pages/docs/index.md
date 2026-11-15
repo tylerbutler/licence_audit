@@ -221,10 +221,12 @@ The root contains versioned family directories:
 - `hex-v2/`: Hex API metadata and checksum/commit-keyed locked-source metadata.
 - `notices-v3/`: package and source materials, including repository resolutions.
 - `spdx-v1/`: pinned SPDX indexes and canonical licence/exception text.
+- `publication-v1/`: verified Hex publication identities for local SBOM components.
 
 The versioned directories are internal storage details, not CLI options.
-Future local publication verification will use this root too. This release
-does not add publication verification or change cache freshness rules.
+Confirmed local publications do not expire. Confirmed unpublished results
+expire at 24 hours; offline runs require usable verification evidence.
+See the [local SBOM contract](/docs/sbom#publication-verification).
 
 Each family contains one JSON file for each entry. A command writes
 each entry to a temporary file and then renames it, so other commands never
@@ -281,8 +283,9 @@ against a policy committed to version control.
 - **Manifest not found:** run `gleam deps download` to create `manifest.toml`.
 - **Hex request fails:** retry or reuse cached entries without `--no-cache`.
   Required metadata failures still make a licence report incomplete.
-- **Unsupported SBOM source:** `sbom` requires a valid purl for every dependency;
-  `--offline` does not bypass source validation.
+- **Unsupported SBOM source:** `sbom` requires valid Hex/GitHub package URLs or
+  validated local path metadata and publication evidence. `--offline` does not
+  bypass source validation or required evidence checks.
 - **OSV.dev unavailable:** vulnerability commands need access to `api.osv.dev`.
   Advisory responses are not cached.
 - **No colours in automated output:** use `--color=always` to force ANSI codes

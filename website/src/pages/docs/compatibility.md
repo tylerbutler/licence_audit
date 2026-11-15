@@ -147,15 +147,24 @@ Optional enrichment has separate completion rules:
   advisory details are unavailable because the gate cannot evaluate severity.
 - Default `sbom` generation tolerates missing Hex or local Git dependency
   enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
-  deliberately skips Hex enrichment. Without `--offline`, `--reproducible`
-  requires metadata from locked source archives and exits `2` if it cannot
-  obtain it. `--reproducible --offline` skips all dependency enrichment,
-  including Git, and can exit `0` without dependency licence fields. Root
-  metadata, supported sources, and artifact generation/writes remain required.
+  prohibits network requests and reads local files and usable cached evidence.
+  `--reproducible` requires locked Hex/Git metadata, including offline.
+  Local metadata, locked identities, paths, and edges must be valid in each
+  mode; local cycles fail. Local components require publication verification:
+  positive records do not expire, and negative records expire at 24 hours.
+  Missing required metadata, verification, or requested pinned SPDX text
+  exits `2`; `--offline` and `--no-cache` do not waive these requirements.
+  Root metadata, supported sources, and artifact generation/writes remain required.
 
 These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.
 Scripts that relied on those codes must use `2` for operational failure.
+
+Before 1.0, `sbom --offline` changes from enrichment skipping to network
+prohibition. Warm the selected `--cache-dir` with the required online options
+before running offline. `--licence-text --offline` now accepts cached pinned
+text; missing text returns `2`. Reproducible offline runs no longer succeed
+by omitting required locked metadata.
 
 Reports, gate verdicts, and generated artifacts go to stdout unless the user
 selects an output file. Progress, warnings, and operational errors go to stderr.
@@ -221,11 +230,16 @@ defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
-`SOURCE_DATE_EPOCH`. Without `--offline`, Hex metadata comes from
+`SOURCE_DATE_EPOCH`, plus matching usable publication evidence for local
+components. Hex metadata comes from
 checksum-verified locked package archives and Git metadata comes from the
-archive at the locked commit. The combined flags omit all dependency
-enrichment, including Git. Mutable Hex publisher and OSV advisory data are not
-included. Reproducibility does not extend across tool versions.
+archive at the locked commit, or their immutable cache entries. Offline runs
+require the same evidence without network requests. The command reads local
+path metadata from current `gleam.toml` files without caching it. Local references use normalized manifest-relative paths; local
+source contents are not hashed or attested. Mutable Hex publisher and OSV advisory data are not
+included. Refreshing expired negative publication evidence can add a purl
+without changing local files; the manifest alone does not fix output over
+time. Reproducibility does not extend across tool versions.
 
 ## Internal details
 

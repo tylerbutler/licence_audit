@@ -1,0 +1,10 @@
+packages = [
+  { name = "gleam_stdlib", version = "1.0.0", requirements = [], source = "hex", outer_checksum = "0C5506589DF4C63DF5D6FFBB834562D6865C6C2AEE0019D7B37886BD6D128141" },
+  { name = "local_parent", version = "2.0.0", requirements = ["local_child", "gleam_stdlib"], source = "local", path = "../local_parent" },
+  { name = "local_child", version = "1.2.3", requirements = ["gleam_stdlib"], source = "local", path = "../nested/local_child" },
+  { name = "local_dev", version = "0.1.0", requirements = ["gleam_stdlib"], source = "path", path = "../local_dev" },
+]
+
+[requirements]
+local_parent = { path = "../local_parent" }
+local_dev = { path = "../local_dev" }
