@@ -158,6 +158,128 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
   assert string.contains(message, "has no assigned value")
 }
 
+pub fn path_values_that_look_like_aliases_are_preserved_test() {
+  use value <- list.each(["-v", "-q", "-h", "--colour", "--colour=never"])
+  use command <- list.each(optional_path_flags)
+  let #(command, names) = command
+  use name <- list.each(names)
+  let separated = list.append(command, ["--" <> name, value, "-q"])
+  let equals = list.append(command, ["--" <> name <> "=" <> value, "-q"])
+  should.equal(cli.normalize_args(separated), cli.normalize_args(equals))
+  let assert Ok(glint.Out(action)) =
+    glint.execute(cli.app(), cli.normalize_args(separated))
+  let #(paths, verbosity) = case action {
+    cli.RunReport(options) -> #(
+      [options.manifest_path, options.config_path, options.cache_path],
+      options.verbosity,
+    )
+    cli.RunAudit(options) -> #(
+      [options.manifest_path, options.config_path, options.cache_path],
+      options.verbosity,
+    )
+    cli.UpdateConfig(options) -> #(
+      [options.manifest_path, options.config_path, options.cache_path],
+      options.verbosity,
+    )
+    cli.RunSbom(options) -> #(
+      [options.manifest_path, options.cache_path, options.output],
+      options.verbosity,
+    )
+    cli.RunNotices(options) -> #(
+      [
+        options.manifest_path,
+        options.config_path,
+        options.cache_path,
+        options.output,
+      ],
+      options.verbosity,
+    )
+    cli.RunVulns(options) -> #(
+      [options.manifest_path, options.config_path],
+      options.verbosity,
+    )
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
+  }
+  should.equal(list.filter(paths, option.is_some), [Some(value)])
+  should.equal(verbosity, progress.Quiet)
+}
+
+pub fn constrained_values_that_look_like_aliases_remain_invalid_values_test() {
+  use value <- list.each(["-v", "-q", "-h", "--colour"])
+  use flag <- list.each([
+    "--color",
+    "--colour",
+    "--vuln-severity",
+    "--checks",
+    "--scope",
+  ])
+  let command = case flag {
+    "--checks" -> ["check"]
+    _ -> ["check", "--checks=all"]
+  }
+  let args = list.append(command, [flag, value])
+  let normalized = cli.normalize_args(args)
+  let canonical = case flag {
+    "--colour" -> "--color"
+    _ -> flag
+  }
+  should.equal(normalized, list.append(command, [canonical <> "=" <> value]))
+  should.equal(
+    cli.normalize_args(list.append(command, [flag <> "=" <> value])),
+    normalized,
+  )
+  case glint.execute(cli.app(), normalized) {
+    Ok(glint.Out(cli.InvalidUsage(message))) -> {
+      assert string.contains(message, value)
+    }
+    Error(message) -> {
+      assert string.contains(message, "must be one of")
+    }
+    _ -> panic as "expected an invalid value, not help or parsed options"
+  }
+}
+
+pub fn equals_values_do_not_consume_the_next_alias_test() {
+  let options =
+    parse_options([
+      "--manifest=-h",
+      "--config=--colour",
+      "--cache-path=-q",
+      "-v",
+    ])
+  should.equal(options.manifest_path, Some("-h"))
+  should.equal(options.config_path, Some("--colour"))
+  should.equal(options.cache_path, Some("-q"))
+  should.equal(options.verbosity, progress.Verbose)
+}
+
+pub fn separated_colour_alias_accepts_a_value_test() {
+  let options = parse_options(["--colour", "never", "-q"])
+  should.equal(options.color, color.Never)
+  should.equal(options.verbosity, progress.Quiet)
+}
+
+pub fn missing_colour_alias_value_returns_usage_error_test() {
+  let message = usage_error(["--colour"])
+  assert string.contains(message, "color")
+  assert string.contains(message, "has no assigned value")
+}
+
+pub fn separators_remain_unsupported_and_do_not_rewrite_aliases_test() {
+  should.equal(cli.normalize_args(["--", "-h", "--colour"]), [
+    "--",
+    "-h",
+    "--colour",
+  ])
+  let message = usage_error(["--", "-h"])
+  assert string.contains(message, "flag provided but not defined")
+  let args = ["sbom", "--output", "--", "-v"]
+  should.equal(cli.normalize_args(args), args)
+  let message = usage_error(args)
+  assert string.contains(message, "output")
+  assert string.contains(message, "has no assigned value")
+}
+
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
   let options = parse_options(["check", "--checks=all", "--vuln-block-unknown"])
 
@@ -435,7 +557,6 @@ pub fn update_subcommand_parses_defaults_test() {
 
   should.equal(options.manifest_path, None)
   should.equal(options.config_path, None)
-  should.equal(options.ignore_config, False)
   should.equal(options.verbosity, progress.Normal)
   should.equal(options.color, color.Auto)
   should.equal(options.no_cache, False)
@@ -448,7 +569,6 @@ pub fn update_subcommand_parses_supported_flags_test() {
       "update",
       "--config=audit.toml",
       "--manifest=locked.toml",
-      "--ignore-config",
       "--verbose",
       "--color=never",
       "--no-cache",
@@ -457,11 +577,36 @@ pub fn update_subcommand_parses_supported_flags_test() {
 
   should.equal(options.config_path, Some("audit.toml"))
   should.equal(options.manifest_path, Some("locked.toml"))
-  should.equal(options.ignore_config, True)
   should.equal(options.verbosity, progress.Verbose)
   should.equal(options.color, color.Never)
   should.equal(options.no_cache, True)
   should.equal(options.cache_path, Some("/tmp/licence-audit.dets"))
+}
+
+pub fn update_rejects_ignore_config_forms_but_read_only_commands_keep_them_test() {
+  list.each(
+    [
+      ["--ignore-config"],
+      ["--ignore-config=true"],
+      ["--ignore-config=false"],
+      ["--ignore-config="],
+      ["--ignore-config", "true"],
+      ["--ignore-config", "false"],
+    ],
+    fn(flags) {
+      let message = usage_error(["update", ..flags])
+      assert string.contains(message, "ignore-config")
+    },
+  )
+  list.each([[], ["check"], ["vulns"], ["notices"]], fn(command) {
+    list.each(
+      ["--ignore-config", "--ignore-config=true", "--ignore-config=false"],
+      fn(flag) {
+        let assert Ok(glint.Out(_)) =
+          glint.execute(cli.app(), list.append(command, [flag]))
+      },
+    )
+  })
 }
 
 pub fn default_color_mode_is_auto_test() {
@@ -577,14 +722,95 @@ pub fn sbom_subcommand_parses_defaults_test() {
   should.equal(options.license_text, False)
 }
 
-pub fn sbom_license_text_allows_reproducible_but_rejects_offline_test() {
+pub fn sbom_licence_text_spellings_preserve_boolean_values_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use value <- list.each([#("", True), #("=true", True), #("=false", False)])
+  let #(suffix, expected) = value
   let assert Ok(glint.Out(cli.RunSbom(options))) =
-    glint.execute(cli.app(), ["sbom", "--license-text", "--reproducible"])
+    glint.execute(cli.app(), cli.normalize_args(["sbom", spelling <> suffix]))
+  should.equal(options.license_text, expected)
+}
+
+pub fn sbom_licence_text_spellings_reject_malformed_booleans_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use value <- list.each(["", "yes", "1", "true=false"])
+  let message = usage_error(["sbom", spelling <> "=" <> value])
+  assert string.contains(message, "licence-text")
+  assert string.contains(message, "cannot parse")
+}
+
+pub fn sbom_licence_text_mixed_spellings_follow_repeated_flag_behavior_test() {
+  use first <- list.each(["", "=true", "=false"])
+  use second <- list.each(["", "=true", "=false"])
+  let assert Ok(glint.Out(cli.RunSbom(expected))) =
+    glint.execute(cli.app(), [
+      "sbom",
+      "--licence-text" <> first,
+      "--licence-text" <> second,
+    ])
+  use spellings <- list.each([
+    #("--licence-text", "--license-text"),
+    #("--license-text", "--licence-text"),
+    #("--license-text", "--license-text"),
+  ])
+  let assert Ok(glint.Out(cli.RunSbom(actual))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args([
+        "sbom",
+        spellings.0 <> first,
+        spellings.1 <> second,
+      ]),
+    )
+  should.equal(actual, expected)
+}
+
+pub fn sbom_licence_text_alias_does_not_rewrite_flag_values_test() {
+  use value <- list.each([
+    "--license-text",
+    "--license-text=true",
+    "--license-text=false",
+    "prefix--license-text",
+  ])
+  use flags <- list.each([
+    ["--output=" <> value],
+    ["--output", value],
+  ])
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(cli.app(), cli.normalize_args(["sbom", ..flags]))
+  should.equal(options.output, Some(value))
+  should.equal(options.license_text, False)
+}
+
+pub fn sbom_licence_text_help_lists_primary_and_supported_alias_test() {
+  let help = help_text(["sbom", "--help"])
+  assert string.contains(help, "--licence-text")
+  assert string.contains(help, "alias: --license-text")
+}
+
+pub fn sbom_licence_text_allows_reproducible_but_rejects_offline_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use suffix <- list.each(["", "=true"])
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(["sbom", spelling <> suffix, "--reproducible"]),
+    )
   should.equal(options.license_text, True)
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), ["sbom", "--license-text", "--offline"])
-  assert string.contains(message, "--license-text")
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(["sbom", spelling <> suffix, "--offline"]),
+    )
+  assert string.contains(message, "--licence-text")
   assert string.contains(message, "--offline")
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(["sbom", spelling <> "=false", "--offline"]),
+    )
+  should.equal(options.license_text, False)
+  should.equal(options.offline, True)
 }
 
 pub fn sbom_subcommand_parses_reproducible_flag_test() {
@@ -666,7 +892,7 @@ pub fn all_commands_reject_conflicting_aliases_and_invalid_colors_test() {
 pub fn command_specific_flag_matrix_test() {
   use entry <- list.each([
     #("--config=custom.toml", [True, True, True, False, True, True]),
-    #("--ignore-config", [True, True, True, False, True, True]),
+    #("--ignore-config", [True, True, False, False, True, True]),
     #("--no-cache", [True, True, True, True, False, True]),
     #("--cache-path=custom.cache", [True, True, True, True, False, True]),
     #("--scope=prod", [True, True, False, False, True, True]),
@@ -678,11 +904,16 @@ pub fn command_specific_flag_matrix_test() {
     #("--checks=all", [False, True, False, False, False, False]),
     #("--offline", [False, False, False, True, False, False]),
     #("--reproducible", [False, False, False, True, False, False]),
+    #("--licence-text", [False, False, False, True, False, False]),
     #("--license-text", [False, False, False, True, False, False]),
     #("--version", [False, False, False, False, False, False]),
   ])
   use command <- list.each(list.zip(commands, entry.1))
-  let result = glint.execute(cli.app(), list.append(command.0, [entry.0]))
+  let result =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(list.append(command.0, [entry.0])),
+    )
   case command.1 {
     True -> {
       let assert Ok(glint.Out(_)) = result
@@ -695,9 +926,15 @@ pub fn command_specific_flag_matrix_test() {
 
 pub fn dependency_scope_defaults_and_values_test() {
   use command <- list.each([[], ["report"], ["check"], ["vulns"], ["notices"]])
-  use flags <- list.each([[], ["--scope=prod"], ["--scope=all"]])
+  use flags <- list.each([
+    [],
+    ["--scope=prod"],
+    ["--scope=all"],
+    ["--scope", "prod"],
+    ["--scope", "all"],
+  ])
   let assert Ok(glint.Out(action)) =
-    glint.execute(cli.app(), list.append(command, flags))
+    glint.execute(cli.app(), cli.normalize_args(list.append(command, flags)))
   let scope = case action {
     cli.RunReport(options) -> options.scope
     cli.RunAudit(options) -> options.scope
@@ -709,7 +946,7 @@ pub fn dependency_scope_defaults_and_values_test() {
     | cli.InvalidUsage(_) -> panic as "expected scoped command"
   }
   should.equal(scope, case flags, command {
-    ["--scope=prod"], _ | [], ["notices"] -> cli.Prod
+    ["--scope=prod"], _ | ["--scope", "prod"], _ | [], ["notices"] -> cli.Prod
     _, _ -> cli.All
   })
 }
@@ -748,7 +985,11 @@ pub fn check_selection_accepts_only_supported_values_test() {
       #("all", cli.AllChecks),
     ],
     fn(selection) {
-      let options = parse_options(["check", "--checks=" <> selection.0])
+      use flags <- list.each([
+        ["--checks=" <> selection.0],
+        ["--checks", selection.0],
+      ])
+      let options = parse_options(["check", ..flags])
       should.equal(options.checks, selection.1)
     },
   )

@@ -51,7 +51,6 @@ pub type UpdateOptions {
   UpdateOptions(
     manifest_path: Option(String),
     config_path: Option(String),
-    ignore_config: Bool,
     verbosity: progress.Verbosity,
     color: color.Mode,
     no_cache: Bool,
@@ -127,21 +126,60 @@ pub fn app() -> glint.Glint(CliAction) {
 }
 
 pub fn normalize_args(args: List(String)) -> List(String) {
-  list.map(args, fn(arg) {
-    case arg {
-      "-h" -> "--help"
-      "-q" -> "--quiet"
-      "-v" -> "--verbose"
-      "--colour" -> "--color"
-      other -> {
-        case string.starts_with(other, "--colour=") {
-          True ->
-            "--color=" <> string.drop_start(other, string.length("--colour="))
-          False -> other
-        }
+  let tree = glint.document(app())
+  let value_flags =
+    [tree, ..tree.subcommands]
+    |> list.flat_map(fn(command) { command.flags })
+    |> list.filter(fn(flag) { flag.type_ != "BOOL" })
+    |> list.map(fn(flag) { "--" <> flag.meta.name })
+  normalize_values(args, value_flags, [])
+}
+
+fn normalize_values(
+  args: List(String),
+  value_flags: List(String),
+  normalized: List(String),
+) -> List(String) {
+  case args {
+    [] -> list.reverse(normalized)
+    // Glint rejects separators; leave this suffix untouched for its usage error.
+    ["--", ..] -> list.append(list.reverse(normalized), args)
+    [arg, ..rest] -> {
+      let arg = normalize_alias(arg)
+      case list.contains(value_flags, arg), rest {
+        True, [value, ..remaining] if value != "--" ->
+          // Glint only accepts values in --flag=value form.
+          normalize_values(remaining, value_flags, [
+            arg <> "=" <> value,
+            ..normalized
+          ])
+        _, _ -> normalize_values(rest, value_flags, [arg, ..normalized])
       }
     }
-  })
+  }
+}
+
+fn normalize_alias(arg: String) -> String {
+  case arg {
+    "-h" -> "--help"
+    "-q" -> "--quiet"
+    "-v" -> "--verbose"
+    "--colour" -> "--color"
+    "--license-text" -> "--licence-text"
+    other -> {
+      case
+        string.starts_with(other, "--colour="),
+        string.starts_with(other, "--license-text=")
+      {
+        True, _ ->
+          "--color=" <> string.drop_start(other, string.length("--colour="))
+        _, True ->
+          "--licence-text="
+          <> string.drop_start(other, string.length("--license-text="))
+        False, False -> other
+      }
+    }
+  }
 }
 
 fn root_command() -> glint.Command(CliAction) {
@@ -398,7 +436,6 @@ fn update_command() -> glint.Command(CliAction) {
   use <- glint.unnamed_args(glint.EqArgs(0))
   use config <- glint.optional_flag(config_flag())
   use manifest <- glint.optional_flag(manifest_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
@@ -408,7 +445,6 @@ fn update_command() -> glint.Command(CliAction) {
 
   let assert Ok(config_path) = config(flags)
   let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(ignore_config) = ignore_config(flags)
   let assert Ok(quiet) = quiet(flags)
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
@@ -422,7 +458,6 @@ fn update_command() -> glint.Command(CliAction) {
       UpdateConfig(UpdateOptions(
         manifest_path: manifest_path,
         config_path: config_path,
-        ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
@@ -479,10 +514,10 @@ fn sbom_command() -> glint.Command(CliAction) {
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
   use license_text <- glint.flag(
-    glint.bool_flag("license-text")
+    glint.bool_flag("licence-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline)",
+      "Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline; alias: --license-text)",
     ),
   )
   use _, _, flags <- glint.command()
@@ -517,7 +552,7 @@ fn sbom_command() -> glint.Command(CliAction) {
         "--vulns uses mutable advisory data and cannot be combined with --reproducible",
       )
     _, _, _, True, _ ->
-      InvalidUsage("--license-text cannot be combined with --offline")
+      InvalidUsage("--licence-text cannot be combined with --offline")
     _, _, _, _, Error(color_error) ->
       InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), False, False, False, Ok(color_mode) ->

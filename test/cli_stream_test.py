@@ -134,6 +134,53 @@ class CliStreamTest(unittest.TestCase):
                             self.assertEqual(result.stdout, "")
                             self.assertIn("invalid flag", result.stderr)
 
+    def test_update_rejects_ignore_config_before_loading_files(self):
+        for flags in (
+            ["--ignore-config"],
+            ["--ignore-config=true"],
+            ["--ignore-config=false"],
+            ["--ignore-config="],
+            ["--ignore-config", "true"],
+            ["--ignore-config", "false"],
+        ):
+            with self.subTest(flags=flags):
+                result = self.run_cli("update", "--quiet", *flags)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("invalid flag 'ignore-config'", result.stderr)
+                self.assertNotIn("Could not read", result.stderr)
+
+    def test_update_validates_explicit_target_before_manifest_or_picker(self):
+        target = self.project / "policy.toml"
+        for original in (
+            "name = [",
+            "[tools.licence_audit]\nallow = true\n",
+            "[[tools.licence_audit.exceptions]]\nreason = 'Missing finding'\n",
+        ):
+            with self.subTest(original=original):
+                target.write_text(original)
+                result = self.run_cli(
+                    "update", "--config=policy.toml", "--quiet", "--no-cache"
+                )
+                self.assert_diagnostic(result)
+                self.assertNotIn("manifest", result.stderr)
+                self.assertNotIn("interactive terminal", result.stderr)
+                self.assertEqual(target.read_text(), original)
+
+    def test_update_missing_policy_reaches_terminal_requirement_without_writing(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for target in (None, "policy.toml", "missing.toml"):
+            with self.subTest(target=target):
+                path = self.project / (target or "gleam.toml")
+                if target != "missing.toml":
+                    path.write_text("# Keep settings\nname = 'stream_fixture'\n")
+                original = path.read_bytes() if path.exists() else None
+                flags = [f"--config={target}"] if target else []
+                result = self.run_cli("update", "--quiet", "--no-cache", *flags)
+                self.assert_diagnostic(result, status=1)
+                self.assertIn("interactive terminal", result.stderr)
+                self.assertEqual(path.read_bytes() if path.exists() else None, original)
+
     def test_vulnerability_flags_require_scan_before_reading_manifest(self):
         for flags in (
             ["--vuln-severity=critical"],

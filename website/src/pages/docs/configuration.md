@@ -46,7 +46,8 @@ of the default policy file:
 licence_audit check --manifest=apps/server/manifest.toml --config=policies/server.toml
 ```
 
-For `report`, licence-only or combined `check`, `update`, and `vulns`, the explicit file must
+For the default report, `report`, licence-only or combined `check`, and `vulns`,
+the explicit file must
 contain `[tools.licence_audit]`. A file without this section causes an error
 with exit code `2`. The error names the file and missing section.
 An empty section counts as present, but does not
@@ -63,6 +64,10 @@ deny = ["GPL-3.0-only"]
 `[tools.licence_audit.notices]` means no filters; it does not require a licence
 policy section.
 
+`update` can create `[tools.licence_audit]` in a valid explicit target without
+that section. It can also create a missing target file if its parent directory
+exists.
+
 Selecting another configuration file does not change the project root.
 Dependency scope and project metadata still come from the `gleam.toml` beside
 the manifest. `sbom` does not accept `--config`; it uses that project's metadata.
@@ -74,7 +79,7 @@ Use `--config=policies/release.toml` to select an alternate policy.
 Edit the TOML file or use the interactive `update` command to change the lists.
 See [policy rules](/docs/check) for how the lists affect findings.
 
-On commands that accept `--ignore-config`, this option bypasses tool
+On read-only commands that accept `--ignore-config`, this option bypasses tool
 configuration reads, including exceptions and notices filters. It takes
 precedence over `--config`: the command does not read or validate the named
 policy file. It does not disable project metadata reads.
@@ -92,11 +97,25 @@ Read-only commands do not change the selected file.
 ## Update write target
 
 `update` writes to the file selected by `--config`, or to the `gleam.toml`
-beside the manifest if you omit `--config`. `--ignore-config` clears the
-preselection but does not change this write target.
+beside the manifest if you omit `--config`. It creates a missing policy section
+in either target. A missing target file is a supported creation case if its
+parent directory exists.
 
-If an explicit target exists but has no policy section, `update` fails before
-fetching metadata, showing the picker, or writing the file. Use
-`--ignore-config` to start a new selection in that file. A missing target file
-is a supported creation case for `update`; its parent directory must exist.
-The command preserves unrelated configuration and comments when it writes.
+Before fetching metadata or showing the picker, `update` validates the target's
+TOML, existing policy, and exceptions. Invalid input causes exit code `2` and
+leaves the file intact. The picker preselects valid allow and deny entries; you
+can clear or change them. The command preserves unrelated settings, comments,
+exceptions, and permissions with an atomic replacement.
+
+```sh
+# Create or update the policy in an alternate target.
+licence_audit update --config=policies/server.toml
+```
+
+## Update migration
+
+Remove `--ignore-config`, including `=true` and `=false`, from `update` commands.
+`update` has no alias for this flag. To start a new selection, clear the
+preselected entries in the picker. To initialize an existing target without a
+policy section, use `update --config=PATH`; no bypass flag is needed.
+Read-only commands keep `--ignore-config`.

@@ -489,8 +489,8 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
     )
 
   [
-    [],
-    ["report"],
+    ["--ignore-config"],
+    ["report", "--ignore-config"],
     ["check", test_policy.flag(["MIT"], [])],
     ["check", test_policy.flag(["MIT"], []), "--checks=all"],
     ["update"],
@@ -1979,7 +1979,6 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
       root <> "/manifest.toml",
       root,
       None,
-      False,
       True,
       None,
       clients.notice_clients,
@@ -2416,17 +2415,29 @@ pub fn sbom_license_text_is_opt_in_and_fetches_shared_id_once_test() {
   should.equal(plain.exit_code, 0)
   assert !string.contains(plain.output, "\"text\":")
   should.equal(record_detail_fetch("sbom-license-text"), 1)
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  use value <- list.each([#("", True), #("=true", True), #("=false", False)])
+  let #(suffix, enabled) = value
   reset_detail_fetch("sbom-license-text")
   let enriched =
     licence_audit.run_configured(
-      list.append(args, ["--license-text"]),
+      list.append(args, [spelling <> suffix]),
       clients,
       progress.disabled(),
     ).0
   should.equal(enriched.exit_code, 0)
-  should.equal(record_detail_fetch("sbom-license-text"), 2)
-  assert string.contains(enriched.output, "\"contentType\": \"text/plain\"")
-  assert string.contains(enriched.output, "Canonical SPDX text\\n")
+  should.equal(record_detail_fetch("sbom-license-text"), case enabled {
+    True -> 2
+    False -> 1
+  })
+  should.equal(
+    string.contains(enriched.output, "\"contentType\": \"text/plain\""),
+    enabled,
+  )
+  should.equal(
+    string.contains(enriched.output, "Canonical SPDX text\\n"),
+    enabled,
+  )
 }
 
 pub fn sbom_license_text_fetch_failures_leave_output_untouched_test() {
@@ -2439,13 +2450,14 @@ pub fn sbom_license_text_fetch_failures_leave_output_untouched_test() {
       Ok(Some(" \r\n\t")),
     ],
     fn(response) {
+      use spelling <- list.each(["--licence-text", "--license-text"])
       let assert Ok(Nil) = simplifile.write(output, "previous output")
       let result =
         licence_audit.run_configured(
           [
             "sbom",
             "--manifest=test/fixtures/manifest_github_git.toml",
-            "--license-text",
+            spelling,
             "--output=" <> output,
           ],
           licence_audit.Clients(
@@ -2843,6 +2855,58 @@ fn reproducible_sbom_clients() -> notice.Clients {
     fetch_repo_archive: fn(_repo, _commit) { Error(notice.FetchNetworkFailure) },
     fetch_spdx_index: fn(_kind) { Error(notice.FetchNetworkFailure) },
     fetch_spdx: fn(_requirement) { Error(notice.FetchNetworkFailure) },
+  )
+}
+
+pub fn sbom_licence_text_spellings_produce_identical_reproducible_output_test() {
+  let root = "build/sbom-licence-text-alias"
+  let assert Ok(Nil) = simplifile.create_directory_all(root)
+  let assert Ok(archive) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/gleam.toml",
+      contents: "name = \"fixture\"\nversion = \"1.0.0\"\n",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      to: root <> "/manifest.toml",
+      contents: "packages = [{ name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \""
+        <> checksum
+        <> "\" }]\n[requirements]\nhex_dep = \"1.0.0\"\n",
+    )
+  let args = [
+    "sbom",
+    "--reproducible",
+    "--manifest=" <> root <> "/manifest.toml",
+  ]
+  let clients =
+    licence_audit.Clients(
+      ..test_clients(fn(_) { panic as "must use locked metadata" }),
+      notice_clients: notice.Clients(
+        ..reproducible_sbom_clients(),
+        fetch_spdx: fn(_) { Ok(Some("Canonical SPDX text\n")) },
+      ),
+    )
+  use suffix <- list.each(["", "=true", "=false"])
+  let primary =
+    licence_audit.run_configured(
+      list.append(args, ["--licence-text" <> suffix]),
+      clients,
+      progress.disabled(),
+    ).0
+  let alias =
+    licence_audit.run_configured(
+      list.append(args, ["--license-text" <> suffix]),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(primary.exit_code, 0)
+  should.equal(alias, primary)
+  should.equal(
+    string.contains(primary.output, "Canonical SPDX text\\n"),
+    suffix != "=false",
   )
 }
 
