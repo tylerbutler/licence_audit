@@ -3,7 +3,6 @@
 //// policy, then write the result back to `gleam.toml` under
 //// `[tools.licence_audit]`.
 
-import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -29,7 +28,6 @@ pub fn run(
   manifest_path: String,
   project_root: String,
   config_path: Option(String),
-  ignore_config: Bool,
   no_cache: Bool,
   cache_root: Option(String),
   source_clients: notice.Clients,
@@ -39,7 +37,6 @@ pub fn run(
     manifest_path,
     project_root,
     config_path,
-    ignore_config,
     no_cache,
     cache_root,
     source_clients,
@@ -54,7 +51,6 @@ pub fn run_with_picker(
   manifest_path: String,
   project_root: String,
   config_path: Option(String),
-  ignore_config: Bool,
   no_cache: Bool,
   cache_root: Option(String),
   source_clients: notice.Clients,
@@ -66,7 +62,7 @@ pub fn run_with_picker(
 
   let outcome = {
     use existing <- result.try(
-      load_existing_policy(config_path, project_root, ignore_config)
+      load_existing_policy(config_path, project_root)
       |> result.map_error(fn(config_error) {
         #(
           UpdateDiagnostic(
@@ -213,6 +209,7 @@ fn write_selection(
       let exit_code = case error {
         FileReadFailed(_, _) -> error.exit_code(error.Input(message))
         TomlEditFailed(_) -> error.exit_code(error.Config(message))
+        InvalidPolicy(_) -> error.exit_code(error.Config(message))
         FileWriteFailed(_) -> error.exit_code(error.Input(message))
       }
       let reporter = progress.fail(reporter, message)
@@ -287,27 +284,21 @@ fn discover_licences(
 fn load_existing_policy(
   config_path: Option(String),
   project_root: String,
-  ignore_config: Bool,
 ) -> Result(config.Policy, config.Error) {
-  use <- bool.guard(when: ignore_config, return: Ok(empty_policy()))
-  let load_result =
-    config.load(config.LoadOptions(
-      config_path: config_path,
-      project_root: project_root,
-      allow_licences: [],
-      deny_licences: [],
-      vuln_severity: None,
-      vuln_block_unknown: False,
-      ignore_config: False,
-      check: False,
-    ))
-  case load_result {
+  let path = resolve_output_path(config_path, project_root)
+  case simplifile.read(path) {
+    Ok(contents) -> parse_existing_policy(contents)
+    Error(simplifile.Enoent) -> Ok(empty_policy())
+    Error(_) -> Error(config.FileReadError(path))
+  }
+}
+
+fn parse_existing_policy(
+  contents: String,
+) -> Result(config.Policy, config.Error) {
+  case config.parse(contents) {
     Ok(policy) -> Ok(policy)
-    Error(config.FileReadError(path) as error) ->
-      case simplifile.read(path) {
-        Error(simplifile.Enoent) -> Ok(empty_policy())
-        Ok(_) | Error(_) -> Error(error)
-      }
+    Error(config.MissingPolicy) -> Ok(empty_policy())
     Error(error) -> Error(error)
   }
 }
@@ -352,6 +343,7 @@ fn resolve_output_path(
 
 type WriteError {
   TomlEditFailed(toml.Error)
+  InvalidPolicy(config.Error)
   FileReadFailed(path: String, reason: simplifile.FileError)
   FileWriteFailed(path: String)
 }
@@ -359,6 +351,7 @@ type WriteError {
 fn write_error_message(error: WriteError) -> String {
   case error {
     TomlEditFailed(e) -> toml.error_message(e)
+    InvalidPolicy(e) -> error.message(error.from_config_error(e))
     FileReadFailed(path, reason) ->
       "Failed to read " <> path <> ": " <> simplifile.describe_error(reason)
     FileWriteFailed(path) -> "Failed to write " <> path
@@ -375,6 +368,9 @@ fn write_policy(
     Error(simplifile.Enoent) -> Ok("")
     Error(reason) -> Error(FileReadFailed(path, reason))
   })
+  use _ <- result.try(
+    parse_existing_policy(existing) |> result.map_error(InvalidPolicy),
+  )
   let section = ["tools", "licence_audit"]
   case toml.set_string_array(existing, section, "allow", allow) {
     Error(e) -> Error(TomlEditFailed(e))

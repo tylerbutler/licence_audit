@@ -198,29 +198,7 @@ pub fn discovery_does_not_search_above_manifest_directory_test() {
   assert string.contains(result.output, "requires a non-empty allow list")
 }
 
-pub fn update_rejects_missing_section_before_fetch_picker_or_write_test() {
-  let assert Ok(original) = simplifile.read(missing_section)
-  let #(result, _) =
-    update.run_with_picker(
-      fixture_root <> "/project/manifest.toml",
-      fixture_root,
-      Some(missing_section),
-      False,
-      True,
-      None,
-      source_archive_test.metadata_clients(unused_fetcher),
-      fn(_title, _labels, _allow, _deny) {
-        panic as "invalid configuration must stop before selection"
-      },
-      progress.disabled(),
-    )
-  should.equal(result.exit_code, 2)
-  assert string.contains(result.output, missing_section)
-  assert string.contains(result.output, "missing [tools.licence_audit]")
-  should.equal(simplifile.read(missing_section), Ok(original))
-}
-
-pub fn update_ignore_config_keeps_explicit_write_target_test() {
+pub fn update_creates_missing_section_in_explicit_write_target_test() {
   let path = "build/config-discovery-update.toml"
   let assert Ok(_) = simplifile.write(path, "name = \"project\"\n")
   let #(result, _) =
@@ -228,7 +206,6 @@ pub fn update_ignore_config_keeps_explicit_write_target_test() {
       fixture_root <> "/project/manifest.toml",
       fixture_root,
       Some(path),
-      True,
       True,
       None,
       source_archive_test.metadata_clients(metadata_fetcher),

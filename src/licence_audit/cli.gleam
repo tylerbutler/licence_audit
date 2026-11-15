@@ -55,7 +55,6 @@ pub type UpdateOptions {
   UpdateOptions(
     manifest_path: Option(String),
     config_path: Option(String),
-    ignore_config: Bool,
     verbosity: progress.Verbosity,
     color: color.Mode,
     no_cache: Bool,
@@ -467,7 +466,6 @@ fn update_command() -> glint.Command(CliAction) {
   use <- glint.unnamed_args(glint.EqArgs(0))
   use config <- glint.optional_flag(config_flag())
   use manifest <- glint.optional_flag(manifest_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
@@ -477,7 +475,6 @@ fn update_command() -> glint.Command(CliAction) {
 
   let assert Ok(config_path) = config(flags)
   let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(ignore_config) = ignore_config(flags)
   let assert Ok(quiet) = quiet(flags)
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
@@ -491,7 +488,6 @@ fn update_command() -> glint.Command(CliAction) {
       UpdateConfig(UpdateOptions(
         manifest_path: manifest_path,
         config_path: config_path,
-        ignore_config: ignore_config,
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
