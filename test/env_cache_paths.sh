@@ -57,8 +57,8 @@ for variable in XDG_CACHE_HOME HOME; do
       Root = unicode:characters_to_binary(os:getenv("CACHE_TEST_ROOT")),
       {ok, Root} = env_ffi:get(Variable),
       {ok, Store} = licence_audit@cache_dir:open_table(none, <<"hex-v2">>, <<"licence">>),
-      Key = <<"gleam_stdlib@1.0.5">>,
-      {ok, nil} = licence_audit@cache_dir:insert_at(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>, {some, erlang:system_time(second)}),
+      Key = <<"$immutable:v2:gleam_stdlib@1.0.5@hex:CEE5B6C076A85B45F60C585F4316C63EC8B7127C119D5738C3958A9C4D50404E">>,
+      {ok, nil} = licence_audit@cache_dir:insert(Store, Key, <<"{\"licences\":[\"Apache-2.0\"],\"links\":[]}">>),
       Expected = filename:join(os:getenv("CACHE_TEST_EXPECTED"), "hex-v2"),
       [_] = filelib:wildcard(filename:join(Expected, "*.json")),
       halt().
@@ -69,7 +69,7 @@ for variable in XDG_CACHE_HOME HOME; do
   (
     cd "$work"
     if ! "${environment[@]}" timeout --kill-after=5s 30s "$binary" \
-      --verbose --color=never >cli.log 2>&1; then
+      report --verbose --color=never >cli.log 2>&1; then
       cat cli.log >&2
       exit 1
     fi

@@ -64,6 +64,12 @@ locked graph and each component's production or development scope.
 
 ## Commands and configuration
 
+`licence_audit report` is an explicit form of the default licence report.
+Bare invocation and root scan flags remain supported; no migration is
+required. Both forms use the same report options and behavior.
+There is no `audit` alias. Root `--help`, `-h`, and `--version` still work
+without reading project files or making network calls.
+
 Existing documented commands, flags, aliases, and valid argument forms remain
 available within a major version. We preserve their meanings, defaults, and
 documented environment-variable controls.

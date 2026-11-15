@@ -1,12 +1,14 @@
 //// Read-through cache for package metadata.
 ////
 //// Mutable Hex API entries are keyed by `name@version` and expire after seven
-//// days. Reproducible SBOM entries are keyed by an archive checksum or commit
-//// and never expire. Returned storage errors fall back to the source fetcher
-//// and record a deferred warning. Use `--no-cache` to bypass the cache.
+//// days. Locked licence and reproducible SBOM entries are keyed by an archive
+//// checksum or commit and never expire. Returned storage errors fall back to
+//// the source fetcher and record a deferred warning. Use `--no-cache` to bypass
+//// the cache.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import gleam/time/timestamp
 
 import licence_audit/cache_dir
@@ -144,24 +146,67 @@ pub fn fetch_immutable(
   key: String,
   fetcher: fn() -> Result(hex.PackageMetadata, error),
 ) -> #(Result(hex.PackageMetadata, error), Option(String)) {
+  let #(metadata, warning, _) = immutable_entry(cache, key, fetcher)
+  #(metadata, warning)
+}
+
+fn immutable_entry(
+  cache: Cache,
+  key: String,
+  fetcher: fn() -> Result(hex.PackageMetadata, error),
+) -> #(Result(hex.PackageMetadata, error), Option(String), Bool) {
   let key = "$immutable:v2:" <> key
   case cache.table {
-    None -> #(fetcher(), None)
-    Some(table) -> {
-      use cached <- cache_dir.with_warning(lookup_stale(table, key))
-      case cached {
-        Ok(metadata) -> #(Ok(metadata), None)
-        Error(_) ->
-          case fetcher() {
-            Error(error) -> #(Error(error), None)
-            Ok(metadata) -> {
-              let stored =
-                cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
-              #(Ok(metadata), write_warning(stored))
-            }
-          }
+    None -> #(fetcher(), None, False)
+    Some(table) -> immutable_table_entry(table, key, fetcher)
+  }
+}
+
+fn immutable_table_entry(
+  table: cache_dir.Store,
+  key: String,
+  fetcher: fn() -> Result(hex.PackageMetadata, error),
+) -> #(Result(hex.PackageMetadata, error), Option(String), Bool) {
+  let #(cached, warning) = lookup_stale(table, key)
+  case cached {
+    Ok(metadata) -> #(Ok(metadata), warning, True)
+    Error(_) ->
+      case fetcher() {
+        Error(error) -> #(Error(error), warning, False)
+        Ok(metadata) -> {
+          let stored =
+            cache_dir.insert(table, key, hex.encode_cache_entry(metadata))
+          #(Ok(metadata), option.or(write_warning(stored), warning), False)
+        }
       }
-    }
+  }
+}
+
+/// Read locked Hex metadata through the same immutable cache as reproducible SBOMs.
+pub fn wrap_locked(
+  cache: Cache,
+  fetcher: fn(String, String, String) -> Result(hex.PackageMetadata, error),
+) -> fn(manifest.Package, progress.Reporter) ->
+  #(Result(hex.PackageMetadata, error), progress.Reporter) {
+  fn(package: manifest.Package, reporter: progress.Reporter) {
+    let key =
+      package.name
+      <> "@"
+      <> package.version
+      <> "@hex:"
+      <> string.uppercase(package.outer_checksum)
+    let reporter =
+      progress.detail(reporter, "Reading locked metadata for " <> key)
+    let #(metadata, warning, hit) =
+      immutable_entry(cache, key, fn() {
+        fetcher(package.name, package.version, package.outer_checksum)
+      })
+    let reporter =
+      progress.detail(reporter, case hit {
+        True -> "Cache hit for " <> key
+        False -> "Cache miss for " <> key
+      })
+    #(metadata, defer_warning(reporter, warning))
   }
 }
 

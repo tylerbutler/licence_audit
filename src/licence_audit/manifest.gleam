@@ -16,7 +16,12 @@ pub type Scope {
 }
 
 pub type Package {
-  Package(name: String, version: String, requirements: List(String))
+  Package(
+    name: String,
+    version: String,
+    requirements: List(String),
+    outer_checksum: String,
+  )
 }
 
 /// A node in the full dependency graph. Includes non-Hex packages so that
@@ -254,6 +259,7 @@ type RawPackage {
     version: String,
     source: String,
     requirements: List(String),
+    outer_checksum: String,
   )
 }
 
@@ -300,6 +306,7 @@ fn build_locked(
               name: raw.name,
               version: raw.version,
               requirements: raw.requirements,
+              outer_checksum: raw.outer_checksum,
             )
           #([package, ..hex_acc], skipped_pkgs_acc, [node, ..graph_acc])
         }
@@ -515,6 +522,7 @@ fn decode_package(package: Value) -> Result(#(RawPackage, toml.Entry), Error) {
           version: version,
           source: source,
           requirements: requirements,
+          outer_checksum: "",
         ),
         package,
       ))
@@ -523,7 +531,32 @@ fn decode_package(package: Value) -> Result(#(RawPackage, toml.Entry), Error) {
 }
 
 fn decode_audit_package(package: Value) -> Result(RawPackage, Error) {
-  decode_package(package) |> result.map(fn(pair) { pair.0 })
+  use #(raw, table) <- result.try(decode_package(package))
+  case raw.source {
+    "hex" -> {
+      use checksum <- result.try(required_string(
+        table,
+        "outer_checksum",
+        raw.name,
+      ))
+      case
+        string.length(checksum) == 64
+        && list.all(
+          string.to_graphemes(string.lowercase(checksum)),
+          fn(character) { string.contains("0123456789abcdef", character) },
+        )
+      {
+        True -> Ok(RawPackage(..raw, outer_checksum: checksum))
+        False ->
+          Error(InvalidPackageField(
+            raw.name,
+            "outer_checksum",
+            "SHA-256 checksum (64 hexadecimal characters)",
+          ))
+      }
+    }
+    _ -> Ok(raw)
+  }
 }
 
 fn optional_string_list(
