@@ -102,7 +102,7 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--manifest` | `STRING` |  | Read manifest from PATH |

@@ -161,12 +161,13 @@ jobs:
       - name: Test documentation generation
         run: just --no-deps test-docs
 
-      - name: Cache Hex licence metadata
+      - name: Cache licence_audit application data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
         with:
           path: .hex-cache
-          key: hex-licence-v4-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+          key: licence-audit-root-v1-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
           restore-keys: |
+            licence-audit-root-v1-${{ runner.os }}-
             hex-licence-v4-${{ runner.os }}-
 
       - name: Generate SBOM

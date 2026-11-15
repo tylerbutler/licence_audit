@@ -77,30 +77,25 @@ fn describe_path_error(error: PathError) -> String {
   }
 }
 
-fn resolve_path(
-  override: Option(String),
-  directory: String,
-) -> Result(String, PathError) {
+/// Resolve the application root without creating or inspecting any directory.
+/// An explicit root bypasses environment discovery for every cache family.
+fn resolve_root(override: Option(String)) -> Result(String, Error) {
   case override {
-    Some(cache_path) -> Ok(cache_path)
-    None -> default_path(directory)
+    Some(root) -> Ok(root)
+    None -> default_root() |> result.map_error(PathFailed)
   }
 }
 
-fn default_path(directory: String) -> Result(String, PathError) {
+fn default_root() -> Result(String, PathError) {
   case env.get("XDG_CACHE_HOME") {
-    Ok(cache_home) if cache_home != "" ->
-      Ok(path.join(path.join(cache_home, cache_subdir), directory))
+    Ok(cache_home) if cache_home != "" -> Ok(path.join(cache_home, cache_subdir))
     _ ->
       case env.get("HOME") {
         Ok(home) if home != "" ->
-          Ok(path.join(
-            path.join(path.join(home, ".cache"), cache_subdir),
-            directory,
-          ))
+          Ok(path.join(path.join(home, ".cache"), cache_subdir))
         _ ->
           case windows_user_cache() {
-            Ok(root) -> Ok(path.join(root, directory))
+            Ok(root) -> Ok(root)
             Error(Nil) -> Error(CacheDirUnknown)
           }
       }
@@ -116,16 +111,15 @@ fn ensure_cache_dir(directory: String) -> Result(Nil, PathError) {
 
 /// Open a string-keyed cache store, returning its deferred warning on failure.
 ///
-/// `cache_path` overrides the store directory. Otherwise the store uses
-/// `directory` below the user cache directory.
+/// `cache_root` selects the application root. Each store uses its versioned
+/// `directory` below that root, including when the root is explicit.
 pub fn open_table(
-  cache_path: Option(String),
+  cache_root: Option(String),
   directory: String,
   name: String,
 ) -> Result(Store, Error) {
-  use resolved <- result.try(
-    resolve_path(cache_path, directory) |> result.map_error(PathFailed),
-  )
+  use root <- result.try(resolve_root(cache_root))
+  let resolved = path.join(root, directory)
   use _ <- result.try(
     ensure_cache_dir(resolved)
     |> result.map_error(fn(error) {

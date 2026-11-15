@@ -8,12 +8,12 @@ import licence_audit/internal/vendor/glint
 import licence_audit/progress
 
 const optional_path_flags = [
-  #([], ["manifest", "config", "cache-path"]),
-  #(["report"], ["manifest", "config", "cache-path"]),
-  #(["check"], ["manifest", "config", "cache-path"]),
-  #(["update"], ["manifest", "config", "cache-path"]),
-  #(["sbom"], ["manifest", "cache-path", "output"]),
-  #(["notices"], ["manifest", "config", "cache-path", "output"]),
+  #([], ["manifest", "config", "cache-dir"]),
+  #(["report"], ["manifest", "config", "cache-dir"]),
+  #(["check"], ["manifest", "config", "cache-dir"]),
+  #(["update"], ["manifest", "config", "cache-dir"]),
+  #(["sbom"], ["manifest", "cache-dir", "output"]),
+  #(["notices"], ["manifest", "config", "cache-dir", "output"]),
   #(["vulns"], ["manifest", "config"]),
 ]
 
@@ -31,7 +31,7 @@ fn parse_options(args: List(String)) -> cli.Options {
         verbosity: options.verbosity,
         color: options.color,
         no_cache: options.no_cache,
-        cache_path: options.cache_path,
+        cache_dir: options.cache_dir,
         checks: cli.Licences,
         vuln_severity: None,
         vuln_block_unknown: False,
@@ -115,27 +115,27 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
     cli.RunReport(options) -> [
       options.manifest_path,
       options.config_path,
-      options.cache_path,
+      options.cache_dir,
     ]
     cli.RunAudit(options) -> [
       options.manifest_path,
       options.config_path,
-      options.cache_path,
+      options.cache_dir,
     ]
     cli.UpdateConfig(options) -> [
       options.manifest_path,
       options.config_path,
-      options.cache_path,
+      options.cache_dir,
     ]
     cli.RunSbom(options) -> [
       options.manifest_path,
-      options.cache_path,
+      options.cache_dir,
       options.output,
     ]
     cli.RunNotices(options) -> [
       options.manifest_path,
       options.config_path,
-      options.cache_path,
+      options.cache_dir,
       options.output,
     ]
     cli.RunVulns(options) -> [options.manifest_path, options.config_path]
@@ -170,26 +170,26 @@ pub fn path_values_that_look_like_aliases_are_preserved_test() {
     glint.execute(cli.app(), cli.normalize_args(separated))
   let #(paths, verbosity) = case action {
     cli.RunReport(options) -> #(
-      [options.manifest_path, options.config_path, options.cache_path],
+      [options.manifest_path, options.config_path, options.cache_dir],
       options.verbosity,
     )
     cli.RunAudit(options) -> #(
-      [options.manifest_path, options.config_path, options.cache_path],
+      [options.manifest_path, options.config_path, options.cache_dir],
       options.verbosity,
     )
     cli.UpdateConfig(options) -> #(
-      [options.manifest_path, options.config_path, options.cache_path],
+      [options.manifest_path, options.config_path, options.cache_dir],
       options.verbosity,
     )
     cli.RunSbom(options) -> #(
-      [options.manifest_path, options.cache_path, options.output],
+      [options.manifest_path, options.cache_dir, options.output],
       options.verbosity,
     )
     cli.RunNotices(options) -> #(
       [
         options.manifest_path,
         options.config_path,
-        options.cache_path,
+        options.cache_dir,
         options.output,
       ],
       options.verbosity,
@@ -244,12 +244,12 @@ pub fn equals_values_do_not_consume_the_next_alias_test() {
     parse_options([
       "--manifest=-h",
       "--config=--colour",
-      "--cache-path=-q",
+      "--cache-dir=-q",
       "-v",
     ])
   should.equal(options.manifest_path, Some("-h"))
   should.equal(options.config_path, Some("--colour"))
-  should.equal(options.cache_path, Some("-q"))
+  should.equal(options.cache_dir, Some("-q"))
   should.equal(options.verbosity, progress.Verbose)
 }
 
@@ -432,7 +432,7 @@ pub fn help_text_includes_usage_and_supported_options_test() {
     "--color",
     "--colour",
     "--no-cache",
-    "--cache-path",
+    "--cache-dir",
     "--help",
   ]
   |> list.each(fn(text) {
@@ -560,7 +560,7 @@ pub fn update_subcommand_parses_defaults_test() {
   should.equal(options.verbosity, progress.Normal)
   should.equal(options.color, color.Auto)
   should.equal(options.no_cache, False)
-  should.equal(options.cache_path, None)
+  should.equal(options.cache_dir, None)
 }
 
 pub fn update_subcommand_parses_supported_flags_test() {
@@ -572,7 +572,7 @@ pub fn update_subcommand_parses_supported_flags_test() {
       "--verbose",
       "--color=never",
       "--no-cache",
-      "--cache-path=/tmp/licence-audit.dets",
+      "--cache-dir=build/cache-é中",
     ])
 
   should.equal(options.config_path, Some("audit.toml"))
@@ -580,7 +580,7 @@ pub fn update_subcommand_parses_supported_flags_test() {
   should.equal(options.verbosity, progress.Verbose)
   should.equal(options.color, color.Never)
   should.equal(options.no_cache, True)
-  should.equal(options.cache_path, Some("/tmp/licence-audit.dets"))
+  should.equal(options.cache_dir, Some("build/cache-é中"))
 }
 
 pub fn update_rejects_ignore_config_forms_but_read_only_commands_keep_them_test() {
@@ -619,7 +619,7 @@ pub fn default_no_cache_is_false_test() {
   let options = parse_options(["report"])
 
   should.equal(options.no_cache, False)
-  should.equal(options.cache_path, None)
+  should.equal(options.cache_dir, None)
 }
 
 pub fn no_cache_flag_sets_no_cache_test() {
@@ -628,10 +628,21 @@ pub fn no_cache_flag_sets_no_cache_test() {
   should.equal(options.no_cache, True)
 }
 
-pub fn cache_path_flag_sets_cache_path_test() {
-  let options = parse_options(["report", "--cache-path=/tmp/foo.dets"])
+pub fn cache_dir_flag_sets_application_root_test() {
+  use command <- list.each([[], ["report"], ["check"]])
+  let options =
+    parse_options(list.append(command, ["--cache-dir=build/cache-é中"]))
+  should.equal(options.cache_dir, Some("build/cache-é中"))
+}
 
-  should.equal(options.cache_path, Some("/tmp/foo.dets"))
+pub fn all_commands_reject_removed_cache_path_test() {
+  use command <- list.each([[], ..commands])
+  use flag <- list.each(["--cache-path", "--cache-path=old-cache"])
+  let assert Error(_) = glint.execute(cli.app(), list.append(command, [flag]))
+  assert !string.contains(
+    help_text(list.append(command, ["--help"])),
+    "--cache-path",
+  )
 }
 
 pub fn color_always_sets_always_mode_test() {
@@ -894,7 +905,7 @@ pub fn command_specific_flag_matrix_test() {
     #("--config=custom.toml", [True, True, True, False, True, True]),
     #("--ignore-config", [True, True, False, False, True, True]),
     #("--no-cache", [True, True, True, True, False, True]),
-    #("--cache-path=custom.cache", [True, True, True, True, False, True]),
+    #("--cache-dir=custom.cache", [True, True, True, True, False, True]),
     #("--scope=prod", [True, True, False, False, True, True]),
     #("--scope=all", [True, True, False, False, True, True]),
     #("--allow=MIT", [False, False, False, False, False, False]),
@@ -1032,7 +1043,7 @@ pub fn root_scan_options_match_named_report_test() {
     ["--ignore-config"],
     ["--scope=prod"],
     ["--scope=all"],
-    ["--cache-path=cache"],
+    ["--cache-dir=cache"],
     ["--no-cache"],
     ["--quiet"],
     ["--verbose"],

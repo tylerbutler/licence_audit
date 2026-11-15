@@ -29,7 +29,7 @@ pub fn run(
   project_root: String,
   config_path: Option(String),
   no_cache: Bool,
-  cache_path: Option(String),
+  cache_root: Option(String),
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
@@ -38,7 +38,7 @@ pub fn run(
     project_root,
     config_path,
     no_cache,
-    cache_path,
+    cache_root,
     source_clients,
     picker.pick,
     reporter,
@@ -52,7 +52,7 @@ pub fn run_with_picker(
   project_root: String,
   config_path: Option(String),
   no_cache: Bool,
-  cache_path: Option(String),
+  cache_root: Option(String),
   source_clients: notice.Clients,
   pick: fn(String, List(String), List(String), List(String)) ->
     Result(picker.Selection, picker.PickerError),
@@ -95,7 +95,7 @@ pub fn run_with_picker(
 
     let cache_mode = case no_cache {
       True -> cache.Disabled
-      False -> cache.Enabled(path: cache_path)
+      False -> cache.Enabled(path: cache_root)
     }
     let cache_handle = cache.open(cache_mode)
     let cached_fetcher =

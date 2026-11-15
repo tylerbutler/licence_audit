@@ -25,7 +25,7 @@ pub type ReportOptions {
     verbosity: progress.Verbosity,
     color: color.Mode,
     no_cache: Bool,
-    cache_path: Option(String),
+    cache_dir: Option(String),
     scope: DependencyScope,
   )
 }
@@ -39,7 +39,7 @@ pub type Options {
     verbosity: progress.Verbosity,
     color: color.Mode,
     no_cache: Bool,
-    cache_path: Option(String),
+    cache_dir: Option(String),
     checks: Checks,
     vuln_severity: Option(String),
     vuln_block_unknown: Bool,
@@ -54,7 +54,7 @@ pub type UpdateOptions {
     verbosity: progress.Verbosity,
     color: color.Mode,
     no_cache: Bool,
-    cache_path: Option(String),
+    cache_dir: Option(String),
   )
 }
 
@@ -64,7 +64,7 @@ pub type SbomOptions {
     verbosity: progress.Verbosity,
     color: color.Mode,
     no_cache: Bool,
-    cache_path: Option(String),
+    cache_dir: Option(String),
     output: Option(String),
     offline: Bool,
     reproducible: Bool,
@@ -94,7 +94,7 @@ pub type NoticesOptions {
     output: Option(String),
     scope: DependencyScope,
     no_cache: Bool,
-    cache_path: Option(String),
+    cache_dir: Option(String),
   )
 }
 
@@ -207,7 +207,7 @@ fn report_command(
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.optional_flag(cache_path_flag())
+  use cache_dir <- glint.optional_flag(cache_dir_flag())
   use scope <- glint.flag(scope_flag("all"))
   use _, _, flags <- glint.command()
 
@@ -218,7 +218,7 @@ fn report_command(
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(cache_dir_value) = cache_dir(flags)
   let assert Ok(scope_value) = scope(flags)
   case
     show_version(flags),
@@ -238,7 +238,7 @@ fn report_command(
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: cache_path_value,
+        cache_dir: cache_dir_value,
         scope: scope_from_string(scope_value),
       ))
   }
@@ -254,7 +254,7 @@ fn check_command() -> glint.Command(CliAction) {
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.optional_flag(cache_path_flag())
+  use cache_dir <- glint.optional_flag(cache_dir_flag())
   use scope <- glint.flag(scope_flag("all"))
   use checks <- glint.flag(checks_flag())
   use vuln_severity <- glint.optional_flag(vuln_severity_flag())
@@ -268,7 +268,7 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(cache_dir_value) = cache_dir(flags)
   let assert Ok(scope_value) = scope(flags)
   let assert Ok(checks_value) = checks(flags)
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
@@ -300,7 +300,7 @@ fn check_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: cache_path_value,
+        cache_dir: cache_dir_value,
         checks: case checks_value {
           "vulns" -> Vulnerabilities
           "all" -> AllChecks
@@ -377,9 +377,11 @@ fn scope_from_string(value: String) -> DependencyScope {
   }
 }
 
-fn cache_path_flag() -> glint.Flag(String) {
-  glint.string_flag("cache-path")
-  |> glint.flag_help("Override the licence metadata cache directory")
+fn cache_dir_flag() -> glint.Flag(String) {
+  glint.string_flag("cache-dir")
+  |> glint.flag_help(
+    "Use DIR as the application cache root for all cache families",
+  )
 }
 
 fn checks_flag() -> glint.Flag(String) {
@@ -440,7 +442,7 @@ fn update_command() -> glint.Command(CliAction) {
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.optional_flag(cache_path_flag())
+  use cache_dir <- glint.optional_flag(cache_dir_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(config_path) = config(flags)
@@ -449,7 +451,7 @@ fn update_command() -> glint.Command(CliAction) {
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(cache_dir_value) = cache_dir(flags)
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
@@ -461,7 +463,7 @@ fn update_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: cache_path_value,
+        cache_dir: cache_dir_value,
       ))
   }
 }
@@ -506,7 +508,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.optional_flag(cache_path_flag())
+  use cache_dir <- glint.optional_flag(cache_dir_flag())
   use output <- glint.optional_flag(output_flag(
     "Write SBOM to PATH instead of stdout",
   ))
@@ -527,7 +529,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(verbose) = verbose(flags)
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(cache_dir_value) = cache_dir(flags)
   let assert Ok(output_value) = output(flags)
   let assert Ok(offline_value) = offline(flags)
   let assert Ok(reproducible_value) = reproducible(flags)
@@ -561,7 +563,7 @@ fn sbom_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         no_cache: no_cache,
-        cache_path: cache_path_value,
+        cache_dir: cache_dir_value,
         output: output_value,
         offline: offline_value,
         reproducible: reproducible_value,
@@ -588,7 +590,7 @@ fn notices_command() -> glint.Command(CliAction) {
   ))
   use scope <- glint.flag(scope_flag("prod"))
   use no_cache <- glint.flag(no_cache_flag())
-  use cache_path <- glint.optional_flag(cache_path_flag())
+  use cache_dir <- glint.optional_flag(cache_dir_flag())
   use _, _, flags <- glint.command()
 
   let assert Ok(manifest_path) = manifest(flags)
@@ -600,7 +602,7 @@ fn notices_command() -> glint.Command(CliAction) {
   let assert Ok(output_value) = output(flags)
   let assert Ok(scope_value) = scope(flags)
   let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_path_value) = cache_path(flags)
+  let assert Ok(cache_dir_value) = cache_dir(flags)
 
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
@@ -616,7 +618,7 @@ fn notices_command() -> glint.Command(CliAction) {
         output: output_value,
         scope: scope_from_string(scope_value),
         no_cache: no_cache,
-        cache_path: cache_path_value,
+        cache_dir: cache_dir_value,
       ))
   }
 }

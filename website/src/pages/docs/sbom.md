@@ -85,8 +85,9 @@ not select an expression alternative or combine texts.
 
 This flag requires network access on a cache miss and **conflicts with
 `--offline`**. It works with `--reproducible` because the SPDX revision is
-fixed. Use `--no-cache` to bypass the text cache. `--cache-path` relocates the
-metadata cache only; use `XDG_CACHE_HOME` to relocate both caches.
+fixed. Use `--no-cache` to bypass the caches without deleting entries.
+`--cache-dir=DIR` selects the shared application root, including the
+`spdx-v1/` text cache and `hex-v2/` metadata cache.
 
 A failed text request, invalid SPDX response, or missing text for a recognised
 ID exits `2` before writing the SBOM. Optional package metadata enrichment
@@ -158,8 +159,8 @@ download or invalid archive exits `2` when locked metadata is required.
 The limits apply to archive sizes, not total VM memory.
 
 The command reuses the shared [metadata cache](/docs/#caching). Entries from
-locked archives do not expire. Use `--cache-path=DIR` to override the cache
-directory, or `--no-cache` to fetch the metadata again.
+locked archives do not expire. Use `--cache-dir=DIR` to select the application
+cache root, or `--no-cache` to fetch the metadata again.
 
 ## Flags
 
@@ -179,7 +180,7 @@ licence_audit sbom [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (requires network on cache miss; conflicts with --offline; alias: --license-text) |
 | `--manifest` | `STRING` |  | Read manifest from PATH |

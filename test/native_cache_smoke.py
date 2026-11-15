@@ -83,8 +83,8 @@ def smoke(binary, escript=False):
         )
         for name, cache, overrides in (
             ("default", default_root / "hex-v2", []),
-            ("override", work / "cache" / "metadata",
-             [f"--cache-path={work / 'cache' / 'metadata'}"]),
+            ("override", work / "cache-é中" / "hex-v2",
+             [f"--cache-dir={work / 'cache-é中'}"]),
         ):
             args = ["check", "--verbose", "--color=never", *overrides]
             first = run(command + args, work, env, f"{name}-fresh")
@@ -108,6 +108,46 @@ def smoke(binary, escript=False):
         assert not list(notices_cache.glob("*.tmp")), "Temporary notice cache files were left behind"
         run(command + notices_args, work, env, "notices-cached")
         assert (work / "smoke-notices.txt").read_bytes() == notices
+        # Cold command families must not even prepare environment-default roots.
+        isolated_env = dict(env)
+        for name in ("HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA"):
+            isolated_env[name] = str(work / ("unused-" + name))
+        for args, family, name in (
+            (["--verbose", "--color=never"], "hex-v2", "default-report"),
+            (["report", "--verbose", "--color=never"], "hex-v2", "named-report"),
+            (notices_args, "notices-v3", "notices"),
+            (["sbom", "--license-text", "--output=smoke-text.json", "--color=never"],
+             "spdx-v1", "text"),
+        ):
+            explicit = work / ("explicit-é中-" + name)
+            before = list(explicit.glob(f"{family}/*.json"))
+            assert not before, (name, before)
+            run(command + args + [f"--cache-dir={explicit}"],
+                work, isolated_env, f"isolated-{name}-cold")
+            entries = list(explicit.glob(f"{family}/*.json"))
+            assert entries, f"Cold {name} cache is empty"
+            snapshot = {file: file.read_bytes() for file in explicit.rglob("*.json")}
+            run(command + args + [f"--cache-dir={explicit}"],
+                work, isolated_env, f"isolated-{name}-warm")
+            assert snapshot == {file: file.read_bytes() for file in explicit.rglob("*.json")}
+            run(command + args + [f"--cache-dir={explicit}", "--no-cache"],
+                work, isolated_env, f"isolated-{name}-bypass")
+            assert snapshot == {file: file.read_bytes() for file in explicit.rglob("*.json")}
+            for variable in ("HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA"):
+                default = Path(isolated_env[variable])
+                if escript:
+                    assert not default.exists(), variable
+                elif default.exists():
+                    # Queso unpacks its runtime before CLI option parsing.
+                    assert {path.name for path in default.iterdir()} == {"licence_audit"}
+                    assert {path.name for path in (default / "licence_audit").iterdir()} <= {
+                        "app", "erts",
+                    }, f"Application cache leaked into {variable}"
+            assert not list(explicit.rglob("*.tmp"))
+            bypass = work / ("bypassed-" + name)
+            run(command + args + [f"--cache-dir={bypass}", "--no-cache"],
+                work, isolated_env, f"isolated-{name}-cold-bypass")
+            assert not bypass.exists()
         run(command + ["sbom", "--reproducible", "--offline", "--output=smoke-sbom.json"],
             work, env, "sbom")
         assert "pkg:hex/gleam_stdlib@1.0.5" in (work / "smoke-sbom.json").read_text()

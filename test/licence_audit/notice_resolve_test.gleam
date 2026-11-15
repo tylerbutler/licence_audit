@@ -24,7 +24,7 @@ pub fn corrupt_spdx_text_is_refetched_and_renders_without_crashing_test() {
   let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
   let key = "spdx:" <> spdx.license_list_commit <> ":license:MIT"
   notice_cache.put_text(cache, key, "previous text")
-  let assert Ok(_) = cache_support.corrupt_entry(path, key)
+  let assert Ok(_) = cache_support.corrupt_entry(path <> "/spdx-v1", key)
   let source = read_bytes("notice_only_hex.tar")
   let package =
     hex_package("corrupt_spdx_text", checksum_of(source), ["MIT"], [])
