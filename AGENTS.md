@@ -53,5 +53,4 @@
   Preserve root scan flags and use `--help` or `-h` for root help.
   Do not flag default scanning or missing-project errors on bare invocation
   as UX defects, or propose help-only root behavior, without a new maintainer
-  decision. See the accepted decision in
-  `website/src/pages/docs/report.md` under "Intentional default report".
+  decision. See `docs/default-report-decision.md` for the accepted ADR.

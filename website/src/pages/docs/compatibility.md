@@ -70,10 +70,6 @@ policy flags below. Both forms use the same report options and behavior.
 There is no `audit` alias. Root `--help`, `-h`, and `--version` still work
 without reading project files or making network calls.
 
-Default scanning is intentional UX. See the
-[accepted default-report decision](/docs/report#intentional-default-report)
-before proposing a change to root behavior.
-
 ### Migration before 1.0
 
 The licence report and `check` reject `--allow` and `--deny`, including empty

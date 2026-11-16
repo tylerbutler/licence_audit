@@ -56,27 +56,6 @@ project inputs cause an operational error, as with the named command.
 Use root `--help`, `-h`, or `--version` without reading project files,
 opening caches, or making network calls. There is no `audit` alias.
 
-### Intentional default report
-
-**Accepted decision (2026-11-16):** keep the licence report as the default
-action. Run `licence_audit` for a report or use `licence_audit report` when you
-want an explicit command name. Keep root scan flags available in both forms.
-
-The default action gives users direct access to the tool's licence report.
-The named form supports explicit scripts and workflows without requiring a
-different entry point for existing users. Use `check` when findings must fail
-a gate; report findings remain non-enforcing.
-
-Outside a project, bare invocation can fail because required project inputs
-are missing. This is expected scan behavior. Use `--help` or `-h` to discover
-commands without project files.
-
-This decision supersedes the help-only root proposal in
-[#277](https://github.com/tylerbutler/licence_audit/issues/277).
-For reviews and future PRs, treat default scanning and its missing-project
-errors as intentional UX, not defects. Changing the root to help-only
-behavior requires a new maintainer decision.
-
 ## CLI reference
 
 <!-- cli-reference -->
