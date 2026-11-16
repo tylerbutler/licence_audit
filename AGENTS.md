@@ -48,3 +48,9 @@
   `.github/workflows/pr.yml` and `.commitlintrc.json`.
 - There is no supported public API — the CLI is the only supported interface.
   Breaking changes to Gleam functions/modules are not considered breaking.
+- Bare `licence_audit` runs the non-enforcing licence report by design;
+  `licence_audit report` is an optional explicit form with the same options.
+  Preserve root scan flags and use `--help` or `-h` for root help.
+  Do not flag default scanning or missing-project errors on bare invocation
+  as UX defects, or propose help-only root behavior, without a new maintainer
+  decision. See `docs/adr/default-report-decision.md` for the accepted ADR.
