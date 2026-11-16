@@ -145,7 +145,7 @@ pub type LoadOptions {
     allow_licences: List(String),
     deny_licences: List(String),
     vuln_severity: Option(String),
-    vuln_block_unknown: Bool,
+    vuln_block_unknown: Option(Bool),
     ignore_config: Bool,
     check: Bool,
   )
@@ -168,7 +168,7 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
       allow: options.allow_licences,
       deny: options.deny_licences,
       vuln_severity: options.vuln_severity,
-      vuln_block_unknown: options.vuln_block_unknown,
+      vuln_block_unknown: option.unwrap(options.vuln_block_unknown, False),
       exceptions: [],
     )
 
@@ -176,7 +176,7 @@ pub fn load(options: LoadOptions) -> Result(Policy, Error) {
 
   case load_file_policy(options) {
     Error(error) -> Error(error)
-    Ok(Some(file_policy)) -> merge(file_policy, cli_policy)
+    Ok(Some(file_policy)) -> merge(file_policy, options)
     Ok(None) ->
       case options.check && is_empty(cli_policy) {
         True -> Error(MissingPolicy)
@@ -236,19 +236,24 @@ fn validate_policy_headers(headers: List(List(String))) -> Result(Nil, Error) {
   })
 }
 
-pub fn merge(file_policy: Policy, cli_policy: Policy) -> Result(Policy, Error) {
+pub fn merge(
+  file_policy: Policy,
+  options: LoadOptions,
+) -> Result(Policy, Error) {
   // CLI vuln_severity overrides config when present.
-  let resolved_severity = case cli_policy.vuln_severity {
-    Some(_) -> cli_policy.vuln_severity
+  let resolved_severity = case options.vuln_severity {
+    Some(_) -> options.vuln_severity
     None -> file_policy.vuln_severity
   }
 
   Policy(
-    allow: list.unique(list.append(file_policy.allow, cli_policy.allow)),
-    deny: list.unique(list.append(file_policy.deny, cli_policy.deny)),
+    allow: list.unique(list.append(file_policy.allow, options.allow_licences)),
+    deny: list.unique(list.append(file_policy.deny, options.deny_licences)),
     vuln_severity: resolved_severity,
-    vuln_block_unknown: file_policy.vuln_block_unknown
-      || cli_policy.vuln_block_unknown,
+    vuln_block_unknown: option.unwrap(
+      options.vuln_block_unknown,
+      file_policy.vuln_block_unknown,
+    ),
     exceptions: file_policy.exceptions,
   )
   |> validate

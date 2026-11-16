@@ -34,7 +34,7 @@ fn parse_options(args: List(String)) -> cli.Options {
         cache_dir: options.cache_dir,
         checks: cli.Licences,
         vuln_severity: None,
-        vuln_block_unknown: False,
+        vuln_block_unknown: None,
         scope: options.scope,
       )
     _ -> panic as "expected report or check options"
@@ -89,7 +89,7 @@ pub fn check_subcommand_enables_check_mode_test() {
   should.equal(options.check, True)
   should.equal(options.checks, cli.Licences)
   should.equal(options.vuln_severity, None)
-  should.equal(options.vuln_block_unknown, False)
+  should.equal(options.vuln_block_unknown, None)
 }
 
 pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
@@ -283,7 +283,7 @@ pub fn separators_remain_unsupported_and_do_not_rewrite_aliases_test() {
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
   let options = parse_options(["check", "--checks=all", "--vuln-block-unknown"])
 
-  should.equal(options.vuln_block_unknown, True)
+  should.equal(options.vuln_block_unknown, Some(True))
 }
 
 pub fn removed_policy_flags_reject_all_forms_test() -> Nil {
@@ -524,12 +524,17 @@ pub fn check_vulnerability_flags_require_enabled_scan_test() {
   assert string.contains(message, "require --checks=vulns or --checks=all")
 }
 
-pub fn check_enabled_scan_preserves_explicit_boolean_values_test() {
-  use value <- list.each([#("true", True), #("false", False)])
-  let #(text, expected) = value
+pub fn check_enabled_scan_preserves_optional_boolean_values_test() {
+  use #(flags, expected) <- list.each([
+    #([], None),
+    #(["--vuln-block-unknown"], Some(True)),
+    #(["--vuln-block-unknown=true"], Some(True)),
+    #(["--vuln-block-unknown=false"], Some(False)),
+  ])
+  use selection <- list.each(["all", "vulns"])
   use flags <- list.each([
-    ["--checks=all", "--vuln-block-unknown=" <> text],
-    ["--vuln-block-unknown=" <> text, "--checks=vulns"],
+    ["--checks=" <> selection, ..flags],
+    list.append(flags, ["--checks=" <> selection]),
   ])
   let options = parse_options(["check", ..flags])
   assert options.checks != cli.Licences

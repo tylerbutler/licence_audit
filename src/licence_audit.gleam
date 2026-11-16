@@ -254,7 +254,7 @@ fn execute_action(
           cache_dir: options.cache_dir,
           checks: cli.Licences,
           vuln_severity: None,
-          vuln_block_unknown: False,
+          vuln_block_unknown: None,
           scope: options.scope,
         ),
         clients.osv_batch_fetcher,
@@ -2289,7 +2289,7 @@ fn run_vulns_options(
         allow_licences: [],
         deny_licences: [],
         vuln_severity: None,
-        vuln_block_unknown: False,
+        vuln_block_unknown: None,
         ignore_config: options.ignore_config,
         check: False,
       ))
