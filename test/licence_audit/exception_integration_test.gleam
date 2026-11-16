@@ -194,7 +194,8 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   should.equal(ignored.exit_code, 2)
   assert string.contains(ignored.output, "requires a non-empty allow list")
   assert !string.contains(ignored.output, "Policy exceptions:")
-  let ignored_preview = run(root, ["--ignore-config"], licences, batch, detail)
+  let ignored_preview =
+    run(root, ["report", "--ignore-config"], licences, batch, detail)
   should.equal(ignored_preview.exit_code, 0)
   assert !string.contains(ignored_preview.output, "excepted #1")
   assert !string.contains(ignored_preview.output, "Policy exceptions:")

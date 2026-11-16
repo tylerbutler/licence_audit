@@ -61,9 +61,10 @@ Use `--config=policies/release.toml` to select an alternate policy.
 See the [migration notes](https://licence-audit.tylerbutler.com/docs/compatibility#migration-before-10)
 if your scripts use removed `--allow` or `--deny` flags.
 
-Run `licence_audit` or `licence_audit report` to inspect licences or preview
-policy findings. Both use the same options and non-enforcing report behavior.
-The named command is optional. Both forms reject the removed policy flags.
+Run `licence_audit report` to inspect licences or preview policy findings
+without enforcing them. Bare `licence_audit` shows help and exits `0`, even
+outside a project, without reading project files, opening caches, or using
+the network. Put scan options after `report`; root scan flags are usage errors.
 
 Licence reports, `check`, and `vulns` default to `--scope=all`. Use
 `--scope=prod` for production dependencies only. `notices` defaults to

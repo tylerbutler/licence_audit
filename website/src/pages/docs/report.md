@@ -7,7 +7,6 @@ description: Inspect locked licences and preview policy findings without enforci
 Run a licence report for your Gleam project's locked dependencies:
 
 ```sh
-licence_audit
 licence_audit report
 licence_audit report --manifest=apps/server/manifest.toml
 ```
@@ -17,11 +16,11 @@ tree, licence declarations, policy findings, scoped exceptions, and skipped
 non-Hex sources. A completed report returns `0`, including when it finds policy
 violations. Use [`check`](/docs/check) to enforce a policy.
 
-Both the default and named report read declarations from the locked Hex
-archives and verify their SHA-256 checksums against `manifest.toml`.
+The report reads declarations from the locked Hex
+archives and verifies their SHA-256 checksums against `manifest.toml`.
 Checksum-keyed metadata caches avoid repeated archive downloads.
 
-Both report forms default to `--scope=all`. Use `--scope=prod` to exclude
+Reports default to `--scope=all`. Use `--scope=prod` to exclude
 development-only dependencies while keeping dependencies reachable from
 production roots, including shared transitive packages. See
 [production scope rules](/docs/check#production-only-gates).
@@ -33,7 +32,7 @@ for a read-only report that ignores policy files. See
 
 Reports read `allow` and `deny` from the selected TOML file.
 Use `--config=policies/release.toml` to select a complete alternate policy.
-The default and named reports reject `--allow` and `--deny`.
+Reports reject `--allow` and `--deny`.
 
 Use `--no-cache` to bypass the on-disk caches. Use `--quiet` (`-q`) or
 `--verbose` (`-v`) to control progress on stderr, and `--color` (`--colour`)
@@ -41,20 +40,20 @@ to select `auto`, `always`, or `never`. Reports use stdout; input and
 configuration diagnostics use stderr. Missing or invalid manifest/config
 files and incomplete required metadata return `2`.
 
-## Default and named reports
+## Root help and migration
 
-The named command is optional. These commands use the same options and
-produce the same non-enforcing report:
+Use `report` to scan. If a script previously passed scan flags to the root,
+move them after `report`:
 
 ```sh
-licence_audit --manifest=apps/server/manifest.toml --no-cache
 licence_audit report --manifest=apps/server/manifest.toml --no-cache
 ```
 
-A bare `licence_audit` runs the default report. Outside a project, missing
-project inputs cause an operational error, as with the named command.
-Use root `--help`, `-h`, or `--version` without reading project files,
-opening caches, or making network calls. There is no `audit` alias.
+A bare `licence_audit` shows root help and exits `0`, including outside a
+project. It does not start runtime applications, read project files, open
+caches, or make network calls. Root scan flags are usage errors that direct
+you to `report`. Root `--help`, `-h`, and `--version` remain available.
+There is no `audit` alias.
 
 ## CLI reference
 

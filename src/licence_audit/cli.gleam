@@ -105,6 +105,7 @@ pub type CliAction {
   RunSbom(SbomOptions)
   RunVulns(VulnsOptions)
   RunNotices(NoticesOptions)
+  ShowHelp(String)
   ShowVersion
   InvalidUsage(String)
 }
@@ -113,11 +114,11 @@ pub fn app() -> glint.Glint(CliAction) {
   glint.new()
   |> glint.with_name("licence_audit")
   |> glint.global_help(
-    "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.",
+    "Select a command. Use `licence_audit report` to scan locked dependency licences. Bare invocation shows help. Use --help (alias: -h) for help.",
   )
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: [], do: root_command())
-  |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
+  |> glint.add(at: ["report"], do: report_command())
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
   |> glint.add(at: ["sbom"], do: sbom_command())
@@ -183,19 +184,40 @@ fn normalize_alias(arg: String) -> String {
 }
 
 fn root_command() -> glint.Command(CliAction) {
+  use <- glint.command_help(
+    "Show available commands. Use `licence_audit report` for licence reports; scan flags belong after `report`.",
+  )
+  use <- glint.unnamed_args(glint.EqArgs(0))
   use show_version <- glint.flag(version_flag())
-  report_command(fn(flags) {
-    let assert Ok(value) = show_version(flags)
-    value
-  })
+  use quiet <- glint.flag(quiet_flag())
+  use verbose <- glint.flag(verbose_flag())
+  use color_flag <- glint.flag(color_flag())
+  use _, _, flags <- glint.command()
+  let assert Ok(show_version) = show_version(flags)
+  let assert Ok(quiet) = quiet(flags)
+  let assert Ok(verbose) = verbose(flags)
+  let assert Ok(color_value) = color_flag(flags)
+  case
+    show_version,
+    verbosity(quiet, verbose),
+    color.mode_from_string(color_value)
+  {
+    True, _, _ -> ShowVersion
+    False, Error(verbosity_error), _ ->
+      InvalidUsage(verbosity_error_message(verbosity_error))
+    False, _, Error(color_error) ->
+      InvalidUsage(color.mode_error_message(color_error))
+    False, Ok(_), Ok(_) -> {
+      let assert Ok(glint.Help(help)) = glint.execute(app(), ["--help"])
+      ShowHelp(help)
+    }
+  }
 }
 
 const check_help =
   "Enforce selected checks: licences (default), vulns, or all. Licence checks require a licence policy. Vulnerability-only checks do not evaluate licence policy or fetch licence metadata."
 
-fn report_command(
-  show_version: fn(glint.Flags) -> Bool,
-) -> glint.Command(CliAction) {
+fn report_command() -> glint.Command(CliAction) {
   use <- glint.command_help(
     "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.",
   )
@@ -220,17 +242,11 @@ fn report_command(
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_dir_value) = cache_dir(flags)
   let assert Ok(scope_value) = scope(flags)
-  case
-    show_version(flags),
-    verbosity(quiet, verbose),
-    color.mode_from_string(color_value)
-  {
-    True, _, _ -> ShowVersion
-    False, Error(verbosity_error), _ ->
+  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
+    Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    False, _, Error(color_error) ->
-      InvalidUsage(color.mode_error_message(color_error))
-    False, Ok(verbosity), Ok(color_mode) ->
+    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
+    Ok(verbosity), Ok(color_mode) ->
       RunReport(ReportOptions(
         manifest_path: manifest_path,
         config_path: config_path,

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Use fresh VMs: the Gleam test runner has already started the applications.
-for argument in --help -h --version; do
+for argument in "" --help -h --version; do
   timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
     ok = application:load({application, licence_audit, [
       {vsn, "test"}, {applications, [licence_audit_missing_runtime_dependency]}
@@ -45,7 +45,7 @@ for expected in 0 1 2 130; do
   fi
 done
 
-for command in "" report; do
+for command in report; do
   status=0
   output=$(timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin -eval '
     ok = application:load({application, licence_audit, [

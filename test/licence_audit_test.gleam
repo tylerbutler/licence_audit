@@ -1,8 +1,11 @@
-import gleam/list
 import gleam/string
 import gleeunit
 import licence_audit
 import licence_audit/version
+
+pub fn bare_invocation_returns_root_help_test() {
+  assert licence_audit.run([]) == licence_audit.run(["--help"])
+}
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -51,20 +54,16 @@ pub fn quiet_and_verbose_path_returns_usage_error_test() {
 }
 
 pub fn missing_path_value_is_not_filled_by_library_cache_override_test() {
-  use command <- list.each([[], ["report"]])
   let licence_audit.RunResult(exit_code, output) =
-    licence_audit.run(list.append(command, ["--manifest"]))
+    licence_audit.run(["report", "--manifest"])
   assert exit_code == 1
   assert string.contains(output, "manifest")
   assert string.contains(output, "has no assigned value")
 }
 
 pub fn manifest_value_that_looks_like_help_is_not_help_test() {
-  use command <- list.each([[], ["report"]])
   let licence_audit.RunResult(exit_code, output) =
-    licence_audit.run(
-      list.append(command, ["--manifest", "-h", "--ignore-config"]),
-    )
+    licence_audit.run(["report", "--manifest", "-h", "--ignore-config"])
   assert exit_code == 2
   assert string.contains(output, "-h")
   assert !string.contains(output, "USAGE:")

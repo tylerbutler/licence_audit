@@ -167,7 +167,6 @@ pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Ni
   let assert Ok(original) = simplifile.read(missing_section)
   use path <- list.each([missing_section, fixture_root <> "/absent.toml"])
   use #(command, expected_exit) <- list.each([
-    #([], 0),
     #(["report"], 0),
     #(["check"], 2),
   ])
@@ -193,7 +192,7 @@ pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Ni
 
 pub fn explicit_missing_config_stops_reports_and_checks_test() -> Nil {
   let path = fixture_root <> "/absent.toml"
-  use command <- list.each([[], ["report"], ["check"]])
+  use command <- list.each([["report"], ["check"]])
   let #(result, _) =
     licence_audit.run_configured(
       list.append(command, [

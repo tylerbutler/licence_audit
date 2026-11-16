@@ -75,7 +75,10 @@ class CliStreamTest(unittest.TestCase):
             **os.environ, "HOME": str(self.project / "unused-home"),
             "XDG_CACHE_HOME": str(cache), "NO_COLOR": "1",
         }
-        for arguments in (["--help"], ["-h"], ["--version"], ["report", "-h"]):
+        for arguments in (
+            [], ["-q", "--colour=never"], ["--help"], ["-h"],
+            ["--version"], ["report", "-h"],
+        ):
             result = subprocess.run(
                 [str(ROOT / "licence_audit"), *arguments],
                 cwd=self.project, env=env, capture_output=True, text=True,
@@ -90,7 +93,7 @@ class CliStreamTest(unittest.TestCase):
             self.assertFalse(cache.exists())
             self.assertFalse((self.project / "unused-home").exists())
 
-    def test_default_report_matches_named_report_with_root_options(self):
+    def test_named_report_accepts_scan_options_and_root_rejects_them(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
         (self.project / "locked.toml").write_text("packages = []\n")
         (self.project / "policy.toml").write_text(
@@ -109,20 +112,21 @@ class CliStreamTest(unittest.TestCase):
             ],
         ):
             with self.subTest(flags=flags):
-                root = self.run_cli(*flags, environment=environment)
                 named = self.run_cli("report", *flags, environment=environment)
-                self.assertEqual(root.returncode, 0, root.stderr)
-                self.assertEqual(
-                    (root.returncode, root.stdout),
-                    (named.returncode, named.stdout),
-                )
-                self.assertIn("Skipped non-Hex packages: 0", root.stdout)
+                self.assertEqual(named.returncode, 0, named.stderr)
+                self.assertIn("Skipped non-Hex packages: 0", named.stdout)
+                if flags:
+                    root = self.run_cli(*flags, environment=environment)
+                    self.assertEqual(root.returncode, 1, root.stderr)
+                    self.assertEqual(root.stdout, "")
+                    self.assertIn("invalid flag", root.stderr)
+                    self.assertIn("licence_audit report", root.stderr)
         result = self.run_cli("audit")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
 
     def test_missing_manifest_diagnostics_ignore_quiet(self):
-        for command in ("", "report", "check", "sbom", "vulns", "notices", "update"):
+        for command in ("report", "check", "sbom", "vulns", "notices", "update"):
             with self.subTest(command=command):
                 arguments = [command] if command else []
                 arguments += ["--quiet"]
@@ -788,7 +792,7 @@ class CliStreamTest(unittest.TestCase):
         )
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
-            for command in ([], ["report"], ["check", f"--config={policy}"])
+            for command in (["report"], ["check", f"--config={policy}"])
             for mode, environment, colored in (
                 ("never", {"FORCE_COLOR": "1"}, False),
                 ("always", {"NO_COLOR": "1"}, True),

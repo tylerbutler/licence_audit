@@ -55,9 +55,10 @@ them and returns exit code `0` when the scan completes. An incomplete licence re
 caused by unavailable or invalid package metadata returns `2`. The `check`
 command also returns `1` when it finds a policy violation.
 
-A bare `licence_audit` runs the same non-enforcing report. Both forms accept
-the same scan options. Use `licence_audit --help` to show help without
-reading project files, opening caches, or making network calls.
+A bare `licence_audit` shows root help and exits `0`, including outside a
+project. It does not start runtime applications, read project files, open
+caches, or make network calls. Put scan options after `report`; root scan
+flags are usage errors.
 
 See [configuration discovery](/docs/configuration#discovery) for how the
 manifest selects the project and policy file.
@@ -67,7 +68,7 @@ Use `--scope=prod` to select production dependencies, including shared
 transitive dependencies:
 
 ```sh
-licence_audit --scope=prod
+licence_audit report --scope=prod
 licence_audit check --scope=prod
 licence_audit vulns --scope=prod
 licence_audit notices --scope=all
@@ -315,7 +316,7 @@ options available in your installed version.
 use `licence_audit --version`, not `licence_audit sbom --version`.
 
 <!-- cli-reference -->
-Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.
+Show available commands. Use `licence_audit report` for licence reports; scan flags belong after `report`.
 
 **Usage:**
 
@@ -327,14 +328,8 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
-| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
-| `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->
