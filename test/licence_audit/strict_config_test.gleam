@@ -133,7 +133,7 @@ fn load_options(allow: List(String), deny: List(String)) -> config.LoadOptions {
     allow_licences: allow,
     deny_licences: deny,
     vuln_severity: None,
-    vuln_block_unknown: False,
+    vuln_block_unknown: None,
     ignore_config: False,
     check: False,
   )
@@ -164,11 +164,11 @@ pub fn malformed_licences_fail_in_parse_load_and_merge_test() {
         Error(config.InvalidLicenceIdentifier),
       )
       should.equal(
-        config.merge(policy(["MIT"], []), policy(allow, deny)),
+        config.merge(policy(["MIT"], []), load_options(allow, deny)),
         Error(config.InvalidLicenceIdentifier),
       )
       should.equal(
-        config.merge(policy(allow, deny), policy(["MIT"], [])),
+        config.merge(policy(allow, deny), load_options(["MIT"], [])),
         Error(config.InvalidLicenceIdentifier),
       )
     })
@@ -191,7 +191,10 @@ pub fn valid_spdx_syntax_is_preserved_without_membership_checks_test() {
   should.equal(parsed.allow, licences)
   should.equal(parsed.deny, licences)
   should.equal(config.load(load_options(licences, licences)), Ok(parsed))
-  should.equal(config.merge(policy([], []), parsed), Ok(parsed))
+  should.equal(
+    config.merge(policy([], []), load_options(licences, licences)),
+    Ok(parsed),
+  )
 }
 
 fn no_fetch_clients() -> licence_audit.Clients {

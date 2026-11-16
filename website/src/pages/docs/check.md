@@ -196,10 +196,26 @@ With licence-only selection, they cause a usage error (exit `2`), including an e
 `--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
 remain valid with any selection and apply only to selected vulnerability gates.
 
-`--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
-can only enable blocking: if you omit it, a configured `true` still applies.
-There is no CLI flag to turn this setting off. Select an alternate policy with
-`--config` to use a different value while retaining the required licence rules.
+CLI values take precedence over configuration for both controls:
+
+- `--vuln-severity=low|medium|high|critical` overrides `vuln_severity`.
+  Without the flag, the command uses the configured threshold, or `high` if
+  neither supplies a value.
+- `--vuln-block-unknown` and `--vuln-block-unknown=true` enable blocking.
+  `--vuln-block-unknown=false` disables blocking, including when configuration
+  sets `vuln_block_unknown = true`. Without the flag, the command uses the
+  configured value, or `false` if neither supplies a value.
+
+For example, keep the configured severity threshold but turn off blocking for
+unknown severity:
+
+```sh
+licence_audit check --checks=vulns --vuln-block-unknown=false
+licence_audit check --checks=all --vuln-block-unknown=false
+```
+
+The first command does not enforce licence policy or fetch licence metadata.
+The second still enforces the licence policy.
 
 ## Scoped policy exceptions
 
@@ -338,6 +354,6 @@ licence_audit check [--flags]
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
-| `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (default false; requires --checks=vulns or --checks=all) |
-| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (default high; requires --checks=vulns or --checks=all) |
+| `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (true or false overrides config; default false; requires --checks=vulns or --checks=all) |
+| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
 <!-- cli-referencestop -->

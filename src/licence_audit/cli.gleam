@@ -42,7 +42,7 @@ pub type Options {
     cache_dir: Option(String),
     checks: Checks,
     vuln_severity: Option(String),
-    vuln_block_unknown: Bool,
+    vuln_block_unknown: Option(Bool),
     scope: DependencyScope,
   )
 }
@@ -319,7 +319,7 @@ fn check_command() -> glint.Command(CliAction) {
           _ -> Licences
         },
         vuln_severity: vuln_severity_value,
-        vuln_block_unknown: option.unwrap(vuln_block_unknown_value, False),
+        vuln_block_unknown: vuln_block_unknown_value,
         scope: scope_from_string(scope_value),
       ))
   }
@@ -411,14 +411,14 @@ fn vuln_severity_flag() -> glint.Flag(String) {
     constraint.one_of(["low", "medium", "high", "critical"]),
   )
   |> glint.flag_help(
-    "Minimum blocking vulnerability severity: low|medium|high|critical (default high; requires --checks=vulns or --checks=all)",
+    "Minimum blocking vulnerability severity: low|medium|high|critical (overrides config; default high; requires --checks=vulns or --checks=all)",
   )
 }
 
 fn vuln_block_unknown_flag() -> glint.Flag(Bool) {
   glint.bool_flag("vuln-block-unknown")
   |> glint.flag_help(
-    "Fail on advisories whose severity is unknown (default false; requires --checks=vulns or --checks=all)",
+    "Fail on advisories whose severity is unknown (true or false overrides config; default false; requires --checks=vulns or --checks=all)",
   )
 }
 

@@ -318,31 +318,92 @@ pub fn vulnerability_only_config_and_cli_thresholds_work_without_allow_test() {
   let assert Ok(_) = simplifile.delete(root)
 }
 
-pub fn vulnerability_only_unknown_gate_config_and_cli_settings_test() {
-  use settings <- list.each([
-    #("", [], 0),
-    #("vuln_block_unknown = true\n", [], 1),
-    #("", ["--vuln-block-unknown"], 1),
+pub fn selected_vulnerability_gates_resolve_unknown_blocking_precedence_test() {
+  use selection <- list.each(["vulns", "all"])
+  use #(setting, configured_exit) <- list.each([
+    #("", 0),
+    #("vuln_block_unknown = true\n", 1),
+    #("vuln_block_unknown = false\n", 0),
   ])
+  use #(flags, expected_exit) <- list.each([
+    #([], configured_exit),
+    #(["--vuln-block-unknown=true"], 1),
+    #(["--vuln-block-unknown=false"], 0),
+  ])
+  let licence_policy = case selection {
+    "vulns" -> "allow = [\"MIT\"]\ndeny = [\"MIT\"]\n"
+    _ -> "allow = [\"MIT\", \"Apache-2.0\"]\n"
+  }
   let root =
-    selection_project("unknown", "[tools.licence_audit]\n" <> settings.0)
+    selection_project(
+      "unknown-precedence",
+      "[tools.licence_audit]\n" <> licence_policy <> setting,
+    )
   let result =
     licence_audit.run_configured(
       list.append(
-        ["check", "--checks=vulns", "--manifest=" <> root <> "/manifest.toml"],
-        settings.1,
+        [
+          "check",
+          "--checks=" <> selection,
+          "--manifest=" <> root <> "/manifest.toml",
+        ],
+        flags,
       ),
       licence_audit.Clients(
-        ..test_clients(fn(_) {
-          panic as "vulnerability-only must not fetch licences"
+        ..test_clients(fn(name) {
+          assert selection == "all"
+          fake_fetcher(name)
         }),
+        fetcher: fn(_) { panic as "gates must not fetch API licences" },
         osv_batch_fetcher: one_vuln_batch,
         osv_detail_fetcher: unknown_vuln_detail,
       ),
       progress.disabled(),
     ).0
-  should.equal(result.exit_code, settings.2)
-  assert string.contains(result.output, "CVE-2024-0001")
+  should.equal(result.exit_code, expected_exit)
+  let marker = case expected_exit {
+    1 -> "✗"
+    _ -> "·"
+  }
+  assert string.contains(result.output, marker <> "  [UNKNOWN ]  CVE-2024-0001")
+  should.equal(string.contains(result.output, "Package"), selection == "all")
+  assert !string.contains(result.output, "denied: MIT")
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn unknown_override_preserves_selected_severity_threshold_test() {
+  use selection <- list.each(["vulns", "all"])
+  use #(flags, expected_exit, threshold) <- list.each([
+    #([], 0, "critical"),
+    #(["--vuln-severity=high"], 1, "high"),
+  ])
+  let root =
+    selection_project(
+      "severity-precedence",
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\nvuln_severity = \"critical\"\nvuln_block_unknown = true\n",
+    )
+  let result =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=" <> selection,
+        "--manifest=" <> root <> "/manifest.toml",
+        "--vuln-block-unknown=false",
+        ..flags
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(name) {
+          assert selection == "all"
+          fake_fetcher(name)
+        }),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: one_vuln_detail,
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, expected_exit)
+  assert string.contains(result.output, "threshold: " <> threshold)
+  assert !string.contains(result.output, "unknown: block")
   let assert Ok(_) = simplifile.delete(root)
 }
 

@@ -23,7 +23,7 @@ fn load_options() -> config.LoadOptions {
     allow_licences: [],
     deny_licences: [],
     vuln_severity: None,
-    vuln_block_unknown: False,
+    vuln_block_unknown: None,
     ignore_config: False,
     check: False,
   )
@@ -60,7 +60,7 @@ pub fn explicit_missing_section_cannot_be_hidden_by_cli_policy_test() {
             allow_licences: ["MIT"],
             deny_licences: ["GPL-3.0-only"],
             vuln_severity: Some("critical"),
-            vuln_block_unknown: True,
+            vuln_block_unknown: Some(True),
           )
       }
       should.equal(
