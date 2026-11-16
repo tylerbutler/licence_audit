@@ -97,7 +97,7 @@ pub fn user_cancel_exits_130_without_writing_file_test() {
   let assert Error(_) = simplifile.read(from: path)
 }
 
-pub fn not_interactive_exits_1_test() {
+pub fn not_interactive_exits_2_test() {
   let path = fresh_path("not_interactive")
 
   let #(result, _) =
@@ -112,9 +112,10 @@ pub fn not_interactive_exits_1_test() {
       reporter(),
     )
 
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   let assert True =
     string.contains(result.output, "requires an interactive terminal")
+  let assert Error(_) = simplifile.read(path)
 }
 
 pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {

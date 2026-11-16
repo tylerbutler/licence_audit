@@ -177,7 +177,7 @@ fn handle_selection(
       let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
       #(
-        UpdateDiagnostic(exit_code: 1, output: "Error: " <> message <> "\n"),
+        UpdateDiagnostic(exit_code: 2, output: "Error: " <> message <> "\n"),
         reporter,
       )
     }

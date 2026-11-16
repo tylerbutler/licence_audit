@@ -120,8 +120,8 @@ We preserve the documented exit-code categories:
 | Code | Meaning |
 | ---- | ------- |
 | `0` | Successful completion. Report-only commands do not fail because they find policy violations or vulnerabilities. |
-| `1` | An enforced gate failed, CLI usage was invalid, or `update` could not run with non-interactive stdin. |
-| `2` | An input, configuration, manifest, network, decode, or artifact-generation error prevented completion. |
+| `1` | An enforced gate failed. |
+| `2` | Invalid CLI usage or an input, configuration, manifest, network, decode, or artifact-generation error prevented completion. This includes `update` without interactive stdin and stdout. |
 | `130` | The user cancelled `update`. |
 
 These categories apply after the CLI starts on a supported runtime. Escript
@@ -136,7 +136,25 @@ Missing or invalid policy configuration is an error, not a passing check.
 Licence reports exit `2` if required package metadata cannot be fetched or
 decoded, even when they show results for other packages. Policy findings in a
 completed report still exit `0`. `update` TOML edit and file-write failures
-also exit `2`, not the gate/usage category `1`.
+also exit `2`, not the gate-failure category `1`.
+
+### Pre-1.0 usage migration
+
+Update scripts to treat exit `1` as an enforced gate failure and exit `2` as
+an error. Unknown flags or commands, invalid flag values, conflicting flags,
+unexpected positional arguments, and non-interactive `update` now exit `2`
+instead of `1`. User cancellation of `update` still exits `130`.
+
+Remove one flag from each contradictory pair. Commands that accept both
+`--config` and `--ignore-config` reject the pair when `--ignore-config` is
+enabled. To read the selected file, remove `--ignore-config`; to ignore
+configuration, remove `--config`. Commands that accept `--no-cache` and
+`--cache-dir` reject the pair when `--no-cache` is enabled. To use the cache
+root, remove `--no-cache`; to bypass storage, remove `--cache-dir`.
+Explicit `--ignore-config=false` and `--no-cache=false` do not conflict with
+their path flags.
+
+### Completion and output
 
 Optional enrichment has separate completion rules:
 

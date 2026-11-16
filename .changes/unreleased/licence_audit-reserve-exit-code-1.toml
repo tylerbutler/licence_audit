@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Changed"
+body = "Reserve exit code `1` for enforced gate failures. CLI usage errors, including non-interactive `update`, now exit `2`; cancellation remains `130`. Reject enabled `--ignore-config` with `--config` and enabled `--no-cache` with `--cache-dir` on commands that accept both flags. Remove one flag from each pair; explicit `=false` remains valid."

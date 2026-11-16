@@ -133,7 +133,7 @@ pub fn removed_policy_flags_stop_before_loading_any_configuration_test() {
         test_clients(fn(_) { panic as "invalid flags must not fetch metadata" }),
         progress.capturing(progress.Normal, "report"),
       )
-    should.equal(result.exit_code, 1)
+    should.equal(result.exit_code, 2)
     assert string.contains(result.output, "invalid flag")
     assert string.contains(result.output, name)
     should.equal(events, [])
@@ -165,7 +165,7 @@ pub fn vulnerability_flag_prerequisites_stop_before_fetching_test() {
       clients,
       progress.disabled(),
     )
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(
     result.output,
     "require --checks=vulns or --checks=all",
@@ -1063,6 +1063,81 @@ pub fn run_with_source_clients_disables_disk_cache_for_audits_test() {
   let assert Error(_) = simplifile.read_bits(cache_path)
 }
 
+pub fn embedded_cache_bypass_does_not_create_flag_conflicts_test() {
+  let root =
+    selection_project(
+      "embedded-cache",
+      "version = \"1.0.0\"\n[tools.licence_audit]\nallow = [\"MIT\"]\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(root <> "/manifest.toml", "packages = []\n")
+  let cache_path = root <> "/unused-cache"
+  let clients =
+    test_clients(fn(_) { panic as "empty manifests need no clients" })
+  use command <- list.each([
+    [],
+    ["report"],
+    ["check"],
+    ["update"],
+    ["sbom"],
+    ["notices"],
+  ])
+  use flags <- list.each([[], ["--no-cache=false"]])
+  let result =
+    licence_audit.run_configured(
+      list.append(
+        [
+          "--manifest=" <> root <> "/manifest.toml",
+          "--cache-dir=" <> cache_path,
+          ..command
+        ],
+        flags,
+      ),
+      clients,
+      progress.disabled(),
+    ).0
+  case command {
+    ["update"] -> {
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "requires an interactive terminal")
+    }
+    _ -> should.equal(result.exit_code, 0)
+  }
+  let assert Error(_) = simplifile.read_directory(cache_path)
+}
+
+pub fn explicit_conflicts_stop_both_injected_runners_before_io_test() {
+  use runner <- list.each([
+    licence_audit.run_configured,
+    licence_audit.run_cli_configured,
+  ])
+  use pair <- list.each([
+    #(
+      ["--config=missing.toml", "--ignore-config"],
+      [[], ["report"], ["check"], ["notices"], ["vulns"]],
+      "--config and --ignore-config",
+    ),
+    #(
+      ["--no-cache", "--cache-dir=unused-cache"],
+      [[], ["report"], ["check"], ["update"], ["sbom"], ["notices"]],
+      "--no-cache and --cache-dir",
+    ),
+  ])
+  use command <- list.each(pair.1)
+  let #(result, events) =
+    runner(
+      list.append(command, ["--manifest=missing-manifest.toml", ..pair.0]),
+      test_clients(fn(_) { panic as "invalid usage must not fetch" }),
+      progress.capturing(progress.Normal, "report"),
+    )
+  should.equal(result.exit_code, 2)
+  should.equal(
+    result.output,
+    "Error: " <> pair.2 <> " cannot be used together\n",
+  )
+  should.equal(events, [])
+}
+
 pub fn normal_progress_reports_audit_phases_without_package_details_test() {
   let #(licence_audit.RunResult(exit_code, _), events) =
     licence_audit.run_configured(
@@ -1722,7 +1797,7 @@ pub fn none_is_not_a_vulnerability_gate_threshold_test() -> Nil {
       test_clients(fn(_) { panic as "invalid threshold must not fetch" }),
       progress.disabled(),
     ).0
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(result.output, "low")
   let config_path = "build/none-threshold-config.toml"
   let assert Ok(_) =
@@ -2015,7 +2090,7 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
       clients,
       progress.disabled(),
     ).0
-  should.equal(root_update.exit_code, 1)
+  should.equal(root_update.exit_code, 2)
   assert string.contains(root_update.output, "requires an interactive terminal")
   let #(updated, _) =
     update.run_with_picker(
@@ -3377,7 +3452,7 @@ pub fn sbom_subcommand_vulns_conflicts_with_offline_test() {
       progress.disabled(),
     ).0
 
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(result.output, "--offline")
 }
 
@@ -3694,7 +3769,7 @@ pub fn sbom_subcommand_vulns_conflicts_with_reproducible_test() {
       progress.disabled(),
     ).0
 
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(result.output, "--reproducible")
 }
 

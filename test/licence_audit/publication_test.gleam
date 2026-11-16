@@ -259,13 +259,15 @@ fn run(
   flags: List(String),
   clients: licence_audit.Clients,
 ) -> licence_audit.RunResult {
+  let cache_flags = case list.contains(flags, "--no-cache") {
+    True -> []
+    False -> ["--cache-dir=" <> root <> "/cache"]
+  }
   licence_audit.run_cli_configured(
-    [
-      "sbom",
-      "--manifest=" <> root <> "/manifest.toml",
-      "--cache-dir=" <> root <> "/cache",
-      ..flags
-    ],
+    list.append(
+      ["sbom", "--manifest=" <> root <> "/manifest.toml", ..flags],
+      cache_flags,
+    ),
     clients,
     progress.disabled(),
   ).0
@@ -440,7 +442,9 @@ pub fn offline_missing_required_evidence_and_no_cache_fail_without_output_writes
   should.equal(warm.exit_code, 0)
   let bypassed = run(root, ["--no-cache", ..flags], no_network_clients())
   should.equal(bypassed.exit_code, 2)
-  assert string.contains(bypassed.output, "--no-cache")
+  assert string.contains(bypassed.output, "Failed to verify Hex publication")
+  assert string.contains(bypassed.output, "offline: usable cached verification")
+  should.equal(simplifile.read(output), Ok("previous output"))
   let assert Ok(_) = simplifile.delete(root <> "/cache/spdx-v1")
   let missing_text = run(root, flags, no_network_clients())
   should.equal(missing_text.exit_code, 2)

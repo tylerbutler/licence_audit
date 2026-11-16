@@ -173,7 +173,7 @@ including cleanup while the exception unwinds. `just test-cli-streams` checks
 the escript with an invalid CA bundle path
 (`ERL_FLAGS='-public_key cacerts_path [47,110,111]'`).
 These runtime failures must exit 2 without a raw
-stack trace. Policy and usage failures must still exit 1.
+stack trace. Enforced gate failures exit 1; usage errors exit 2.
 
 `just test-cli-streams` keeps process-level checks for stdout, stderr, exit
 codes, terminal detection, and disk caches. Keep argument combinations in
@@ -295,10 +295,10 @@ bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Pass `flags` or `["report", ..flags]` for a licence report; an empty
-argument list runs the default report. Both runners add `--no-cache` to default
-and named reports and other cache-capable commands, so they do not touch
-the on-disk caches or add unsupported flags
-to root help/version or standalone `vulns`. Concurrent CLI runs can share
+argument list runs the default report. Both runners validate user arguments,
+then disable caching on parsed cache-capable actions. An explicit `--cache-dir`
+alone remains valid and does not enable storage; explicit contradictory flags
+still return a usage error. Concurrent CLI runs can share
 cache paths. `--no-cache` bypasses the caches without deleting entries.
 `--cache-dir=DIR` selects the application root for metadata, notice materials,
 SPDX text, and local publication evidence. Stores use versioned subdirectories

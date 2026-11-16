@@ -220,6 +220,12 @@ fn report_command(
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_dir_value) = cache_dir(flags)
   let assert Ok(scope_value) = scope(flags)
+  use <- validate_conflicts(
+    config_path,
+    ignore_config,
+    cache_dir_value,
+    no_cache,
+  )
   case
     show_version(flags),
     verbosity(quiet, verbose),
@@ -274,6 +280,12 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
   let assert Ok(vuln_block_unknown_value) = vuln_block_unknown(flags)
 
+  use <- validate_conflicts(
+    config_path,
+    ignore_config,
+    cache_dir_value,
+    no_cache,
+  )
   case
     verbosity(quiet, verbose),
     color.mode_from_string(color_value),
@@ -431,6 +443,25 @@ fn verbosity_error_message(error: VerbosityError) -> String {
   "--quiet and --verbose cannot be used together"
 }
 
+fn validate_conflicts(
+  config_path: Option(String),
+  ignore_config: Bool,
+  cache_dir: Option(String),
+  no_cache: Bool,
+  next: fn() -> CliAction,
+) -> CliAction {
+  case
+    option.is_some(config_path) && ignore_config,
+    option.is_some(cache_dir) && no_cache
+  {
+    True, _ ->
+      InvalidUsage("--config and --ignore-config cannot be used together")
+    False, True ->
+      InvalidUsage("--no-cache and --cache-dir cannot be used together")
+    False, False -> next()
+  }
+}
+
 fn update_command() -> glint.Command(CliAction) {
   use <- glint.command_help(
     "Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.",
@@ -452,6 +483,7 @@ fn update_command() -> glint.Command(CliAction) {
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_dir_value) = cache_dir(flags)
+  use <- validate_conflicts(config_path, False, cache_dir_value, no_cache)
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
@@ -536,6 +568,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(with_vulns_value) = with_vulns(flags)
   let assert Ok(license_text_value) = license_text(flags)
 
+  use <- validate_conflicts(option.None, False, cache_dir_value, no_cache)
   case
     verbosity(quiet, verbose),
     offline_value && with_vulns_value,
@@ -601,6 +634,12 @@ fn notices_command() -> glint.Command(CliAction) {
   let assert Ok(no_cache) = no_cache(flags)
   let assert Ok(cache_dir_value) = cache_dir(flags)
 
+  use <- validate_conflicts(
+    config_path,
+    ignore_config,
+    cache_dir_value,
+    no_cache,
+  )
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
@@ -643,6 +682,7 @@ fn vulns_command() -> glint.Command(CliAction) {
   let assert Ok(color_value) = color_flag(flags)
   let assert Ok(scope_value) = scope(flags)
 
+  use <- validate_conflicts(config_path, ignore_config, option.None, False)
   case verbosity(quiet, verbose), color.mode_from_string(color_value) {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))

@@ -163,14 +163,10 @@ pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
   })
 }
 
-pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Nil {
+pub fn config_and_ignore_config_are_rejected_before_reads_test() -> Nil {
   let assert Ok(original) = simplifile.read(missing_section)
   use path <- list.each([missing_section, fixture_root <> "/absent.toml"])
-  use #(command, expected_exit) <- list.each([
-    #([], 0),
-    #(["report"], 0),
-    #(["check"], 2),
-  ])
+  use command <- list.each([[], ["report"], ["check"]])
   let #(result, _) =
     licence_audit.run_configured(
       list.append(command, [
@@ -178,16 +174,14 @@ pub fn ignored_config_bypasses_reads_but_cannot_supply_check_policy_test() -> Ni
         "--config=" <> path,
         "--ignore-config",
       ]),
-      licence_audit.Clients(
-        ..licence_audit.default_clients(),
-        fetcher: metadata_fetcher,
-        notice_clients: source_archive_test.metadata_clients(metadata_fetcher),
-      ),
+      clients(),
       progress.disabled(),
     )
-  should.equal(result.exit_code, expected_exit)
-  assert !string.contains(result.output, "missing [tools.licence_audit]")
-  assert !string.contains(result.output, "Could not read config")
+  should.equal(result.exit_code, 2)
+  should.equal(
+    result.output,
+    "Error: --config and --ignore-config cannot be used together\n",
+  )
   should.equal(simplifile.read(missing_section), Ok(original))
 }
 

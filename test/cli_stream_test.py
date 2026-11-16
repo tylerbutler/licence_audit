@@ -118,7 +118,7 @@ class CliStreamTest(unittest.TestCase):
                 )
                 self.assertIn("Skipped non-Hex packages: 0", root.stdout)
         result = self.run_cli("audit")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")
 
     def test_missing_manifest_diagnostics_ignore_quiet(self):
@@ -129,6 +129,44 @@ class CliStreamTest(unittest.TestCase):
                 if command != "vulns":
                     arguments += ["--no-cache"]
                 self.assert_diagnostic(self.run_cli(*arguments))
+
+    def test_usage_error_classes_exit_two_before_io(self):
+        for arguments, diagnostic in (
+            (["--unknown"], "unknown"),
+            (["unknown-command"], "invalid number of arguments"),
+            (["check", "unexpected"], "invalid number of arguments"),
+            (["check", "--scope=invalid"], "must be one of"),
+            (["report", "--color=invalid"], "color"),
+            (["check", "--manifest"], "has no assigned value"),
+            (["report", "--quiet", "--verbose"], "cannot be used together"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(diagnostic, result.stderr)
+                self.assertNotIn("Could not read", result.stderr)
+
+    def test_conflicting_paths_and_enabled_booleans_exit_two_before_io(self):
+        for commands, path_flag, boolean_flag, diagnostic in (
+            (
+                ([], ["report"], ["check"], ["notices"], ["vulns"]),
+                "--config=missing-policy.toml", "--ignore-config",
+                "--config and --ignore-config cannot be used together",
+            ),
+            (
+                ([], ["report"], ["check"], ["update"], ["sbom"], ["notices"]),
+                "--cache-dir=unused-cache", "--no-cache",
+                "--no-cache and --cache-dir cannot be used together",
+            ),
+        ):
+            for command in commands:
+                for suffix in ("", "=true"):
+                    with self.subTest(command=command, flag=boolean_flag + suffix):
+                        result = self.run_cli(*command, path_flag, boolean_flag + suffix)
+                        self.assert_diagnostic(result)
+                        self.assertEqual(result.stderr, f"Error: {diagnostic}\n")
+                        self.assertFalse((self.project / "unused-cache").exists())
 
     def test_invalid_config_is_a_diagnostic(self):
         (self.project / "gleam.toml").write_text("invalid = [")
@@ -141,7 +179,7 @@ class CliStreamTest(unittest.TestCase):
                     result = self.run_cli(
                         *command, "--config=missing.toml", f"--{name}=MIT"
                     )
-                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertEqual(result.stdout, "")
                     self.assertIn("invalid flag", result.stderr)
 
@@ -156,7 +194,7 @@ class CliStreamTest(unittest.TestCase):
         ):
             with self.subTest(flags=flags):
                 result = self.run_cli("update", "--quiet", *flags)
-                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(result.stdout, "")
                 self.assertIn("invalid flag 'ignore-config'", result.stderr)
                 self.assertNotIn("Could not read", result.stderr)
@@ -188,7 +226,7 @@ class CliStreamTest(unittest.TestCase):
                 original = path.read_bytes() if path.exists() else None
                 flags = [f"--config={target}"] if target else []
                 result = self.run_cli("update", "--quiet", "--no-cache", *flags)
-                self.assert_diagnostic(result, status=1)
+                self.assert_diagnostic(result)
                 self.assertIn("interactive terminal", result.stderr)
                 self.assertEqual(path.read_bytes() if path.exists() else None, original)
 
@@ -202,7 +240,7 @@ class CliStreamTest(unittest.TestCase):
             for scan in ([], ["--checks=licences"]):
                 with self.subTest(flags=flags, scan=scan):
                     result = self.run_cli("check", "--quiet", *flags, *scan)
-                    self.assert_diagnostic(result, status=1)
+                    self.assert_diagnostic(result)
                     self.assertIn("require --checks=vulns or --checks=all", result.stderr)
                     self.assertNotIn("manifest", result.stderr)
 
@@ -216,7 +254,7 @@ class CliStreamTest(unittest.TestCase):
         ):
             with self.subTest(flag=flag):
                 result = self.run_cli("check", flag, "--quiet")
-                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.returncode, 2)
                 self.assertEqual(result.stdout, "")
                 self.assertIn("invalid flag", result.stderr)
         for selection in ("licences", "all"):
@@ -235,14 +273,14 @@ class CliStreamTest(unittest.TestCase):
         self.assertIn("--quiet", help_result.stdout)
         self.assertIn("-q", help_result.stdout)
         version = self.run_cli("check", "--version")
-        self.assertEqual(version.returncode, 1)
+        self.assertEqual(version.returncode, 2)
         self.assertEqual(version.stdout, "")
         self.assertIn("invalid flag", version.stderr)
 
     def test_vulns_removed_cache_flags_and_short_quiet(self):
         for flag in ("--no-cache", "--cache-dir=cache"):
             result = self.run_cli("vulns", flag)
-            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout, "")
             self.assertIn("invalid flag", result.stderr)
         for arguments in (("vulns", "-q"), ("-q", "vulns")):
@@ -465,8 +503,9 @@ class CliStreamTest(unittest.TestCase):
                         "erl", "-noshell", "-pa",
                         *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
                         "-eval", evaluation, "-extra", "sbom", "--license-text",
-                        "--quiet", f"--cache-dir={cache_root}",
-                        *(["--no-cache"] if mode == "no_cache" else []),
+                        "--quiet",
+                        *(["--no-cache"] if mode == "no_cache"
+                          else [f"--cache-dir={cache_root}"]),
                     ],
                     cwd=self.project, capture_output=True, text=True, timeout=30,
                     env={
@@ -744,7 +783,7 @@ class CliStreamTest(unittest.TestCase):
             self.assertTrue(result.stdout)
             self.assertEqual(result.stderr, "")
         result = self.run_cli("--not-an-option")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr)
 
