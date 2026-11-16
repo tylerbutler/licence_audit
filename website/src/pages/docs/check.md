@@ -122,7 +122,7 @@ Both flows validate supplied settings, including exceptions.
 The selected file supplies the lists and exceptions without adding rules
 from the default configuration. Edit TOML or run `update` to change policy.
 
-The [`report`](/docs/report) command previews the selected policy and returns
+The default report and [`report`](/docs/report) preview the selected policy and return
 exit code `0` for findings when the scan completes. Use `--ignore-config`
 for a report without policy evaluation. Licence-only and combined checks with
 `--ignore-config` return exit code `2` because they have no licence policy to

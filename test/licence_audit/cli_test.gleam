@@ -8,6 +8,7 @@ import licence_audit/internal/vendor/glint
 import licence_audit/progress
 
 const optional_path_flags = [
+  #([], ["manifest", "config", "cache-dir"]),
   #(["report"], ["manifest", "config", "cache-dir"]),
   #(["check"], ["manifest", "config", "cache-dir"]),
   #(["update"], ["manifest", "config", "cache-dir"]),
@@ -138,8 +139,7 @@ pub fn optional_path_flags_preserve_absence_and_explicit_values_test() {
       options.output,
     ]
     cli.RunVulns(options) -> [options.manifest_path, options.config_path]
-    cli.ShowHelp(_) | cli.ShowVersion | cli.InvalidUsage(_) ->
-      panic as "expected parsed options"
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
   }
 
   should.equal(paths, list.map(names, fn(_) { expected }))
@@ -198,8 +198,7 @@ pub fn path_values_that_look_like_aliases_are_preserved_test() {
       [options.manifest_path, options.config_path],
       options.verbosity,
     )
-    cli.ShowHelp(_) | cli.ShowVersion | cli.InvalidUsage(_) ->
-      panic as "expected parsed options"
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected parsed options"
   }
   should.equal(list.filter(paths, option.is_some), [Some(value)])
   should.equal(verbosity, progress.Quiet)
@@ -243,7 +242,6 @@ pub fn constrained_values_that_look_like_aliases_remain_invalid_values_test() {
 pub fn equals_values_do_not_consume_the_next_alias_test() {
   let options =
     parse_options([
-      "report",
       "--manifest=-h",
       "--config=--colour",
       "--cache-dir=-q",
@@ -256,7 +254,7 @@ pub fn equals_values_do_not_consume_the_next_alias_test() {
 }
 
 pub fn separated_colour_alias_accepts_a_value_test() {
-  let options = parse_options(["report", "--colour", "never", "-q"])
+  let options = parse_options(["--colour", "never", "-q"])
   should.equal(options.color, color.Never)
   should.equal(options.verbosity, progress.Quiet)
 }
@@ -600,7 +598,7 @@ pub fn update_rejects_ignore_config_forms_but_read_only_commands_keep_them_test(
       assert string.contains(message, "ignore-config")
     },
   )
-  list.each([["report"], ["check"], ["vulns"], ["notices"]], fn(command) {
+  list.each([[], ["check"], ["vulns"], ["notices"]], fn(command) {
     list.each(
       ["--ignore-config", "--ignore-config=true", "--ignore-config=false"],
       fn(flag) {
@@ -631,7 +629,7 @@ pub fn no_cache_flag_sets_no_cache_test() {
 }
 
 pub fn cache_dir_flag_sets_application_root_test() {
-  use command <- list.each([["report"], ["check"]])
+  use command <- list.each([[], ["report"], ["check"]])
   let options =
     parse_options(list.append(command, ["--cache-dir=build/cache-é中"]))
   should.equal(options.cache_dir, Some("build/cache-é中"))
@@ -884,8 +882,7 @@ pub fn shared_aliases_and_color_modes_work_on_all_commands_test() {
     cli.RunSbom(options) -> #(options.verbosity, options.color)
     cli.RunVulns(options) -> #(options.verbosity, options.color)
     cli.RunNotices(options) -> #(options.verbosity, options.color)
-    cli.ShowHelp(_) | cli.ShowVersion | cli.InvalidUsage(_) ->
-      panic as "expected options"
+    cli.ShowVersion | cli.InvalidUsage(_) -> panic as "expected options"
   }
   should.equal(actual_verbosity, case verbosity {
     "-q" -> progress.Quiet
@@ -895,7 +892,7 @@ pub fn shared_aliases_and_color_modes_work_on_all_commands_test() {
 }
 
 pub fn all_commands_reject_conflicting_aliases_and_invalid_colors_test() {
-  use command <- list.each([[], ..commands])
+  use command <- list.each(commands)
   use flags <- list.each([["-q", "-v"], ["--colour=rainbow"]])
   let assert Ok(glint.Out(cli.InvalidUsage(_))) =
     glint.execute(cli.app(), cli.normalize_args(list.append(command, flags)))
@@ -937,7 +934,7 @@ pub fn command_specific_flag_matrix_test() {
 }
 
 pub fn dependency_scope_defaults_and_values_test() {
-  use command <- list.each([["report"], ["check"], ["vulns"], ["notices"]])
+  use command <- list.each([[], ["report"], ["check"], ["vulns"], ["notices"]])
   use flags <- list.each([
     [],
     ["--scope=prod"],
@@ -954,7 +951,6 @@ pub fn dependency_scope_defaults_and_values_test() {
     cli.RunNotices(options) -> options.scope
     cli.UpdateConfig(_)
     | cli.RunSbom(_)
-    | cli.ShowHelp(_)
     | cli.ShowVersion
     | cli.InvalidUsage(_) -> panic as "expected scoped command"
   }
@@ -1028,23 +1024,17 @@ pub fn removed_check_vulns_flag_and_help_test() {
   assert !string.contains(help, "--vulns")
 }
 
-pub fn bare_root_shows_help_and_lists_report_test() {
+pub fn bare_root_matches_named_report_and_lists_report_test() {
+  should.equal(parse_options([]), parse_options(["report"]))
   let help = help_text(["--help"])
-  let assert Ok(glint.Out(cli.ShowHelp(bare_help))) =
-    glint.execute(cli.app(), [])
-  should.equal(bare_help, help)
   assert string.contains(help, "report")
   assert !string.contains(help, "audit --")
-  use flag <- list.each([
-    "--manifest", "--config", "--scope", "--ignore-config", "--no-cache",
-    "--cache-dir", "--allow", "--deny",
-  ])
-  assert !list.any(glint.document(cli.app()).flags, fn(root_flag) {
-    "--" <> root_flag.meta.name == flag
-  })
+  assert string.contains(help, "--no-cache")
+  assert !string.contains(help, "--allow")
+  assert !string.contains(help, "--deny")
 }
 
-pub fn root_scan_options_are_usage_errors_that_direct_users_to_report_test() {
+pub fn root_scan_options_match_named_report_test() {
   use flags <- list.each([
     ["--manifest=missing.toml"],
     ["--config=missing.toml"],
@@ -1053,6 +1043,9 @@ pub fn root_scan_options_are_usage_errors_that_direct_users_to_report_test() {
     ["--scope=all"],
     ["--cache-dir=cache"],
     ["--no-cache"],
+    ["--quiet"],
+    ["--verbose"],
+    ["--color=never"],
     ["--manifest=locked.toml", "--config=policy.toml"],
     ["--scope=prod", "--no-cache", "-q", "--colour=never"],
     ["--scope=all", "--no-cache", "-q", "--colour=never"],
@@ -1066,20 +1059,10 @@ pub fn root_scan_options_are_usage_errors_that_direct_users_to_report_test() {
       "--colour=never",
     ],
   ])
-  let message = usage_error(flags)
-  assert string.contains(message, "invalid flag")
-  assert string.contains(message, "licence_audit report")
-}
-
-pub fn root_display_controls_show_help_without_a_report_test() {
-  use flags <- list.each([
-    ["--quiet"],
-    ["--verbose"],
-    ["-q", "--colour=never"],
-    ["-v", "--color=always"],
-  ])
-  let assert Ok(glint.Out(cli.ShowHelp(_))) =
-    glint.execute(cli.app(), cli.normalize_args(flags))
+  should.equal(
+    parse_options(flags),
+    parse_options(list.append(["report"], flags)),
+  )
 }
 
 pub fn version_flag_is_root_only_test() {

@@ -51,7 +51,7 @@ fn test_clients(
   )
 }
 
-pub fn bare_help_and_version_do_not_call_clients_test() {
+pub fn help_and_version_do_not_call_clients_test() {
   let clients =
     licence_audit.Clients(
       fetcher: fn(_) { panic as "root must not fetch Hex metadata" },
@@ -60,71 +60,56 @@ pub fn bare_help_and_version_do_not_call_clients_test() {
       },
       osv_batch_fetcher: fn(_) { panic as "root must not query OSV" },
       osv_detail_fetcher: fn(_) { panic as "root must not fetch advisories" },
-      notice_clients: notice.Clients(
-        fetch_hex_tarball: fn(_, _) {
-          panic as "help must not fetch Hex sources"
-        },
-        fetch_git_archive: fn(_, _) {
-          panic as "help must not fetch Git sources"
-        },
-        resolve_commit: fn(_, _) { panic as "help must not resolve tags" },
-        fetch_repo_archive: fn(_, _) {
-          panic as "help must not fetch repositories"
-        },
-        fetch_spdx_index: fn(_) { panic as "help must not fetch SPDX indexes" },
-        fetch_spdx: fn(_) { panic as "help must not fetch SPDX text" },
-      ),
+      notice_clients: source_archive_test.metadata_clients(fn(_) {
+        panic as "help must not fetch locked sources"
+      }),
     )
   use args <- list.each([
-    [],
-    ["--quiet"],
-    ["--verbose", "--color=never"],
     ["--help"],
     ["-h"],
     ["--version"],
     ["report", "--help"],
     ["--help", "--manifest=missing-manifest.toml"],
+    ["--version", "--config=missing-config.toml"],
   ])
   let #(result, events) =
-    licence_audit.run_cli_configured(
-      args,
-      clients,
-      progress.capturing(progress.Verbose, "report"),
-    )
+    licence_audit.run_configured(args, clients, progress.disabled())
   should.equal(result.exit_code, 0)
   should.equal(events, [])
   assert !string.contains(result.output, "Starting licence audit")
 }
 
-pub fn named_report_preserves_output_errors_and_cache_bypass_test() {
+pub fn default_and_named_report_preserve_output_errors_and_cache_bypass_test() {
   let args = [
     "--manifest=test/fixtures/manifest.toml",
     test_policy.flag([], ["MIT"]),
-    "--cache-dir=build/named-report-unused-cache",
+    "--cache-dir=build/default-report-unused-cache",
   ]
   use #(fetcher, expected_exit) <- list.each([
     #(fake_fetcher, 0),
     #(failing_fetcher, 2),
   ])
   let clients = test_clients(fetcher)
+  let root = licence_audit.run_configured(args, clients, progress.disabled())
   let named =
     licence_audit.run_configured(
       ["report", ..args],
       clients,
       progress.disabled(),
     )
-  should.equal(named.0.exit_code, expected_exit)
-  assert string.contains(named.0.output, "gleam_stdlib")
-  assert string.contains(named.0.output, "MIT")
+  should.equal(root, named)
+  should.equal(root.0.exit_code, expected_exit)
+  assert string.contains(root.0.output, "gleam_stdlib")
+  assert string.contains(root.0.output, "MIT")
   let assert Error(_) =
-    simplifile.read_directory("build/named-report-unused-cache")
+    simplifile.read_directory("build/default-report-unused-cache")
 }
 
 pub fn removed_policy_flags_stop_before_loading_any_configuration_test() {
   let alternate = test_policy.flag(["Apache-2.0"], [])
   let invalid = "build/removed-policy-flags-invalid.toml"
   let assert Ok(_) = simplifile.write(invalid, "invalid = [")
-  list.each([["report"], ["check"]], fn(command) {
+  list.each([[], ["report"], ["check"]], fn(command) {
     use config <- list.each([
       [],
       [alternate],
@@ -547,6 +532,7 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
     )
 
   [
+    ["--ignore-config"],
     ["report", "--ignore-config"],
     ["check", test_policy.flag(["MIT"], [])],
     ["check", test_policy.flag(["MIT"], []), "--checks=all"],
@@ -2006,6 +1992,7 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
     )
   list.each(
     [
+      #([], 0),
       #(["report"], 0),
       #(["check"], 1),
       #(["check", test_policy.flag(["Apache-2.0"], [])], 0),
@@ -2082,7 +2069,7 @@ pub fn licence_commands_reject_bad_locked_evidence_without_api_fallback_test() {
   ]
   list.each(cases, fn(test_case) {
     let assert Ok(_) = simplifile.write(root <> "/manifest.toml", test_case.0)
-    list.each([["report"], ["check"], ["update"]], fn(command) {
+    list.each([[], ["report"], ["check"], ["update"]], fn(command) {
       let result =
         licence_audit.run_configured(
           list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),

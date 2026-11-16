@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Bare `licence_audit` now shows help and exits 0 without scanning. Use `licence_audit report` for non-enforcing licence reports and put scan flags after `report`; root scan flags are no longer accepted."

@@ -177,6 +177,7 @@ pub fn dev_only_and_empty_production_tables_filter_all_commands_test() {
   let manifest_path = write_project(name, project, False)
   list.each(
     [
+      ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
       ["check", test_policy.flag(["MIT"], []), "--scope=prod"],
       [
@@ -212,6 +213,7 @@ pub fn dev_only_project_preserves_command_defaults_and_all_scope_test() {
   let manifest_path = write_project("defaults", dev_dependencies, False)
   let clients = selected_clients(["dev_dep", "dev_leaf", "shared"])
   let audit = run(manifest_path, ["report", "--ignore-config"], clients)
+  should.equal(run(manifest_path, ["--ignore-config"], clients), audit)
   should.equal(audit.exit_code, 0)
   assert string.contains(audit.output, "dev_dep")
   assert string.contains(audit.output, "dev_leaf")
@@ -241,6 +243,7 @@ pub fn dev_only_project_preserves_command_defaults_and_all_scope_test() {
   assert string.contains(notices.output, "shared")
   list.each(
     [
+      ["--ignore-config"],
       ["report", "--ignore-config"],
       ["check", test_policy.flag(["MIT"], [])],
       ["check", test_policy.flag(["Apache-2.0"], []), "--checks=all"],
@@ -267,6 +270,7 @@ pub fn mixed_project_keeps_shared_transitive_production_dependencies_test() {
   let clients = selected_clients(["prod_dep", "shared"])
   list.each(
     [
+      ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
       ["check", test_policy.flag(["Apache-2.0"], []), "--scope=prod"],
       [
@@ -329,6 +333,7 @@ pub fn missing_project_file_keeps_direct_dependency_fallback_test() {
   let clients = selected_clients(["dev_dep", "dev_leaf", "shared"])
   list.each(
     [
+      ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
       ["check", test_policy.flag(["Apache-2.0"], []), "--scope=prod"],
       ["vulns", "--ignore-config", "--scope=prod"],
@@ -356,6 +361,8 @@ pub fn invalid_project_configuration_fails_even_with_ignore_config_test() {
   list.each(
     [
       ["check", test_policy.flag(["MIT"], [])],
+      ["--ignore-config", "--scope=prod"],
+      ["--ignore-config", "--scope=all"],
       ["report", "--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=all"],
       ["check", test_policy.flag(["MIT"], []), "--scope=prod"],
@@ -394,6 +401,7 @@ pub fn unreadable_project_configuration_fails_in_scoped_commands_test() {
   let assert Ok(_) = simplifile.create_directory_all(project_path)
   list.each(
     [
+      ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
       ["check", test_policy.flag(["MIT"], []), "--scope=prod"],
       ["check", "--ignore-config", "--checks=vulns", "--scope=prod"],

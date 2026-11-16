@@ -46,7 +46,7 @@ of the default policy file:
 licence_audit check --manifest=apps/server/manifest.toml --config=policies/server.toml
 ```
 
-For `report`, licence-only or combined `check`, and `vulns`,
+For the default report, `report`, licence-only or combined `check`, and `vulns`,
 the explicit file must
 contain `[tools.licence_audit]`. A file without this section causes an error
 with exit code `2`. The error names the file and missing section.
@@ -85,7 +85,7 @@ precedence over `--config`: the command does not read or validate the named
 policy file. It does not disable project metadata reads.
 
 ```sh
-licence_audit report --ignore-config
+licence_audit --ignore-config
 ```
 
 This produces a licence report without policy findings. Licence-only and

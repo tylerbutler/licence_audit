@@ -33,6 +33,13 @@
 
 ## Key repository conventions
 
+- Bare `licence_audit` runs the non-enforcing licence report by design;
+  `licence_audit report` is an optional explicit form with the same options.
+  Preserve root scan flags and use `--help` or `-h` for root help.
+  Do not flag default scanning or missing-project errors on bare invocation
+  as UX defects, or propose help-only root behavior, without a new maintainer
+  decision. See the accepted decision in
+  `website/src/pages/docs/report.md` under "Intentional default report".
 - Library entry points (`run` and `run_configured`) append `--no-cache`; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
 - `manifest.gleam` keeps non-Hex dependencies in graph data for tree/path context, but license auditing only applies to Hex packages.
 - Unsupported sources are handled differently by command:

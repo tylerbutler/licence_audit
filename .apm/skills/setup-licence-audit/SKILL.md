@@ -150,7 +150,7 @@ Use the column for the selected installation:
 
 | Purpose | Gleam module | Standalone |
 | --- | --- | --- |
-| Licence report or policy preview | `gleam run --target erlang -m licence_audit -- report` | `licence_audit report` |
+| Licence report or policy preview | `gleam run --target erlang -m licence_audit -- report` (or omit `-- report`) | `licence_audit report` (or `licence_audit`) |
 | Vulnerability report | `gleam run --target erlang -m licence_audit -- vulns` | `licence_audit vulns` |
 | Enforce licence policy | `gleam run --target erlang -m licence_audit -- check` | `licence_audit check` |
 | Enforce vulnerability threshold only | `gleam run --target erlang -m licence_audit -- check --checks=vulns` | `licence_audit check --checks=vulns` |
@@ -160,9 +160,6 @@ For the manual policy picker, use
 `gleam run --target erlang -m licence_audit -- update` with a module setup,
 or `licence_audit update` with a standalone setup. Put policy flags such as
 `--config` after `--` in module commands.
-
-Bare `licence_audit` shows help without scanning, including outside a project.
-Put scan flags after `report`; root scan flags are usage errors.
 
 Report commands do not fail because they find violations or vulnerabilities.
 Use the combined `check --checks=all` command for enforcement. It returns `1` for

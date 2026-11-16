@@ -113,6 +113,7 @@ def smoke(binary, escript=False):
         for name in ("HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA"):
             isolated_env[name] = str(work / ("unused-" + name))
         for args, family, name in (
+            (["--verbose", "--color=never"], "hex-v2", "default-report"),
             (["report", "--verbose", "--color=never"], "hex-v2", "named-report"),
             (notices_args, "notices-v3", "notices"),
             (["sbom", "--license-text", "--output=smoke-text.json", "--color=never"],

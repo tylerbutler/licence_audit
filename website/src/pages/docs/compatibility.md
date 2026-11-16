@@ -64,19 +64,17 @@ locked graph and each component's production or development scope.
 
 ## Commands and configuration
 
-`licence_audit report` runs the non-enforcing licence report. Bare invocation
-shows root help and exits `0`, even outside a project, without starting runtime
-applications, reading project files, opening caches, or making network calls.
-Root scan flags are usage errors. There is no `audit` alias.
-Root `--help`, `-h`, and `--version` still work without project files or network
-access.
+`licence_audit report` is an explicit form of the default licence report.
+Bare invocation and root scan flags remain supported, except for the removed
+policy flags below. Both forms use the same report options and behavior.
+There is no `audit` alias. Root `--help`, `-h`, and `--version` still work
+without reading project files or making network calls.
+
+Default scanning is intentional UX. See the
+[accepted default-report decision](/docs/report#intentional-default-report)
+before proposing a change to root behavior.
 
 ### Migration before 1.0
-
-Replace a bare scan with `licence_audit report`. Move root scan flags after
-`report`, for example `licence_audit report --scope=prod --no-cache`.
-The report keeps its non-enforcing findings, exceptions, skipped-source
-summary, and operational error exit codes. Text remains the report format.
 
 The licence report and `check` reject `--allow` and `--deny`, including empty
 values. They have no aliases. Ad-hoc CLI additions can no longer widen a
@@ -92,6 +90,7 @@ deny = ["GPL-3.0-only"]
 
 ```sh
 licence_audit check --config=policies/release.toml
+licence_audit --config=policies/release.toml
 licence_audit report --config=policies/release.toml
 ```
 
