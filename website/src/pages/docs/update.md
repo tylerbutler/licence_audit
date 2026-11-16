@@ -76,7 +76,7 @@ The command does not use OTP's non-atomic Windows rename.
 
 `update` is interactive and requires a TTY:
 
-- It exits `1` if stdin or stdout is non-interactive (for example, in CI).
+- It exits `2` if stdin or stdout is non-interactive (for example, in CI).
 - It exits `130` if you cancel.
 
 > **Note:** If you use the escript, Erlang/OTP **28 or later** is required

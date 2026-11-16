@@ -33,14 +33,14 @@
 
 ## Key repository conventions
 
-- Library entry points (`run` and `run_configured`) append `--no-cache`; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
+- Library entry points (`run` and `run_configured`) validate user arguments, then disable caching on the parsed action; on-disk cache behavior is intended for CLI runs, not embedded/library calls.
 - `manifest.gleam` keeps non-Hex dependencies in graph data for tree/path context, but license auditing only applies to Hex packages.
 - Unsupported sources are handled differently by command:
   - `sbom` fails for unsupported dependency sources (to avoid invalid purls).
   - `vulns` skips unsupported sources and reports the skipped package names.
 - Cache failures are non-fatal by design (`cache.gleam`): audits continue, and warnings are deferred/surfaced via progress reporting.
 - Progress/log output is managed through `progress.gleam`; user report output is printed first, then deferred progress events are flushed.
-- Error mapping and exit semantics are centralized in `error.gleam` (`0` success, `1` enforced gate/usage failure, `2` input/config/network/decode/runtime error classes).
+- Error mapping and exit semantics are centralized in `error.gleam` (`0` success, `1` enforced gate failure, `2` usage/input/config/network/decode/runtime error classes).
 - Add a Trellis changelog fragment (`just change <kind> "<body>"`) only for
   product code changes or user-visible behavior changes. Do not add one for
   documentation, tests, CI, or other internal process changes.

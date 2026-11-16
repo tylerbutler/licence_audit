@@ -222,7 +222,7 @@ fn assert_invalid_cli(
       no_fetch_clients(),
       progress.disabled(),
     )
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(result.output, "invalid flag")
 }
 

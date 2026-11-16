@@ -171,8 +171,8 @@ The command uses these exit codes:
 | Code | Meaning |
 |---|---|
 | `0` | Successful completion. Report-only policy violations and vulnerabilities do not fail the command. |
-| `1` | Enforced check failure, invalid usage, or non-interactive use of `update`. |
-| `2` | Input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata and `update` edit/write failures. |
+| `1` | Enforced check failure. |
+| `2` | Invalid usage or an input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata, non-interactive `update`, and `update` edit/write failures. |
 | `130` | `update` cancelled by the user. |
 
 Individual advisory details and default SBOM dependency enrichment are optional:
@@ -195,6 +195,8 @@ integration interfaces.
 to select a root for metadata, locked-source metadata, notice materials, and
 SPDX text. An explicit root takes precedence over environment discovery.
 Use `--no-cache` to bypass reads and writes without deleting entries.
+Do not combine enabled `--no-cache` with `--cache-dir`; this is a usage error
+(exit `2`). See the [usage migration notes](/docs/compatibility#pre-10-usage-migration).
 When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
 the root is `%LOCALAPPDATA%\licence_audit\Cache\`, as resolved
 by Erlang/OTP's user cache directory. A nonempty `XDG_CACHE_HOME` takes

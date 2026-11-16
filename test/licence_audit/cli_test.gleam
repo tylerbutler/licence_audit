@@ -571,7 +571,7 @@ pub fn update_subcommand_parses_supported_flags_test() {
       "--manifest=locked.toml",
       "--verbose",
       "--color=never",
-      "--no-cache",
+      "--no-cache=false",
       "--cache-dir=build/cache-é中",
     ])
 
@@ -579,7 +579,7 @@ pub fn update_subcommand_parses_supported_flags_test() {
   should.equal(options.manifest_path, Some("locked.toml"))
   should.equal(options.verbosity, progress.Verbose)
   should.equal(options.color, color.Never)
-  should.equal(options.no_cache, True)
+  should.equal(options.no_cache, False)
   should.equal(options.cache_dir, Some("build/cache-é中"))
 }
 
@@ -710,9 +710,90 @@ pub fn notices_subcommand_rejects_quiet_and_verbose_test() {
 
 pub fn notices_subcommand_accepts_config_controls_test() {
   let options =
-    parse_notices_options(["notices", "--config=custom.toml", "--ignore-config"])
+    parse_notices_options([
+      "notices",
+      "--config=custom.toml",
+      "--ignore-config=false",
+    ])
   should.equal(options.config_path, Some("custom.toml"))
-  should.equal(options.ignore_config, True)
+  should.equal(options.ignore_config, False)
+}
+
+pub fn config_conflicts_use_effective_boolean_values_on_all_commands_test() {
+  use command <- list.each([[], ["report"], ["check"], ["notices"], ["vulns"]])
+  use path <- list.each(["policy.toml", ""])
+  use flags <- list.each([
+    ["--ignore-config"],
+    ["--ignore-config=true"],
+    ["--ignore-config=false", "--ignore-config=true"],
+  ])
+  use args <- list.each([
+    list.append(command, ["--config=" <> path, ..flags]),
+    list.append(list.append(command, flags), ["--config", path]),
+  ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), cli.normalize_args(args))
+  should.equal(message, "--config and --ignore-config cannot be used together")
+}
+
+pub fn cache_conflicts_use_effective_boolean_values_on_all_commands_test() {
+  use command <- list.each([
+    [],
+    ["report"],
+    ["check"],
+    ["update"],
+    ["sbom"],
+    ["notices"],
+  ])
+  use path <- list.each(["cache", ""])
+  use flags <- list.each([
+    ["--no-cache"],
+    ["--no-cache=true"],
+    ["--no-cache=false", "--no-cache=true"],
+  ])
+  use args <- list.each([
+    list.append(command, ["--cache-dir=" <> path, ..flags]),
+    list.append(list.append(command, flags), ["--cache-dir", path]),
+  ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), cli.normalize_args(args))
+  should.equal(message, "--no-cache and --cache-dir cannot be used together")
+}
+
+pub fn disabled_boolean_flags_do_not_conflict_with_explicit_paths_test() {
+  use command <- list.each([
+    [],
+    ["report"],
+    ["check"],
+    ["update"],
+    ["sbom"],
+    ["notices"],
+    ["vulns"],
+  ])
+  use flags <- list.each([
+    ["=false"],
+    ["=true", "=false"],
+  ])
+  let config = case command {
+    ["sbom"] | ["update"] -> []
+    _ -> [
+      "--config=policy.toml",
+      ..list.map(flags, fn(suffix) { "--ignore-config" <> suffix })
+    ]
+  }
+  let cache = case command {
+    ["vulns"] -> []
+    _ -> [
+      "--cache-dir=cache",
+      ..list.map(flags, fn(suffix) { "--no-cache" <> suffix })
+    ]
+  }
+  let assert Ok(glint.Out(action)) =
+    glint.execute(cli.app(), list.append(list.append(command, config), cache))
+  case action {
+    cli.InvalidUsage(message) -> panic as message
+    _ -> Nil
+  }
 }
 
 pub fn invalid_color_value_returns_invalid_usage_action_test() {

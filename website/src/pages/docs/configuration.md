@@ -80,9 +80,10 @@ Edit the TOML file or use the interactive `update` command to change the lists.
 See [policy rules](/docs/check) for how the lists affect findings.
 
 On read-only commands that accept `--ignore-config`, this option bypasses tool
-configuration reads, including exceptions and notices filters. It takes
-precedence over `--config`: the command does not read or validate the named
-policy file. It does not disable project metadata reads.
+configuration reads, including exceptions and notices filters. Do not combine
+enabled `--ignore-config` with `--config`; the command rejects this pair with
+exit code `2`. Explicit `--ignore-config=false` permits `--config`.
+Ignoring configuration does not disable project metadata reads.
 
 ```sh
 licence_audit --ignore-config

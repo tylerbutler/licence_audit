@@ -20,9 +20,15 @@ exclude = ["hex_dep", "git_dep", "path_dep"]
 TOML
 
 run_cli() {
+  local cache_flag="--cache-dir=$root/metadata"
+  for argument in "$@"; do
+    if [[ "$argument" == "--no-cache" ]]; then
+      cache_flag=""
+    fi
+  done
   timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin \
     -eval 'licence_audit:main().' -extra notices \
-    "--manifest=$root/manifest.toml" "--cache-dir=$root/metadata" "$@"
+    "--manifest=$root/manifest.toml" ${cache_flag:+"$cache_flag"} "$@"
 }
 
 output=$(run_cli --scope=prod --quiet)

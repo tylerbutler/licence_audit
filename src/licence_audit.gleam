@@ -107,7 +107,7 @@ fn main_action() -> Nil {
   case glint.execute(cli.app(), cli.normalize_args(arguments())) {
     Error(message) -> {
       io.println_error(message)
-      halt(1)
+      halt(2)
     }
     Ok(glint.Help(help)) -> io.println(help)
     Ok(glint.Out(action)) ->
@@ -188,23 +188,19 @@ pub fn run(args: List(String)) -> RunResult {
   result
 }
 
-fn library_args(args: List(String)) -> List(String) {
-  let args = cli.normalize_args(args)
-  case glint.execute(cli.app(), args) {
-    Ok(glint.Out(cli.RunReport(_)))
-    | Ok(glint.Out(cli.RunAudit(_)))
-    | Ok(glint.Out(cli.UpdateConfig(_)))
-    | Ok(glint.Out(cli.RunSbom(_)))
-    | Ok(glint.Out(cli.RunNotices(_))) ->
-      case list.contains(args, "--no-cache") {
-        True -> args
-        False -> list.append(args, ["--no-cache"])
-      }
-    Ok(glint.Help(_))
-    | Ok(glint.Out(cli.ShowVersion))
-    | Ok(glint.Out(cli.InvalidUsage(_)))
-    | Ok(glint.Out(cli.RunVulns(_)))
-    | Error(_) -> args
+fn without_cache(action: cli.CliAction) -> cli.CliAction {
+  case action {
+    cli.RunReport(options) ->
+      cli.RunReport(cli.ReportOptions(..options, no_cache: True))
+    cli.RunAudit(options) ->
+      cli.RunAudit(cli.Options(..options, no_cache: True))
+    cli.UpdateConfig(options) ->
+      cli.UpdateConfig(cli.UpdateOptions(..options, no_cache: True))
+    cli.RunSbom(options) ->
+      cli.RunSbom(cli.SbomOptions(..options, no_cache: True))
+    cli.RunNotices(options) ->
+      cli.RunNotices(cli.NoticesOptions(..options, no_cache: True))
+    cli.RunVulns(_) | cli.ShowVersion | cli.InvalidUsage(_) -> action
   }
 }
 
@@ -213,7 +209,7 @@ pub fn run_configured(
   clients: Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, List(progress.Event)) {
-  run_cli_configured(library_args(args), clients, reporter)
+  run_configured_with_cache(args, clients, reporter, bypass_cache: True)
 }
 
 /// Execute CLI options with injected clients, including their cache settings.
@@ -223,13 +219,27 @@ pub fn run_cli_configured(
   clients: Clients,
   reporter: progress.Reporter,
 ) -> #(RunResult, List(progress.Event)) {
+  run_configured_with_cache(args, clients, reporter, bypass_cache: False)
+}
+
+fn run_configured_with_cache(
+  args: List(String),
+  clients: Clients,
+  reporter: progress.Reporter,
+  bypass_cache bypass_cache: Bool,
+) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) = case
     glint.execute(cli.app(), cli.normalize_args(args))
   {
     Ok(glint.Help(help)) -> #(report_result(0, help <> "\n"), reporter)
-    Ok(glint.Out(action)) ->
+    Ok(glint.Out(action)) -> {
+      let action = case bypass_cache {
+        True -> without_cache(action)
+        False -> action
+      }
       execute_action(action, clients, reporter, color.for_enabled(False))
-    Error(message) -> #(Diagnostic(RunResult(1, message <> "\n")), reporter)
+    }
+    Error(message) -> #(Diagnostic(RunResult(2, message <> "\n")), reporter)
   }
   #(result.result, progress.events(reporter))
 }
@@ -285,7 +295,7 @@ fn execute_action(
       )
     }
     cli.InvalidUsage(message) -> #(
-      Diagnostic(RunResult(1, "Error: " <> message <> "\n")),
+      Diagnostic(RunResult(2, "Error: " <> message <> "\n")),
       reporter,
     )
     cli.RunSbom(options) -> run_sbom_options(options, clients, reporter)

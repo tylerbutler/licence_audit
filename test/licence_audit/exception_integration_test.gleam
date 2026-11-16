@@ -826,7 +826,7 @@ pub fn standalone_vulns_prod_scope_keeps_shared_production_dependencies_test() {
 pub fn standalone_vulns_rejects_explicit_removed_cache_flag_test() {
   let root = project("standalone-no-cache", "")
   let result = run(root, ["vulns", "--no-cache"], clean_licences, batch, detail)
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(result.output, "no-cache")
 }
 
@@ -853,7 +853,7 @@ pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_tes
   should.equal(actual, expected)
   let explicit =
     run(root, [quiet, "vulns", "--no-cache"], clean_licences, batch, detail)
-  should.equal(explicit.exit_code, 1)
+  should.equal(explicit.exit_code, 2)
 }
 
 pub fn unknown_severity_obeys_exception_and_existing_threshold_rules_test() {

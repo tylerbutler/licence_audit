@@ -192,7 +192,7 @@ vuln_block_unknown = true
 
 The CLI flags `--vuln-severity` and `--vuln-block-unknown` require
 `--checks=vulns` or `--checks=all`.
-With licence-only selection, they cause a usage error (exit 1), including an explicit
+With licence-only selection, they cause a usage error (exit `2`), including an explicit
 `--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
 remain valid with any selection and apply only to selected vulnerability gates.
 

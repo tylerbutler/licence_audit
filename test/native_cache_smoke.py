@@ -130,7 +130,7 @@ def smoke(binary, escript=False):
             run(command + args + [f"--cache-dir={explicit}"],
                 work, isolated_env, f"isolated-{name}-warm")
             assert snapshot == {file: file.read_bytes() for file in explicit.rglob("*.json")}
-            run(command + args + [f"--cache-dir={explicit}", "--no-cache"],
+            run(command + args + ["--no-cache"],
                 work, isolated_env, f"isolated-{name}-bypass")
             assert snapshot == {file: file.read_bytes() for file in explicit.rglob("*.json")}
             for variable in ("HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "APPDATA"):
@@ -144,10 +144,6 @@ def smoke(binary, escript=False):
                         "app", "erts",
                     }, f"Application cache leaked into {variable}"
             assert not list(explicit.rglob("*.tmp"))
-            bypass = work / ("bypassed-" + name)
-            run(command + args + [f"--cache-dir={bypass}", "--no-cache"],
-                work, isolated_env, f"isolated-{name}-cold-bypass")
-            assert not bypass.exists()
         run(command + ["sbom", "--reproducible", "--offline", "--output=smoke-sbom.json"],
             work, env, "sbom")
         assert "pkg:hex/gleam_stdlib@1.0.5" in (work / "smoke-sbom.json").read_text()
