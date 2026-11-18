@@ -727,6 +727,7 @@ pub fn sbom_vulnerabilities_reference_the_local_component_not_its_published_purl
             "Published identity advisory",
             osv.High,
             [],
+            [],
           ),
         )
       },

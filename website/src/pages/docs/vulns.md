@@ -15,15 +15,22 @@ licence_audit vulns
 ## Report contents
 
 For each affected package, `vulns` shows its identifiers, severity, and a short
-summary. Severity is `critical`, `high`, `medium`, `low`, `none`, or `unknown`. The
-command first reads `database_specific.severity` from OSV. If this value is not
-available, it uses the CVSS vector. The report ends with the numbers of checked,
-affected, and clean packages.
+summary. Severity is `critical`, `high`, `medium`, `low`, `none`, or `unknown`.
+For package-specific OSV scores, the command selects the affected entry for the
+queried package and locked version. It matches explicit versions and SemVer
+ranges. Other range types require OSV's enumerated versions; the command does not
+infer Git ancestry from commit hashes. Scores for another package or version do
+not apply.
+
+Without matching package-specific scores, the command uses the advisory's
+`database_specific.severity`, then its top-level CVSS vectors. The report ends
+with the numbers of checked, affected, and clean packages.
 
 A valid CVSS score of `0.0` has severity `none`, not `low` or `unknown`.
 It remains in the report but never blocks a selected vulnerability gate, even with
 `--vuln-block-unknown`. When OSV supplies multiple vectors, the highest known
-severity applies. A recognised `database_specific.severity` remains authoritative.
+severity applies. A recognised `database_specific.severity` remains authoritative
+for the top-level fallback.
 
 A vulnerability does not make `vulns` fail. Exit codes:
 
@@ -33,7 +40,8 @@ A vulnerability does not make `vulns` fail. Exit codes:
 
 If the request for one advisory fails, the report keeps the advisory ID with
 unknown severity and a warning. The command still exits `0`. The severity is
-then incomplete.
+then incomplete. Network diagnostics include the request URL and transport
+reason, such as a DNS, connection, TLS, or timeout error.
 
 The command queries Hex and GitHub dependencies. It skips other sources and
 lists them at the end. It gets advisories through HTTPS and does **not** cache
@@ -41,7 +49,8 @@ them.
 
 Hex queries identify the package and locked version. GitHub queries send the
 locked commit through OSV's `commit` field. Reports, scoped exceptions, and
-SBOM component references keep the GitHub purl. These query rules also apply
+SBOM component references keep the full GitHub purl, including any `#subpath`;
+the commit query excludes that path. These query rules also apply
 to `check --checks=vulns`, `check --checks=all`, and `sbom --vulns`.
 
 ## Reviewed advisory exceptions
@@ -90,6 +99,10 @@ advisory meets or exceeds the threshold. An advisory with unknown severity does
 not cause a failure by default. Use `--vuln-block-unknown` to make unknown
 severity cause a failure. See [`check`](/docs/check#also-fail-on-vulnerabilities)
 for configuration and override rules.
+
+The gate evaluates severity and exceptions for each package/advisory occurrence.
+Its advisory counts include a shared advisory once, even when affected packages
+have different severities.
 
 ## Flags
 

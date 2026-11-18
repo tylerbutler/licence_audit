@@ -118,7 +118,7 @@ pub fn merge_errors_on_empty_licence_identifier_test() {
 
   let assert Error(error) = config.merge(file, cli)
 
-  should.equal(error, config.InvalidLicenceIdentifier)
+  should.equal(error, config.InvalidLicenceIdentifier("allow", ""))
 }
 
 pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {

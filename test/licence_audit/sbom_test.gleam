@@ -1056,6 +1056,7 @@ pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
       id: "GHSA-aaaa-bbbb-cccc",
       summary: "Cross-site scripting in example",
       severity: osv.High,
+      affected: [],
       scores: [
         osv.Score(
           kind: "CVSS_V3",
@@ -1065,7 +1066,11 @@ pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
     )
   let input =
     sbom.SbomInput(..minimal_input(), vulnerabilities: [
-      sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
+      sbom.EmbeddedVulnerability(
+        vuln: vuln,
+        affects: ["pkg:hex/birch@0.2.1"],
+        purls: ["pkg:hex/birch@0.2.1"],
+      ),
     ])
   let out = render(input)
 
@@ -1098,10 +1103,15 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
       summary: "",
       severity: osv.Medium,
       scores: [],
+      affected: [],
     )
   let input =
     sbom.SbomInput(..minimal_input(), vulnerabilities: [
-      sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
+      sbom.EmbeddedVulnerability(
+        vuln: vuln,
+        affects: ["pkg:hex/birch@0.2.1"],
+        purls: ["pkg:hex/birch@0.2.1"],
+      ),
     ])
   let out = render(input)
 
@@ -1118,11 +1128,14 @@ pub fn render_none_rating_without_vector_test() -> Nil {
       summary: "",
       severity: osv.NoSeverity,
       scores: [],
+      affected: [],
     )
   let output =
     render(
       sbom.SbomInput(..minimal_input(), vulnerabilities: [
-        sbom.EmbeddedVulnerability(vuln, ["pkg:hex/birch@0.2.1"]),
+        sbom.EmbeddedVulnerability(vuln, ["pkg:hex/birch@0.2.1"], [
+          "pkg:hex/birch@0.2.1",
+        ]),
       ]),
     )
   let assert Ok(ratings) =

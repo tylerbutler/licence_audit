@@ -36,6 +36,8 @@ proceed without a policy. Licence-only and combined checks require a licence
 policy from the selected file. Vulnerability-only checks do not require one.
 `update` can create the section in the project's `gleam.toml`.
 Invalid configuration still causes an error.
+For an invalid SPDX expression in `allow` or `deny`, the diagnostic names the
+field and the exact parsed entry, including whitespace.
 
 ## Explicit configuration files
 

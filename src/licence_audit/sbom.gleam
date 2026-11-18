@@ -912,7 +912,12 @@ pub type SerialNumber {
 /// ready to be emitted into the CycloneDX `vulnerabilities` array. An empty
 /// list of these on `SbomInput` omits the array entirely.
 pub type EmbeddedVulnerability {
-  EmbeddedVulnerability(vuln: osv.Vulnerability, affects: List(String))
+  EmbeddedVulnerability(
+    vuln: osv.Vulnerability,
+    affects: List(String),
+    /// OSV query identities can differ from local `bom-ref`s.
+    purls: List(String),
+  )
 }
 
 pub type SbomInput {
@@ -1563,6 +1568,15 @@ fn build_vulnerabilities(
 
 fn vulnerability_json(embedded: EmbeddedVulnerability) -> json.Json {
   let vuln = embedded.vuln
+  let ratings = case embedded.purls {
+    [] -> ratings_json(vuln)
+    purls ->
+      purls
+      |> list.sort(string.compare)
+      |> list.map(osv.for_package(vuln, _))
+      |> list.unique
+      |> list.flat_map(ratings_json)
+  }
   let source =
     json.object([
       #("name", json.string("OSV")),
@@ -1572,7 +1586,7 @@ fn vulnerability_json(embedded: EmbeddedVulnerability) -> json.Json {
     #("bom-ref", json.string("vuln:" <> vuln.id)),
     #("id", json.string(vuln.id)),
     #("source", source),
-    #("ratings", json.preprocessed_array(ratings_json(vuln))),
+    #("ratings", json.preprocessed_array(ratings)),
   ]
   let with_description = case vuln.summary {
     "" -> base
@@ -1589,11 +1603,9 @@ fn vulnerability_json(embedded: EmbeddedVulnerability) -> json.Json {
   )
 }
 
-/// CycloneDX `ratings` for an advisory: one entry per CVSS vector reported by
-/// OSV (with `method` + `vector`), or a single severity-only entry when OSV
-/// gave no machine-readable vector. The advisory's resolved severity bucket is
-/// used as the `severity` in all cases, since OSV's `database_specific` label
-/// (when present) is authoritative.
+/// One CycloneDX rating per selected CVSS vector, or a severity-only rating
+/// without vectors. Use the already scoped severity, including its applicable
+/// top-level fallback.
 fn ratings_json(vuln: osv.Vulnerability) -> List(json.Json) {
   let severity = json.string(osv.severity_to_string(vuln.severity))
   let osv_source = json.object([#("name", json.string("OSV"))])
