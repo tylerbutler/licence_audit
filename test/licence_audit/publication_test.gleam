@@ -17,6 +17,7 @@ import licence_audit/progress
 import licence_audit/publication
 import licence_audit/sbom
 import licence_audit/source_archive
+import licence_audit/source_archive_test
 import simplifile
 
 fn fresh_root(name: String) -> String {
@@ -747,5 +748,142 @@ pub fn sbom_vulnerabilities_reference_the_local_component_not_its_published_purl
       ),
     )
   should.equal(affects, [[ref]])
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn mixed_dev_sources_keep_query_identities_and_select_local_version_ratings_test() {
+  let root = project("mixed-dev-vulns")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n[dev_dependencies]\nlocal_dep = { path = \"local_dep\" }\ngit_dep = { git = \"https://github.com/example/git_dep\", ref = \"abcdef\", path = \"packages/part\" }\n",
+    )
+  let assert Ok(locked) = simplifile.read(root <> "/manifest.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      string.replace(
+        locked,
+        "commit = \"abcdef\"",
+        "commit = \"abcdef\", path = \"packages/part\"",
+      ),
+    )
+  let low_vector = "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N"
+  let clients =
+    licence_audit.Clients(
+      ..online_clients(hex.Published),
+      fetcher: fn(_) { Ok(hex.licences_only(["MIT"])) },
+      osv_batch_fetcher: fn(purls) {
+        should.equal(purls, [
+          "pkg:hex/local_dep@1.0.0",
+          "pkg:hex/hex_dep@1.0.0",
+          "pkg:github/example/git_dep@abcdef#packages/part",
+        ])
+        Ok(
+          list.map(purls, fn(purl) {
+            osv.BatchEntry(purl, case purl {
+              "pkg:hex/local_dep@1.0.0" -> ["OSV-MIXED"]
+              _ -> []
+            })
+          }),
+        )
+      },
+      osv_detail_fetcher: fn(id) {
+        osv.decode_vuln_body(
+          "{\"affected\":[{\"package\":{\"ecosystem\":\"Hex\",\"name\":\"local_dep\"},\"versions\":[\"1.0.0\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\""
+            <> low_vector
+            <> "\"}]},{\"package\":{\"ecosystem\":\"Hex\",\"name\":\"local_dep\"},\"versions\":[\"2.0.0\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}]}]}",
+          id,
+        )
+      },
+    )
+  let result = run(root, ["--vulns", "--no-cache"], clients)
+  should.equal(result.exit_code, 0)
+  let assert Ok(scopes) =
+    json.parse(
+      result.output,
+      decode.at(
+        ["components"],
+        decode.list(decode.at(["scope"], decode.string)),
+      ),
+    )
+  should.equal(scopes, ["optional", "optional", "optional"])
+  let assert Ok([#(refs, ratings)]) =
+    json.parse(
+      result.output,
+      decode.at(
+        ["vulnerabilities"],
+        decode.list({
+          use refs <- decode.field(
+            "affects",
+            decode.list(decode.at(["ref"], decode.string)),
+          )
+          use ratings <- decode.field(
+            "ratings",
+            decode.list({
+              use severity <- decode.field("severity", decode.string)
+              use vector <- decode.field("vector", decode.string)
+              decode.success(#(severity, vector))
+            }),
+          )
+          decode.success(#(refs, ratings))
+        }),
+      ),
+    )
+  let assert Ok(ref) = sbom.component_ref(local("local_dep", "1.0.0"))
+  should.equal(refs, [ref])
+  should.equal(ratings, [#("low", low_vector)])
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn permissive_notices_metadata_cannot_satisfy_strict_sbom_evidence_test() {
+  let root = fresh_root("notice-metadata-isolation")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\ngit_dep = { git = \"https://github.com/example/git_dep\", ref = \"abcdef\" }\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      "packages = [{ name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abcdef\" }]\n[requirements]\ngit_dep = { git = \"https://github.com/example/git_dep\" }\n",
+    )
+  let archive =
+    source_archive_test.with_tar_gz(
+      [#("repo/LICENSE", <<"Locked Git licence text":utf8>>)],
+      fn(bytes) { bytes },
+    )
+  let clients =
+    licence_audit.Clients(
+      ..no_network_clients(),
+      notice_clients: notice.Clients(
+        ..no_network_clients().notice_clients,
+        fetch_git_archive: fn(_, _) { Ok(archive) },
+      ),
+    )
+  let notices =
+    licence_audit.run_cli_configured(
+      [
+        "notices",
+        "--manifest=" <> root <> "/manifest.toml",
+        "--cache-dir=" <> root <> "/cache",
+      ],
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(notices.exit_code, 0)
+  assert string.contains(notices.output, "Locked Git licence text")
+  let output = root <> "/previous.json"
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each([[], ["--offline"]], fn(flags) {
+    let strict =
+      run(root, ["--reproducible", "--output=" <> output, ..flags], case flags {
+        [] -> clients
+        _ -> no_network_clients()
+      })
+    should.equal(strict.exit_code, 2)
+    assert string.contains(strict.output, "git_dep")
+    should.equal(simplifile.read(output), Ok("previous output"))
+  })
   let assert Ok(_) = simplifile.delete(root)
 }

@@ -135,6 +135,9 @@ jobs:
       - name: Run tests
         run: just test
 
+      - name: Test macOS ACL replacement refusal
+        run: mise exec -- python3 -B test/update_atomic_macos.py
+
       - name: Test CLI output streams
         run: just test-cli-streams
 
