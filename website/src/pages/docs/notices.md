@@ -72,6 +72,11 @@ file. Two types of sections follow:
 
 ## Licence text sources
 
+Declared licences come from the locked source: `metadata.config` in the
+checksum-verified Hex archive, or `gleam.toml` in the Git package directory at
+the locked commit. A newer Hex release or a stale `build/packages/` checkout
+cannot supply the declaration.
+
 `notices` looks for licence text in the sources below, in this order. It uses
 a later source only when the earlier sources give no licence text.
 
@@ -83,8 +88,9 @@ a later source only when the earlier sources give no licence text.
 2. **Declared repository** (Hex packages only). The command follows declared
    repository links for `github.com`, `codeberg.org`, and `gitlab.com`. It
    resolves a version tag, first `v<version>` and then `<version>`, to an
-   immutable commit SHA. It gets the archive for that commit, not a branch or
-   `HEAD`. The command uses only the licence text from this repository. It does
+   immutable commit SHA. Annotated tags resolve to their underlying commit.
+   A same-named branch is not a tag. It gets the archive for that commit, not a
+   branch or `HEAD`. The command uses only the licence text from this repository. It does
    not include ancillary `NOTICE` files from the repository.
 3. **Canonical SPDX text.** The command converts declared SPDX identifiers and
    expressions to canonical text from a fixed SPDX License List revision. It
@@ -105,6 +111,8 @@ For local path dependencies, Gleam writes `source = "local"` in the manifest.
 `notices` reads licence files and declared licences from the local package.
 Relative paths resolve from the directory that contains the selected manifest.
 The older `source = "path"` spelling is also accepted.
+The search excludes the local package's generated `build/` directory. It still
+accepts intentional source paths such as `legal/LICENSE`.
 
 For Git dependencies with a manifest `path`, the command searches only inside
 the selected package subdirectory at the locked commit. Package-root notice
@@ -151,7 +159,7 @@ continues to SPDX text. These limits bound archive sizes, not total VM memory.
 
 ## Caching
 
-In addition to the shared Hex metadata cache, `notices` keeps a cache of
+In addition to the shared locked metadata cache, `notices` keeps a cache of
 resolved licence materials. The cache prevents repeated downloads and fallback
 operations:
 
@@ -172,6 +180,10 @@ Use `--cache-dir=DIR` to select the root for all these caches, taking precedence
 over `XDG_CACHE_HOME` and `HOME`. Use `--no-cache` to bypass them without deleting
 stored entries. The command reads local path dependencies
 live and does not cache them.
+
+Older tag results and final package materials that could contain branch-derived
+text are not reused. Immutable source materials, repository archives keyed by
+commit, and pinned SPDX records remain reusable.
 
 Corrupt cached values are treated as misses. Transient network failures are
 never cached as successful results.

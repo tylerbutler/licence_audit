@@ -135,18 +135,18 @@ pub fn commit_request_targets_provider_api_test() {
   let github = repository.Repository(repository.GitHub, "o", "r")
   let request = repository.commit_request(github, "v1.0.0")
   should.equal(request.host, "api.github.com")
-  should.equal(request.path, "/repos/o/r/commits/v1.0.0")
+  should.equal(request.path, "/repos/o/r/git/ref/tags/v1.0.0")
 
   let gitlab = repository.Repository(repository.GitLab, "o", "r")
   should.equal(
     repository.commit_request(gitlab, "v1.0.0").path,
-    "/api/v4/projects/o%2Fr/repository/commits/v1.0.0",
+    "/api/v4/projects/o%2Fr/repository/tags/v1.0.0",
   )
 
   let subgroup = repository.Repository(repository.GitLab, "o/sub", "r")
   should.equal(
     repository.commit_request(subgroup, "v1.0.0").path,
-    "/api/v4/projects/o%2Fsub%2Fr/repository/commits/v1.0.0",
+    "/api/v4/projects/o%2Fsub%2Fr/repository/tags/v1.0.0",
   )
 
   let codeberg = repository.Repository(repository.Codeberg, "o", "r")
@@ -159,13 +159,19 @@ pub fn commit_request_targets_provider_api_test() {
 pub fn decode_commit_reads_provider_shape_test() {
   let github = repository.Repository(repository.GitHub, "o", "r")
   should.equal(
-    repository.decode_commit(github, "{\"sha\":\"abc123\"}"),
+    repository.decode_commit(
+      github,
+      "{\"object\":{\"type\":\"commit\",\"sha\":\"abc123\"}}",
+    ),
     Ok("abc123"),
   )
 
   let gitlab = repository.Repository(repository.GitLab, "o", "r")
   should.equal(
-    repository.decode_commit(gitlab, "{\"id\":\"def456\"}"),
+    repository.decode_commit(
+      gitlab,
+      "{\"target\":\"annotated-tag-object\",\"commit\":{\"id\":\"def456\"}}",
+    ),
     Ok("def456"),
   )
 
@@ -173,6 +179,32 @@ pub fn decode_commit_reads_provider_shape_test() {
   should.equal(
     repository.decode_commit(codeberg, "{\"commit\":{\"sha\":\"ghi789\"}}"),
     Ok("ghi789"),
+  )
+}
+
+pub fn tag_requests_encode_names_and_reject_generic_commit_shapes_test() {
+  let github = repository.Repository(repository.GitHub, "o", "r")
+  should.equal(
+    repository.commit_request(github, "release/1.0").path,
+    "/repos/o/r/git/ref/tags/release%2F1.0",
+  )
+  should.equal(
+    repository.decode_commit(github, "{\"sha\":\"branch-tip\"}"),
+    Error(Nil),
+  )
+  should.equal(
+    repository.decode_commit(
+      github,
+      "{\"object\":{\"type\":\"tag\",\"sha\":\"tag-object\"}}",
+    ),
+    Error(Nil),
+  )
+  should.equal(
+    repository.decode_commit(
+      repository.Repository(repository.GitLab, "o", "r"),
+      "{\"id\":\"branch-tip\"}",
+    ),
+    Error(Nil),
   )
 }
 

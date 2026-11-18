@@ -153,7 +153,7 @@ fn final_cache_key(package: notice.NoticePackage, identity: String) -> String {
     |> json.to_string
     |> bit_array.from_string
     |> checksum_of
-  "pkg:v2:"
+  "pkg:v3:"
   <> identity
   <> ":metadata:"
   <> metadata
@@ -592,7 +592,7 @@ pub fn old_empty_material_caches_do_not_hide_nested_licences_test() {
         )
         notice_cache.put_files(
           cache,
-          string.replace(final_cache_key(package, identity), "pkg:v2:", "pkg:"),
+          string.replace(final_cache_key(package, identity), "pkg:v3:", "pkg:"),
           [
             notice.spdx_file(
               spdx.LicenseRequirement("MIT"),
@@ -727,6 +727,140 @@ pub fn notice_only_source_repo_missing_falls_back_to_spdx_test() {
   ])
   // A tag that simply does not exist is not a transient failure.
   should.equal(resolution.warnings, [])
+}
+
+pub fn branch_candidates_and_legacy_materials_cannot_supply_tag_licences_test() {
+  let source = read_bytes("notice_only_hex.tar")
+  list.each([repository.GitHub, repository.GitLab], fn(provider) {
+    let repo = repository.Repository(provider, "owner", "repo")
+    let host = case provider {
+      repository.GitHub -> "github.com"
+      repository.GitLab -> "gitlab.com"
+      repository.Codeberg -> panic as "not a regression provider"
+    }
+    list.each([True, False], fn(second_tag_exists) {
+      let label =
+        host
+        <> case second_tag_exists {
+          True -> "_second_tag"
+          False -> "_branch_only"
+        }
+      let package =
+        hex_package(label, checksum_of(source), ["MIT"], [
+          "https://" <> host <> "/owner/repo",
+        ])
+      let identity = label <> "@1.0.0@hex:" <> checksum_of(source)
+      let cache =
+        notice_cache.open(notice_cache.Enabled(Some(fresh_cache_path(label))))
+      notice_cache.put_files(cache, "source:v2:" <> identity, [
+        notice.NoticeFile("NOTICE", "Locked attribution"),
+      ])
+      notice_cache.put_text(
+        cache,
+        "tag:" <> repository.describe(repo) <> "@v1.0.0",
+        "branch-tip",
+      )
+      notice_cache.put_files(
+        cache,
+        string.replace(final_cache_key(package, identity), "pkg:v3:", "pkg:v2:"),
+        [notice.NoticeFile("LICENSE", "Wrong branch licence")],
+      )
+      // Immutable repository and pinned SPDX records must remain reusable.
+      notice_cache.put_files(
+        cache,
+        "repo:v2:" <> repository.describe(repo) <> "@tag-commit",
+        [
+          notice.NoticeFile("LICENSE", "Release tag licence"),
+        ],
+      )
+      notice_cache.put_text(
+        cache,
+        "spdx-index:" <> spdx.license_list_commit <> ":licenses",
+        spdx.encode_index(["MIT"]),
+      )
+      notice_cache.put_text(
+        cache,
+        "spdx:" <> spdx.license_list_commit <> ":license:MIT",
+        "Canonical MIT text",
+      )
+      let client =
+        clients(
+          panic_hex,
+          panic_git,
+          fn(repo, tag) {
+            notice.resolve_tag(repo, tag, fn(req) {
+              // The old generic commits endpoints would accept this branch.
+              case string.contains(req.path, "/commits/") {
+                True ->
+                  Ok(
+                    #(200, case provider {
+                      repository.GitHub -> "{\"sha\":\"branch-tip\"}"
+                      repository.GitLab -> "{\"id\":\"branch-tip\"}"
+                      repository.Codeberg -> panic as "unexpected provider"
+                    }),
+                  )
+                False ->
+                  case tag, second_tag_exists {
+                    "1.0.0", True ->
+                      Ok(
+                        #(200, case provider {
+                          repository.GitHub ->
+                            "{\"object\":{\"type\":\"commit\",\"sha\":\"tag-commit\"}}"
+                          repository.GitLab ->
+                            "{\"target\":\"annotated-object\",\"commit\":{\"id\":\"tag-commit\"}}"
+                          repository.Codeberg -> panic as "unexpected provider"
+                        }),
+                      )
+                    _, _ -> Ok(#(404, "{}"))
+                  }
+              }
+            })
+          },
+          panic_archive,
+          panic_spdx,
+        )
+      let assert #(Ok(resolution), None) =
+        notice_resolve.resolve(cache, package, client)
+      should.equal(resolution.warnings, [])
+      let assert notice_resolve.Resolved(files) = resolution.outcome
+      should.equal(files, [
+        notice.NoticeFile("NOTICE", "Locked attribution"),
+        case second_tag_exists {
+          True -> notice.NoticeFile("LICENSE", "Release tag licence")
+          False ->
+            notice.spdx_file(
+              spdx.LicenseRequirement("MIT"),
+              "Canonical MIT text",
+            )
+        },
+      ])
+      let cold_client =
+        notice.Clients(
+          ..client,
+          fetch_hex_tarball: fn(_, _) { Ok(source) },
+          fetch_repo_archive: fn(_, commit) {
+            should.equal(commit, "tag-commit")
+            Ok(read_bytes("repo_with_license.tar.gz"))
+          },
+          fetch_spdx: fn(_) { Ok(Some("Canonical MIT text")) },
+        )
+      let assert #(Ok(cold), None) =
+        notice_resolve.resolve(
+          notice_cache.open(notice_cache.Disabled),
+          package,
+          cold_client,
+        )
+      let assert notice_resolve.Resolved(cold_files) = cold.outcome
+      should.equal(paths(cold_files), [
+        "./NOTICE.txt",
+        case second_tag_exists {
+          True -> "LICENSE"
+          False -> "SPDX-License-List/MIT.txt"
+        },
+      ])
+      let assert None = notice_cache.close(cache)
+    })
+  })
 }
 
 pub fn repository_network_failure_warns_and_uses_spdx_test() {

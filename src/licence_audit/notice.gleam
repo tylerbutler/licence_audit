@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -13,6 +14,7 @@ import gleam/string
 import licence_audit/archive_download
 import licence_audit/cache_dir
 import licence_audit/config
+import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/manifest
@@ -55,6 +57,7 @@ pub type FetchError {
   FetchTimeoutAfter(seconds: Int)
   FetchUnexpectedResponse(status: Int)
   FetchDownloadTooLarge(limit: Int)
+  FetchInvalidTag
 }
 
 pub type NoticePackage {
@@ -491,10 +494,47 @@ fn resolve_commit_from_provider(
   repo: repository.Repository,
   tag: String,
 ) -> Result(Option(String), FetchError) {
-  use #(status, body) <- result.try(
-    fetch_json(repository.commit_request(repo, tag)),
-  )
-  commit_response(repo, status, body)
+  resolve_tag(repo, tag, fetch_json)
+}
+
+/// Resolve only tag references, peeling GitHub annotated tags to a commit.
+pub fn resolve_tag(
+  repo: repository.Repository,
+  tag: String,
+  fetch: fn(Request(String)) -> Result(#(Int, String), FetchError),
+) -> Result(Option(String), FetchError) {
+  use #(status, body) <- result.try(fetch(repository.commit_request(repo, tag)))
+  resolve_tag_response(repo, status, body, fetch, [])
+}
+
+fn resolve_tag_response(
+  repo: repository.Repository,
+  status: Int,
+  body: String,
+  fetch: fn(Request(String)) -> Result(#(Int, String), FetchError),
+  visited: List(String),
+) -> Result(Option(String), FetchError) {
+  case repo.provider, status {
+    repository.GitHub, status if status >= 200 && status < 300 ->
+      case repository.decode_tag_target(body) {
+        Ok(repository.AnnotatedTag(sha)) -> {
+          use <- bool.guard(
+            when: list.contains(visited, sha) || list.length(visited) >= 10,
+            return: Error(FetchInvalidTag),
+          )
+          use #(next_status, next_body) <- result.try(
+            fetch(repository.annotated_tag_request(repo, sha)),
+          )
+          resolve_tag_response(repo, next_status, next_body, fetch, [
+            sha,
+            ..visited
+          ])
+        }
+        Ok(repository.Commit(sha)) -> Ok(Some(sha))
+        Error(Nil) -> Ok(None)
+      }
+    _, _ -> commit_response(repo, status, body)
+  }
 }
 
 /// Pure mapping of a repository commit-resolution HTTP `#(status, body)` to an
@@ -508,8 +548,7 @@ pub fn commit_response(
 ) -> Result(Option(String), FetchError) {
   case repo.provider, status {
     _, 404 -> Ok(None)
-    // GitHub's commits API returns 422 when a syntactically valid ref does not
-    // resolve, so this is a tag miss rather than a transient provider failure.
+    // An unresolved GitHub ref is a miss, not a transient provider failure.
     repository.GitHub, 422 -> Ok(None)
     _, status if status >= 200 && status < 300 ->
       case repository.decode_commit(repo, body) {
@@ -596,6 +635,7 @@ pub fn describe_fetch_error(error: FetchError) -> String {
       "unexpected HTTP response " <> int.to_string(status)
     FetchDownloadTooLarge(limit) ->
       "source archive download exceeds " <> int.to_string(limit) <> " bytes"
+    FetchInvalidTag -> "invalid or excessively nested repository tag"
   }
 }
 
@@ -735,6 +775,63 @@ pub fn hex_metadata_from_locked_source(
   ))
 }
 
+/// Read the package declaration from the same locked Git source as its notices.
+pub fn git_metadata_from_locked_source(
+  entry: manifest.SbomEntry,
+  clients: Clients,
+) -> Result(hex.PackageMetadata, Error) {
+  use source <- result.try(package_source(entry))
+  case source {
+    GitPackage(repo, url, commit, path) -> {
+      use bytes <- result.try(
+        clients.fetch_git_archive(repo, commit)
+        |> result.map_error(fn(error) {
+          FetchFailed(entry.name, describe_fetch_error(error))
+        }),
+      )
+      use directory <- result.try(
+        manifest.git_subdirectory(path)
+        |> result.replace_error(MetadataFailed(
+          entry.name,
+          "invalid package path",
+        )),
+      )
+      case
+        source_archive.extract_package_file_tar_gz(
+          bytes,
+          directory,
+          "gleam.toml",
+        )
+      {
+        Error(source_archive.MissingRootFile) ->
+          Ok(
+            hex.PackageMetadata(..hex.licences_only([]), links: [
+              #("Repository", gleam_toml.strip_git_suffix(url)),
+            ]),
+          )
+        Error(error) ->
+          Error(ArchiveFailed(entry.name, source_archive.describe_error(error)))
+        Ok(contents) -> {
+          use text <- result.try(
+            bit_array.to_string(contents)
+            |> result.replace_error(MetadataFailed(
+              entry.name,
+              "locked Git archive gleam.toml is not valid UTF-8",
+            )),
+          )
+          gleam_toml.package_metadata(text, gleam_toml.strip_git_suffix(url))
+          |> result.replace_error(MetadataFailed(
+            entry.name,
+            "locked Git archive has an invalid gleam.toml",
+          ))
+        }
+      }
+    }
+    HexPackage(_) | PathPackage(_) ->
+      Error(MetadataFailed(entry.name, "expected a locked Git source"))
+  }
+}
+
 /// Fetch a Hex package tarball and verify it against the lockfile checksum.
 fn fetch_verified_hex_tarball(
   name: String,
@@ -793,10 +890,12 @@ fn read_path_notices(
       _, False -> Ok(roots)
     })
     let relative_paths = list.map(paths, relative_path(_, root))
-    let candidates = case include_nested {
-      True -> all_notice_paths(relative_paths)
-      False -> selected_notice_paths(relative_paths)
-    }
+    let candidates =
+      relative_paths
+      |> list.filter(is_any_notice_file)
+      |> list.map(fn(path) { #(path, path) })
+      |> list.sort(fn(a, b) { string.compare(a.1, b.1) })
+      |> select_notice_candidates(include_nested)
     list.try_map(candidates, fn(candidate) {
       let #(original, selected) = candidate
       use file <- result.try(read_path_file(
@@ -849,12 +948,24 @@ fn read_path_files(
   package_name: String,
   path: String,
 ) -> Result(List(String), Error) {
+  read_path_files_in(package_name, path, True)
+}
+
+fn read_path_files_in(
+  package_name: String,
+  path: String,
+  package_root: Bool,
+) -> Result(List(String), Error) {
   use children <- result.try(
     simplifile.read_directory(at: path)
     |> result.map_error(fn(error) {
       PathReadFailed(package_name, path, simplifile.describe_error(error))
     }),
   )
+  let children = case package_root {
+    True -> list.filter(children, fn(child) { child != "build" })
+    False -> children
+  }
   use files, child <- list.try_fold(over: children, from: [])
   let child_path = join_path(path, child)
   use info <- result.try(
@@ -867,7 +978,11 @@ fn read_path_files(
   case simplifile.file_info_type(info) {
     simplifile.File -> Ok([child_path, ..files])
     simplifile.Directory -> {
-      use nested_files <- result.try(read_path_files(package_name, child_path))
+      use nested_files <- result.try(read_path_files_in(
+        package_name,
+        child_path,
+        False,
+      ))
       Ok(list.append(files, nested_files))
     }
     simplifile.Symlink | simplifile.Other -> Ok(files)
