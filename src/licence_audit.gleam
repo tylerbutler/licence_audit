@@ -311,12 +311,7 @@ fn execute_action(
       #(result, reporter)
     }
     cli.RunNotices(options) ->
-      run_notices_options(
-        options,
-        clients.fetcher,
-        clients.notice_clients,
-        reporter,
-      )
+      run_notices_options(options, clients.notice_clients, reporter)
     cli.ShowVersion -> #(report_result(0, tool_version() <> "\n"), reporter)
   }
 }
@@ -370,7 +365,6 @@ fn run_sbom_options(
 
 fn run_notices_options(
   options: cli.NoticesOptions,
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
@@ -424,7 +418,6 @@ fn run_notices_options(
         scopes,
         project_root,
         manifest_path,
-        fetcher,
         clients,
         reporter,
       )
@@ -438,7 +431,6 @@ fn run_selected_notices(
   scopes: dict.Dict(String, manifest.Scope),
   project_root: String,
   manifest_path: String,
-  fetcher: fn(String) -> Result(hex.PackageMetadata, hex.Error),
   clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
@@ -453,9 +445,6 @@ fn run_selected_notices(
   }
   let metadata_cache = cache.open(metadata_cache_mode)
   let source_cache = notice_cache.open(source_cache_mode)
-  let cached_fetcher = fn(name: String, version: String) {
-    cache.fetch_cached_quiet(metadata_cache, name, version, fetcher)
-  }
 
   let reporter =
     progress.detail(
@@ -472,7 +461,7 @@ fn run_selected_notices(
   let reporter = progress.package_count(reporter, list.length(selected))
 
   let metadata_for = fn(entry: manifest.SbomEntry) {
-    notice_metadata_for_entry(entry, project_root, cached_fetcher)
+    notice_metadata_for_entry(entry, project_root, metadata_cache, clients)
   }
   let #(packages, metadata_warning) =
     notice.packages_from_entries(selected, scopes, metadata_for)
@@ -673,49 +662,45 @@ fn accumulate_notice_outcome(
 }
 
 /// Resolve the metadata (declared licences + repository links) for a notices
-/// package. Hex packages use the shared metadata cache; git and path packages
-/// read their locally checked-out `gleam.toml`.
+/// package. Remote packages use locked source metadata, never a build checkout
+/// or the package-level registry declaration.
 fn notice_metadata_for_entry(
   entry: manifest.SbomEntry,
   project_root: String,
-  cached_fetcher: fn(String, String) ->
-    #(Result(hex.PackageMetadata, hex.Error), Option(String)),
+  metadata_cache: cache.Cache,
+  clients: notice.Clients,
 ) -> #(Result(hex.PackageMetadata, notice.Error), Option(String)) {
   case entry.provenance {
-    manifest.HexProvenance(_, _) -> {
-      use fetched <- cache_dir.with_warning(cached_fetcher(
-        entry.name,
-        entry.version,
+    manifest.HexProvenance(checksum, _) ->
+      cache.fetch_immutable(
+        metadata_cache,
+        entry.name
+          <> "@"
+          <> entry.version
+          <> "@hex:"
+          <> string.uppercase(checksum),
+        fn() {
+          notice.hex_metadata_from_locked_source(
+            entry.name,
+            entry.version,
+            checksum,
+            clients.fetch_hex_tarball,
+          )
+        },
+      )
+    manifest.GitProvenance(_, _, _) -> {
+      use key <- cache_dir.try_with_warning(#(
+        immutable_metadata_key(entry)
+          |> result.replace_error(notice.MetadataFailed(
+            entry.name,
+            "invalid Git source",
+          )),
+        None,
       ))
-      #(
-        case fetched {
-          Ok(metadata) -> Ok(metadata)
-          Error(fetch_error) ->
-            Error(notice.MetadataFailed(
-              package: entry.name,
-              reason: hex.describe_error(fetch_error),
-            ))
-        },
-        None,
-      )
-    }
-    manifest.GitProvenance(repo, _commit, _path) -> {
-      let repo_url = strip_git_suffix(repo)
-      let path =
-        project_root <> "/build/packages/" <> entry.name <> "/gleam.toml"
-      #(
-        case read_gleam_toml_metadata(path, repo_url) {
-          Ok(metadata) -> Ok(metadata)
-          Error(_) ->
-            Ok(hex.PackageMetadata(
-              licences: [],
-              description: None,
-              links: [#("Repository", repo_url)],
-              publisher: None,
-            ))
-        },
-        None,
-      )
+      // Missing Git declarations are allowed here, unlike reproducible SBOMs.
+      cache.fetch_immutable(metadata_cache, "notices:" <> key, fn() {
+        notice.git_metadata_from_locked_source(entry, clients)
+      })
     }
     manifest.PathProvenance(path) -> #(
       case

@@ -1,6 +1,16 @@
 -module(notice_test_ffi).
--export([with_unreadable_file/2, with_unreadable_directory/2]).
+-export([with_unreadable_file/2, with_unreadable_directory/2,
+         assert_native_symlink/1, windows_symlink_type/0]).
 -include_lib("kernel/include/file.hrl").
+
+assert_native_symlink(Path) ->
+    {ok, #file_info{type = symlink}} = file:read_link_info(Path),
+    nil.
+
+windows_symlink_type() ->
+    notice_ffi:link_type(<<"unused">>, fun(_) ->
+        {ok, #file_info{type = symlink, mode = 8#100644}}
+    end).
 
 %% File-content fixtures cannot simulate access denial. Change actual Unix
 %% permissions and restore them with try/after even if a Gleam assertion raises;

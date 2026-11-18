@@ -17,6 +17,7 @@ import licence_audit/progress
 import licence_audit/publication
 import licence_audit/sbom
 import licence_audit/source_archive
+import licence_audit/source_archive_test
 import simplifile
 
 fn fresh_root(name: String) -> String {
@@ -832,5 +833,57 @@ pub fn mixed_dev_sources_keep_query_identities_and_select_local_version_ratings_
   let assert Ok(ref) = sbom.component_ref(local("local_dep", "1.0.0"))
   should.equal(refs, [ref])
   should.equal(ratings, [#("low", low_vector)])
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn permissive_notices_metadata_cannot_satisfy_strict_sbom_evidence_test() {
+  let root = fresh_root("notice-metadata-isolation")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n[dependencies]\ngit_dep = { git = \"https://github.com/example/git_dep\", ref = \"abcdef\" }\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      "packages = [{ name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/git_dep\", commit = \"abcdef\" }]\n[requirements]\ngit_dep = { git = \"https://github.com/example/git_dep\" }\n",
+    )
+  let archive =
+    source_archive_test.with_tar_gz(
+      [#("repo/LICENSE", <<"Locked Git licence text":utf8>>)],
+      fn(bytes) { bytes },
+    )
+  let clients =
+    licence_audit.Clients(
+      ..no_network_clients(),
+      notice_clients: notice.Clients(
+        ..no_network_clients().notice_clients,
+        fetch_git_archive: fn(_, _) { Ok(archive) },
+      ),
+    )
+  let notices =
+    licence_audit.run_cli_configured(
+      [
+        "notices",
+        "--manifest=" <> root <> "/manifest.toml",
+        "--cache-dir=" <> root <> "/cache",
+      ],
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(notices.exit_code, 0)
+  assert string.contains(notices.output, "Locked Git licence text")
+  let output = root <> "/previous.json"
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each([[], ["--offline"]], fn(flags) {
+    let strict =
+      run(root, ["--reproducible", "--output=" <> output, ..flags], case flags {
+        [] -> clients
+        _ -> no_network_clients()
+      })
+    should.equal(strict.exit_code, 2)
+    assert string.contains(strict.output, "git_dep")
+    should.equal(simplifile.read(output), Ok("previous output"))
+  })
   let assert Ok(_) = simplifile.delete(root)
 }

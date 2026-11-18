@@ -155,12 +155,12 @@ fn cached_spdx_file(
   #(Ok(notice.spdx_file(canonical, text)), None)
 }
 
-// Version material keys so old empty selections cannot hide nested licences.
+// Older final materials can contain licence text recovered from a branch.
 fn final_key(package: notice.NoticePackage) -> Result(String, Nil) {
   use source <- result.try(source_identity(package))
   use metadata <- result.try(metadata_fingerprint(package))
   Ok(
-    "pkg:v2:"
+    "pkg:v3:"
     <> source
     <> ":metadata:"
     <> metadata
@@ -435,7 +435,7 @@ fn resolve_commit_loop(
   case tags {
     [] -> #(Ok(None), None)
     [tag, ..rest] -> {
-      let key = "tag:" <> repository.describe(repo) <> "@" <> tag
+      let key = "tag:v2:" <> repository.describe(repo) <> "@" <> tag
       use cached <- cache_dir.with_warning(notice_cache.get_text(cache, key))
       case cached {
         Ok(commit) -> #(Ok(Some(commit)), None)
