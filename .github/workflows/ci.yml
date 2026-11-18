@@ -54,7 +54,7 @@ jobs:
 
   windows-policy:
     runs-on: windows-latest
-    name: Windows (minimum OTP 28)
+    name: Windows atomic policy writes
     timeout-minutes: 20
     env:
       ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
