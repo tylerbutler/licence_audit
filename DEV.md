@@ -51,6 +51,10 @@ mechanisms. The build is not fully hermetic.
 
 ## Build from source
 
+Source builds require Gleam 1.19.2 or newer. Older compilers can reject valid
+Hex publication identities during SBOM generation. The compiler constraint in
+`gleam.toml` excludes those versions; publication identity checks remain strict.
+
 ```sh
 just build
 ```

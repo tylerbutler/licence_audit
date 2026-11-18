@@ -245,15 +245,39 @@ pub fn sbom_entries_captures_optional_inner_checksum_test() {
 [requirements]
 foo = { version = \">= 1.0.0\" }
 "
-  let assert Ok(parsed) = manifest.sbom_entries(input)
+  let assert Ok(parsed) = manifest.sbom_entries(audit_fixture(input))
   let assert [entry] = parsed.entries
   should.equal(
     entry.provenance,
     manifest.HexProvenance(
-      outer_checksum: "AAAA",
-      inner_checksum: option.Some("BBBB"),
+      outer_checksum: string.repeat("A", 64),
+      inner_checksum: option.Some(string.repeat("B", 64)),
     ),
   )
+}
+
+pub fn sbom_rejects_malformed_hex_checksums_test() {
+  list.each(["outer_checksum", "inner_checksum"], fn(field) {
+    list.each(
+      ["\"oops\"", "\"\"", "\"" <> string.repeat("g", 64) <> "\"", "42"],
+      fn(value) {
+        let input =
+          "packages = [{ name = \"widget\", version = \"1.0.0\", source = \"hex\", "
+          <> case field {
+            "inner_checksum" ->
+              "outer_checksum = \"" <> string.repeat("a", 64) <> "\", "
+            _ -> ""
+          }
+          <> field
+          <> " = "
+          <> value
+          <> " }]"
+        let assert Error(manifest.InvalidPackageField(package, actual_field, _)) =
+          manifest.sbom_entries(input)
+        should.equal(#(package, actual_field), #("widget", field))
+      },
+    )
+  })
 }
 
 pub fn sbom_entries_returns_git_provenance_test() {

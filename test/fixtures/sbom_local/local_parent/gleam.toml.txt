@@ -9,5 +9,5 @@ links = [{ title = "Documentation", href = "https://example.com/local_parent" }]
 local_child = { path = "../nested/local_child" }
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"
 
-[dev-dependencies]
+[dev_dependencies]
 unlocked_member_test_tool = ">= 1.0.0 and < 2.0.0"

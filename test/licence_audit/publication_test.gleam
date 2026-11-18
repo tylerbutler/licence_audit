@@ -273,6 +273,208 @@ fn run(
   ).0
 }
 
+pub fn git_package_paths_are_not_filesystem_paths_in_mixed_workspaces_test() {
+  list.each(["root", "member"], fn(location) {
+    let root = project("git-package-path-" <> location)
+    let file = case location {
+      "root" -> root <> "/gleam.toml"
+      _ -> root <> "/local_dep/gleam.toml"
+    }
+    let declaration =
+      "git_dep = { git = \"https://github.com/example/git_dep\", ref = \"abcdef\", path = \"packages/part\" }\n"
+    let assert Ok(contents) = simplifile.read(file)
+    let declared = contents <> declaration
+    let assert Ok(_) = simplifile.write(file, declared)
+    let assert Ok(locked) = simplifile.read(root <> "/manifest.toml")
+    let locked =
+      locked
+      |> string.replace(
+        "commit = \"abcdef\"",
+        "commit = \"abcdef\", path = \"packages/part\"",
+      )
+    let locked = case location {
+      "member" ->
+        locked
+        |> string.replace("[\"hex_dep\"]", "[\"hex_dep\", \"git_dep\"]")
+        |> string.replace(
+          "git_dep = { git = \"https://github.com/example/git_dep\" }\n",
+          "",
+        )
+      _ -> locked
+    }
+    let assert Ok(_) = simplifile.write(root <> "/manifest.toml", locked)
+    let clients =
+      licence_audit.Clients(..online_clients(hex.Published), fetcher: fn(_) {
+        Ok(hex.licences_only(["MIT"]))
+      })
+    let valid = run(root, ["--no-cache"], clients)
+    should.equal(valid.exit_code, 0)
+    assert string.contains(
+      valid.output,
+      "pkg:github/example/git_dep@abcdef#packages/part",
+    )
+    let output = root <> "/previous.json"
+    let assert Ok(_) = simplifile.write(output, "previous output")
+    let assert Ok(_) =
+      simplifile.write(
+        file,
+        string.replace(
+          declared,
+          declaration,
+          "git_dep = { path = \"packages/part\" }\n",
+        ),
+      )
+    let mismatch =
+      run(root, ["--offline", "--output=" <> output], no_network_clients())
+    should.equal(mismatch.exit_code, 2)
+    assert string.contains(mismatch.output, "git_dep")
+    assert string.contains(mismatch.output, "is local but the lockfile is not")
+    let assert Ok(_) = simplifile.write(file, declared)
+    let assert Ok(_) =
+      simplifile.write(
+        root <> "/manifest.toml",
+        string.replace(locked, "source = \"git\"", "source = \"local\""),
+      )
+    let mismatch =
+      run(root, ["--offline", "--output=" <> output], no_network_clients())
+    should.equal(mismatch.exit_code, 2)
+    assert string.contains(mismatch.output, "git_dep")
+    assert string.contains(mismatch.output, "requires a local path")
+    should.equal(simplifile.read(output), Ok("previous output"))
+    let assert Ok(_) = simplifile.delete(root)
+  })
+}
+
+pub fn local_dev_dependency_uses_publication_lookup_and_optional_scope_test() {
+  let root = project("dev-dependency")
+  let assert Ok(contents) = simplifile.read(root <> "/gleam.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      string.replace(contents, "[dependencies]", "[dev_dependencies]"),
+    )
+  let online = run(root, ["--reproducible"], online_clients(hex.Published))
+  should.equal(online.exit_code, 0)
+  let assert Ok(components) =
+    json.parse(
+      online.output,
+      decode.at(
+        ["components"],
+        decode.list({
+          use name <- decode.field("name", decode.string)
+          use scope <- decode.field("scope", decode.string)
+          use purl <- decode.field("purl", decode.string)
+          decode.success(#(name, scope, purl))
+        }),
+      ),
+    )
+  assert list.contains(components, #(
+    "local_dep",
+    "optional",
+    "pkg:hex/local_dep@1.0.0",
+  ))
+  should.equal(
+    run(root, ["--offline", "--reproducible"], no_network_clients()),
+    online,
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn malformed_sbom_checksums_fail_before_network_and_preserve_output_test() {
+  let root = fresh_root("invalid-checksum")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n",
+    )
+  let output = root <> "/previous.json"
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each(["outer_checksum", "inner_checksum"], fn(field) {
+    let checksum_fields = case field {
+      "outer_checksum" -> "outer_checksum = \"oops\""
+      _ ->
+        "outer_checksum = \""
+        <> string.repeat("a", 64)
+        <> "\", inner_checksum = \"oops\""
+    }
+    let assert Ok(_) =
+      simplifile.write(
+        root <> "/manifest.toml",
+        "packages = [{ name = \"widget\", version = \"1.0.0\", source = \"hex\", "
+          <> checksum_fields
+          <> " }]\n[requirements]\nwidget = \"1.0.0\"\n",
+      )
+    list.each([[], ["--offline"]], fn(flags) {
+      let failed =
+        run(root, ["--output=" <> output, ..flags], no_network_clients())
+      should.equal(failed.exit_code, 2)
+      assert string.contains(failed.output, "widget")
+      assert string.contains(failed.output, field)
+      assert string.contains(failed.output, "64 hexadecimal characters")
+      should.equal(simplifile.read(output), Ok("previous output"))
+    })
+    let assert Ok(vulns) = manifest.load_vulns(root <> "/manifest.toml")
+    let assert [entry] = vulns.entries
+    should.equal(#(entry.name, entry.version), #("widget", "1.0.0"))
+    list.each([["vulns"], ["check", "--checks=vulns"]], fn(command) {
+      let result =
+        licence_audit.run_configured(
+          list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),
+          licence_audit.Clients(
+            ..no_network_clients(),
+            osv_batch_fetcher: fn(purls) {
+              should.equal(purls, ["pkg:hex/widget@1.0.0"])
+              Ok([osv.BatchEntry("pkg:hex/widget@1.0.0", [])])
+            },
+          ),
+          progress.disabled(),
+        ).0
+      should.equal(result.exit_code, 0)
+    })
+  })
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn missing_hex_only_graph_targets_fail_before_network_and_preserve_output_test() {
+  let root = fresh_root("missing-graph-targets")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n",
+    )
+  let output = root <> "/previous.json"
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each(
+    [
+      #("", "\nmissing_root = \"1.0.0\"", "root", "missing_root"),
+      #("requirements = [\"missing_leaf\"], ", "", "widget", "missing_leaf"),
+    ],
+    fn(example) {
+      let assert Ok(_) =
+        simplifile.write(
+          root <> "/manifest.toml",
+          "packages = [{ name = \"widget\", version = \"1.0.0\", source = \"hex\", "
+            <> example.0
+            <> "outer_checksum = \""
+            <> string.repeat("a", 64)
+            <> "\" }]\n[requirements]\nwidget = \"1.0.0\""
+            <> example.1
+            <> "\n",
+        )
+      list.each([[], ["--offline"]], fn(flags) {
+        let failed =
+          run(root, ["--output=" <> output, ..flags], no_network_clients())
+        should.equal(failed.exit_code, 2)
+        assert string.contains(failed.output, example.2)
+        assert string.contains(failed.output, example.3)
+        assert string.contains(failed.output, "is not locked")
+        should.equal(simplifile.read(output), Ok("previous output"))
+      })
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
 type LocalComponent {
   LocalComponent(
     name: String,

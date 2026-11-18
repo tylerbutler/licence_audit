@@ -439,6 +439,35 @@ pub fn render_emits_dependency_graph_test() {
     string.contains(json_str, "\"dependsOn\":[\"pkg:hex/birch@0.2.1\"]")
 }
 
+pub fn render_rejects_unresolved_root_and_package_edges_test() {
+  let input = minimal_input()
+  let assert [entry] = input.manifest.entries
+  list.each(
+    [
+      #(
+        manifest.SbomManifest([entry], ["birch", "missing_root"]),
+        "root",
+        "missing_root",
+      ),
+      #(
+        manifest.SbomManifest(
+          [manifest.SbomEntry(..entry, requirements: ["missing_leaf"])],
+          ["birch"],
+        ),
+        "birch",
+        "missing_leaf",
+      ),
+    ],
+    fn(example) {
+      let assert Error(failure) =
+        sbom.try_render(sbom.SbomInput(..input, manifest: example.0))
+      should.equal(error.exit_code(failure), 2)
+      assert string.contains(error.message(failure), example.1)
+      assert string.contains(error.message(failure), example.2)
+    },
+  )
+}
+
 pub fn render_offline_omits_licenses_test() {
   // No package metadata (offline) and a root without its own licences, so no
   // component should declare a licence.

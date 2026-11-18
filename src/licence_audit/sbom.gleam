@@ -25,6 +25,7 @@ pub fn resolve_local(
   #(manifest.SbomManifest, Dict(String, hex.PackageMetadata)),
   error.Error,
 ) {
+  use _ <- result.try(validate_graph(locked))
   let locals =
     list.filter(locked.entries, fn(entry) {
       case entry.provenance {
@@ -117,6 +118,36 @@ pub fn resolve_local(
 
 fn local_error(package: String, reason: String) -> error.Error {
   error.Input("Invalid local SBOM package `" <> package <> "`: " <> reason)
+}
+
+fn validate_graph(locked: manifest.SbomManifest) -> Result(Nil, error.Error) {
+  let names =
+    dict.from_list(list.map(locked.entries, fn(entry) { #(entry.name, Nil) }))
+  use _ <- result.try(validate_requirements(
+    "root",
+    locked.root_requirements,
+    names,
+  ))
+  list.try_each(locked.entries, fn(entry) {
+    validate_requirements(entry.name, entry.requirements, names)
+  })
+}
+
+fn validate_requirements(
+  package: String,
+  requirements: List(String),
+  names: Dict(String, Nil),
+) -> Result(Nil, error.Error) {
+  list.try_each(requirements, fn(name) {
+    dict.get(names, name)
+    |> result.replace_error(error.Input(
+      "Invalid SBOM package `"
+      <> package
+      <> "`: dependency "
+      <> name
+      <> " is not locked",
+    ))
+  })
 }
 
 fn local_directory(
@@ -233,7 +264,7 @@ fn read_local_metadata(
         )),
       )
       validate_local_target(
-        toml.get(document, ["dependencies", name, "path"]),
+        local_dependency_path(toml.get(document, ["dependencies", name])),
         name,
         dependency,
         directory,
@@ -299,7 +330,7 @@ fn validate_root_local_targets(
   )
   use direct_names <- result.try(
     list.try_fold(
-      ["dependencies", "dev-dependencies"],
+      ["dependencies", "dev_dependencies"],
       [],
       fn(direct_names, section) {
         use names <- result.try(case toml.get_table(document, [section]) {
@@ -314,7 +345,7 @@ fn validate_root_local_targets(
           list.try_each(names, fn(name) {
             case
               dict.get(index, name),
-              toml.get(document, [section, name, "path"])
+              local_dependency_path(toml.get(document, [section, name]))
             {
               Ok(dependency), declared ->
                 validate_local_target(declared, name, dependency, root, root)
@@ -348,6 +379,17 @@ fn validate_root_local_targets(
       | manifest.UnknownProvenance(_) -> Ok(Nil)
     }
   })
+}
+
+fn local_dependency_path(
+  declaration: Result(toml.Value, Nil),
+) -> Result(toml.Value, Nil) {
+  use declaration <- result.try(declaration)
+  use table <- result.try(toml.as_table(declaration))
+  case toml.field(table, "git") {
+    Ok(_) -> Error(Nil)
+    Error(_) -> toml.field(table, "path")
+  }
 }
 
 fn validate_local_target(
@@ -892,6 +934,7 @@ pub type SbomInput {
 
 /// Render components and graph edges, including validated local sources.
 pub fn try_render(input: SbomInput) -> Result(String, error.Error) {
+  use _ <- result.try(validate_graph(input.manifest))
   // Emit components and dependencies in a stable, content-defined order so the
   // output is canonical regardless of how the manifest happened to be ordered.
   let sorted_entries =

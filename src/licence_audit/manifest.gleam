@@ -166,15 +166,17 @@ fn decode_provenance(
 ) -> Result(Provenance, Error) {
   case source {
     "hex" -> {
-      use checksum <- result.try(required_string(
+      use checksum <- result.try(required_checksum(
         table,
         "outer_checksum",
         package_name,
       ))
-      let inner = case optional_string(table, "inner_checksum") {
-        Ok(value) -> Some(value)
-        Error(_) -> None
-      }
+      use inner <- result.try(case toml.field(table, "inner_checksum") {
+        Ok(_) ->
+          required_checksum(table, "inner_checksum", package_name)
+          |> result.map(Some)
+        Error(_) -> Ok(None)
+      })
       Ok(HexProvenance(outer_checksum: checksum, inner_checksum: inner))
     }
     "git" -> {
@@ -534,26 +536,12 @@ fn decode_audit_package(package: Value) -> Result(RawPackage, Error) {
   use #(raw, table) <- result.try(decode_package(package))
   case raw.source {
     "hex" -> {
-      use checksum <- result.try(required_string(
+      use checksum <- result.try(required_checksum(
         table,
         "outer_checksum",
         raw.name,
       ))
-      case
-        string.length(checksum) == 64
-        && list.all(
-          string.to_graphemes(string.lowercase(checksum)),
-          fn(character) { string.contains("0123456789abcdef", character) },
-        )
-      {
-        True -> Ok(RawPackage(..raw, outer_checksum: checksum))
-        False ->
-          Error(InvalidPackageField(
-            raw.name,
-            "outer_checksum",
-            "SHA-256 checksum (64 hexadecimal characters)",
-          ))
-      }
+      Ok(RawPackage(..raw, outer_checksum: checksum))
     }
     _ -> Ok(raw)
   }
@@ -587,10 +575,25 @@ fn optional_string_list(
   }
 }
 
-fn optional_string(package: toml.Entry, field: String) -> Result(String, Nil) {
-  case toml.field(package, field) {
-    Error(_) -> Error(Nil)
-    Ok(value) -> toml.as_string(value)
+fn required_checksum(
+  package: toml.Entry,
+  field: String,
+  package_name: String,
+) -> Result(String, Error) {
+  use checksum <- result.try(required_string(package, field, package_name))
+  case
+    string.length(checksum) == 64
+    && list.all(string.to_graphemes(string.lowercase(checksum)), fn(character) {
+      string.contains("0123456789abcdef", character)
+    })
+  {
+    True -> Ok(checksum)
+    False ->
+      Error(InvalidPackageField(
+        package_name,
+        field,
+        "SHA-256 checksum (64 hexadecimal characters)",
+      ))
   }
 }
 
