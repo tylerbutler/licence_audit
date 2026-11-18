@@ -54,7 +54,7 @@ jobs:
 
   windows-policy:
     runs-on: windows-latest
-    name: Windows atomic policy writes
+    name: Windows (minimum OTP 28)
     timeout-minutes: 20
     env:
       ERL_FLAGS: "+S 2:2 +SDcpu 1 +SDio 1"
@@ -68,7 +68,8 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref }}
 
-      - name: Setup pinned toolchain
+      # OTP 28.3 covers the escript minimum, not the development OTP pin.
+      - name: Setup minimum OTP toolchain
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
         with:
           otp-version: "28.3"
@@ -86,6 +87,9 @@ jobs:
       - name: Build Erlang modules
         run: gleam build --target erlang --warnings-as-errors
 
+      - name: Run tests
+        run: gleam test --target erlang
+
       - name: Test real Windows replacement and interruption
         run: python -u -B test/update_atomic_windows.py
 
@@ -94,6 +98,45 @@ jobs:
           python -B test/cache_default_paths.py
           gleam export escript
           python -B test/native_cache_smoke.py licence_audit --escript
+
+  linux-minimum-otp:
+    runs-on: ubuntu-latest
+    name: Linux (minimum OTP 28)
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      # Match Windows minimum-version coverage; the Test job uses .mise.toml.
+      - name: Setup minimum OTP toolchain
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # ratchet:erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          gleam-version: "1.19.2"
+          rebar3-version: "3.26.0"
+          version-type: strict
+
+      - name: Run tests
+        run: gleam test --target erlang
+
+  macos:
+    runs-on: macos-latest
+    name: macOS
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+
+      - name: Run tests
+        run: just test
+
+      - name: Test CLI output streams
+        run: just test-cli-streams
 
   test:
     runs-on: ubuntu-latest
