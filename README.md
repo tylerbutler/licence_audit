@@ -33,7 +33,7 @@ On OTP 27, the VM can fail to load the escript with `corrupt atom table`
 and exit `127`, before any command runs. This unsupported-runtime failure is
 outside the [CLI exit-code contract](https://licence-audit.tylerbutler.com/docs/compatibility#exit-codes-and-output-streams).
 
-For source builds, see [DEV.md](./DEV.md).
+Source builds require Gleam 1.19.2 or newer. See [DEV.md](./DEV.md).
 
 ## Documentation
 

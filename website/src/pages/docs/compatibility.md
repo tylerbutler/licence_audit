@@ -12,6 +12,10 @@ you upgrade.
 The CLI is the only supported interface. We do not provide a supported Gleam
 library API.
 
+Source builds require Gleam 1.19.2 or newer. This compiler minimum prevents
+incorrect rejection of valid Hex publication identities during SBOM generation.
+Prebuilt self-contained executables do not require a Gleam installation.
+
 ## Canonical documentation
 
 The [documentation website](/docs) is the canonical source for user-facing

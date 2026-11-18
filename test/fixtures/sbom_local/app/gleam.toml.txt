@@ -4,5 +4,5 @@ version = "1.0.0"
 [dependencies]
 local_parent = { path = "../local_parent" }
 
-[dev-dependencies]
+[dev_dependencies]
 local_dev = { path = "../local_dev" }

@@ -161,12 +161,18 @@ semantic version must match the lockfile. Production dependency names must
 match locked requirements, and nested local paths must match locked targets.
 The root project's local declarations must match locked targets and direct
 dependency names.
+Root `[dev_dependencies]` local packages are included with optional scope.
+For Git dependencies, `path` selects a package inside the repository; it is
+not a local filesystem dependency.
 Missing paths or metadata, malformed metadata fields, stale identities or
 edges, duplicate locked names, and cycles involving local components exit `2`
 before output is written. Run `gleam deps download` to refresh a stale lockfile.
 
 The root lockfile supplies the complete graph. No member manifest is required,
 and workspace members' own development dependencies are not added.
+Every root and package dependency must have a locked target, including in
+Hex-only graphs. A missing target or a malformed Hex SHA-256 checksum exits
+`2` before output is written.
 Local description, licence, link, and repository metadata is read on every
 run, including `--reproducible --offline`; it is not cached.
 
@@ -181,6 +187,7 @@ unavailable required package metadata makes the report incomplete (exit `2`).
 These items are required. If one fails, the command exits `2`:
 
 - root metadata,
+- valid Hex SHA-256 checksums and a complete locked dependency graph,
 - valid purls for supported sources,
 - valid local paths, package metadata, and dependency relationships,
 - usable publication verification for local packages,

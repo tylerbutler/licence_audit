@@ -1,5 +1,6 @@
 name = "licence_audit"
 version = "1.0.0-rc.2"
+gleam = ">= 1.19.2"
 
 description = "Audit licences of locked Hex dependencies in Gleam projects."
 licences = ["Apache-2.0"]
