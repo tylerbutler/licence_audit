@@ -256,7 +256,7 @@ pub fn cache_round_trip_persists_metadata_test() {
   let assert None = cache.close(handle)
 }
 
-pub fn separate_vms_keep_distinct_successful_writes_test() {
+pub fn separate_vms_keep_distinct_successful_writes() {
   let path = fresh_path("separate_vms")
   let assert Ok(store) = cache_dir.open_table(Some(path), "", "test")
   let assert Ok(Nil) =
@@ -570,7 +570,7 @@ pub fn unwritable_path_returns_warning_test() {
   let assert Some(_) = warning
 }
 
-pub fn same_key_writers_in_separate_vms_leave_one_complete_value_test() {
+pub fn same_key_writers_leave_one_complete_value() {
   let path = fresh_path("same_key_vms")
   let assert Ok(store) = cache_dir.open_table(Some(path), "", "test")
   let first = string.repeat("a", 65_536)
@@ -579,6 +579,28 @@ pub fn same_key_writers_in_separate_vms_leave_one_complete_value_test() {
   let assert Ok(value) = cache_dir.lookup(store, "key")
   should.be_true(value == first || value == second)
   should.equal(simplifile.read_directory(path), Ok([entry_name(path, "key")]))
+}
+
+pub fn missing_cache_directories_remain_quiet_test() {
+  let path = fresh_path("missing_directory")
+  let assert Ok(store) =
+    cache_dir.open_table(Some(path), "nested/cache", "test")
+  let assert Ok(Nil) = simplifile.delete(path)
+  let assert Error(error) = cache_dir.lookup(store, "key")
+  should.equal(cache_dir.access_warning(error, "test"), None)
+}
+
+pub fn blocked_cache_ancestor_returns_read_warning_test() {
+  let path = fresh_path("blocked_ancestor")
+  let assert Ok(store) =
+    cache_dir.open_table(Some(path), "nested/cache", "test")
+  cache_support.break_store(path)
+  let assert Error(error) = cache_dir.lookup(store, "key")
+  let assert Some(warning) = cache_dir.access_warning(error, "test")
+  should.be_true(string.starts_with(
+    warning,
+    "Failed to access test cache: read key:",
+  ))
 }
 
 pub fn entry_for_another_key_is_rejected_test() {

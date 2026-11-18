@@ -1,5 +1,23 @@
 -module(cache_process_test_ffi).
--export([concurrent_writes/5, worker/0]).
+-export([
+    concurrent_writes/5, worker/0,
+    separate_vms_keep_distinct_successful_writes_test_/0,
+    same_key_writers_leave_one_complete_value_test_/0
+]).
+
+separate_vms_keep_distinct_successful_writes_test_() ->
+    race_test(fun licence_audit@cache_test:separate_vms_keep_distinct_successful_writes/0).
+
+same_key_writers_leave_one_complete_value_test_() ->
+    race_test(fun licence_audit@cache_test:same_key_writers_leave_one_complete_value/0).
+
+race_test(Test) ->
+    %% Keep the longer native-helper budget local to the Windows writer races.
+    Timeout = case os:type() of
+        {win32, _} -> 180;
+        _ -> 5
+    end,
+    {timeout, Timeout, Test}.
 
 %% Gleam processes share one VM. Separate erl runtimes write to one cache
 %% directory at the same time, and synchronize without relying on sleeps.
@@ -52,6 +70,13 @@ wait_workers([Port | Rest]) ->
             {error, describe(<<"worker exit">>, Status)}
     after 10000 ->
         {error, <<"Timed out waiting for cache worker exit">>}
+    end.
+
+worker_timeout() ->
+    case os:type() of
+        %% Each write waits for a native replacement helper on Windows.
+        {win32, _} -> 180000;
+        _ -> 10000
     end.
 
 start_worker(Erl, Root, Key, Value, Port) ->
@@ -110,7 +135,7 @@ accept_ready_workers(Listener, Remaining, Sockets) ->
 receive_results([]) ->
     {ok, nil};
 receive_results([Socket | Rest]) ->
-    case gen_tcp:recv(Socket, 0, 10000) of
+    case gen_tcp:recv(Socket, 0, worker_timeout()) of
         {ok, Encoded} ->
             gen_tcp:close(Socket),
             case binary_to_term(Encoded, [safe]) of
