@@ -39,6 +39,7 @@ licence_audit update --config=policies/project.toml
 `update` creates a missing policy section in a valid default or explicit target.
 It can create a missing target file if the parent directory exists. It rejects
 malformed TOML or invalid policy before fetching metadata or showing the picker.
+It also rejects a target beneath an existing non-directory before these steps.
 To change the starting selection, clear or change the preselected entries.
 If you accept the selection without changes, the original allow and deny lists
 are kept, including overlaps. This prevents an empty allow list from changing

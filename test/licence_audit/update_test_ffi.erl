@@ -35,7 +35,12 @@ temporary_files(Path) ->
     )].
 
 make_link(Target, Link) ->
-    case file:make_symlink(Target, Link) of
+    %% OTP resolves Windows symlink targets from the CWD, not the link directory.
+    Existing = case os:type() of
+        {win32, _} -> filename:absname(filename:join(filename:dirname(Link), Target));
+        _ -> Target
+    end,
+    case file:make_symlink(Existing, Link) of
         ok -> {ok, nil};
         {error, _Reason} -> {error, nil}
     end.

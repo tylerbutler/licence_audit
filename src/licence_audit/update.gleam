@@ -15,6 +15,7 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/notice
+import licence_audit/path
 import licence_audit/picker
 import licence_audit/progress
 import licence_audit/spdx_expression
@@ -302,8 +303,32 @@ fn load_existing_policy(
   let path = resolve_output_path(config_path, project_root)
   case simplifile.read(path) {
     Ok(contents) -> parse_existing_policy(contents)
-    Error(simplifile.Enoent) -> Ok(empty_policy())
+    Error(simplifile.Enoent) -> {
+      // Windows also reports Enoent when an existing ancestor is not a directory.
+      case validate_policy_parent(path.dirname(path)) {
+        Ok(Nil) -> Ok(empty_policy())
+        Error(Nil) -> Error(config.FileReadError(path))
+      }
+    }
     Error(_) -> Error(config.FileReadError(path))
+  }
+}
+
+fn validate_policy_parent(directory: String) -> Result(Nil, Nil) {
+  case simplifile.file_info(directory) {
+    Ok(info) ->
+      case simplifile.file_info_type(info) == simplifile.Directory {
+        True -> Ok(Nil)
+        False -> Error(Nil)
+      }
+    Error(simplifile.Enoent) -> {
+      let parent = path.dirname(directory)
+      case parent == directory {
+        True -> Error(Nil)
+        False -> validate_policy_parent(parent)
+      }
+    }
+    Error(_) -> Error(Nil)
   }
 }
 

@@ -233,24 +233,26 @@ pub fn invalid_target_parent_fails_before_writing_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.delete(blocker)
-  let _ = simplifile.write("data", to: blocker)
-  let target = blocker <> "/gleam.toml"
-
-  let #(result, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(target),
-      True,
-      None,
-      successful_fetcher(),
-      should_not_pick,
-      reporter(),
-    )
-
-  should.equal(result.exit_code, 2)
-  let assert True = string.contains(result.output, "Could not read")
-  let _ = simplifile.delete(blocker)
+  let assert Ok(_) = simplifile.write("data", to: blocker)
+  list.each(["/gleam.toml", "/missing/gleam.toml"], fn(suffix) {
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(blocker <> suffix),
+        True,
+        None,
+        notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
+          panic as "invalid target must stop before fetching"
+        }),
+        should_not_pick,
+        reporter(),
+      )
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "Could not read")
+    should.equal(simplifile.read(blocker), Ok("data"))
+  })
+  let assert Ok(_) = simplifile.delete(blocker)
 }
 
 pub fn malformed_toml_exits_2_before_picker_without_changing_file_test() {
@@ -276,22 +278,25 @@ pub fn malformed_toml_exits_2_before_picker_without_changing_file_test() {
 }
 
 pub fn file_write_failure_exits_2_test() {
-  let path = fresh_path("missing_parent") <> "/gleam.toml"
-  let #(result, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(path),
-      True,
-      None,
-      successful_fetcher(),
-      selected_pick,
-      reporter(),
-    )
+  let parent = fresh_path("missing_parent")
+  list.each(["/gleam.toml", "/missing/gleam.toml"], fn(suffix) {
+    let path = parent <> suffix
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(path),
+        True,
+        None,
+        successful_fetcher(),
+        selected_pick,
+        reporter(),
+      )
 
-  should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Failed to write " <> path)
-  let assert Error(_) = simplifile.read(path)
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "Failed to write " <> path)
+    let assert Error(_) = simplifile.read(path)
+  })
 }
 
 pub fn update_preserves_unreadable_text_before_picker_test() {
@@ -783,6 +788,9 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
       contents: "# Keep this comment\n[tools.licence_audit]\n",
     )
   let assert Ok(_) = make_link("link_target.toml", link)
+  let assert Ok(link_info) = simplifile.link_info(link)
+  should.equal(simplifile.file_info_type(link_info), simplifile.Symlink)
+  should.equal(simplifile.read(link), simplifile.read(target))
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
@@ -799,6 +807,8 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
   assert string.contains(contents, "# Keep this comment")
   assert string.contains(contents, "allow = [\"MIT\"]")
   should.equal(simplifile.read(link), Ok(contents))
+  let assert Ok(link_info) = simplifile.link_info(link)
+  should.equal(simplifile.file_info_type(link_info), simplifile.Symlink)
   let assert Ok(_) = simplifile.delete(target)
   should.equal(simplifile.read(link), Error(simplifile.Enoent))
   let assert Ok(_) = simplifile.delete(link)
