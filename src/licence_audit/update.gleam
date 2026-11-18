@@ -3,6 +3,7 @@
 //// policy, then write the result back to `gleam.toml` under
 //// `[tools.licence_audit]`.
 
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -16,6 +17,7 @@ import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/picker
 import licence_audit/progress
+import licence_audit/spdx_expression
 import licence_audit/toml
 import simplifile
 
@@ -181,8 +183,17 @@ fn handle_selection(
         reporter,
       )
     }
-    Ok(picker.Selection(allow, deny)) ->
+    Ok(selection) -> {
+      let initial =
+        picker.new_state(title, labels, existing.allow, existing.deny)
+        |> picker.state_selection
+      // Retain overlapping rules: dropping the last allow rule widens reports.
+      let picker.Selection(allow, deny) = case selection == initial {
+        True -> picker.Selection(existing.allow, existing.deny)
+        False -> selection
+      }
       write_selection(
+        existing,
         allow,
         deny,
         config_path,
@@ -190,11 +201,13 @@ fn handle_selection(
         cache_warning,
         reporter,
       )
+    }
   }
 }
 
 /// Write the chosen policy to disk and report success or failure.
 fn write_selection(
+  activation: config.Policy,
   allow: List(String),
   deny: List(String),
   config_path: Option(String),
@@ -203,13 +216,14 @@ fn write_selection(
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   let target = resolve_output_path(config_path, project_root)
-  case write_policy(target, allow, deny) {
+  case write_policy(target, activation, allow, deny) {
     Error(error) -> {
       let message = write_error_message(error)
       let exit_code = case error {
         FileReadFailed(_, _) -> error.exit_code(error.Input(message))
         TomlEditFailed(_) -> error.exit_code(error.Config(message))
         InvalidPolicy(_) -> error.exit_code(error.Config(message))
+        PolicyChanged(_) -> error.exit_code(error.Config(message))
         FileWriteFailed(_) -> error.exit_code(error.Input(message))
       }
       let reporter = progress.fail(reporter, message)
@@ -321,14 +335,22 @@ fn merge_labels(
   |> list.append(existing.allow)
   |> list.append(existing.deny)
   |> list.append(discovered)
-  |> list.unique
+  // dict.from_list keeps the last value; retain the first configured spelling.
+  |> list.reverse
+  |> list.map(fn(label) { #(spdx_expression.matching_tokens(label), label) })
+  |> dict.from_list
+  |> dict.values
   |> list.sort(string.compare)
 }
 
 fn only_new(existing: config.Policy, discovered: List(String)) -> List(String) {
-  let known = list.append(existing.allow, existing.deny)
-  list.filter(discovered, fn(l) { !list.contains(known, l) })
-  |> list.unique
+  let known =
+    list.append(existing.allow, existing.deny)
+    |> list.map(spdx_expression.matching_tokens)
+  merge_labels(empty_policy(), discovered)
+  |> list.filter(fn(label) {
+    !list.contains(known, spdx_expression.matching_tokens(label))
+  })
 }
 
 fn resolve_output_path(
@@ -344,6 +366,7 @@ fn resolve_output_path(
 type WriteError {
   TomlEditFailed(toml.Error)
   InvalidPolicy(config.Error)
+  PolicyChanged(path: String)
   FileReadFailed(path: String, reason: simplifile.FileError)
   FileWriteFailed(path: String)
 }
@@ -352,6 +375,10 @@ fn write_error_message(error: WriteError) -> String {
   case error {
     TomlEditFailed(e) -> toml.error_message(e)
     InvalidPolicy(e) -> error.message(error.from_config_error(e))
+    PolicyChanged(path) ->
+      "Policy conflict: allow or deny rules in "
+      <> path
+      <> " changed during selection; rerun update."
     FileReadFailed(path, reason) ->
       "Failed to read " <> path <> ": " <> simplifile.describe_error(reason)
     FileWriteFailed(path) -> "Failed to write " <> path
@@ -360,6 +387,7 @@ fn write_error_message(error: WriteError) -> String {
 
 fn write_policy(
   path: String,
+  activation: config.Policy,
   allow: List(String),
   deny: List(String),
 ) -> Result(Nil, WriteError) {
@@ -368,8 +396,14 @@ fn write_policy(
     Error(simplifile.Enoent) -> Ok("")
     Error(reason) -> Error(FileReadFailed(path, reason))
   })
-  use _ <- result.try(
+  use current <- result.try(
     parse_existing_policy(existing) |> result.map_error(InvalidPolicy),
+  )
+  use _ <- result.try(
+    case current.allow == activation.allow && current.deny == activation.deny {
+      True -> Ok(Nil)
+      False -> Error(PolicyChanged(path))
+    },
   )
   let section = ["tools", "licence_audit"]
   case toml.set_string_array(existing, section, "allow", allow) {

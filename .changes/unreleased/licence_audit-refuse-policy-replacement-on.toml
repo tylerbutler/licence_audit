@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Refuse policy replacement on macOS when an ACL is present or access-rule inspection fails, leaving the original file and its access rules intact."

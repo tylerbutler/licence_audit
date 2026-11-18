@@ -22,9 +22,13 @@ selection and the [write target](/docs/configuration#update-write-target).
 2. It resolves the dependency tree and reads licence declarations from
    checksum-verified locked Hex archives.
 3. It shows an interactive list of the licences. Existing allow and deny
-   entries are preselected.
-4. It writes the result to the selected target. Existing comments and formatting do
-   not change.
+   entries are preselected. Deny takes precedence if both lists match an entry.
+   Equivalent SPDX spellings share one choice; custom reference case stays distinct.
+4. It reads and validates the target again. If the allow or deny list changed
+   during selection, it exits `2` with a conflict message. The newer file stays
+   intact. Rerun `update` to review those rules.
+5. It writes the result to the selected target. Existing comments, formatting,
+   and edits to unrelated settings stay intact.
 
 Use `--config=PATH` to select an alternate target:
 
@@ -36,6 +40,9 @@ licence_audit update --config=policies/project.toml
 It can create a missing target file if the parent directory exists. It rejects
 malformed TOML or invalid policy before fetching metadata or showing the picker.
 To change the starting selection, clear or change the preselected entries.
+If you accept the selection without changes, the original allow and deny lists
+are kept, including overlaps. This prevents an empty allow list from changing
+the verdict for unrelated licences.
 See [update migration](/docs/configuration#update-migration) for the removal of
 `update --ignore-config`.
 
@@ -65,6 +72,11 @@ The command writes a complete temporary file in the configuration directory
 before an atomic replacement. It preserves file permissions and ownership.
 A failed write leaves the original intact; forced termination can leave a
 `*.licence-audit-*.tmp` file beside it.
+
+On macOS, `update` cannot copy access control lists (ACLs). It uses the native
+ACL listing to check the destination before writing. If an ACL is present or
+the check fails, it exits `2` without replacing the original file. Its contents,
+permissions, ownership, and access rules stay intact.
 
 On Windows, replacement uses `MoveFileExW` through Windows PowerShell. Existing
 owner, group, and access rules apply to the temporary file from creation,
