@@ -6,9 +6,8 @@
 //// or no entry, but never a partial file. Concurrent commands need no locks:
 //// when two writers race on one key, either value is acceptable.
 ////
-//// OTP's Windows rename moves an existing destination aside before it moves
-//// the new file into place, so a reader can see no entry for a short time.
-//// That is an ordinary cache miss.
+//// Windows uses native same-volume replacement to avoid OTP's scratch-file
+//// rename race. A missing entry is a cache miss; a blocked parent is a warning.
 
 import gleam/bit_array
 import gleam/crypto
@@ -30,6 +29,14 @@ const temporary_suffix = ".tmp"
 
 @external(erlang, "cache_dir_ffi", "windows_user_cache")
 fn windows_user_cache() -> Result(String, Nil)
+
+type ReplacementError {
+  ReplacementFailed(reason: String)
+  ReplacementUncertain(reason: String)
+}
+
+@external(erlang, "cache_dir_ffi", "replace_file")
+fn replace_file(from: String, to: String) -> Result(Nil, ReplacementError)
 
 /// An on-disk string cache rooted at one directory.
 pub opaque type Store {
@@ -140,7 +147,27 @@ pub fn lookup_entry(store: Store, key: String) -> Result(Entry, Error) {
     Ok(contents) ->
       decode_entry(contents, key)
       |> result.map_error(fn(reason) { ReadFailed(key, reason) })
-    Error(simplifile.Enoent) -> Error(EntryMissing)
+    Error(simplifile.Enoent) -> missing_entry(store.directory, key)
+    Error(error) -> Error(ReadFailed(key, simplifile.describe_error(error)))
+  }
+}
+
+fn missing_entry(directory: String, key: String) -> Result(Entry, Error) {
+  // Windows can return ENOENT when a parent is a file, not just when absent.
+  case simplifile.file_info(directory) {
+    Ok(info) ->
+      case simplifile.file_info_type(info) {
+        simplifile.Directory -> Error(EntryMissing)
+        simplifile.File | simplifile.Symlink | simplifile.Other ->
+          Error(ReadFailed(key, simplifile.describe_error(simplifile.Enotdir)))
+      }
+    Error(simplifile.Enoent) -> {
+      let parent = path.dirname(directory)
+      case parent == directory {
+        True -> Error(EntryMissing)
+        False -> missing_entry(parent, key)
+      }
+    }
     Error(error) -> Error(ReadFailed(key, simplifile.describe_error(error)))
   }
 }
@@ -160,16 +187,17 @@ pub fn insert_at(
   let destination = entry_path(store, key)
   let temporary = temporary_path(destination)
   let contents = encode_entry(key, value, cached_at)
-  let fail = fn(error) {
+  let fail = fn(reason) {
     let _ = simplifile.delete(temporary)
-    Error(WriteFailed(key, simplifile.describe_error(error)))
+    Error(WriteFailed(key, reason))
   }
   case simplifile.write(to: temporary, contents: contents) {
-    Error(error) -> fail(error)
+    Error(error) -> fail(simplifile.describe_error(error))
     Ok(Nil) ->
-      case simplifile.rename(at: temporary, to: destination) {
+      case replace_file(temporary, destination) {
         Ok(Nil) -> Ok(Nil)
-        Error(error) ->
+        Error(ReplacementUncertain(reason)) -> Error(WriteFailed(key, reason))
+        Error(ReplacementFailed(reason)) ->
           // On Windows, a rename that loses a race with another writer can
           // fail. The other writer's entry is an equally valid cache value.
           case simplifile.is_file(destination) {
@@ -177,7 +205,7 @@ pub fn insert_at(
               let _ = simplifile.delete(temporary)
               Ok(Nil)
             }
-            Ok(False) | Error(_) -> fail(error)
+            Ok(False) | Error(_) -> fail(reason)
           }
       }
   }

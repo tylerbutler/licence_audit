@@ -54,6 +54,13 @@ wait_workers([Port | Rest]) ->
         {error, <<"Timed out waiting for cache worker exit">>}
     end.
 
+worker_timeout() ->
+    case os:type() of
+        %% Each write waits for a native replacement helper on Windows.
+        {win32, _} -> 180000;
+        _ -> 10000
+    end.
+
 start_worker(Erl, Root, Key, Value, Port) ->
     Ebin = filename:dirname(code:which(licence_audit@cache_dir)),
     LibDirs = filelib:wildcard(filename:join(filename:dirname(filename:dirname(filename:dirname(code:which(gleam@result)))), "*/ebin")),
@@ -110,7 +117,7 @@ accept_ready_workers(Listener, Remaining, Sockets) ->
 receive_results([]) ->
     {ok, nil};
 receive_results([Socket | Rest]) ->
-    case gen_tcp:recv(Socket, 0, 10000) of
+    case gen_tcp:recv(Socket, 0, worker_timeout()) of
         {ok, Encoded} ->
             gen_tcp:close(Socket),
             case binary_to_term(Encoded, [safe]) of

@@ -581,6 +581,28 @@ pub fn same_key_writers_in_separate_vms_leave_one_complete_value_test() {
   should.equal(simplifile.read_directory(path), Ok([entry_name(path, "key")]))
 }
 
+pub fn missing_cache_directories_remain_quiet_test() {
+  let path = fresh_path("missing_directory")
+  let assert Ok(store) =
+    cache_dir.open_table(Some(path), "nested/cache", "test")
+  let assert Ok(Nil) = simplifile.delete(path)
+  let assert Error(error) = cache_dir.lookup(store, "key")
+  should.equal(cache_dir.access_warning(error, "test"), None)
+}
+
+pub fn blocked_cache_ancestor_returns_read_warning_test() {
+  let path = fresh_path("blocked_ancestor")
+  let assert Ok(store) =
+    cache_dir.open_table(Some(path), "nested/cache", "test")
+  cache_support.break_store(path)
+  let assert Error(error) = cache_dir.lookup(store, "key")
+  let assert Some(warning) = cache_dir.access_warning(error, "test")
+  should.be_true(string.starts_with(
+    warning,
+    "Failed to access test cache: read key:",
+  ))
+}
+
 pub fn entry_for_another_key_is_rejected_test() {
   let path = fresh_path("key_mismatch")
   let assert Ok(store) = cache_dir.open_table(Some(path), "", "test")

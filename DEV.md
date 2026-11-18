@@ -220,17 +220,21 @@ a deferred warning and a cache miss. Immutable metadata and notice values use
 a null timestamp.
 
 A write goes to a temporary file with a random name in the same directory.
-Then `simplifile.rename` moves it over the entry file. On POSIX systems, this
-rename is atomic, so a reader sees the old entry or the new entry. OTP's
-Windows rename moves an existing entry aside before it moves the new file into
-place. Thus a reader can see no entry for a short time, which is a cache miss.
-Readers never see a partial file. If a rename fails and the entry file exists,
-another writer won the race, and the write is a success.
+Then a same-volume replacement moves it over the entry file. POSIX uses
+`file:rename`; Windows uses the native replacement helper shared with policy
+writes. This avoids OTP's Windows destination-aside rename, which can leave
+scratch files when concurrent writers race. Readers never see a partial file.
+If replacement fails and the entry file exists, another writer won the race,
+and the write is a success. If a native helper cannot be confirmed stopped,
+the write returns a warning and leaves its temporary file untouched.
+
+A missing entry or directory is a cache miss. An inaccessible or non-directory
+parent returns a read warning, including when Windows reports it as `ENOENT`.
 
 The cache has no locks. Concurrent commands can share a cache directory: when
-two writers race on one key, both values are valid. A failed write leaves a
-`.tmp` file only if the command stops during the write. Lookups ignore these
-files. The cache does not remove old entries; delete the directory to clear it.
+two writers race on one key, both values are valid. An interrupted write or an
+unconfirmed native helper can leave a `.tmp` file. Lookups ignore these files.
+The cache does not remove old entries; delete the directory to clear it.
 
 ### Cache snapshots
 
