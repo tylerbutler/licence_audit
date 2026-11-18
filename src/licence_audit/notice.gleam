@@ -908,6 +908,9 @@ fn read_path_notices(
   })
 }
 
+@external(erlang, "notice_ffi", "link_type")
+fn link_type(path: String) -> Result(simplifile.FileType, simplifile.FileError)
+
 fn read_root_notice_paths(
   package_name: String,
   root: String,
@@ -921,13 +924,13 @@ fn read_root_notice_paths(
   let candidates = list.filter(children, is_root_notice_file)
   use paths, child <- list.try_fold(candidates, [])
   let path = join_path(root, child)
-  use info <- result.try(
-    simplifile.link_info(path)
+  use kind <- result.try(
+    link_type(path)
     |> result.map_error(fn(error) {
       PathReadFailed(package_name, path, simplifile.describe_error(error))
     }),
   )
-  case simplifile.file_info_type(info) {
+  case kind {
     simplifile.File -> Ok([path, ..paths])
     simplifile.Directory | simplifile.Symlink | simplifile.Other -> Ok(paths)
   }
@@ -968,14 +971,14 @@ fn read_path_files_in(
   }
   use files, child <- list.try_fold(over: children, from: [])
   let child_path = join_path(path, child)
-  use info <- result.try(
-    simplifile.link_info(child_path)
+  use kind <- result.try(
+    link_type(child_path)
     |> result.map_error(fn(error) {
       PathReadFailed(package_name, child_path, simplifile.describe_error(error))
     }),
   )
 
-  case simplifile.file_info_type(info) {
+  case kind {
     simplifile.File -> Ok([child_path, ..files])
     simplifile.Directory -> {
       use nested_files <- result.try(read_path_files_in(

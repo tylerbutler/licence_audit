@@ -113,6 +113,7 @@ Relative paths resolve from the directory that contains the selected manifest.
 The older `source = "path"` spelling is also accepted.
 The search excludes the local package's generated `build/` directory. It still
 accepts intentional source paths such as `legal/LICENSE`.
+Symbolic links and other non-regular files are excluded, including on Windows.
 
 For Git dependencies with a manifest `path`, the command searches only inside
 the selected package subdirectory at the locked commit. Package-root notice

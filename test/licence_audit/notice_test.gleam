@@ -151,6 +151,16 @@ pub fn selected_path_notices_report_unreadable_licence_test() {
   let assert Ok(_) = simplifile.delete(root)
 }
 
+@external(erlang, "notice_test_ffi", "assert_native_symlink")
+fn assert_native_symlink(path: String) -> Nil
+
+@external(erlang, "notice_test_ffi", "windows_symlink_type")
+fn windows_symlink_type() -> Result(simplifile.FileType, simplifile.FileError)
+
+pub fn native_symlink_type_overrides_windows_regular_file_mode_test() {
+  should.equal(windows_symlink_type(), Ok(simplifile.Symlink))
+}
+
 pub fn selected_path_notices_skip_symlinks_test() {
   let root = fresh_dir("selected_path_symlinks")
   let outside = fresh_dir("selected_path_symlinks_outside")
@@ -162,6 +172,7 @@ pub fn selected_path_notices_skip_symlinks_test() {
       to: cwd <> "/" <> outside <> "/LICENSE",
       from: root <> "/LICENSE-MIT",
     )
+  assert_native_symlink(root <> "/LICENSE-MIT")
   should.equal(
     notice.read_source_notices(
       package("local", notice.PathPackage(root)),
@@ -359,6 +370,7 @@ pub fn read_path_source_skips_symlink_targets_outside_root_test() {
       to: cwd <> "/" <> outside_dir <> "/outside.txt",
       from: root <> "/LINKED_LICENSE",
     )
+  assert_native_symlink(root <> "/LINKED_LICENSE")
   let pkg = package("local_dep", notice.PathPackage(path: root))
 
   let assert Ok(files) =
