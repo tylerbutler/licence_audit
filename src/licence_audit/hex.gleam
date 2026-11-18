@@ -173,25 +173,8 @@ pub fn from_http_error(
     "GET "
     <> uri.to_string(request.to_uri(req))
     <> ": "
-    <> describe_http_error(error),
+    <> httpc_adaptive.describe_error(error, request_timeout_ms),
   )
-}
-
-/// Render an `httpc` transport error into a concise reason string so callers
-/// can report *why* a Hex request failed (DNS/connection, TLS, or timeout)
-/// rather than a generic "request failed".
-fn describe_http_error(error: httpc_adaptive.Error) -> String {
-  case error {
-    httpc_adaptive.InvalidUtf8Response -> "response body was not valid UTF-8"
-    httpc_adaptive.NoIpv6Address -> "IPv6 DNS lookup found no address"
-    httpc_adaptive.ResponseTimeout ->
-      "HTTP request timed out after "
-      <> int.to_string(request_timeout_ms)
-      <> " ms (HTTP client did not report which stage timed out)"
-    httpc_adaptive.FailedToConnect(reason) ->
-      "connection setup failed: " <> reason
-    httpc_adaptive.RequestFailed(reason) -> "HTTP request failed: " <> reason
-  }
 }
 
 fn package_request(name: String) -> Request(String) {

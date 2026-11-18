@@ -152,24 +152,27 @@ pub fn malformed_licences_fail_in_parse_load_and_merge_test() {
       }
       let input =
         "[tools.licence_audit]\n" <> field <> " = ['''" <> licence <> "''']\n"
-      should.equal(config.parse(input), Error(config.InvalidLicenceIdentifier))
-      should.equal(
-        config.parse_notices(input),
-        Error(config.InvalidLicenceIdentifier),
-      )
+      let expected = config.InvalidLicenceIdentifier(field, licence)
+      let parsed_error =
+        config.InvalidLicenceIdentifier(
+          field,
+          string.replace(licence, "\r\n", "\n"),
+        )
+      should.equal(config.parse(input), Error(parsed_error))
+      should.equal(config.parse_notices(input), Error(parsed_error))
       let options = load_options(allow, deny)
-      should.equal(config.load(options), Error(config.InvalidLicenceIdentifier))
+      should.equal(config.load(options), Error(expected))
       should.equal(
         config.load(config.LoadOptions(..options, ignore_config: True)),
-        Error(config.InvalidLicenceIdentifier),
+        Error(expected),
       )
       should.equal(
         config.merge(policy(["MIT"], []), load_options(allow, deny)),
-        Error(config.InvalidLicenceIdentifier),
+        Error(expected),
       )
       should.equal(
         config.merge(policy(allow, deny), load_options(["MIT"], [])),
-        Error(config.InvalidLicenceIdentifier),
+        Error(expected),
       )
     })
   })
@@ -299,7 +302,7 @@ pub fn file_errors_stop_checks_before_fetching_test() {
     })
     should.equal(
       config.load_notices(root, None, False),
-      Error(config.InvalidLicenceIdentifier),
+      Error(config.InvalidLicenceIdentifier(field, "MIT/Apache-2.0")),
     )
   })
   let assert Ok(_) = simplifile.delete(config_path)

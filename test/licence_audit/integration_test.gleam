@@ -1717,7 +1717,7 @@ pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
 fn failing_osv_batch(
   _purls: List(String),
 ) -> Result(List(osv.BatchEntry), osv.Error) {
-  Error(osv.NetworkFailure)
+  Error(osv.NetworkFailure("connection refused"))
 }
 
 fn unused_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
@@ -1743,13 +1743,13 @@ pub fn check_vulns_osv_batch_failure_exits_two_test() {
   should.equal(result.exit_code, 2)
   assert !string.contains(
     result.output,
-    "Vulnerability check failed: OSV request failed",
+    "Vulnerability check failed: OSV request failed: connection refused",
   )
   assert string.contains(result.output, "gleam_stdlib")
   should.equal(events, [
     progress.Event(
       progress.Error,
-      "Vulnerability check failed: OSV request failed",
+      "Vulnerability check failed: OSV request failed: connection refused",
     ),
   ])
 }
@@ -1762,6 +1762,7 @@ fn unknown_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
       summary: "severity unavailable",
       severity: osv.UnknownSeverity,
       scores: [],
+      affected: [],
     ),
   )
 }
@@ -1777,6 +1778,7 @@ fn vulnerability_with_severity(
         summary: "known severity",
         severity: severity,
         scores: [],
+        affected: [],
       ),
     )
   }
@@ -2668,7 +2670,9 @@ pub fn sbom_optional_enrichment_failures_still_exit_zero_test() {
       licence_audit.Clients(
         ..test_clients(fn(_) { Error(hex.NetworkFailure("offline")) }),
         osv_batch_fetcher: one_vuln_batch,
-        osv_detail_fetcher: fn(_) { Error(osv.NetworkFailure) },
+        osv_detail_fetcher: fn(_) {
+          Error(osv.NetworkFailure("connection refused"))
+        },
       ),
       progress.capturing(progress.Normal, "sbom"),
     )
@@ -3851,6 +3855,7 @@ fn one_vuln_detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
       id: "CVE-2024-0001",
       summary: "example",
       severity: osv.High,
+      affected: [],
       scores: [
         osv.Score(
           kind: "CVSS_V3",
@@ -3950,7 +3955,7 @@ pub fn vulns_reuses_shared_advisory_failures_test() {
         osv_batch_fetcher: one_vuln_batch,
         osv_detail_fetcher: fn(id) {
           should.equal(record_detail_fetch(id), 1)
-          Error(osv.NetworkFailure)
+          Error(osv.NetworkFailure("connection refused"))
         },
       ),
       progress.capturing(progress.Verbose, "vulns"),
@@ -4143,6 +4148,7 @@ fn dev_only_vuln_detail(id: String) -> Result(osv.Vulnerability, osv.Error) {
       summary: "dev dependency advisory",
       severity: osv.High,
       scores: [],
+      affected: [],
     ),
   )
 }

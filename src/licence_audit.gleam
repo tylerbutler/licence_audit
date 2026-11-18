@@ -1238,13 +1238,16 @@ fn gather_embedded_vulnerabilities(
               reporter,
             )
             Ok(entries) -> {
-              let id_to_refs = build_id_to_refs(purl_pairs, entries)
+              let id_to_components = build_id_to_components(purl_pairs, entries)
               let unique_ids = unique_vuln_ids(entries)
               // SBOM embedding tolerates detail failures the same way the plain
               // `vulns` report does; selected vulnerability gates block on them.
               let #(vulns, _detail_failures, reporter) =
                 fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
-              #(Ok(to_embedded_vulnerabilities(vulns, id_to_refs)), reporter)
+              #(
+                Ok(to_embedded_vulnerabilities(vulns, id_to_components)),
+                reporter,
+              )
             }
           }
         }
@@ -1253,38 +1256,42 @@ fn gather_embedded_vulnerabilities(
   }
 }
 
-/// Pair each fetched advisory with the component references it affects.
+/// Keep query identities separate from local component references.
 fn to_embedded_vulnerabilities(
   vulns: List(osv.Vulnerability),
-  id_to_refs: dict.Dict(String, List(String)),
+  id_to_components: dict.Dict(String, List(#(String, String))),
 ) -> List(sbom.EmbeddedVulnerability) {
   list.map(vulns, fn(vuln) {
-    let affects = case dict.get(id_to_refs, vuln.id) {
+    let pairs = case dict.get(id_to_components, vuln.id) {
       Ok(refs) -> refs
       Error(_) -> []
     }
-    sbom.EmbeddedVulnerability(vuln: vuln, affects: affects)
+    sbom.EmbeddedVulnerability(
+      vuln: vuln,
+      affects: list.map(pairs, fn(pair) { pair.1 }),
+      purls: list.map(pairs, fn(pair) { pair.0 }),
+    )
   })
 }
 
-/// Build a map from each OSV advisory id to the component `bom-ref`s
-/// it affects. Batch entries align positionally with `purl_pairs` because
+/// Map each advisory id to its query purls and component `bom-ref`s.
+/// Batch entries align positionally with `purl_pairs` because
 /// `osv.query_batch` preserves input order.
-fn build_id_to_refs(
+fn build_id_to_components(
   purl_pairs: List(#(String, String)),
   entries: List(osv.BatchEntry),
-) -> dict.Dict(String, List(String)) {
+) -> dict.Dict(String, List(#(String, String))) {
   list.zip(purl_pairs, entries)
   |> list.fold(dict.new(), fn(acc, pair) {
-    let #(#(_purl, ref), batch_entry) = pair
+    let #(identity, batch_entry) = pair
     list.fold(batch_entry.vuln_ids, acc, fn(inner, id) {
       let existing = case dict.get(inner, id) {
         Ok(refs) -> refs
         Error(_) -> []
       }
-      case list.contains(existing, ref) {
+      case list.contains(existing, identity) {
         True -> inner
-        False -> dict.insert(inner, id, list.append(existing, [ref]))
+        False -> dict.insert(inner, id, list.append(existing, [identity]))
       }
     })
   })
@@ -2596,7 +2603,10 @@ fn fetch_vulnerabilities_loop(
           let reporter =
             progress.defer_warn(
               reporter,
-              "Failed to fetch OSV details for " <> id,
+              "Failed to fetch OSV details for "
+                <> id
+                <> ": "
+                <> error.message(error.from_osv_error(err)),
             )
           let failure =
             DetailFailure(
@@ -2625,6 +2635,7 @@ fn placeholder_vulnerability(id: String) -> osv.Vulnerability {
     summary: "(details unavailable)",
     severity: osv.UnknownSeverity,
     scores: [],
+    affected: [],
   )
 }
 
@@ -2820,11 +2831,12 @@ fn query_vuln_gate(
         <> " packages",
     )
   case batch_fetcher(purls) {
-    Error(_) -> {
+    Error(osv_error) -> {
       let reporter =
         progress.defer_error(
           reporter,
-          "Vulnerability check failed: OSV request failed",
+          "Vulnerability check failed: "
+            <> error.message(error.from_osv_error(osv_error)),
         )
       VulnGateOutcome(
         report_text: format_unsupported_sources(unsupported_packages),
@@ -2990,8 +3002,10 @@ fn review_vuln_rows(
 ) -> Result(List(VulnRow), error.Error) {
   list.try_map(rows, fn(row) {
     use purl <- result.try(sbom.purl_for(row.package))
+    let vulnerabilities =
+      list.map(row.vulnerabilities, osv.for_package(_, purl))
     use decisions <- result.try(
-      list.try_map(row.vulnerabilities, fn(vuln) {
+      list.try_map(vulnerabilities, fn(vuln) {
         case list.any(row.failures, fn(failure) { failure.id == vuln.id }) {
           True -> Ok(exception.Unaccepted)
           False ->
@@ -3006,7 +3020,7 @@ fn review_vuln_rows(
         }
       }),
     )
-    Ok(VulnRow(..row, decisions: decisions))
+    Ok(VulnRow(..row, vulnerabilities:, decisions:))
   })
 }
 
@@ -3044,6 +3058,7 @@ fn review_vuln_occurrences(
             "Missing fetched advisory " <> id,
           )),
         )
+        let vuln = osv.for_package(vuln, purl)
         use decision <- result.try(
           exception.decide(
             exceptions,
@@ -3108,18 +3123,23 @@ fn format_vuln_gate_output(
     |> list.length
   let all_vulns =
     occurrences
-    |> list.map(fn(occurrence) { occurrence.vulnerability })
+    |> list.map(fn(occurrence) { occurrence.vulnerability.id })
     |> list.unique
+  let trigger_count =
+    triggering
+    |> list.map(fn(vuln) { vuln.id })
+    |> list.unique
+    |> list.length
+    |> int.to_string
   let summary = case reviews_enabled {
     True ->
-      int.to_string(list.length(triggering))
+      trigger_count
       <> " blocking advisory/advisories; "
       <> int.to_string(excepted)
       <> " excepted finding(s) of "
       <> int.to_string(list.length(occurrences))
       <> " package/advisory finding(s)."
     False -> {
-      let trigger_count = int.to_string(list.length(triggering))
       let total_count = int.to_string(list.length(all_vulns))
       case
         list.any(triggering, fn(vuln) { vuln.severity == osv.UnknownSeverity })

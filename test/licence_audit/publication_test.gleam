@@ -727,6 +727,7 @@ pub fn sbom_vulnerabilities_reference_the_local_component_not_its_published_purl
             "Published identity advisory",
             osv.High,
             [],
+            [],
           ),
         )
       },
@@ -746,5 +747,90 @@ pub fn sbom_vulnerabilities_reference_the_local_component_not_its_published_purl
       ),
     )
   should.equal(affects, [[ref]])
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn mixed_dev_sources_keep_query_identities_and_select_local_version_ratings_test() {
+  let root = project("mixed-dev-vulns")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"app\"\nversion = \"1.0.0\"\n[dev_dependencies]\nlocal_dep = { path = \"local_dep\" }\ngit_dep = { git = \"https://github.com/example/git_dep\", ref = \"abcdef\", path = \"packages/part\" }\n",
+    )
+  let assert Ok(locked) = simplifile.read(root <> "/manifest.toml")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      string.replace(
+        locked,
+        "commit = \"abcdef\"",
+        "commit = \"abcdef\", path = \"packages/part\"",
+      ),
+    )
+  let low_vector = "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N"
+  let clients =
+    licence_audit.Clients(
+      ..online_clients(hex.Published),
+      fetcher: fn(_) { Ok(hex.licences_only(["MIT"])) },
+      osv_batch_fetcher: fn(purls) {
+        should.equal(purls, [
+          "pkg:hex/local_dep@1.0.0",
+          "pkg:hex/hex_dep@1.0.0",
+          "pkg:github/example/git_dep@abcdef#packages/part",
+        ])
+        Ok(
+          list.map(purls, fn(purl) {
+            osv.BatchEntry(purl, case purl {
+              "pkg:hex/local_dep@1.0.0" -> ["OSV-MIXED"]
+              _ -> []
+            })
+          }),
+        )
+      },
+      osv_detail_fetcher: fn(id) {
+        osv.decode_vuln_body(
+          "{\"affected\":[{\"package\":{\"ecosystem\":\"Hex\",\"name\":\"local_dep\"},\"versions\":[\"1.0.0\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\""
+            <> low_vector
+            <> "\"}]},{\"package\":{\"ecosystem\":\"Hex\",\"name\":\"local_dep\"},\"versions\":[\"2.0.0\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}]}]}",
+          id,
+        )
+      },
+    )
+  let result = run(root, ["--vulns", "--no-cache"], clients)
+  should.equal(result.exit_code, 0)
+  let assert Ok(scopes) =
+    json.parse(
+      result.output,
+      decode.at(
+        ["components"],
+        decode.list(decode.at(["scope"], decode.string)),
+      ),
+    )
+  should.equal(scopes, ["optional", "optional", "optional"])
+  let assert Ok([#(refs, ratings)]) =
+    json.parse(
+      result.output,
+      decode.at(
+        ["vulnerabilities"],
+        decode.list({
+          use refs <- decode.field(
+            "affects",
+            decode.list(decode.at(["ref"], decode.string)),
+          )
+          use ratings <- decode.field(
+            "ratings",
+            decode.list({
+              use severity <- decode.field("severity", decode.string)
+              use vector <- decode.field("vector", decode.string)
+              decode.success(#(severity, vector))
+            }),
+          )
+          decode.success(#(refs, ratings))
+        }),
+      ),
+    )
+  let assert Ok(ref) = sbom.component_ref(local("local_dep", "1.0.0"))
+  should.equal(refs, [ref])
+  should.equal(ratings, [#("low", low_vector)])
   let assert Ok(_) = simplifile.delete(root)
 }

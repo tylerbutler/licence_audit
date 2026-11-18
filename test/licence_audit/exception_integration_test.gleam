@@ -104,6 +104,7 @@ fn detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
       summary: "Affected feature",
       severity: osv.High,
       scores: [],
+      affected: [],
     ),
   )
 }
@@ -634,6 +635,7 @@ pub fn accepted_advisory_cannot_hide_another_advisory_or_licence_test() {
             summary: "",
             severity: osv.Critical,
             scores: [],
+            affected: [],
           ),
         )
       _ -> detail(id)
@@ -656,7 +658,7 @@ pub fn failed_osv_evidence_is_never_excepted_test() {
       root,
       ["check", "--checks=all"],
       clean_licences,
-      fn(_) { Error(osv.NetworkFailure) },
+      fn(_) { Error(osv.NetworkFailure("connection refused")) },
       detail,
     )
   should.equal(result.exit_code, 2)

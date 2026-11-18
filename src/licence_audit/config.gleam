@@ -157,7 +157,7 @@ pub type Error {
   MissingPolicySection(path: String)
   InvalidField(field: String, expected: String)
   UnknownField(String)
-  InvalidLicenceIdentifier
+  InvalidLicenceIdentifier(field: String, value: String)
   InvalidException(String)
   FileReadError(String)
 }
@@ -439,10 +439,13 @@ fn validate(policy: Policy) -> Result(Policy, Error) {
     |> result.map_error(InvalidException),
   )
   use _ <- result.try(
-    list.try_each(list.append(policy.allow, policy.deny), fn(licence) {
-      spdx_expression.parse(licence)
-      |> result.replace_error(InvalidLicenceIdentifier)
-      |> result.map(fn(_) { Nil })
+    list.try_each([#("allow", policy.allow), #("deny", policy.deny)], fn(entry) {
+      let #(field, licences) = entry
+      list.try_each(licences, fn(licence) {
+        spdx_expression.parse(licence)
+        |> result.replace_error(InvalidLicenceIdentifier(field, licence))
+        |> result.map(fn(_) { Nil })
+      })
     }),
   )
   validate_vuln_severity(policy)

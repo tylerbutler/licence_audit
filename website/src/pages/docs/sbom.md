@@ -223,9 +223,12 @@ warns and retains its ID with unknown severity; generation still exits `0`.
 `check --checks=vulns` and `check --checks=all` exit `2` when advisory details
 are unavailable: the vulnerability gate cannot evaluate their severity.
 
-Ratings use the advisory's resolved severity, including `none` for a valid
-CVSS score of `0.0`. A recognised OSV `database_specific.severity` overrides
-the vectors. Raw vectors and their CVSS methods remain in the document.
+Ratings use the [severity for each queried package and version](/docs/vulns#report-contents),
+including `none` for a valid CVSS score of `0.0`. Each advisory appears once,
+with the distinct ratings for its selected components. Ratings for other
+packages or versions do not enter the document. Without matching package-specific
+scores, a recognised OSV `database_specific.severity` overrides the advisory's
+top-level vectors. Raw vectors and their CVSS methods remain in the document.
 
 ## Reproducible output
 
