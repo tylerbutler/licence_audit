@@ -1,5 +1,5 @@
 -module(update_test_ffi).
--export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2,
+-export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2, is_symlink/1,
     windows_worker/0]).
 -include_lib("kernel/include/file.hrl").
 
@@ -44,6 +44,11 @@ make_link(Target, Link) ->
         ok -> {ok, nil};
         {error, _Reason} -> {error, nil}
     end.
+
+%% Windows reports symlink type separately from its regular-file mode bits.
+is_symlink(Path) ->
+    {ok, #file_info{type = Type}} = file:read_link_info(Path),
+    Type =:= symlink.
 
 windows_worker() ->
     Path = unicode:characters_to_binary(os:getenv("POLICY_TEST_PATH")),

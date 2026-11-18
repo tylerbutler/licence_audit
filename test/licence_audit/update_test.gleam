@@ -779,6 +779,9 @@ fn temporary_files(path: String) -> List(String)
 @external(erlang, "update_test_ffi", "make_link")
 fn make_link(target: String, link: String) -> Result(Nil, Nil)
 
+@external(erlang, "update_test_ffi", "is_symlink")
+fn is_symlink(path: String) -> Bool
+
 pub fn update_preserves_symlink_and_replaces_its_target_test() {
   let target = fresh_path("link_target")
   let link = fresh_path("linked_policy")
@@ -788,8 +791,7 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
       contents: "# Keep this comment\n[tools.licence_audit]\n",
     )
   let assert Ok(_) = make_link("link_target.toml", link)
-  let assert Ok(link_info) = simplifile.link_info(link)
-  should.equal(simplifile.file_info_type(link_info), simplifile.Symlink)
+  assert is_symlink(link)
   should.equal(simplifile.read(link), simplifile.read(target))
   let #(result, _) =
     update.run_with_picker(
@@ -807,8 +809,7 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
   assert string.contains(contents, "# Keep this comment")
   assert string.contains(contents, "allow = [\"MIT\"]")
   should.equal(simplifile.read(link), Ok(contents))
-  let assert Ok(link_info) = simplifile.link_info(link)
-  should.equal(simplifile.file_info_type(link_info), simplifile.Symlink)
+  assert is_symlink(link)
   let assert Ok(_) = simplifile.delete(target)
   should.equal(simplifile.read(link), Error(simplifile.Enoent))
   let assert Ok(_) = simplifile.delete(link)
