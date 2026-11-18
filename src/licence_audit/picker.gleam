@@ -21,6 +21,7 @@ import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import licence_audit/spdx_expression
 import tty
 
 const max_read_failures = 3
@@ -77,8 +78,8 @@ fn spawn_monitor(running: fn() -> anything) -> #(process.Pid, process.Monitor)
 ///
 /// - `title` is shown above the list.
 /// - `labels` are the choices in display order.
-/// - Items whose label is in `allow` start as `Allow`.
-/// - Items whose label is in `deny` start as `Deny`.
+/// - Items matching `deny` start as `Deny`, even if also allowed.
+/// - Other items matching `allow` start as `Allow`.
 /// - Everything else (including newly discovered licences) starts as `Ignore`.
 ///
 /// Returns a `Selection` containing only the labels marked `Allow` and `Deny`
@@ -142,14 +143,17 @@ pub fn new_state(
   allow: List(String),
   deny: List(String),
 ) -> State {
+  let allowed = list.map(allow, spdx_expression.matching_tokens)
+  let denied = list.map(deny, spdx_expression.matching_tokens)
   let items =
     list.map(labels, fn(label) {
+      let tokens = spdx_expression.matching_tokens(label)
       let choice = case
-        list.contains(allow, label),
-        list.contains(deny, label)
+        list.contains(denied, tokens),
+        list.contains(allowed, tokens)
       {
-        True, _ -> Allow
-        False, True -> Deny
+        True, _ -> Deny
+        False, True -> Allow
         False, False -> Ignore
       }
       Item(label: label, choice: choice)
