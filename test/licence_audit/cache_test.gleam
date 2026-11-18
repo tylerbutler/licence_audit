@@ -256,7 +256,7 @@ pub fn cache_round_trip_persists_metadata_test() {
   let assert None = cache.close(handle)
 }
 
-pub fn separate_vms_keep_distinct_successful_writes_test() {
+pub fn separate_vms_keep_distinct_successful_writes() {
   let path = fresh_path("separate_vms")
   let assert Ok(store) = cache_dir.open_table(Some(path), "", "test")
   let assert Ok(Nil) =
@@ -570,7 +570,7 @@ pub fn unwritable_path_returns_warning_test() {
   let assert Some(_) = warning
 }
 
-pub fn same_key_writers_in_separate_vms_leave_one_complete_value_test() {
+pub fn same_key_writers_leave_one_complete_value() {
   let path = fresh_path("same_key_vms")
   let assert Ok(store) = cache_dir.open_table(Some(path), "", "test")
   let first = string.repeat("a", 65_536)

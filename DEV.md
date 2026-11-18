@@ -227,6 +227,8 @@ scratch files when concurrent writers race. Readers never see a partial file.
 If replacement fails and the entry file exists, another writer won the race,
 and the write is a success. If a native helper cannot be confirmed stopped,
 the write returns a warning and leaves its temporary file untouched.
+Each Windows cache write starts a Windows PowerShell process. Cold-cache
+population pays this startup cost per entry; cache hits do not start a helper.
 
 A missing entry or directory is a cache miss. An inaccessible or non-directory
 parent returns a read warning, including when Windows reports it as `ENOENT`.

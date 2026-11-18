@@ -1,5 +1,23 @@
 -module(cache_process_test_ffi).
--export([concurrent_writes/5, worker/0]).
+-export([
+    concurrent_writes/5, worker/0,
+    separate_vms_keep_distinct_successful_writes_test_/0,
+    same_key_writers_leave_one_complete_value_test_/0
+]).
+
+separate_vms_keep_distinct_successful_writes_test_() ->
+    race_test(fun licence_audit@cache_test:separate_vms_keep_distinct_successful_writes/0).
+
+same_key_writers_leave_one_complete_value_test_() ->
+    race_test(fun licence_audit@cache_test:same_key_writers_leave_one_complete_value/0).
+
+race_test(Test) ->
+    %% Keep the longer native-helper budget local to the Windows writer races.
+    Timeout = case os:type() of
+        {win32, _} -> 180;
+        _ -> 5
+    end,
+    {timeout, Timeout, Test}.
 
 %% Gleam processes share one VM. Separate erl runtimes write to one cache
 %% directory at the same time, and synchronize without relying on sleeps.
