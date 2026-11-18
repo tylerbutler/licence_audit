@@ -455,7 +455,7 @@ class CliStreamTest(unittest.TestCase):
     def test_sbom_license_text_uses_only_explicit_application_root(self):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "example", version = "1.0.0", '
-            'source = "hex", outer_checksum = "ABC" }]\n'
+            f'source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\nexample = "1.0.0"\n'
         )
         cache_root = self.project / "cache-é中"

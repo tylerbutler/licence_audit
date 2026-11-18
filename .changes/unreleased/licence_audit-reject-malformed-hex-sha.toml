@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Reject malformed Hex SHA-256 checksums and missing root or transitive lockfile targets before `sbom` writes output; preserve existing artifacts on failure."

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Require Gleam 1.19.2 or newer for source builds to preserve strict, correct Hex publication verification in `sbom`."

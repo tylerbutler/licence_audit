@@ -148,7 +148,7 @@ fn project(name: String, settings: String) -> String {
   let assert Ok(_) =
     simplifile.write(
       "packages = [
-  { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"unused\" },
+  { name = \"hex_dep\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\" },
   { name = \"git_dep\", version = \"1.0.0\", source = \"git\", repo = \"https://github.com/example/dep\", commit = \"abc\" },
   { name = \"path_dep\", version = \"1.0.0\", source = \"local\", path = \"local\" },
   { name = \"dev_dep\", version = \"1.0.0\", source = \"local\", path = \"dev\" },
@@ -265,7 +265,7 @@ pub fn notices_includes_hex_and_git_but_skips_excluded_path_test() {
   let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
   let assert Ok(_) =
     simplifile.write(
-      string.replace(contents, "unused", checksum),
+      string.replace(contents, string.repeat("A", 64), checksum),
       to: root <> "/manifest.toml",
     )
   let clients = no_network_clients()
@@ -368,7 +368,7 @@ pub fn notices_dev_only_project_without_production_table_test() {
   let assert Ok(contents) = simplifile.read(root <> "/manifest.toml")
   let assert Ok(_) =
     simplifile.write(
-      string.replace(contents, "unused", checksum),
+      string.replace(contents, string.repeat("A", 64), checksum),
       to: root <> "/manifest.toml",
     )
   let assert Ok(_) = simplifile.create_directory_all(root <> "/dev")

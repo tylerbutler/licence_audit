@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Handle Git package subdirectories correctly in mixed local SBOM workspaces and accept local packages declared in `[dev_dependencies]` with optional scope."
