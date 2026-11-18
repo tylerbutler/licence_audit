@@ -5,6 +5,7 @@ import gleeunit/should
 import licence_audit/config
 import licence_audit/notice
 import licence_audit/picker
+import licence_audit/policy
 import licence_audit/progress
 import licence_audit/source_archive_test
 import licence_audit/update
@@ -232,24 +233,26 @@ pub fn invalid_target_parent_fails_before_writing_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.delete(blocker)
-  let _ = simplifile.write("data", to: blocker)
-  let target = blocker <> "/gleam.toml"
-
-  let #(result, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(target),
-      True,
-      None,
-      successful_fetcher(),
-      should_not_pick,
-      reporter(),
-    )
-
-  should.equal(result.exit_code, 2)
-  let assert True = string.contains(result.output, "Could not read")
-  let _ = simplifile.delete(blocker)
+  let assert Ok(_) = simplifile.write("data", to: blocker)
+  list.each(["/gleam.toml", "/missing/gleam.toml"], fn(suffix) {
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(blocker <> suffix),
+        True,
+        None,
+        notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
+          panic as "invalid target must stop before fetching"
+        }),
+        should_not_pick,
+        reporter(),
+      )
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "Could not read")
+    should.equal(simplifile.read(blocker), Ok("data"))
+  })
+  let assert Ok(_) = simplifile.delete(blocker)
 }
 
 pub fn malformed_toml_exits_2_before_picker_without_changing_file_test() {
@@ -275,22 +278,25 @@ pub fn malformed_toml_exits_2_before_picker_without_changing_file_test() {
 }
 
 pub fn file_write_failure_exits_2_test() {
-  let path = fresh_path("missing_parent") <> "/gleam.toml"
-  let #(result, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(path),
-      True,
-      None,
-      successful_fetcher(),
-      selected_pick,
-      reporter(),
-    )
+  let parent = fresh_path("missing_parent")
+  list.each(["/gleam.toml", "/missing/gleam.toml"], fn(suffix) {
+    let path = parent <> suffix
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(path),
+        True,
+        None,
+        successful_fetcher(),
+        selected_pick,
+        reporter(),
+      )
 
-  should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Failed to write " <> path)
-  let assert Error(_) = simplifile.read(path)
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "Failed to write " <> path)
+    let assert Error(_) = simplifile.read(path)
+  })
 }
 
 pub fn update_preserves_unreadable_text_before_picker_test() {
@@ -517,6 +523,148 @@ pub fn update_revalidates_policy_changed_during_selection_test() {
   let assert Ok(_) = simplifile.delete(path)
 }
 
+pub fn update_rejects_valid_concurrent_policy_edits_test() -> Nil {
+  list.each(
+    [
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"MIT\"]\n",
+      "[tools.licence_audit]\nallow = [\"ISC\"]\ndeny = []\n",
+    ],
+    fn(newer) {
+      let path = fresh_path("concurrent_policy")
+      let assert Ok(_) =
+        simplifile.write(path, "[tools.licence_audit]\nallow = [\"MIT\"]\n")
+      let #(result, _) =
+        update.run_with_picker(
+          manifest_path,
+          ".",
+          Some(path),
+          True,
+          None,
+          successful_fetcher(),
+          fn(_, labels, allow, deny) {
+            let assert Ok(_) = simplifile.write(path, newer)
+            picker.new_state("Policy", labels, allow, deny)
+            |> picker.state_selection
+            |> Ok
+          },
+          reporter(),
+        )
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "changed")
+      assert string.contains(result.output, "rerun")
+      should.equal(simplifile.read(path), Ok(newer))
+      should.equal(temporary_files(path), [])
+      let assert Ok(_) = simplifile.delete(path)
+    },
+  )
+}
+
+pub fn update_preserves_concurrent_unrelated_edits_test() -> Nil {
+  let path = fresh_path("concurrent_unrelated")
+  let assert Ok(_) =
+    simplifile.write(path, "[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  let newer =
+    "# Added during selection\nname = \"new_name\"\n[tools.licence_audit]\nallow = [\"MIT\"]\nvuln_block_unknown = true\n"
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(_, _, _, _) {
+        let assert Ok(_) = simplifile.write(path, newer)
+        Ok(picker.Selection(["MIT", "ISC"], ["GPL-3.0-only"]))
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  assert string.contains(
+    contents,
+    "# Added during selection\nname = \"new_name\"",
+  )
+  let assert Ok(saved) = config.parse(contents)
+  should.equal(saved.allow, ["MIT", "ISC"])
+  should.equal(saved.deny, ["GPL-3.0-only"])
+  should.equal(saved.vuln_block_unknown, True)
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn update_merges_labels_with_policy_matching_tokens_test() -> Nil {
+  let path = fresh_path("normalized_labels")
+  let assert Ok(_) =
+    simplifile.write(
+      path,
+      "[tools.licence_audit]\nallow = [\"mit\", \"ISC\", \"LicenseRef-Custom\", \"DocumentRef-A:LicenseRef-X\"]\ndeny = [\"mIt\", \"LicenseRef-custom\", \"DocumentRef-a:LicenseRef-X\"]\n",
+    )
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(title, labels, allow, deny) {
+        should.equal(title, "Allow which licences? (8 total, 2 new)")
+        should.equal(labels, [
+          "Apache-2.0", "BSD-3-Clause", "DocumentRef-A:LicenseRef-X",
+          "DocumentRef-a:LicenseRef-X", "ISC", "LicenseRef-Custom",
+          "LicenseRef-custom", "mit",
+        ])
+        picker.new_state("Policy", labels, allow, deny)
+        |> picker.state_selection
+        |> Ok
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  let assert Ok(saved) = config.parse(contents)
+  should.equal(saved.allow, [
+    "mit", "ISC", "LicenseRef-Custom", "DocumentRef-A:LicenseRef-X",
+  ])
+  should.equal(saved.deny, [
+    "mIt", "LicenseRef-custom", "DocumentRef-a:LicenseRef-X",
+  ])
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn unchanged_update_preserves_overlapping_rules_and_unrelated_verdicts_test() -> Nil {
+  let path = fresh_path("overlapping_rules")
+  let original = "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"mit\"]\n"
+  let assert Ok(_) = simplifile.write(path, original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(_, labels, allow, deny) {
+        picker.new_state("Policy", labels, allow, deny)
+        |> picker.state_selection
+        |> Ok
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  let assert Ok(saved) = config.parse(contents)
+  should.equal(saved.allow, ["MIT"])
+  should.equal(saved.deny, ["mit"])
+  let assert Ok(audit_policy) = policy.from_config(saved, check_mode: True)
+  should.equal(policy.audit(audit_policy, ["MIT"]), policy.DeniedLicence("MIT"))
+  should.equal(
+    policy.audit(audit_policy, ["ISC"]),
+    policy.UnallowedLicence("ISC"),
+  )
+  simplifile.delete(path) |> should.be_ok
+}
+
 pub fn update_preserves_reviewed_exceptions_and_comments_test() {
   let path = fresh_path("exceptions")
   let unrelated = "# Project settings\nname = \"keep_me\" # project name\n"
@@ -631,6 +779,9 @@ fn temporary_files(path: String) -> List(String)
 @external(erlang, "update_test_ffi", "make_link")
 fn make_link(target: String, link: String) -> Result(Nil, Nil)
 
+@external(erlang, "update_test_ffi", "is_symlink")
+fn is_symlink(path: String) -> Bool
+
 pub fn update_preserves_symlink_and_replaces_its_target_test() {
   let target = fresh_path("link_target")
   let link = fresh_path("linked_policy")
@@ -640,6 +791,8 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
       contents: "# Keep this comment\n[tools.licence_audit]\n",
     )
   let assert Ok(_) = make_link("link_target.toml", link)
+  assert is_symlink(link)
+  should.equal(simplifile.read(link), simplifile.read(target))
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
@@ -656,6 +809,7 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
   assert string.contains(contents, "# Keep this comment")
   assert string.contains(contents, "allow = [\"MIT\"]")
   should.equal(simplifile.read(link), Ok(contents))
+  assert is_symlink(link)
   let assert Ok(_) = simplifile.delete(target)
   should.equal(simplifile.read(link), Error(simplifile.Enoent))
   let assert Ok(_) = simplifile.delete(link)
