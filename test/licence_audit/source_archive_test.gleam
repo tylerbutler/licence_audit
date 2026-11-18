@@ -42,6 +42,26 @@ pub fn metadata_clients(
   })
 }
 
+pub fn notice_archive(licences: List(String)) -> BitArray {
+  let assert Ok([metadata]) =
+    source_archive.extract_tar(metadata_archive(licences))
+  with_tar_gz(
+    [
+      #("NOTICE.txt", <<"Package attribution":utf8>>),
+      #("README.md", <<"Readme":utf8>>),
+    ],
+    fn(contents) {
+      with_tar(
+        [
+          #("metadata.config", metadata.contents),
+          #("contents.tar.gz", contents),
+        ],
+        fn(bytes) { bytes },
+      )
+    },
+  )
+}
+
 pub fn with_beryl_archive(check: fn(BitArray) -> a) -> a {
   with_tar_gz(
     [

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Use locked source licence declarations for notices, exclude local build output, and resolve repository fallback tags without accepting branches or old ambiguous cache entries."

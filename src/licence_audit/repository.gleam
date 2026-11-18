@@ -20,6 +20,7 @@ import gleam/list
 import gleam/option.{None}
 import gleam/result
 import gleam/string
+import gleam/uri
 
 pub type Provider {
   GitHub
@@ -29,6 +30,11 @@ pub type Provider {
 
 pub type Repository {
   Repository(provider: Provider, owner: String, repo: String)
+}
+
+pub type TagTarget {
+  Commit(sha: String)
+  AnnotatedTag(sha: String)
 }
 
 /// Parse a normalized HTTPS repository URL for a supported host. Returns
@@ -173,11 +179,12 @@ pub fn tag_candidates(version: String) -> List(String) {
 
 /// Build the API request that resolves `tag` to a commit for `repo`.
 pub fn commit_request(repo: Repository, tag: String) -> Request(String) {
+  let tag = uri.percent_encode(tag)
   case repo.provider {
     GitHub ->
       api_request(
         "api.github.com",
-        "/repos/" <> repo.owner <> "/" <> repo.repo <> "/commits/" <> tag,
+        "/repos/" <> repo.owner <> "/" <> repo.repo <> "/git/ref/tags/" <> tag,
       )
     GitLab ->
       api_request(
@@ -186,7 +193,7 @@ pub fn commit_request(repo: Repository, tag: String) -> Request(String) {
           <> string.replace(repo.owner, "/", "%2F")
           <> "%2F"
           <> repo.repo
-          <> "/repository/commits/"
+          <> "/repository/tags/"
           <> tag,
       )
     Codeberg ->
@@ -194,6 +201,37 @@ pub fn commit_request(repo: Repository, tag: String) -> Request(String) {
         "codeberg.org",
         "/api/v1/repos/" <> repo.owner <> "/" <> repo.repo <> "/tags/" <> tag,
       )
+  }
+}
+
+/// Read a GitHub annotated tag object, not a branch or an unqualified ref.
+pub fn annotated_tag_request(repo: Repository, sha: String) -> Request(String) {
+  api_request(
+    "api.github.com",
+    "/repos/"
+      <> repo.owner
+      <> "/"
+      <> repo.repo
+      <> "/git/tags/"
+      <> uri.percent_encode(sha),
+  )
+}
+
+pub fn decode_tag_target(body: String) -> Result(TagTarget, Nil) {
+  let decoder = {
+    use kind <- decode.field("type", decode.string)
+    use sha <- decode.field("sha", decode.string)
+    decode.success(#(kind, sha))
+  }
+  use #(kind, sha) <- result.try(
+    json.parse(body, decode.field("object", decoder, decode.success))
+    |> result.replace_error(Nil),
+  )
+  case kind, sha {
+    _, "" -> Error(Nil)
+    "commit", _ -> Ok(Commit(sha))
+    "tag", _ -> Ok(AnnotatedTag(sha))
+    _, _ -> Error(Nil)
   }
 }
 
@@ -214,7 +252,21 @@ fn api_request(host: String, path: String) -> Request(String) {
 /// `Error(Nil)` when the body does not contain the provider's SHA field (e.g. a
 /// 404 body or malformed JSON), which the caller treats as "tag not found".
 pub fn decode_commit(repo: Repository, body: String) -> Result(String, Nil) {
-  json.parse(body, commit_decoder(repo.provider))
+  case repo.provider {
+    GitHub ->
+      case decode_tag_target(body) {
+        Ok(Commit(sha)) -> Ok(sha)
+        Ok(AnnotatedTag(_)) | Error(Nil) -> Error(Nil)
+      }
+    GitLab | Codeberg -> decode_provider_commit(repo.provider, body)
+  }
+}
+
+fn decode_provider_commit(
+  provider: Provider,
+  body: String,
+) -> Result(String, Nil) {
+  json.parse(body, commit_decoder(provider))
   |> result.replace_error(Nil)
   |> result.try(fn(sha) {
     case sha {
@@ -226,12 +278,16 @@ pub fn decode_commit(repo: Repository, body: String) -> Result(String, Nil) {
 
 fn commit_decoder(provider: Provider) -> decode.Decoder(String) {
   case provider {
-    GitHub -> decode.field("sha", decode.string, decode.success)
-    GitLab -> decode.field("id", decode.string, decode.success)
-    Codeberg ->
+    GitHub | Codeberg ->
       decode.field(
         "commit",
         decode.field("sha", decode.string, decode.success),
+        decode.success,
+      )
+    GitLab ->
+      decode.field(
+        "commit",
+        decode.field("id", decode.string, decode.success),
         decode.success,
       )
   }
