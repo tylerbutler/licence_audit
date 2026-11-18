@@ -642,14 +642,14 @@ class CliStreamTest(unittest.TestCase):
             Mode = os:getenv("STREAM_OSV_MODE"),
             Severity = case Mode of "unknown" -> unknown_severity; _ -> high end,
             Batch = case Mode of
-                "batch_failure" -> {error, network_failure};
+                "batch_failure" -> {error, {network_failure, <<"fixture connection failed">>}};
                 _ -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>,
                     [<<"CVE-STREAM-0001">>]}]}
             end,
             Detail = case Mode of
                 "detail_failure" -> {error, not_found};
                 _ -> {ok, {vulnerability, <<"CVE-STREAM-0001">>, [],
-                    <<"Fixture advisory">>, Severity, []}}
+                    <<"Fixture advisory">>, Severity, [], []}}
             end,
             Osv = 'licence_audit@osv',
             {ok, {Osv, [{abstract_code, {raw_abstract_v1, Forms}}]}} =

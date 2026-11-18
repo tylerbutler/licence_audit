@@ -7,6 +7,8 @@ import gleam/result
 import gleam/string
 import gleam/uri
 import gleeunit/should
+import licence_audit/error
+import licence_audit/httpc_adaptive
 import licence_audit/osv
 import simplifile
 
@@ -69,9 +71,48 @@ pub fn empty_purls_short_circuits_without_calling_client_test() {
   let client = fn(_req) {
     panic as "client should not be invoked for empty purls"
   }
-
   let assert Ok(entries) = osv.query_batch([], client)
   should.equal(entries, [])
+}
+
+pub fn git_subpaths_keep_distinct_results_across_pages_test() -> Nil {
+  let commit = "0123456789abcdef0123456789abcdef01234567"
+  let first = "pkg:github/example/mono@" <> commit <> "#packages/first"
+  let second = "pkg:github/example/mono@" <> commit <> "#packages/second"
+  let client = fn(req: request.Request(String)) {
+    assert !string.contains(req.body, "#")
+    let body = case string.contains(req.body, "page_token") {
+      False -> {
+        should.equal(
+          req.body,
+          "{\"queries\":[{\"commit\":\""
+            <> commit
+            <> "\"},{\"commit\":\""
+            <> commit
+            <> "\"}]}",
+        )
+        "{\"results\":[{\"vulns\":[{\"id\":\"OSV-first\"}],\"next_page_token\":\"first-next\"},{\"vulns\":[{\"id\":\"OSV-second\"}],\"next_page_token\":\"second-next\"}]}"
+      }
+      True -> {
+        assert string.contains(req.body, "\"commit\":\"" <> commit <> "\"")
+        case string.contains(req.body, "first-next") {
+          True -> "{\"results\":[{\"vulns\":[{\"id\":\"OSV-first-page\"}]}]}"
+          False -> {
+            assert string.contains(req.body, "second-next")
+            "{\"results\":[{\"vulns\":[{\"id\":\"OSV-second-page\"}]}]}"
+          }
+        }
+      }
+    }
+    Ok(Response(status: 200, headers: [], body:))
+  }
+  should.equal(
+    osv.query_batch([first, second], client),
+    Ok([
+      osv.BatchEntry(first, ["OSV-first", "OSV-first-page"]),
+      osv.BatchEntry(second, ["OSV-second", "OSV-second-page"]),
+    ]),
+  )
 }
 
 pub fn batch_response_zips_with_input_purls_test() {
@@ -456,4 +497,159 @@ pub fn severity_to_string_round_trip_test() {
   should.equal(osv.severity_to_string(osv.Medium), "medium")
   should.equal(osv.severity_to_string(osv.Low), "low")
   should.equal(osv.severity_to_string(osv.UnknownSeverity), "unknown")
+}
+
+pub fn package_ratings_match_purl_or_ecosystem_and_keep_global_fallback_test() -> Nil {
+  let low = "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N"
+  let body =
+    "{\"database_specific\":{\"severity\":\"HIGH\"},\"affected\":["
+    <> "{\"package\":{\"ecosystem\":\"Hex\",\"name\":\"first\"},\"versions\":[\"1.0.0\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\""
+    <> low
+    <> "\"}]},"
+    <> "{\"package\":{\"purl\":\"pkg:hex/second\"},\"versions\":[\"2.0.0\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\""
+    <> low
+    <> "\"}]},"
+    <> "{\"package\":{\"ecosystem\":\"npm\",\"name\":\"third\"},\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\""
+    <> low
+    <> "\"}]}]}"
+  let assert Ok(vuln) = osv.decode_vuln_body(body, "OSV-scoped")
+  use #(purl, severity) <- list.each([
+    #("pkg:hex/first@1.0.0", osv.Low),
+    #("pkg:hex/second@2.0.0", osv.Low),
+    #("pkg:hex/first@2.0.0", osv.High),
+    #("pkg:hex/second@1.0.0", osv.High),
+    #("pkg:hex/third@1.0.0", osv.High),
+  ])
+  let scoped = osv.for_package(vuln, purl)
+  should.equal(scoped.severity, severity)
+  should.equal(scoped.scores, case severity {
+    osv.Low -> [osv.Score("CVSS_V3", low)]
+    osv.NoSeverity
+    | osv.Medium
+    | osv.High
+    | osv.Critical
+    | osv.UnknownSeverity -> []
+  })
+}
+
+pub fn affected_version_ranges_select_only_applicable_scores_test() -> Nil {
+  let critical = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  use #(events, affected, unaffected) <- list.each([
+    #(
+      "[{\"fixed\":\"1.0.0\"},{\"introduced\":\"0\"},{\"introduced\":\"2.0.0\"}]",
+      ["0.9.9", "2.0.0"],
+      ["1.0.0", "1.9.9"],
+    ),
+    #(
+      "[{\"limit\":\"1.*\"},{\"introduced\":\"1.0.0\"},{\"limit\":\"2.0.0\"}]",
+      ["1.0.0", "3.0.0"],
+      ["0.9.9"],
+    ),
+    #(
+      "[{\"introduced\":\"0\"},{\"fixed\":\"1.0.0\"}]",
+      ["0.9.9", "1.0.0-rc.1"],
+      ["1.0.0", "1.0.1"],
+    ),
+    #(
+      "[{\"introduced\":\"1.0.0\"},{\"last_affected\":\"1.2.0\"}]",
+      ["1.0.0", "1.2.0+build"],
+      ["0.9.0", "1.2.1"],
+    ),
+    #(
+      "[{\"introduced\":\"1.0.0\"},{\"limit\":\"2.0.0\"}]",
+      ["1.10.0", "2.0.0-alpha"],
+      ["0.9.0", "2.0.0"],
+    ),
+    #(
+      "[{\"introduced\":\"0\"},{\"fixed\":\"1.0.0\"},{\"introduced\":\"2.0.0\"}]",
+      ["0.1.0", "2.0.0", "3.0.0"],
+      ["1.0.0", "1.9.9"],
+    ),
+  ])
+  let assert Ok(vuln) =
+    osv.decode_vuln_body(
+      "{\"affected\":[{\"package\":{\"purl\":\"pkg:hex/example\"},\"ranges\":[{\"type\":\"SEMVER\",\"events\":"
+        <> events
+        <> "}],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\""
+        <> critical
+        <> "\"}]}]}",
+      "OSV-ranges",
+    )
+  list.each(affected, fn(version) {
+    should.equal(
+      osv.for_package(vuln, "pkg:hex/example@" <> version).severity,
+      osv.Critical,
+    )
+  })
+  list.each(unaffected, fn(version) {
+    should.equal(
+      osv.for_package(vuln, "pkg:hex/example@" <> version).severity,
+      osv.UnknownSeverity,
+    )
+  })
+}
+
+pub fn git_package_scores_do_not_cross_subpaths_or_order_commit_hashes_test() -> Nil {
+  let commit = "0123456789abcdef0123456789abcdef01234567"
+  let assert Ok(vuln) =
+    osv.decode_vuln_body(
+      "{\"affected\":[{\"package\":{\"purl\":\"pkg:github/example/mono#packages/first\"},\"versions\":[\""
+        <> commit
+        <> "\"],\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}]}]}",
+      "OSV-git",
+    )
+  should.equal(
+    osv.for_package(
+      vuln,
+      "pkg:github/example/mono@" <> commit <> "#packages/first",
+    ).severity,
+    osv.Critical,
+  )
+  should.equal(
+    osv.for_package(
+      vuln,
+      "pkg:github/example/mono@" <> commit <> "#packages/second",
+    ).severity,
+    osv.UnknownSeverity,
+  )
+  should.equal(
+    osv.for_package(vuln, "pkg:github/example/mono@other#packages/first").severity,
+    osv.UnknownSeverity,
+  )
+}
+
+pub fn osv_transport_failures_keep_request_and_actual_reason_test() -> Nil {
+  let assert Ok(req) = request.to("https://api.osv.dev/v1/querybatch")
+  let req = request.set_method(req, Post)
+  use #(transport_error, reason) <- list.each([
+    #(httpc_adaptive.ResponseTimeout, "HTTP request timed out after 8000 ms"),
+    #(httpc_adaptive.NoIpv6Address, "IPv6 DNS lookup found no address"),
+    #(httpc_adaptive.InvalidUtf8Response, "response body was not valid UTF-8"),
+    #(
+      httpc_adaptive.FailedToConnect("DNS lookup failed (nxdomain)"),
+      "connection setup failed: DNS lookup failed (nxdomain)",
+    ),
+    #(
+      httpc_adaptive.FailedToConnect("TCP connection refused (econnrefused)"),
+      "connection setup failed: TCP connection refused (econnrefused)",
+    ),
+    #(
+      httpc_adaptive.FailedToConnect("TLS handshake failed: unknown_ca"),
+      "connection setup failed: TLS handshake failed: unknown_ca",
+    ),
+    #(
+      httpc_adaptive.RequestFailed("socket_closed_remotely"),
+      "HTTP request failed: socket_closed_remotely",
+    ),
+  ])
+  let failure = osv.from_http_error(req, transport_error)
+  let message = error.message(error.from_osv_error(failure))
+  assert string.contains(
+    message,
+    "POST https://api.osv.dev/v1/querybatch: " <> reason,
+  )
+  should.equal(
+    osv.query_batch(["pkg:hex/example@1.0.0"], fn(_) { Error(failure) }),
+    Error(failure),
+  )
 }

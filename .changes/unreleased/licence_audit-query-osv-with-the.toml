@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Query OSV with the locked Git commit only, while retaining full subdirectory purls in reports and SBOM references."

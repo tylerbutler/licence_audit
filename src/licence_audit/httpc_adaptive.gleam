@@ -27,6 +27,20 @@ pub type Error {
   RequestFailed(reason: String)
 }
 
+/// Keep transport diagnostics consistent across Hex and OSV.
+pub fn describe_error(error: Error, timeout_ms: Int) -> String {
+  case error {
+    InvalidUtf8Response -> "response body was not valid UTF-8"
+    NoIpv6Address -> "IPv6 DNS lookup found no address"
+    ResponseTimeout ->
+      "HTTP request timed out after "
+      <> int.to_string(timeout_ms)
+      <> " ms (HTTP client did not report which stage timed out)"
+    FailedToConnect(reason) -> "connection setup failed: " <> reason
+    RequestFailed(reason) -> "HTTP request failed: " <> reason
+  }
+}
+
 type HttpcError
 
 type SelectedFamily {

@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Use matching affected-package OSV scores in vulnerability reports, checks, and SBOM ratings without mixing package or version severities."

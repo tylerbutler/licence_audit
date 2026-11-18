@@ -1,4 +1,6 @@
 import gleam/list
+import gleam/order
+import gleeunit/should
 import licence_audit/semver
 
 pub fn valid_semver_test() {
@@ -41,4 +43,23 @@ pub fn invalid_semver_test() {
   |> list.each(fn(version) {
     assert !semver.is_valid(version)
   })
+}
+
+pub fn precedence_handles_prereleases_builds_and_large_numbers_test() -> Nil {
+  use #(left, right, expected) <- list.each([
+    #("1.2.0", "1.10.0", order.Lt),
+    #("1.0.0-alpha.2", "1.0.0-alpha.10", order.Lt),
+    #("1.0.0-alpha.10", "1.0.0-alpha.beta", order.Lt),
+    #("1.0.0-alpha", "1.0.0-alpha.1", order.Lt),
+    #("1.0.0-rc.1", "1.0.0", order.Lt),
+    #("1.0.0+first", "1.0.0+second", order.Eq),
+    #(
+      "999999999999999999999999999999.0.0",
+      "99999999999999999999999999999.0.0",
+      order.Gt,
+    ),
+  ])
+  should.equal(semver.compare(left, right), Ok(expected))
+  should.equal(semver.compare(right, left), Ok(order.negate(expected)))
+  should.equal(semver.compare(left, "not-a-version"), Error(Nil))
 }

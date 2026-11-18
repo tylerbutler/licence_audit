@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Name invalid allow/deny fields and entries, and preserve OSV transport failure reasons with the shared Hex HTTP formatter."

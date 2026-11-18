@@ -130,6 +130,7 @@ fn selected_clients(names: List(String)) -> licence_audit.Clients {
           summary: "scope fixture advisory",
           severity: osv.High,
           scores: [],
+          affected: [],
         ),
       )
     },
