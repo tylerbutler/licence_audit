@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = "Preserve cache read warnings for blocked Windows parent paths and prevent scratch-file leaks during concurrent cache replacement."

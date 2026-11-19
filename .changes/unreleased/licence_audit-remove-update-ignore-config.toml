@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Removed"
-body = "Remove `update --ignore-config`, including explicit boolean forms. `update` now creates missing policy sections in valid default and explicit targets without bypassing TOML, policy, or exception validation; clear preselected entries in the picker to start a new selection. Read-only commands keep `--ignore-config`."
