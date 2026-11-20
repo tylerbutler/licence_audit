@@ -1,5 +1,11 @@
 # licence_audit changelog
 
+## v1.0.0-rc.4 - 2026-11-20
+
+### Fixed
+
+- Exclude test-only Erlang helpers from the shipped executable.
+
 ## v1.0.0-rc.3 - 2026-11-19
 
 ### Removed

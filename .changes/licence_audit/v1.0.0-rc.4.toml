@@ -1,0 +1,10 @@
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Exclude test-only Erlang helpers from the shipped executable."
+
+[fragments.source]
+commit = "8c4017b0d2dc9809d8c750612383f92d0e9bcd8b"
+
+[[fragments.source.issues]]
+number = 343
