@@ -2,8 +2,8 @@
 
 ## Build, test, and lint commands
 
-- Use `just` recipes for development and CI. Keep shared build and test commands in the justfile, not duplicated in workflow steps.
-- Recipes use `mise exec --` with the pinned toolchain by default. Minimum-OTP CI installs `just` separately and sets `LICENCE_AUDIT_TOOLCHAIN=""` for the deps, build, and test recipes so they use the tools from `setup-beam` on `PATH`. Preserve this minimum-version coverage.
+- Use `just` recipes for development and CI. Keep shared build, test, website, and release-tool commands in the justfile, not duplicated in workflow steps. Runner installation and GitHub-specific orchestration can stay in workflows.
+- Recipes use `mise exec --` with the pinned toolchain by default. CI jobs with separate tool versions install `just` separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the shared recipes so they use tools already on `PATH`. Preserve minimum-OTP coverage and the website and PR-title jobs' separate Node versions.
 - Install deps: `just deps`
 - Build CLI escript: `just build` (outputs `./licence_audit`)
 - Strict CI-style build: `just build-strict`

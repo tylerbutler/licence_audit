@@ -192,6 +192,10 @@ production BEAM files. After a build, use `just --no-deps test-cli-streams`
 to run them without another export. Complete builds and exports before running
 the stream tests. These tests check completed output, not live arrival timing.
 
+`just test-update-atomic` selects the policy-write checks for the current
+platform: Linux interruption handling, macOS ACL refusal, or Windows atomic
+replacement and helper lifetime.
+
 To test environment conversion and cache paths without network access:
 
 ```sh
@@ -269,10 +273,12 @@ type check the same development sources (`src`, `test`, and `dev`) and
 dependencies. In Gleam 1.19.2, `check` generates dependency code but skips code
 generation for the root package.
 
-CI uses the same `just` recipes as local development. The minimum-OTP jobs
-install `just` separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the deps,
-build, and test recipes. This uses `setup-beam`'s tools on `PATH` instead of
-the newer development OTP pin.
+CI uses the same `just` recipes as local development for build, test, website,
+and release-tool tasks. Runner installation and GitHub-specific orchestration
+stay in the workflows. Jobs with separate tool versions install `just`
+separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the shared recipes. This
+uses the tools on `PATH`, preserving minimum-OTP coverage and the website and
+PR-title jobs' separate Node versions.
 
 `just build-strict` runs `gleam build --warnings-as-errors` to reject Gleam
 warnings in the root package, including cached warnings. `gleam test` has no
