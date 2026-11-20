@@ -124,9 +124,8 @@ The script rejects new or changed native development files until a
 contributor reviews them.
 Native test helpers stay under `native/test/` for the same reason.
 `just test-ffi` builds the development application and compiles these helpers
-into its `ebin` directory. `just test` runs this step automatically. CI uses
-the same preparation script before direct Gleam tests and the Windows
-process-level test.
+into its `ebin` directory. `just test` runs this step automatically, including
+in CI before the Windows process-level test.
 `just test-vendor-production` checks the production application, BEAM files,
 and shipped escript for both documentation tooling and native test helpers.
 The root `NOTICE` records both vendored packages and includes their Apache-2.0
@@ -269,6 +268,11 @@ CI and `just ci` omit a separate `gleam check`: `gleam build` and `gleam test`
 type check the same development sources (`src`, `test`, and `dev`) and
 dependencies. In Gleam 1.19.2, `check` generates dependency code but skips code
 generation for the root package.
+
+CI uses the same `just` recipes as local development. The minimum-OTP jobs
+install `just` separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the deps,
+build, and test recipes. This uses `setup-beam`'s tools on `PATH` instead of
+the newer development OTP pin.
 
 `just build-strict` runs `gleam build --warnings-as-errors` to reject Gleam
 warnings in the root package, including cached warnings. `gleam test` has no

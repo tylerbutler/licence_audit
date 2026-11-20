@@ -8,6 +8,10 @@ hex_cache := ".hex-cache"
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
 ort_out := "ort-result"
 
+# Minimum-OTP CI uses setup-beam's tools instead of the development pins.
+toolchain := env("LICENCE_AUDIT_TOOLCHAIN", "mise exec --")
+python := if os_family() == "windows" { "python" } else { "python3" }
+
 # === ALIASES ===
 alias b := build
 alias t := test
@@ -24,7 +28,7 @@ default:
 
 # Download Gleam dependencies
 deps:
-    mise exec -- gleam deps download
+    {{toolchain}} gleam deps download
 
 # === VENDORED SOURCES ===
 
@@ -51,12 +55,12 @@ test-vendor-production: build
 
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
-    mise exec -- gleam export escript
+    {{toolchain}} gleam export escript
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
-    mise exec -- gleam build --warnings-as-errors
-    mise exec -- gleam export escript
+    {{toolchain}} gleam build --warnings-as-errors
+    {{toolchain}} gleam export escript
 
 # Build self-contained native executables with Queso into `build/queso/`.
 build-queso:
@@ -76,11 +80,11 @@ smoke-native-http binary:
 
 # Compile native test helpers into the development build only.
 test-ffi:
-    mise exec -- python3 -B scripts/test_ffi.py
+    {{toolchain}} {{python}} -B scripts/test_ffi.py
 
 # Run tests
 test: test-ffi
-    mise exec -- gleam test
+    {{toolchain}} gleam test
 
 # Check notices filtering with real CLI cache settings in fresh Erlang VMs.
 test-notices-filter:
