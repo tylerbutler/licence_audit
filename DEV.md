@@ -122,8 +122,13 @@ the compiler's source roots. The docs recipes compile that helper into the
 development build only. Its JavaScript companion stays in `dev/`.
 The script rejects new or changed native development files until a
 contributor reviews them.
+Native test helpers stay under `native/test/` for the same reason.
+`just test-ffi` builds the development application and compiles these helpers
+into its `ebin` directory. `just test` runs this step automatically. CI uses
+the same preparation script before direct Gleam tests and the Windows
+process-level test.
 `just test-vendor-production` checks the production application, BEAM files,
-and shipped escript.
+and shipped escript for both documentation tooling and native test helpers.
 The root `NOTICE` records both vendored packages and includes their Apache-2.0
 licence text. Release archives include this notice.
 
@@ -246,7 +251,7 @@ a running command writes during the copy, but each copied entry is complete.
 ## Common tasks
 
 ```sh
-just test           # gleam test
+just test           # prepare native test helpers, then gleam test
 just check          # gleam check (type check only)
 just format         # gleam format src test dev
 just format-check   # gleam format --check src test dev
@@ -284,12 +289,18 @@ and running workflow runs when a new run arrives. Each workflow has its own
 concurrency group for the PR. Other branches and release builds use separate
 groups for each run and do not cancel earlier runs.
 
-To run a single Gleam test module, invoke `gleam test` directly through
-mise and pass the module name:
+Before running `gleam test` directly, prepare the native test helpers. Repeat
+this step after cleaning the build or changing an Erlang test helper. To
+run a single Gleam test module, pass its module name:
 
 ```sh
+just test-ffi
 mise exec -- gleam test --target erlang -- <module_name>_test
 ```
+
+Without `just` or mise, run `python3 -B scripts/test_ffi.py` with Gleam and
+Erlang on `PATH` (`python` on Windows). This also prepares the helpers for
+`test/update_atomic_windows.py`, which runs them in fresh Erlang VMs.
 
 ## Update subcommand
 

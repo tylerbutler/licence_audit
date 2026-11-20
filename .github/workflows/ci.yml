@@ -87,6 +87,9 @@ jobs:
       - name: Build Erlang modules
         run: gleam build --target erlang --warnings-as-errors
 
+      - name: Prepare native test helpers
+        run: python -B scripts/test_ffi.py
+
       - name: Run tests
         run: gleam test --target erlang
 
@@ -118,7 +121,9 @@ jobs:
           version-type: strict
 
       - name: Run tests
-        run: gleam test --target erlang
+        run: |
+          python3 -B scripts/test_ffi.py
+          gleam test --target erlang
 
   macos:
     runs-on: macos-latest

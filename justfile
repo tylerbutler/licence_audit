@@ -74,8 +74,12 @@ smoke-native-http binary:
       --mount "type=bind,src=$PWD/test,dst=/tests,readonly" \
       licence-audit-native-http bash /tests/native_http_smoke.sh /licence_audit
 
+# Compile native test helpers into the development build only.
+test-ffi:
+    mise exec -- python3 -B scripts/test_ffi.py
+
 # Run tests
-test:
+test: test-ffi
     mise exec -- gleam test
 
 # Check notices filtering with real CLI cache settings in fresh Erlang VMs.
