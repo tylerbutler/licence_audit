@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Replace `check --vulns` with `--checks=licences|vulns|all` (default `licences`). Use `check --checks=all` to keep combined enforcement, or `check --checks=vulns` for an OSV-only gate that does not require or enforce licence policy or fetch licence metadata. Standalone `vulns` and `sbom --vulns` are unchanged."

@@ -1,3 +1,0 @@
-package = "licence_audit"
-kind = "Changed"
-body = "Make `sbom --offline` prohibit network access while retaining required locked metadata, local publication verification, and requested pinned SPDX text. Warm-cache online and offline reproducible runs use the same evidence; missing required cache entries or `--no-cache` return exit 2 instead of omitting evidence."
