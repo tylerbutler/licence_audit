@@ -17,8 +17,16 @@ jobs:
     name: PR Title
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft != true
+    env:
+      LICENCE_AUDIT_TOOLCHAIN: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+
+      - name: Install just
+        uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+        with:
+          install_args: just
+          add_shims_to_path: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # ratchet:actions/setup-node@v7
         with:
@@ -30,7 +38,7 @@ jobs:
       - name: Validate PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: echo "$PR_TITLE" | npx commitlint
+        run: just pr-title-check "$PR_TITLE"
 
   changelog:
     name: Changelog
@@ -48,7 +56,7 @@ jobs:
         id: changelog
         continue-on-error: true
         run: |
-          mise exec -- trellis changelog check \
+          just changelog-check \
             --base "${{ github.event.pull_request.base.sha }}" \
             --head "${{ github.event.pull_request.head.sha }}" \
             --format github >> "$GITHUB_OUTPUT"

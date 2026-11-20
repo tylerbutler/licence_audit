@@ -38,4 +38,4 @@ jobs:
       - name: Create tags and GitHub releases
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: mise exec -- trellis tag create --github-release
+        run: just release-tag --github-release

@@ -27,10 +27,18 @@ jobs:
   website:
     runs-on: ubuntu-latest
     name: Website
+    env:
+      LICENCE_AUDIT_TOOLCHAIN: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref }}
+
+      - name: Install just
+        uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+        with:
+          install_args: just
+          add_shims_to_path: false
 
       - name: Setup Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # ratchet:actions/setup-node@v6
@@ -41,16 +49,13 @@ jobs:
         run: npm install --global pnpm@11.9.0
 
       - name: Install locked website dependencies
-        working-directory: website
-        run: pnpm install --frozen-lockfile
+        run: just website-deps
 
       - name: Check website
-        working-directory: website
-        run: pnpm check && pnpm test
+        run: just website-check
 
       - name: Build website
-        working-directory: website
-        run: pnpm build
+        run: just website-build
 
   windows-policy:
     runs-on: windows-latest
@@ -63,10 +68,17 @@ jobs:
       LINKER: lld-link.exe
       REBAR_TARGET_ARCH: win32
       REBAR_TARGET_ARCH_WORDSIZE: "64"
+      LICENCE_AUDIT_TOOLCHAIN: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref }}
+
+      - name: Install just
+        uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+        with:
+          install_args: just
+          add_shims_to_path: false
 
       # OTP 28.3 covers the escript minimum, not the development OTP pin.
       - name: Setup minimum OTP toolchain
@@ -81,32 +93,39 @@ jobs:
       # Keep its exact licence text, but use a regular file in the build cache.
       - name: Prepare dependencies
         run: |
-          gleam deps download
+          just deps
           python -c "from pathlib import Path; p = Path('build/packages/cvss/LICENSE.txt'); text = Path('build/packages/cvss/LICENSES/Apache-2.0.txt').read_bytes(); p.unlink(); p.write_bytes(text)"
 
       - name: Build Erlang modules
-        run: gleam build --target erlang --warnings-as-errors
+        run: just build-strict
 
       - name: Run tests
-        run: gleam test --target erlang
+        run: just test
 
       - name: Test real Windows replacement and interruption
-        run: python -u -B test/update_atomic_windows.py
+        run: just test-update-atomic
 
       - name: Test Windows escript cache
         run: |
-          python -B test/cache_default_paths.py
-          gleam export escript
-          python -B test/native_cache_smoke.py licence_audit --escript
+          just test-cache-paths build
+          just test-cache licence_audit --escript
 
   linux-minimum-otp:
     runs-on: ubuntu-latest
     name: Linux (minimum OTP 28)
     timeout-minutes: 20
+    env:
+      LICENCE_AUDIT_TOOLCHAIN: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref }}
+
+      - name: Install just
+        uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+        with:
+          install_args: just
+          add_shims_to_path: false
 
       # Match Windows minimum-version coverage; the Test job uses .mise.toml.
       - name: Setup minimum OTP toolchain
@@ -118,7 +137,7 @@ jobs:
           version-type: strict
 
       - name: Run tests
-        run: gleam test --target erlang
+        run: just test
 
   macos:
     runs-on: macos-latest
@@ -136,7 +155,7 @@ jobs:
         run: just test
 
       - name: Test macOS ACL replacement refusal
-        run: mise exec -- python3 -B test/update_atomic_macos.py
+        run: just test-update-atomic
 
       - name: Test CLI output streams
         run: just test-cli-streams
@@ -170,12 +189,12 @@ jobs:
 
       - name: Check bare escript with embedded notices
         run: |
-          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
-          mise exec -- python3 -B scripts/release_notices.py check licence_audit
-          ./licence_audit --help
+          just release-notices embed licence_audit
+          just release-notices check licence_audit
+          just test-escript
 
       - name: Test relocated escript cache
-        run: mise exec -- python3 -B test/native_cache_smoke.py licence_audit --escript
+        run: just test-cache licence_audit --escript
 
       - name: Check vendored production boundary
         run: just --no-deps test-vendor-production
@@ -196,10 +215,10 @@ jobs:
         run: just --no-deps test-cli-streams
 
       - name: Test Unicode environment conversion and ASCII cache paths
-        run: just --no-deps test-env-cache-paths
+        run: just --no-deps test-cache-paths test-env-cache-paths
 
       - name: Smoke test built CLI
-        run: ./licence_audit --help
+        run: just test-escript
 
       - name: Check generated docs are up to date
         run: just --no-deps _docs-ffi docs-check
@@ -246,17 +265,11 @@ jobs:
           cargo install --locked cargo-zigbuild --version 0.23.4
 
       - name: Build native Linux executable
-        run: mise exec -- queso build --target x86_64-linux-glibc
+        run: just build-queso --target x86_64-linux-glibc
 
       - name: Test cache and HTTPS without system Erlang
         run: |
           set -euo pipefail
           binaries=(build/queso/licence_audit-*-x86_64-linux-glibc)
           test "${#binaries[@]}" -eq 1
-          docker run --rm \
-            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
-            debian:bookworm-slim sh -ec '
-              apt-get update -qq
-              apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
-              exec python3 -B test/native_cache_smoke.py "$1"
-            ' sh "${binaries[0]}"
+          just test-native-cache "${binaries[0]}"

@@ -2,7 +2,8 @@
 
 ## Build, test, and lint commands
 
-- Use `just` recipes for normal development; each recipe already runs via `mise exec --` with the pinned toolchain.
+- Use `just` recipes for development and CI. Keep shared build, test, website, and release-tool commands in the justfile, not duplicated in workflow steps. Runner installation and GitHub-specific orchestration can stay in workflows.
+- Recipes use `mise exec --` with the pinned toolchain by default. CI jobs with separate tool versions install `just` separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the shared recipes so they use tools already on `PATH`. Preserve minimum-OTP coverage and the website and PR-title jobs' separate Node versions.
 - Install deps: `just deps`
 - Build CLI escript: `just build` (outputs `./licence_audit`)
 - Strict CI-style build: `just build-strict`
@@ -12,7 +13,7 @@
 - Format check: `just format-check`
 - Lint: `just glint` (glinter; configured under `[tools.glinter]` in `gleam.toml`, fails only on error-level rules). `just lint` runs format-check + glint.
 - Full local CI pass: `just ci`
-- Run a single test module: `mise exec -- gleam test --target erlang -- <module_name>_test`
+- Run a single test module: `just test-ffi && mise exec -- gleam test --target erlang -- <module_name>_test`
 - Validate the generated SBOM: `just sbom-validate` runs three validators — `cyclonedx-cli`, `sbom-utility`, and cdxgen's `cdx-validate` (runs in CI). `just sbom-score` adds local-only quality scores from `sbom-tools` (CycloneDX 1.6-aware) and `sbomqs`; `just sbom-check` runs both. SBOM tooling is pinned in `.mise.toml` via the `github:` backend (cdxgen ships ~10 binaries, so its entry uses per-platform `asset_pattern` to select `cdx-validate`).
 
 ## High-level architecture

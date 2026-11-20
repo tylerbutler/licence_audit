@@ -59,7 +59,7 @@ jobs:
             echo "Run release preparation on main." >&2
             exit 1
           fi
-          args=(--base main --branch release/pending --github-output)
+          args=(--github-output)
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             shopt -s extglob
             INPUT_PRE="${INPUT_PRE##+([[:space:]])}"
@@ -74,7 +74,7 @@ jobs:
               args+=(--set "licence_audit=$INPUT_VERSION")
             fi
           fi
-          mise exec -- trellis release pr "${args[@]}" >> "$GITHUB_OUTPUT"
+          just release-pr "${args[@]}" >> "$GITHUB_OUTPUT"
 
       - name: Refresh generated release files
         if: steps.prepare.outputs.outcome == 'prepared'

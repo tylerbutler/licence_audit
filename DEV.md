@@ -122,8 +122,12 @@ the compiler's source roots. The docs recipes compile that helper into the
 development build only. Its JavaScript companion stays in `dev/`.
 The script rejects new or changed native development files until a
 contributor reviews them.
+Native test helpers stay under `native/test/` for the same reason.
+`just test-ffi` builds the development application and compiles these helpers
+into its `ebin` directory. `just test` runs this step automatically, including
+in CI before the Windows process-level test.
 `just test-vendor-production` checks the production application, BEAM files,
-and shipped escript.
+and shipped escript for both documentation tooling and native test helpers.
 The root `NOTICE` records both vendored packages and includes their Apache-2.0
 licence text. Release archives include this notice.
 
@@ -188,6 +192,10 @@ production BEAM files. After a build, use `just --no-deps test-cli-streams`
 to run them without another export. Complete builds and exports before running
 the stream tests. These tests check completed output, not live arrival timing.
 
+`just test-update-atomic` selects the policy-write checks for the current
+platform: Linux interruption handling, macOS ACL refusal, or Windows atomic
+replacement and helper lifetime.
+
 To test environment conversion and cache paths without network access:
 
 ```sh
@@ -246,7 +254,7 @@ a running command writes during the copy, but each copied entry is complete.
 ## Common tasks
 
 ```sh
-just test           # gleam test
+just test           # prepare native test helpers, then gleam test
 just check          # gleam check (type check only)
 just format         # gleam format src test dev
 just format-check   # gleam format --check src test dev
@@ -264,6 +272,13 @@ CI and `just ci` omit a separate `gleam check`: `gleam build` and `gleam test`
 type check the same development sources (`src`, `test`, and `dev`) and
 dependencies. In Gleam 1.19.2, `check` generates dependency code but skips code
 generation for the root package.
+
+CI uses the same `just` recipes as local development for build, test, website,
+and release-tool tasks. Runner installation and GitHub-specific orchestration
+stay in the workflows. Jobs with separate tool versions install `just`
+separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the shared recipes. This
+uses the tools on `PATH`, preserving minimum-OTP coverage and the website and
+PR-title jobs' separate Node versions.
 
 `just build-strict` runs `gleam build --warnings-as-errors` to reject Gleam
 warnings in the root package, including cached warnings. `gleam test` has no
@@ -284,12 +299,18 @@ and running workflow runs when a new run arrives. Each workflow has its own
 concurrency group for the PR. Other branches and release builds use separate
 groups for each run and do not cancel earlier runs.
 
-To run a single Gleam test module, invoke `gleam test` directly through
-mise and pass the module name:
+Before running `gleam test` directly, prepare the native test helpers. Repeat
+this step after cleaning the build or changing an Erlang test helper. To
+run a single Gleam test module, pass its module name:
 
 ```sh
+just test-ffi
 mise exec -- gleam test --target erlang -- <module_name>_test
 ```
+
+Without `just` or mise, run `python3 -B scripts/test_ffi.py` with Gleam and
+Erlang on `PATH` (`python` on Windows). This also prepares the helpers for
+`test/update_atomic_windows.py`, which runs them in fresh Erlang VMs.
 
 ## Update subcommand
 

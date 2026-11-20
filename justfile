@@ -8,6 +8,10 @@ hex_cache := ".hex-cache"
 ort_image := "ghcr.io/oss-review-toolkit/ort-minimal:74.0.0"
 ort_out := "ort-result"
 
+# CI jobs with separate tool versions can use the tools already on PATH.
+toolchain := env("LICENCE_AUDIT_TOOLCHAIN", "mise exec --")
+python := if os_family() == "windows" { "python" } else { "python3" }
+
 # === ALIASES ===
 alias b := build
 alias t := test
@@ -24,7 +28,7 @@ default:
 
 # Download Gleam dependencies
 deps:
-    mise exec -- gleam deps download
+    {{toolchain}} gleam deps download
 
 # === VENDORED SOURCES ===
 
@@ -51,16 +55,17 @@ test-vendor-production: build
 
 # Compile the project into the bundled escript at `./licence_audit`.
 build:
-    mise exec -- gleam export escript
+    {{toolchain}} gleam export escript
 
 # Build everything with warnings treated as errors (used in CI).
 build-strict:
-    mise exec -- gleam build --warnings-as-errors
-    mise exec -- gleam export escript
+    {{toolchain}} gleam build --warnings-as-errors
+    {{toolchain}} gleam export escript
 
 # Build self-contained native executables with Queso into `build/queso/`.
-build-queso:
-    mise exec -- queso build
+[positional-arguments]
+build-queso *args:
+    {{toolchain}} queso build "$@"
 
 # Test a native Linux glibc executable with real HTTPS requests, without Erlang.
 smoke-native-http binary:
@@ -74,9 +79,13 @@ smoke-native-http binary:
       --mount "type=bind,src=$PWD/test,dst=/tests,readonly" \
       licence-audit-native-http bash /tests/native_http_smoke.sh /licence_audit
 
+# Compile native test helpers into the development build only.
+test-ffi:
+    {{toolchain}} {{python}} -B scripts/test_ffi.py
+
 # Run tests
-test:
-    mise exec -- gleam test
+test: test-ffi
+    {{toolchain}} gleam test
 
 # Check notices filtering with real CLI cache settings in fresh Erlang VMs.
 test-notices-filter:
@@ -88,20 +97,51 @@ test-runtime-startup:
     mise exec -- gleam build
     mise exec -- bash test/runtime_startup.sh
 
-# Reproduce an interrupted update write in a fresh VM (Linux only).
+# Test platform-specific atomic policy writes in fresh VMs.
+[linux]
 test-update-atomic:
-    mise exec -- gleam build
-    mise exec -- python3 -B test/update_atomic_write.py
+    {{toolchain}} gleam build
+    {{toolchain}} {{python}} -B test/update_atomic_write.py
+
+[macos]
+test-update-atomic:
+    {{toolchain}} gleam build
+    {{toolchain}} {{python}} -B test/update_atomic_macos.py
+
+[windows]
+test-update-atomic: test-ffi
+    {{toolchain}} {{python}} -u -B test/update_atomic_windows.py
 
 # Capture report and diagnostic streams from the built CLI independently.
 test-cli-streams: build
     mise exec -- python3 -B test/cli_stream_test.py
 
+# Test default cache paths in fresh VMs on all supported platforms.
+test-cache-paths:
+    {{toolchain}} gleam build
+    {{toolchain}} {{python}} -B test/cache_default_paths.py
+
 # Test Unicode environment conversion and default cache paths in fresh VMs.
-test-env-cache-paths: build
-    mise exec -- gleam build
-    mise exec -- python3 -B test/cache_default_paths.py
+test-env-cache-paths: build test-cache-paths
     mise exec -- bash test/env_cache_paths.sh
+
+# Smoke-test the built CLI without rebuilding an escript with embedded notices.
+test-escript:
+    ./licence_audit --help
+
+# Test cache behavior of an existing native executable or escript.
+[positional-arguments]
+test-cache binary *args:
+    {{toolchain}} {{python}} -B test/native_cache_smoke.py "$@"
+
+# Test an existing native executable in a container without system Erlang.
+test-native-cache binary:
+    test -f {{quote(binary)}}
+    docker run --rm \
+      --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
+      debian:bookworm-slim sh -ec \
+      'apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3 && exec python3 -B test/native_cache_smoke.py "$1"' \
+      sh {{quote(binary)}}
 
 # Type check the project without generating its executable code
 check:
@@ -141,6 +181,11 @@ change kind body:
 changelog-preview *args:
     mise exec -- trellis version plan "$@"
 
+# Check changelog fragments between refs; accepts Trellis output options.
+[positional-arguments]
+changelog-check *args:
+    {{toolchain}} trellis changelog check "$@"
+
 # Apply pending versions and regenerate CHANGELOG.md
 [positional-arguments]
 changelog *args:
@@ -151,11 +196,36 @@ changelog *args:
 release-pr *args:
     mise exec -- trellis release pr --base main --branch release/pending "$@"
 
+# Create tags for prepared releases; pass --github-release to publish them.
+[positional-arguments]
+release-tag *args:
+    {{toolchain}} trellis tag create "$@"
+
+# Publish prepared releases; accepts Trellis tag selection options.
+[positional-arguments]
+publish *args:
+    {{toolchain}} trellis publish "$@"
+
+# Embed, stage, or check required release notices.
+[positional-arguments]
+release-notices *args:
+    {{toolchain}} {{python}} -B scripts/release_notices.py "$@"
+
+# Collect native runtime notices from Queso's build log.
+[positional-arguments]
+runtime-notices *args:
+    {{toolchain}} {{python}} -B scripts/runtime_notices.py "$@"
+
 # Check Trellis workspace, changelog, version, and tag invariants
 doctor:
     mise exec -- trellis doctor
 
 # === SBOM ===
+
+# Generate an SBOM with explicit CLI options from an existing or fresh build.
+[positional-arguments]
+sbom *args: build
+    ./licence_audit sbom "$@"
 
 # Generate a release-ready third-party licence notices file into ./dist/NOTICES.txt
 notices: build
@@ -264,18 +334,23 @@ test-docs: _docs-ffi
 
 # Install the website's locked dependencies.
 website-deps:
-    mise exec -- pnpm --dir website install --frozen-lockfile
+    {{toolchain}} pnpm --dir website install --frozen-lockfile
 
 # Check Astro types and the website routing worker.
 website-check:
-    mise exec -- pnpm --dir website check
-    mise exec -- pnpm --dir website test
+    {{toolchain}} pnpm --dir website check
+    {{toolchain}} pnpm --dir website test
 
 # Build the static website without deploying it.
 website-build:
-    mise exec -- pnpm --dir website build
+    {{toolchain}} pnpm --dir website build
 
 # === CI ===
+
+# Validate a PR title using the repository's commitlint configuration.
+[positional-arguments]
+pr-title-check title:
+    printf '%s\n' "$1" | {{toolchain}} npx commitlint
 
 # Full validation workflow (matches what CI runs)
 ci: doctor vendor-check vendor-test format-check glint test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
