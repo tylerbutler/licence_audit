@@ -286,6 +286,7 @@ read_until_closed(Socket) ->
         {ok, _TlsRecord} -> read_until_closed(Socket);
         {error, closed} -> ok;
         {error, econnreset} -> ok;
+        {error, econnaborted} -> ok;
         Other -> error({peer_not_closed, Other})
     end.
 
