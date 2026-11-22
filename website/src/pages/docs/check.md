@@ -140,6 +140,27 @@ Required evidence includes a valid `outer_checksum` and the locked archive's
 metadata cannot fall back to API licences. Create a checksum-bearing lockfile
 with `gleam deps download`.
 
+## Report output
+
+Licence-only and combined checks print [package totals](/docs/report#totals)
+on stdout. Totals include all packages in the selected scope, including
+passing trees that a failed check omits from the display.
+
+A completed, passing licence gate prints `Licence check passed.`.
+A failed licence gate repeats each package with an unaccepted finding once
+under `Packages with findings:`, after the tree and before the failure
+verdict. Each row includes its name, version, declared licences, and reason.
+The list also includes packages whose required metadata failed.
+
+Incomplete checks keep exit code `2` and omit the pass verdict, including
+combined checks with failed OSV requests. A completed combined check can
+pass the licence gate and fail the vulnerability gate; its vulnerability
+verdict and exit code still indicate failure. `--checks=vulns` prints no
+licence totals, findings list, or licence verdict.
+
+Reports and verdicts use stdout. Progress and deferred operational errors
+use stderr. `--quiet` suppresses progress, not the report or verdict.
+
 ## Production-only gates
 
 Use `--scope=prod` when your gate should consider only production dependencies.
@@ -246,11 +267,13 @@ Put global settings such as `allow`, `deny`, and `vuln_severity` in
 |---|---|---|
 | `denied-licence` | `licence = "GPL-3.0-only"` | A matching declared licence rejected by `deny`. |
 | `unallowed-licence` | `licence = "Apache-2.0"` | A matching declared licence absent from a non-empty `allow` list. |
+| `invalid-licence-expression` | `licence = "Apache 2.0"` | An exact raw declaration that fails SPDX expression parsing. |
 | `no-licences-declared` | None | A successful metadata response with an empty licence list. |
 | `advisory` | `advisory = "CVE-2026-12345"` | An OSV advisory ID or a direct alias in the fetched record. |
 
-Use the licence term from the finding in the report, rather than the full
-declared expression. Licence selectors use the same token matching as `allow`
+For `denied-licence` and `unallowed-licence`, use the licence term from the
+finding in the report, rather than the full declared expression.
+These selectors use the same token matching as `allow`
 and `deny`: ordinary SPDX identifier case and whitespace between tokens do not
 affect the match. For example, `gpl-3.0-only` matches `GPL-3.0-only`.
 Custom `LicenseRef-` and `DocumentRef-` references remain case-sensitive.
@@ -260,7 +283,32 @@ A denied term takes precedence over an unallowed term.
 An exception for one selector cannot accept another selector, a second
 required term, or another advisory. For `OR`, an accepted alternative is
 sufficient. The report prefers an alternative that passes global policy over
-one that needs an exception. Malformed expressions cannot be excepted.
+one that needs an exception.
+
+### Invalid upstream licence labels
+
+For an upstream label such as `Apache 2.0`, record a reviewed
+`invalid-licence-expression` exception:
+
+```toml
+[[tools.licence_audit.exceptions]]
+purl = "pkg:hex/example@1.2.3"
+finding = "invalid-licence-expression"
+licence = "Apache 2.0"
+reason = "Reviewed the licence files in this locked release."
+```
+
+Copy the exact raw label from the locked archive, including case and whitespace.
+This selector matches only invalid SPDX expression findings. It cannot accept
+a valid but denied or unallowed expression, another declaration from the same
+package, or another package/version. `Apache 2.0`, `apache 2.0`, and
+` Apache 2.0 ` require different review decisions.
+
+Normal `allow` and `deny` entries still require valid SPDX expression syntax.
+The command does not convert informal labels into SPDX identifiers. Legal SPDX
+token whitespace, including CRLF line endings, does not make an expression
+invalid. `update` explains invalid labels above the picker and excludes them
+from its selectable rules.
 
 ### Exact package scope
 
@@ -344,16 +392,16 @@ licence_audit check [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--checks` | `STRING` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--checks=<licences\|vulns\|all>` | `licences\|vulns\|all` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (true or false overrides config; default false; requires --checks=vulns or --checks=all) |
-| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
+| `--vuln-severity=<low\|medium\|high\|critical>` | `low\|medium\|high\|critical` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
 <!-- cli-referencestop -->

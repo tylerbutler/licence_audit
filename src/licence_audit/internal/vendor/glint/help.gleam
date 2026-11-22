@@ -30,6 +30,8 @@ pub type ArgsCount {
 }
 
 pub type Flag {
+  /// `type_` is the configured help value name, or the parser type by default.
+  /// Boolean flags retain `BOOL` metadata but render without a value.
   Flag(meta: Metadata, type_: String, default: Option(String))
 }
 

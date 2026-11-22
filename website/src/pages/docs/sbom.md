@@ -262,8 +262,10 @@ By default, `sbom` uses a random `serialNumber` and the current time for
 `--reproducible`, the command reads Hex metadata from each
 checksum-verified package archive and Git metadata from the archive at the
 locked commit. It omits mutable Hex publisher data, uses a content hash for
-`serialNumber`, and gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
-the variable is not set. The same project files, lockfile, publication evidence,
+`serialNumber`, and gets the timestamp from
+[`SOURCE_DATE_EPOCH`](/docs/environment). See that table for parsing and
+fallback rules under the [reproducible-builds convention][sde].
+The same project files, lockfile, publication evidence,
 tool version, options, and timestamp produce byte-identical output, including
 online and offline runs with matching usable cache inputs.
 SPDX uses `documentNamespace` and `creationInfo.created` instead of
@@ -311,14 +313,14 @@ licence_audit sbom [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--format` | `STRING` | `cyclonedx-json` | Output format: cyclonedx-json or spdx-json |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--format=<cyclonedx-json\|spdx-json>` | `cyclonedx-json\|spdx-json` | `cyclonedx-json` | Output format: cyclonedx-json or spdx-json |
 | `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text (alias: --license-text); CycloneDX only, offline requires usable pinned text in the cache |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Prohibit network access; use local files and usable cached evidence. Required metadata, publication verification, and requested SPDX text must remain available |
-| `--output` | `STRING` |  | Write SBOM to PATH instead of stdout |
+| `--output=<PATH>` | `PATH` |  | Write SBOM to PATH instead of stdout |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--reproducible` | `BOOL` | `false` | Reproducible output from locked metadata, current local metadata, and publication evidence; serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

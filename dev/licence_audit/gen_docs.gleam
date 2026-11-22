@@ -77,8 +77,25 @@ pub fn update_page(
             string.contains(before, stop_marker)
             || string.contains(remaining, start_marker)
           {
-            False ->
-              Ok(glint_markdown.inject(existing, "cli-reference", reference))
+            False -> {
+              let newline = case string.starts_with(after, "\r\n") {
+                True -> "\r\n"
+                False -> "\n"
+              }
+              let reference =
+                reference
+                |> string.replace("\r\n", "\n")
+                |> string.replace("\n", newline)
+              Ok(
+                before
+                <> start_marker
+                <> newline
+                <> reference
+                <> newline
+                <> stop_marker
+                <> remaining,
+              )
+            }
             True -> Error("invalid CLI reference markers in " <> path)
           }
         _ -> Error("expected one CLI reference stop marker in " <> path)
