@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -98,6 +99,7 @@ pub fn help_value_forms_match_each_command_declaration_test() -> Nil {
     "scope" -> "prod|all"
     "checks" -> "licences|vulns|all"
     "vuln-severity" -> "low|medium|high|critical"
+    "allow" | "deny" -> "SPDX,..."
     "format" -> {
       case command.meta.name {
         "sbom" -> "cyclonedx-json|spdx-json"
@@ -739,6 +741,87 @@ pub fn update_subcommand_parses_defaults_test() {
   should.equal(options.color, color.Auto)
   should.equal(options.no_cache, False)
   should.equal(options.cache_dir, None)
+  should.equal(options.allow, None)
+  should.equal(options.deny, None)
+  should.equal(options.dry_run, False)
+}
+
+pub fn update_policy_lists_preserve_omission_replacement_and_clearing_test() -> Nil {
+  use #(flags, allow, deny) <- list.each([
+    #([], None, None),
+    #(["--allow=MIT, Apache-2.0"], Some(["MIT", "Apache-2.0"]), None),
+    #(["--deny", "GPL-3.0-only"], None, Some(["GPL-3.0-only"])),
+    #(["--allow="], Some([]), None),
+    #(["--deny", ""], None, Some([])),
+    #(["--allow=", "--deny="], Some([]), Some([])),
+    #(
+      ["--allow=MIT OR Apache-2.0", "--deny=LicenseRef-Custom"],
+      Some(["MIT OR Apache-2.0"]),
+      Some(["LicenseRef-Custom"]),
+    ),
+    #(["--allow", "--help"], Some(["--help"]), None),
+    #(["--deny=-h"], None, Some(["-h"])),
+  ])
+  use preview <- list.each([[], ["--dry-run"]])
+  let options = parse_update_options(list.append(["update", ..flags], preview))
+  should.equal(options.allow, allow)
+  should.equal(options.deny, deny)
+  should.equal(options.dry_run, preview != [])
+}
+
+pub fn update_policy_lists_reject_invalid_and_empty_entries_test() -> Nil {
+  use name <- list.each(["allow", "deny"])
+  use value <- list.each([
+    " ", ",", "MIT,", ",MIT", "MIT,,ISC", "MIT, ,ISC", "Apache 2.0", "MIT OR",
+  ])
+  use flags <- list.each([
+    ["--" <> name <> "=" <> value],
+    ["--" <> name, value],
+  ])
+  let message = usage_error(["update", ..flags])
+  assert string.contains(message, name)
+  assert string.contains(message, "must be valid SPDX expressions")
+}
+
+pub fn update_policy_lists_require_values_and_reject_allow_all_test() -> Nil {
+  use name <- list.each(["allow", "deny"])
+  let message = usage_error(["update", "--" <> name])
+  assert string.contains(message, name <> " requires a value")
+  assert string.contains(usage_error(["update", "--allow-all"]), "unknown flag")
+}
+
+pub fn update_repeated_policy_and_dry_run_flags_use_last_value_test() -> Nil {
+  let options =
+    parse_update_options([
+      "update",
+      "--allow=MIT",
+      "--allow=",
+      "--deny=",
+      "--deny=ISC",
+      "--dry-run",
+      "--dry-run=false",
+    ])
+  should.equal(options.allow, Some([]))
+  should.equal(options.deny, Some(["ISC"]))
+  should.equal(options.dry_run, False)
+}
+
+pub fn update_dry_run_accepts_boolean_forms_and_rejects_invalid_values_test() -> Nil {
+  list.each(
+    [
+      #("--dry-run", True),
+      #("--dry-run=true", True),
+      #("--dry-run=false", False),
+    ],
+    fn(entry) {
+      should.equal(parse_update_options(["update", entry.0]).dry_run, entry.1)
+    },
+  )
+  list.each(["", "yes", "1", "true=false"], fn(value) {
+    let message = usage_error(["update", "--dry-run=" <> value])
+    assert string.contains(message, "invalid value")
+    assert string.contains(message, "dry-run")
+  })
 }
 
 pub fn update_subcommand_parses_supported_flags_test() {
@@ -1315,8 +1398,9 @@ pub fn command_specific_flag_matrix_test() {
     #("--cache-dir=custom.cache", [True, True, True, True, False, True]),
     #("--scope=prod", [True, True, False, False, True, True]),
     #("--scope=all", [True, True, False, False, True, True]),
-    #("--allow=MIT", [False, False, False, False, False, False]),
-    #("--deny=MIT", [False, False, False, False, False, False]),
+    #("--allow=MIT", [False, False, True, False, False, False]),
+    #("--deny=MIT", [False, False, True, False, False, False]),
+    #("--dry-run", [False, False, True, False, False, False]),
     #("--output=out", [False, False, False, True, False, True]),
     #("--vulns", [False, False, False, True, False, False]),
     #("--checks=all", [False, True, False, False, False, False]),
@@ -1618,6 +1702,10 @@ pub fn every_removed_flag_form_has_its_exact_migration_hint_test() {
     "=MIT",
     "=path=with=equals",
   ])
+  use <- bool.guard(
+    when: command == ["update"] && list.contains(["allow", "deny"], name),
+    return: Nil,
+  )
   should.equal(
     usage_error(list.append(command, ["--" <> name <> suffix])),
     "Error: unknown flag --"
@@ -1638,6 +1726,8 @@ pub fn invalid_arguments_escape_control_text_without_extra_lines_test() {
     ["--" <> value],
     ["--scope=" <> value],
     ["--color=" <> value],
+    ["update", "--allow=" <> value],
+    ["update", "--deny=" <> value],
   ])
   let message = usage_error(args)
   should.equal(list.length(string.split(message, "\n")) <= 3, True)
