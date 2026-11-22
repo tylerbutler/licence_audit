@@ -226,9 +226,8 @@ doctor:
 sbom *args: build
     ./licence_audit sbom "$@"
 
-# Generate a release-ready third-party licence notices file into ./dist/NOTICES.txt
+# Generate a release-ready third-party licence notices file into ./THIRD_PARTY_NOTICES.txt
 notices: build
-    mkdir -p dist
     ./licence_audit notices --output=THIRD_PARTY_NOTICES.txt
 
 # Generate a reproducible CycloneDX 1.6 JSON SBOM into ./dist/sbom.json
