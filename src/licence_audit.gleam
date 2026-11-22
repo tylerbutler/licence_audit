@@ -1807,7 +1807,8 @@ fn audit_locked(
         && !result.fetch_failed
         && case vuln_outcome.status {
           Ok(GateNotEvaluated) | Ok(GateEvaluated(_, CheckComplete)) -> True
-          Ok(GateUnavailable(_)) | Ok(GateEvaluated(_, CheckIncomplete))
+          Ok(GateUnavailable(_))
+          | Ok(GateEvaluated(_, CheckIncomplete))
           | Error(_) -> False
         }
         && !policy_failed
