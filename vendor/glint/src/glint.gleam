@@ -815,7 +815,15 @@ fn build_command_tree(
 
 /// generate the string representation for the type of a flag
 ///
-fn flag_type_info(flag: FlagEntry) {
+fn flag_type_info(flag: FlagEntry) -> String {
+  case flag.value, flag.value_name {
+    B(_), _ -> "BOOL"
+    _, Some(name) -> name
+    _, None -> flag_parser_type_info(flag)
+  }
+}
+
+fn flag_parser_type_info(flag: FlagEntry) -> String {
   case flag.value {
     I(_) -> "INT"
     B(_) -> "BOOL"
@@ -936,6 +944,7 @@ pub opaque type Flag(a) {
     value: fn(FlagInternals(a)) -> Value,
     getter: fn(Flags, String) -> snag.Result(Option(a)),
     default: Option(a),
+    value_name: Option(String),
   )
 }
 
@@ -1029,6 +1038,7 @@ fn new_builder(
     value: valuer,
     default: None,
     getter: getter,
+    value_name: None,
   )
 }
 
@@ -1038,6 +1048,7 @@ fn build_flag(fb: Flag(a)) -> FlagEntry {
   FlagEntry(
     value: fb.value(FlagInternals(value: fb.default, parser: fb.parser)),
     description: fb.desc,
+    value_name: fb.value_name,
   )
 }
 
@@ -1098,7 +1109,13 @@ fn attempt(
 /// FlagEntry data and descriptions.
 ///
 type FlagEntry {
-  FlagEntry(value: Value, description: String)
+  FlagEntry(value: Value, description: String, value_name: Option(String))
+}
+
+/// Set the value name shown in help and generated documentation.
+/// Parsing is unchanged. Boolean flags always render without a value.
+pub fn flag_value_name(flag: Flag(a), name: String) -> Flag(a) {
+  Flag(..flag, value_name: Some(name))
 }
 
 /// Attach a help text description to a flag.

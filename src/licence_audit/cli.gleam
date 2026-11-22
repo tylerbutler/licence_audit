@@ -113,10 +113,12 @@ pub type CliAction {
 pub fn app() -> glint.Glint(CliAction) {
   glint.new()
   |> glint.with_name("licence_audit")
-  |> glint.global_help(
-    "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.",
-  )
   |> glint.add(at: [], do: root_command())
+  |> glint.path_help(
+    at: [],
+    put: "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.\n\n\n"
+      <> report_help,
+  )
   |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
@@ -228,12 +230,13 @@ fn root_command() -> glint.Command(CliAction) {
 const check_help =
   "Enforce selected checks: licences (default), vulns, or all. Licence checks require a licence policy. Vulnerability-only checks do not evaluate licence policy or fetch licence metadata."
 
+const report_help =
+  "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy."
+
 fn report_command(
   show_version: fn(glint.Flags) -> Bool,
 ) -> glint.Command(CliAction) {
-  use <- glint.command_help(
-    "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.",
-  )
+  use <- glint.command_help(report_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use config <- glint.optional_flag(config_flag())
   use manifest <- glint.optional_flag(manifest_flag())
@@ -363,11 +366,13 @@ fn check_command() -> glint.Command(CliAction) {
 
 fn config_flag() -> glint.Flag(String) {
   glint.string_flag("config")
+  |> glint.flag_value_name("PATH")
   |> glint.flag_help("Read configuration from PATH")
 }
 
 fn manifest_flag() -> glint.Flag(String) {
   glint.string_flag("manifest")
+  |> glint.flag_value_name("PATH")
   |> glint.flag_help("Read manifest from PATH")
 }
 
@@ -391,6 +396,7 @@ fn verbose_flag() -> glint.Flag(Bool) {
 
 fn color_flag() -> glint.Flag(String) {
   glint.string_flag("color")
+  |> glint.flag_value_name("auto|always|never")
   |> glint.flag_default("auto")
   |> glint.flag_help(
     "Colorize output: auto|always|never (default auto; alias: --colour)",
@@ -411,6 +417,7 @@ fn version_flag() -> glint.Flag(Bool) {
 
 fn scope_flag(default: String) -> glint.Flag(String) {
   glint.string_flag("scope")
+  |> glint.flag_value_name("prod|all")
   |> glint.flag_default(default)
   |> glint.flag_constraint(constraint.one_of(["prod", "all"]))
   |> glint.flag_help(
@@ -427,6 +434,7 @@ fn scope_from_string(value: String) -> DependencyScope {
 
 fn cache_dir_flag() -> glint.Flag(String) {
   glint.string_flag("cache-dir")
+  |> glint.flag_value_name("DIR")
   |> glint.flag_help(
     "Use DIR as the application cache root for all cache families",
   )
@@ -434,6 +442,7 @@ fn cache_dir_flag() -> glint.Flag(String) {
 
 fn checks_flag() -> glint.Flag(String) {
   glint.string_flag("checks")
+  |> glint.flag_value_name("licences|vulns|all")
   |> glint.flag_default("licences")
   |> glint.flag_constraint(
     constraint.one_of(["licences", "licenses", "vulns", "all"]),
@@ -445,6 +454,7 @@ fn checks_flag() -> glint.Flag(String) {
 
 fn vuln_severity_flag() -> glint.Flag(String) {
   glint.string_flag("vuln-severity")
+  |> glint.flag_value_name("low|medium|high|critical")
   |> glint.flag_constraint(
     constraint.one_of(["low", "medium", "high", "critical"]),
   )
@@ -540,6 +550,7 @@ fn update_command() -> glint.Command(CliAction) {
 
 fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
+  |> glint.flag_value_name("PATH")
   |> glint.flag_help(help)
 }
 

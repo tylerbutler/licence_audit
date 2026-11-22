@@ -64,3 +64,30 @@ pub fn optional_group_getters_preserve_defaults_and_values_test() -> Nil {
   |> glint.execute(["export", "--output="])
   |> should.equal(Ok(glint.Out(Ok(Some("")))))
 }
+
+pub fn help_value_names_do_not_change_parsing_test() -> Nil {
+  let app =
+    glint.new()
+    |> glint.add(at: [], do: {
+      use path <- glint.optional_flag(
+        glint.string_flag("path")
+        |> glint.flag_value_name("PATH"),
+      )
+      use enabled <- glint.flag(
+        glint.bool_flag("enabled")
+        |> glint.flag_default(False),
+      )
+      use _, _, flags <- glint.command()
+      #(path(flags), enabled(flags))
+    })
+  let assert Ok(glint.Help(help)) = glint.execute(app, ["--help"])
+  assert string.contains(help, "--path=<PATH>")
+  assert string.contains(help, "--enabled")
+  assert !string.contains(help, "--enabled=")
+  glint.execute(app, ["--path=--enabled=false", "--enabled=true"])
+  |> should.equal(Ok(glint.Out(#(Ok(Some("--enabled=false")), Ok(True)))))
+  glint.execute(app, ["--path=", "--enabled=false"])
+  |> should.equal(Ok(glint.Out(#(Ok(Some("")), Ok(False)))))
+  glint.execute(app, ["--enabled"])
+  |> should.equal(Ok(glint.Out(#(Ok(None), Ok(True)))))
+}

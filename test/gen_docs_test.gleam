@@ -3,6 +3,7 @@ import gleam/string
 import licence_audit/cli
 import licence_audit/gen_docs
 import licence_audit/internal/vendor/glint
+import simplifile
 
 pub fn all_cli_commands_have_reference_pages_test() {
   let tree = glint.document(cli.app())
@@ -59,4 +60,30 @@ pub fn malformed_markers_are_errors_test() {
       assert string.contains(message, "guide.md")
     },
   )
+}
+
+pub fn generated_tables_match_help_value_forms_test() {
+  use #(path, body) <- list.each(
+    gen_docs.reference_pages(glint.document(cli.app())),
+  )
+  assert string.contains(
+    body,
+    "| `--color=<auto\\|always\\|never>` | `auto\\|always\\|never` |",
+  )
+  assert string.contains(body, "| `--manifest=<PATH>` | `PATH` |")
+  assert !string.contains(body, "--quiet=")
+  assert !string.contains(body, "`STRING`")
+  case string.ends_with(path, "/check.md") {
+    True -> {
+      assert string.contains(body, "| `--checks=<licences\\|vulns\\|all>` |")
+      assert string.contains(
+        body,
+        "| `--vuln-severity=<low\\|medium\\|high\\|critical>` |",
+      )
+      assert !string.contains(body, "licenses")
+    }
+    False -> Nil
+  }
+  let assert Ok(existing) = simplifile.read(path)
+  assert gen_docs.update_page(path, existing, body) == Ok(existing)
 }
