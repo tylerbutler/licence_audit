@@ -5,11 +5,13 @@
 import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import licence_audit/cache
 import licence_audit/cache_dir
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/network
 
 pub fn resolve(
   entries: List(manifest.SbomEntry),
@@ -31,18 +33,35 @@ pub fn resolve(
     [] -> #(Ok(dict.new()), None)
     [_, ..] -> {
       use table <- cache_dir.with_warning(open(mode))
-      list.fold(locals, #(Ok(dict.new()), None), fn(acc, entry) {
-        use publications <- cache_dir.try_with_warning(acc)
-        use publication <- cache_dir.try_with_warning(verify(
-          table,
-          entry.name,
-          entry.version,
-          offline,
-          now,
-          fetcher,
-        ))
-        #(Ok(dict.insert(publications, entry.name, publication)), None)
-      })
+      let outcomes =
+        network.fetch(
+          locals,
+          fn(entry) { entry.name <> "@" <> entry.version },
+          fn(entry) {
+            verify(table, entry.name, entry.version, offline, now, fetcher)
+          },
+        )
+      list.fold(
+        list.zip(locals, outcomes),
+        #(Ok(dict.new()), None),
+        fn(acc, pair) {
+          let #(entry, outcome) = pair
+          let #(publications, warning) = acc
+          let #(fetched, fetch_warning) = case outcome {
+            Ok(fetched) -> fetched
+            Error(reason) -> #(
+              Error(error.SbomPublicationFailed(entry.name, reason)),
+              None,
+            )
+          }
+          let publications = {
+            use publications <- result.try(publications)
+            use publication <- result.try(fetched)
+            Ok(dict.insert(publications, entry.name, publication))
+          }
+          #(publications, option.or(warning, fetch_warning))
+        },
+      )
     }
   }
 }
