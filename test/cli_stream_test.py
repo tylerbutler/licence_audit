@@ -31,13 +31,15 @@ class CliStreamTest(unittest.TestCase):
 
     def run_cli(
         self, *arguments, environment=None, fixture=None,
-        stdout_tty=False, stderr_tty=False,
+        stdout_tty=False, stderr_tty=False, unset_environment=(),
     ):
         env = {**os.environ, "NO_COLOR": "1"}
         if environment is not None:
             for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
                 env.pop(name, None)
             env.update(environment)
+        for name in unset_environment:
+            env.pop(name, None)
         command = [str(ROOT / "licence_audit"), *arguments]
         if fixture is not None:
             command = [
@@ -150,7 +152,13 @@ class CliStreamTest(unittest.TestCase):
         other = result.stdout if usage_error else result.stderr
         self.assertEqual(result.returncode, 2 if usage_error else 0, destination)
         self.assertEqual(other, "")
-        self.assertIn("USAGE:", destination)
+        if usage_error:
+            self.assertIn("Error:", destination)
+            self.assertNotIn("USAGE:", destination)
+            self.assertLessEqual(len(destination.splitlines()), 3)
+            self.assertIn(" --help' for usage.", destination)
+        else:
+            self.assertIn("USAGE:", destination)
         self.assertEqual("\x1b" in destination, colored, destination)
         return destination
 
@@ -182,6 +190,12 @@ class CliStreamTest(unittest.TestCase):
             ({"TERM": "xterm-256color"}, False),
             ({"COLORTERM": "truecolor"}, False),
             ({"CI": "1", "TERM": "xterm-256color"}, False),
+            ({"NO_COLOR": "", "FORCE_COLOR": ""}, True),
+            ({"NO_COLOR": "false", "FORCE_COLOR": "3"}, False),
+            ({"NO_COLOR": " ", "FORCE_COLOR": "3"}, False),
+            ({"FORCE_COLOR": "FALSE", "CI": ""}, False),
+            ({"FORCE_COLOR": "unknown", "TERM": "dumb"}, True),
+            ({"CI": ""}, False),
         ):
             for usage_error in (False, True):
                 with self.subTest(environment=environment, error=usage_error):
@@ -229,6 +243,13 @@ class CliStreamTest(unittest.TestCase):
             ({"COLORTERM": "24bit"}, True),
             ({"TERM": "xterm"}, False),
             ({"TERM": "xterm", "CI": "1"}, True),
+            ({"NO_COLOR": "", "COLORTERM": "TRUECOLOR"}, True),
+            ({"TERM": "xterm", "CI": ""}, True),
+            ({"TERM": "xterm", "CI": "false"}, True),
+            ({"TERM": "", "COLORTERM": "", "CI": ""}, True),
+            ({"TERM": "", "COLORTERM": "unknown"}, False),
+            ({"TERM": "DUMB", "CI": ""}, True),
+            ({"TERM": "dumb", "COLORTERM": "truecolor", "CI": ""}, False),
         ):
             for usage_error in (False, True):
                 with self.subTest(environment=environment, error=usage_error):
@@ -261,6 +282,22 @@ class CliStreamTest(unittest.TestCase):
                 self.run_cli("--color=always", suffix), usage_error, True,
             )
             self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", colored), plain)
+
+    def test_help_value_forms_and_command_introductions(self):
+        root = self.assert_help_stream(self.run_cli("--help"), False, False)
+        self.assertTrue(root.startswith("Report locked dependency licences by default"))
+        lines = root.split("SUBCOMMANDS:", 1)[1].strip().splitlines()
+        self.assertEqual(len(lines), 6)
+        for command in ("report", "check", "update", "sbom", "vulns", "notices"):
+            result = self.run_cli(command, "--help")
+            help_text = self.assert_help_stream(result, False, False)
+            self.assertNotIn("Report locked dependency licences by default", help_text)
+            self.assertIn(f"Command: {command}", help_text)
+            self.assertIn("--manifest=<PATH>", help_text)
+            self.assertIn("--color=<auto|always|never>", help_text)
+            self.assertNotIn("<BOOL>", help_text)
+            self.assertNotIn("<STRING>", help_text)
+            self.assertNotIn("--quiet=", help_text)
 
     def test_default_report_matches_named_report_with_root_options(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
@@ -305,11 +342,11 @@ class CliStreamTest(unittest.TestCase):
     def test_usage_error_classes_exit_two_before_io(self):
         for arguments, diagnostic in (
             (["--unknown"], "unknown"),
-            (["unknown-command"], "invalid number of arguments"),
-            (["check", "unexpected"], "invalid number of arguments"),
-            (["check", "--scope=invalid"], "must be one of"),
+            (["unknown-command"], "unknown command 'unknown-command'"),
+            (["check", "unexpected"], "unexpected argument 'unexpected'"),
+            (["check", "--scope=invalid"], "expected prod or all"),
             (["report", "--color=invalid"], "color"),
-            (["check", "--manifest"], "has no assigned value"),
+            (["check", "--manifest"], "--manifest requires a value"),
             (["report", "--quiet", "--verbose"], "cannot be used together"),
         ):
             with self.subTest(arguments=arguments):
@@ -318,6 +355,10 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(result.stdout, "")
                 self.assertIn(diagnostic, result.stderr)
                 self.assertNotIn("Could not read", result.stderr)
+                self.assertLessEqual(len(result.stderr.splitlines()), 3)
+                self.assertTrue(result.stderr.startswith("Error:"), result.stderr)
+                self.assertNotIn("failed to run command", result.stderr)
+                self.assertNotIn("cause:", result.stderr)
 
     def test_conflicting_paths_and_enabled_booleans_exit_two_before_io(self):
         for commands, path_flag, boolean_flag, diagnostic in (
@@ -337,7 +378,11 @@ class CliStreamTest(unittest.TestCase):
                     with self.subTest(command=command, flag=boolean_flag + suffix):
                         result = self.run_cli(*command, path_flag, boolean_flag + suffix)
                         self.assert_diagnostic(result)
-                        self.assertEqual(result.stderr, f"Error: {diagnostic}\n")
+                        path = " ".join(["licence_audit", *command])
+                        self.assertEqual(
+                            result.stderr,
+                            f"Error: {diagnostic}\nRun '{path} --help' for usage.\n",
+                        )
                         self.assertFalse((self.project / "unused-cache").exists())
 
     def test_invalid_config_is_a_diagnostic(self):
@@ -353,7 +398,7 @@ class CliStreamTest(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertEqual(result.stdout, "")
-                    self.assertIn("invalid flag", result.stderr)
+                    self.assertIn("unknown flag", result.stderr)
 
     def test_update_rejects_ignore_config_before_loading_files(self):
         for flags in (
@@ -368,7 +413,7 @@ class CliStreamTest(unittest.TestCase):
                 result = self.run_cli("update", "--quiet", *flags)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(result.stdout, "")
-                self.assertIn("invalid flag 'ignore-config'", result.stderr)
+                self.assertIn("unknown flag --ignore-config", result.stderr)
                 self.assertNotIn("Could not read", result.stderr)
 
     def test_update_terminal_preflight_precedes_invalid_target(self):
@@ -473,7 +518,7 @@ class CliStreamTest(unittest.TestCase):
                 result = self.run_cli("check", flag, "--quiet")
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(result.stdout, "")
-                self.assertIn("invalid flag", result.stderr)
+                self.assertIn("Error:", result.stderr)
         for selection in ("licences", "all"):
             result = self.run_cli("check", f"--checks={selection}", "--quiet")
             self.assert_diagnostic(result)
@@ -492,14 +537,14 @@ class CliStreamTest(unittest.TestCase):
         version = self.run_cli("check", "--version")
         self.assertEqual(version.returncode, 2)
         self.assertEqual(version.stdout, "")
-        self.assertIn("invalid flag", version.stderr)
+        self.assertIn("unknown flag", version.stderr)
 
     def test_vulns_removed_cache_flags_and_short_quiet(self):
         for flag in ("--no-cache", "--cache-dir=cache"):
             result = self.run_cli("vulns", flag)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout, "")
-            self.assertIn("invalid flag", result.stderr)
+            self.assertIn("unknown flag", result.stderr)
         for arguments in (("vulns", "-q"), ("-q", "vulns")):
             self.assert_diagnostic(self.run_cli(*arguments))
 
@@ -674,6 +719,98 @@ class CliStreamTest(unittest.TestCase):
             self.run_cli(
                 "sbom", "--offline", "--quiet", "--no-cache", "--output=."
             )
+        )
+
+    def test_cache_root_environment_precedence_and_selected_path_failure(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for case, environment, expected, warning in (
+            ("xdg", {"XDG_CACHE_HOME": "xdg", "HOME": "home"}, "xdg/licence_audit", False),
+            ("home", {"HOME": "home"}, "home/.cache/licence_audit", False),
+            ("empty_xdg", {"XDG_CACHE_HOME": "", "HOME": "home"}, "home/.cache/licence_audit", False),
+            ("explicit", {"XDG_CACHE_HOME": "xdg", "HOME": "home"}, "explicit", False),
+            ("blocked", {"XDG_CACHE_HOME": "blocked", "HOME": "home"}, None, True),
+        ):
+            with self.subTest(case=case):
+                case_root = self.project / case
+                case_root.mkdir()
+                env = {
+                    name: str(case_root / value) if value else ""
+                    for name, value in environment.items()
+                }
+                if case == "blocked":
+                    (case_root / "blocked").write_text("not a directory")
+                arguments = (
+                    [f"--cache-dir={case_root / 'explicit'}"]
+                    if case == "explicit" else []
+                )
+                result = self.run_cli(
+                    "check", *arguments, environment=env,
+                    unset_environment=tuple(
+                        name for name in ("XDG_CACHE_HOME", "HOME")
+                        if name not in env
+                    ),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("Unable to open licence cache" in result.stderr, warning)
+                if expected:
+                    self.assertTrue((case_root / expected / "hex-v2").is_dir())
+                if case != "xdg":
+                    self.assertFalse((case_root / "xdg").exists())
+                if case not in ("home", "empty_xdg"):
+                    self.assertFalse((case_root / "home").exists())
+
+        if os.name != "nt":
+            for environment, unset in (
+                ({}, ("XDG_CACHE_HOME", "HOME")),
+                ({"XDG_CACHE_HOME": "", "HOME": ""}, ()),
+            ):
+                with self.subTest(environment=environment):
+                    result = self.run_cli(
+                        "check", environment=environment, unset_environment=unset,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("neither XDG_CACHE_HOME nor HOME", result.stderr)
+
+    def test_source_date_epoch_controls_only_reproducible_sbom_timestamp(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        epoch_document = None
+        for value, expected in (
+            (None, "1970-01-01T00:00:00Z"),
+            ("0", "1970-01-01T00:00:00Z"),
+            ("", "1970-01-01T00:00:00Z"),
+            (" \n", "1970-01-01T00:00:00Z"),
+            ("invalid", "1970-01-01T00:00:00Z"),
+            ("1.5", "1970-01-01T00:00:00Z"),
+            ("-1", "1970-01-01T00:00:00Z"),
+            (" 1700000000\n", "2023-11-14T22:13:20Z"),
+        ):
+            with self.subTest(value=value):
+                result = self.run_cli(
+                    "sbom", "--offline", "--reproducible", "--no-cache", "--quiet",
+                    environment={} if value is None else {"SOURCE_DATE_EPOCH": value},
+                    unset_environment=("SOURCE_DATE_EPOCH",) if value is None else (),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+                document = json.loads(result.stdout)
+                self.assertEqual(document["metadata"]["timestamp"], expected)
+                if epoch_document is None:
+                    epoch_document = result.stdout
+                    epoch_serial = document["serialNumber"]
+                elif expected == "1970-01-01T00:00:00Z":
+                    self.assertEqual(result.stdout, epoch_document)
+                else:
+                    self.assertNotEqual(document["serialNumber"], epoch_serial)
+
+        result = self.run_cli(
+            "sbom", "--offline", "--no-cache", "--quiet",
+            environment={"SOURCE_DATE_EPOCH": "0"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertNotEqual(
+            json.loads(result.stdout)["metadata"]["timestamp"],
+            "1970-01-01T00:00:00Z",
         )
 
     def test_sbom_license_text_uses_only_explicit_application_root(self):
@@ -1010,6 +1147,82 @@ class CliStreamTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr)
+
+    def test_unknown_commands_list_exact_commands_even_with_help(self):
+        for word, suggestion in (
+            ("chekc", ""), ("bogus", ""), ("audit", ""),
+            ("help", "; use --help"), ("version", "; use --version"),
+        ):
+            for suffix in ([], ["--help"], ["-h"]):
+                with self.subTest(word=word, suffix=suffix):
+                    result = self.run_cli(word, *suffix)
+                    self.assert_diagnostic(result)
+                    self.assertEqual(
+                        result.stderr,
+                        f"Error: unknown command '{word}'{suggestion}\n"
+                        "Commands: check, notices, report, sbom, update, vulns\n"
+                        "Run 'licence_audit --help' for usage.\n",
+                    )
+
+    def test_short_usage_causes_and_removed_flags_on_each_command(self):
+        removed = (
+            ("allow", "Put the lists in [tools.licence_audit] and select the file with --config."),
+            ("deny", "Put the lists in [tools.licence_audit] and select the file with --config."),
+            ("prod-only", "Use --scope=prod."),
+            ("include-dev", "Use --scope=all."),
+            ("cache-path", "Use --cache-dir with the application cache root."),
+        )
+        for command in ([], ["check"], ["notices"], ["report"], ["sbom"], ["update"], ["vulns"]):
+            path = " ".join(["licence_audit", *command])
+            cases = [
+                (["--bogus"], "unknown flag --bogus", ""),
+                (["--manifest"], "--manifest requires a value", ""),
+                (["--quiet=bogus"], "invalid value 'bogus' for --quiet (expected true or false)", ""),
+                (["--"], "the '--' separator is not supported", ""),
+            ]
+            if command:
+                cases.append((["extra"], "unexpected argument 'extra'", ""))
+            cases.extend(
+                ([f"--{name}{suffix}"], f"unknown flag --{name}", hint)
+                for name, hint in removed
+                for suffix in ("", "=", "=true", "=false", "=MIT", "=path=with=equals")
+            )
+            for flags, cause, hint in cases:
+                with self.subTest(command=command, flags=flags):
+                    result = self.run_cli(*command, *flags)
+                    self.assert_diagnostic(result)
+                    middle = f"{hint}\n" if hint else ""
+                    self.assertEqual(
+                        result.stderr,
+                        f"Error: {cause}\n{middle}Run '{path} --help' for usage.\n",
+                    )
+
+    def test_usage_diagnostics_escape_embedded_control_characters(self):
+        value = "bad\nvalue\r\t\x1b\x85\u2028\u2029'\\"
+        for arguments in (
+            [value], ["check", value], [f"--{value}"],
+            [f"--scope={value}"], [f"--color={value}"],
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                self.assert_diagnostic(result)
+                self.assertLessEqual(len(result.stderr.splitlines()), 3)
+                for control in ("\r", "\t", "\x1b", "\x85", "\u2028", "\u2029"):
+                    self.assertNotIn(control, result.stderr)
+                self.assertIn("\\n", result.stderr)
+                self.assertIn("\\'", result.stderr)
+                self.assertIn("\\\\", result.stderr)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "requires POSIX terminals")
+    def test_surplus_positionals_with_help_use_stderr_color_level(self):
+        for arguments in (["bogus", "--help"], ["check", "extra", "-h"]):
+            for stdout_tty, stderr_tty in ((True, False), (False, True)):
+                with self.subTest(arguments=arguments, stdout_tty=stdout_tty):
+                    result = self.run_cli(
+                        *arguments, environment={"TERM": "xterm-256color"},
+                        stdout_tty=stdout_tty, stderr_tty=stderr_tty,
+                    )
+                    self.assert_help_stream(result, True, stderr_tty)
 
     def test_incomplete_reports_exit_two_on_stdout(self):
         policy = self.project / "archive-policy.toml"

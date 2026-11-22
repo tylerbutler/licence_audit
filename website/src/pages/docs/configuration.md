@@ -38,6 +38,10 @@ policy from the selected file. Vulnerability-only checks do not require one.
 Invalid configuration still causes an error.
 For an invalid SPDX expression in `allow` or `deny`, the diagnostic names the
 field and the exact parsed entry, including whitespace.
+To accept an invalid upstream label, add a reviewed
+[`invalid-licence-expression` exception](/docs/check#invalid-upstream-licence-labels)
+for its exact package/version and raw text. This exception does not make invalid
+entries valid in `allow` or `deny`.
 
 ## Explicit configuration files
 

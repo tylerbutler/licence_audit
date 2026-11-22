@@ -136,12 +136,12 @@ licence_audit vulns [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- cli-referencestop -->
 

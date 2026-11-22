@@ -136,6 +136,11 @@ For example, `licence_audit sbom --output -v` writes to a file named `-v`;
 it does not enable verbose output. Values can contain `=`, and you can use
 `--output=--colour` for a file named `--colour`.
 
+Help shows value names such as `--output=<PATH>` and permitted values such
+as `--scope=<prod|all>`. Replace the placeholder with your value; do not type
+the angle brackets. Boolean flags need no value, but you can use
+`--quiet=true` or `--quiet=false` to set a Boolean value.
+
 Use `-h`, `-q`, and `-v` as options for help, quiet output, and verbose output.
 Use `--colour` as an alias for `--color`. These aliases keep their literal
 text when you supply them as flag values. Do not use a `--` separator or
@@ -157,11 +162,10 @@ status symbol:
 | `·` | Command skips the package (non-Hex source) |
 
 Use `--color` or `--colour` to control colour. The permitted values are `auto`,
-`always`, and `never`. The `auto` value uses `NO_COLOR`, `FORCE_COLOR`, `TERM`,
-`CI`, and `COLORTERM`, and detects terminal support separately for stdout and
-stderr. Explicit `always` and `never` values override environment settings for
-report colours and stderr progress messages, including warnings and deferred
-errors, on every command.
+`always`, and `never`. See [environment variables](/docs/environment#colour-selection)
+for precedence, empty-value behavior, and separate stdout/stderr detection.
+The same policy controls report colours, help, and stderr progress messages,
+including warnings and deferred errors, on every command.
 
 SBOM JSON and notice payloads stay plain in every color mode, including
 `always`. Use `--help` or `-h` with any command. `--version` is available only
@@ -215,17 +219,14 @@ integration interfaces.
 
 ## Caching
 
-`licence_audit` stores cache families below one application root:
-`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. Use `--cache-dir=DIR`
+`licence_audit` stores cache families below one application root.
+See [environment variables](/docs/environment#cache-selection) for default
+paths, Windows fallback, and precedence. Use `--cache-dir=DIR`
 to select a root for metadata, locked-source metadata, notice materials, and
 SPDX text. An explicit root takes precedence over environment discovery.
 Use `--no-cache` to bypass reads and writes without deleting entries.
 Do not combine enabled `--no-cache` with `--cache-dir`; this is a usage error
 (exit `2`). See the [usage migration notes](/docs/compatibility#pre-10-usage-migration).
-When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
-the root is `%LOCALAPPDATA%\licence_audit\Cache\`, as resolved
-by Erlang/OTP's user cache directory. A nonempty `XDG_CACHE_HOME` takes
-precedence over `HOME` on all platforms.
 Licence reports, `check`, and `update` share the immutable metadata cache with
 `sbom --reproducible`. Each key includes the package name, locked version, and
 archive checksum. These entries do not expire. The first scan downloads each
@@ -342,6 +343,9 @@ options available in your installed version.
 use `licence_audit --version`, not `licence_audit sbom --version`.
 
 <!-- cli-reference -->
+Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.
+
+
 Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.
 
 **Usage:**
@@ -354,14 +358,14 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->

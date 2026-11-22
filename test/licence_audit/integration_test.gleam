@@ -479,6 +479,7 @@ pub fn selected_vulnerability_gates_keep_incomplete_exit_priority_test() {
     selection == "all",
   )
   assert !string.contains(result.output, "Dependency licence audit failed")
+  assert !string.contains(result.output, "Licence check passed.")
   assert list.any(events, fn(event) { event.kind == progress.Error })
   let assert Ok(_) = simplifile.delete(root)
 }
@@ -753,6 +754,12 @@ pub fn default_report_succeeds_without_policy_test() {
   assert string.contains(output, "argv")
   assert string.contains(output, "Apache-2.0")
   assert !string.contains(output, "Status")
+  assert string.contains(
+    output,
+    "4 packages: 0 allowed, 0 denied, 2 unknown, 0 excepted, 2 skipped",
+  )
+  assert !string.contains(output, "Licence check passed.")
+  assert !string.contains(output, "Packages with findings:")
 }
 
 pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
@@ -1426,6 +1433,12 @@ pub fn all_allowed_dependencies_pass_in_check_mode_test() {
   assert string.contains(output, "gleam_stdlib")
   assert string.contains(output, "allowed")
   assert !string.contains(output, "Dependency licence audit failed")
+  assert string.contains(
+    output,
+    "4 packages: 2 allowed, 0 denied, 0 unknown, 0 excepted, 2 skipped",
+  )
+  assert string.ends_with(output, "Licence check passed.\n")
+  assert !string.contains(output, "Packages with findings:")
 }
 
 pub fn missing_policy_in_check_mode_exits_two_test() {
@@ -1827,6 +1840,21 @@ pub fn check_failure_only_reports_failing_trees_test() {
   assert string.contains(output, "gleam_stdlib")
   assert string.contains(output, "denied: MIT")
   assert !string.contains(output, "argv")
+  assert string.contains(
+    output,
+    "4 packages: 1 allowed, 1 denied, 0 unknown, 0 excepted, 2 skipped",
+  )
+  let assert [tree, footer] = string.split(output, "Packages with findings:\n")
+  assert string.contains(tree, "gleam_stdlib")
+  should.equal(list.length(string.split(footer, "gleam_stdlib")), 2)
+  assert string.contains(footer, "1.0.0")
+  assert string.contains(footer, "MIT")
+  assert string.contains(footer, "denied: MIT")
+  assert string.ends_with(
+    footer,
+    "Dependency licence audit failed. Review the report above and update the dependency or policy.\n",
+  )
+  assert !string.contains(output, "Licence check passed.")
 }
 
 pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
@@ -1865,6 +1893,22 @@ pub fn check_mixed_failures_keeps_fetch_trees_and_filters_successes_test() {
         assert !string.contains(
           result.output,
           "Dependency licence audit failed",
+        )
+        assert !string.contains(result.output, "Licence check passed.")
+        assert string.contains(
+          result.output,
+          "5 packages: 3 allowed, 1 denied, 1 unknown, 0 excepted, 0 skipped",
+        )
+        let assert [_, footer] =
+          string.split(result.output, "Packages with findings:\n")
+        should.equal(list.length(string.split(footer, "denied")), 3)
+        should.equal(
+          list.length(
+            footer
+            |> string.split("\n")
+            |> list.filter(string.starts_with(_, "? " <> failed_package <> " ")),
+          ),
+          1,
         )
         assert list.contains(
           events,
@@ -4295,6 +4339,10 @@ pub fn check_prod_scope_ignores_dev_dependency_violation_test() {
   should.equal(exit_code, 0)
   assert string.contains(output, "gleam_stdlib")
   assert !string.contains(output, "gleeunit")
+  assert string.contains(
+    output,
+    "1 packages: 1 allowed, 0 denied, 0 unknown, 0 excepted, 0 skipped",
+  )
 }
 
 fn dev_only_vuln_batch(

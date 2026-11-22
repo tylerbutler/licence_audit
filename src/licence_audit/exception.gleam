@@ -61,7 +61,7 @@ pub fn describe_error(error: Error) -> String {
     RequiredString(field) -> field <> " must be a non-empty string"
     UnexpectedField(field) -> field <> " is not valid for this finding"
     InvalidFinding ->
-      "finding must be denied-licence, unallowed-licence, no-licences-declared, or advisory"
+      "finding must be denied-licence, unallowed-licence, invalid-licence-expression, no-licences-declared, or advisory"
     LicenceRequiresHex -> "licence exceptions require a pkg:hex identity"
     InvalidExpiryType -> "expires must be a quoted YYYY-MM-DD string"
     InvalidPurl ->
@@ -105,6 +105,10 @@ pub fn parse(table: toml.Entry, number: Int) -> Result(Exception, Error) {
         "denied-licence" -> DeniedLicence(licence)
         _ -> UnallowedLicence(licence)
       })
+    }
+    "invalid-licence-expression" -> {
+      use _ <- result.try(absent(table, "advisory"))
+      result.map(required_string(table, "licence"), InvalidLicenceExpression)
     }
     "no-licences-declared" -> {
       use _ <- result.try(absent(table, "licence"))
