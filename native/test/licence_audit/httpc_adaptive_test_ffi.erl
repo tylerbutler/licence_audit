@@ -6,31 +6,40 @@
 
 with_script(Responses, Action) ->
     reset(),
-    erlang:put({?MODULE, responses}, Responses),
-    erlang:put({?MODULE, now}, 1700000000000),
-    erlang:put({?MODULE, elapsed}, 0),
-    erlang:put({?MODULE, attempts}, 0),
-    erlang:put({?MODULE, waits}, []),
-    erlang:put({?MODULE, requests}, []),
+    Table = ets:new(?MODULE, [public, set]),
+    ets:insert(Table, [{responses, Responses}, {position, 0},
+        {now, 1700000000000}, {elapsed, 0}, {attempts, 0}, {wait_count, 0}]),
+    erlang:put({?MODULE, script}, Table),
     try Action()
     after
         reset(),
-        lists:foreach(fun(Key) -> erlang:erase({?MODULE, Key}) end,
-            [responses, now, elapsed, attempts, waits, requests])
+        erlang:erase({?MODULE, script}),
+        ets:delete(Table)
+    end.
+
+script_table() ->
+    case erlang:get({?MODULE, script}) of
+        undefined ->
+            {dictionary, Dictionary} = process_info(network_ffi:command_owner(), dictionary),
+            proplists:get_value({?MODULE, script}, Dictionary);
+        Table -> Table
     end.
 
 scripted_request(Request) ->
-    [Response | Rest] = erlang:get({?MODULE, responses}),
-    erlang:put({?MODULE, responses}, Rest),
+    Table = script_table(),
+    Position = ets:update_counter(Table, position, 1),
+    Response = lists:nth(Position, ets:lookup_element(Table, responses, 2)),
     record_request(Request),
     Response.
 
 record_request(Request) ->
-    erlang:put({?MODULE, attempts}, attempts() + 1),
-    erlang:put({?MODULE, requests}, [Request | erlang:get({?MODULE, requests})]),
+    Table = script_table(),
+    Index = ets:update_counter(Table, attempts, 1),
+    ets:insert(Table, {{request, Index}, Request}),
     nil.
 
-requests() -> lists:reverse(erlang:get({?MODULE, requests})).
+requests() ->
+    [Request || {{request, _}, Request} <- lists:sort(ets:tab2list(script_table()))].
 
 with_backlog_response(Response, Client) ->
     with_retry_response({backlog, Response}, Client).
@@ -133,15 +142,18 @@ is_gun_message(Message) when is_tuple(Message), tuple_size(Message) > 0 ->
             gun_trailers, gun_push, gun_upgrade, gun_ws]);
 is_gun_message(_) -> false.
 
-attempts() -> erlang:get({?MODULE, attempts}).
-waits() -> lists:reverse(erlang:get({?MODULE, waits})).
-now_ms() -> erlang:get({?MODULE, now}).
-elapsed_ms() -> erlang:get({?MODULE, elapsed}).
+attempts() -> ets:lookup_element(script_table(), attempts, 2).
+waits() ->
+    [Wait || {{wait, _}, Wait} <- lists:sort(ets:tab2list(script_table()))].
+now_ms() -> ets:lookup_element(script_table(), now, 2).
+elapsed_ms() -> ets:lookup_element(script_table(), elapsed, 2).
 
 sleep(Milliseconds) ->
-    erlang:put({?MODULE, now}, now_ms() + Milliseconds),
-    erlang:put({?MODULE, elapsed}, elapsed_ms() + Milliseconds),
-    erlang:put({?MODULE, waits}, [Milliseconds | erlang:get({?MODULE, waits})]),
+    Table = script_table(),
+    ets:update_counter(Table, now, Milliseconds),
+    ets:update_counter(Table, elapsed, Milliseconds),
+    Index = ets:update_counter(Table, wait_count, 1),
+    ets:insert(Table, {{wait, Index}, Milliseconds}),
     nil.
 
 request_with_invalid_options(HasBody) ->
@@ -163,6 +175,7 @@ reset() ->
 
 with_http_response(Response, Client) ->
     {ok, _} = application:ensure_all_started(inets),
+    {ok, _} = application:ensure_all_started(gun),
     {ok, Listener} = gen_tcp:listen(0, [binary, {active, false}, {ip, {127, 0, 0, 1}}]),
     {ok, Port} = inet:port(Listener),
     {Pid, Ref} = spawn_monitor(fun() ->

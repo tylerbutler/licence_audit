@@ -9,15 +9,14 @@
 
 import gleam/bit_array
 import gleam/bool
-import gleam/http.{type Method}
+import gleam/http
 import gleam/http/request.{type Request, Request}
-import gleam/http/response.{type Response, Response}
+import gleam/http/response.{type Response}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/result
 import gleam/string
-import gleam/uri
 
 const ipv6_probe_timeout_ms = 1000
 
@@ -78,10 +77,10 @@ pub fn reset_retry_state() -> Nil
 fn host_failures(host: String) -> Int
 
 @external(erlang, "httpc_adaptive_ffi", "record_host_failure")
-fn record_host_failure(host: String) -> Nil
+pub fn record_host_failure(host: String) -> Nil
 
 @external(erlang, "httpc_adaptive_ffi", "clear_host_failures")
-fn clear_host_failures(host: String) -> Nil
+pub fn clear_host_failures(host: String) -> Nil
 
 @external(erlang, "httpc_adaptive_ffi", "now_ms")
 fn now_ms() -> Int
@@ -92,8 +91,34 @@ fn monotonic_ms() -> Int
 @external(erlang, "httpc_adaptive_ffi", "sleep")
 fn sleep(wait_ms: Int) -> Nil
 
+@external(erlang, "network_ffi", "defer_host")
+fn defer_host(host: String, deadline_ms: Int) -> Nil
+
+@external(erlang, "network_ffi", "host_wait")
+fn host_wait(host: String, now_ms: Int) -> Int
+
+@external(erlang, "network_ffi", "shared_probe")
+fn shared_probe(
+  host: String,
+  probe: fn() -> Result(IpFamily, Error),
+) -> Result(IpFamily, Error)
+
 @external(erlang, "httpc_adaptive_ffi", "http_date_ms")
 fn http_date_ms(value: String) -> Result(Int, Nil)
+
+/// Archives have their own transport and no added retries, but share admission.
+@internal
+pub fn admit(host: String) -> Result(Nil, Error) {
+  use <- bool.guard(
+    when: host_failures(host) >= 3,
+    return: Error(HostUnavailable(host)),
+  )
+  use _ <- result.try(wait_for_host(host, 30_000, monotonic_ms, sleep))
+  case host_failures(host) >= 3 {
+    True -> Error(HostUnavailable(host))
+    False -> Ok(Nil)
+  }
+}
 
 /// Retry one logical operation, not the IPv6 probe. Callers map errors only
 /// after this policy finishes, so retry decisions never inspect diagnostics.
@@ -132,6 +157,11 @@ pub fn dispatch_retry_with(
   )
   let outcome =
     retry_loop(request, retries, client, now, elapsed, sleep, 30_000, 1000)
+  record_outcome(request.host, outcome)
+  outcome
+}
+
+fn record_outcome(host: String, outcome: Result(Response(a), Error)) -> Nil {
   case outcome {
     Ok(response) -> {
       // A release-endpoint 404 is a successful unpublished lookup.
@@ -140,12 +170,12 @@ pub fn dispatch_retry_with(
         && response.status < 300
         || response.status == 404
       {
-        True -> clear_host_failures(request.host)
+        True -> clear_host_failures(host)
         False -> Nil
       }
     }
     Error(ResponseTimeout) | Error(ConnectionFailure(_, _)) ->
-      record_host_failure(request.host)
+      record_host_failure(host)
     Error(InvalidUtf8Response)
     | Error(NoIpv6Address)
     | Error(FailedToConnect(_))
@@ -156,7 +186,6 @@ pub fn dispatch_retry_with(
     | Error(RetryWaitExceeded(_, _))
     | Error(HostUnavailable(_)) -> Nil
   }
-  outcome
 }
 
 fn retry_loop(
@@ -169,6 +198,20 @@ fn retry_loop(
   remaining_ms: Int,
   backoff_ms: Int,
 ) -> Result(Response(b), Error) {
+  use <- bool.guard(
+    when: host_failures(request.host) >= 3,
+    return: Error(HostUnavailable(request.host)),
+  )
+  use remaining_ms <- result.try(wait_for_host(
+    request.host,
+    remaining_ms,
+    elapsed,
+    sleep,
+  ))
+  use <- bool.guard(
+    when: host_failures(request.host) >= 3,
+    return: Error(HostUnavailable(request.host)),
+  )
   let outcome = client(request)
   let retry = case outcome {
     Ok(response) -> {
@@ -192,11 +235,15 @@ fn retry_loop(
     | Error(RetryWaitExceeded(_, _))
     | Error(HostUnavailable(_)) -> False
   }
-  use <- bool.guard(when: !retry || retries <= 0, return: outcome)
   let wait_ms = case outcome {
     Ok(response) -> retry_wait(response, now(), backoff_ms)
     Error(_) -> backoff_ms
   }
+  case outcome {
+    Ok(_) if retry -> defer_host(request.host, elapsed() + wait_ms)
+    _ -> Nil
+  }
+  use <- bool.guard(when: !retry || retries <= 0, return: outcome)
   use <- bool.guard(
     when: wait_ms > remaining_ms,
     return: Error(RetryWaitExceeded(wait_ms, remaining_ms)),
@@ -218,6 +265,28 @@ fn retry_loop(
     remaining_ms - waited,
     backoff_ms * 2,
   )
+}
+
+fn wait_for_host(
+  host: String,
+  remaining_ms: Int,
+  elapsed: fn() -> Int,
+  sleep: fn(Int) -> Nil,
+) -> Result(Int, Error) {
+  let wait_ms = host_wait(host, elapsed())
+  use <- bool.guard(when: wait_ms <= 0, return: Ok(remaining_ms))
+  use <- bool.guard(
+    when: wait_ms > remaining_ms,
+    return: Error(RetryWaitExceeded(wait_ms, remaining_ms)),
+  )
+  let started = elapsed()
+  sleep(wait_ms)
+  let waited = int.max(wait_ms, elapsed() - started)
+  use <- bool.guard(
+    when: waited > remaining_ms,
+    return: Error(RetryWaitExceeded(waited, remaining_ms)),
+  )
+  wait_for_host(host, remaining_ms - waited, elapsed, sleep)
 }
 
 fn retry_wait(response: Response(a), now_ms: Int, backoff_ms: Int) -> Int {
@@ -263,12 +332,30 @@ fn request_without_retry(
   body: BitArray,
   timeout_ms: Int,
   family: IpFamily,
+  read_error_body: Bool,
 ) -> Result(Response(BitArray), Error)
 
 fn dispatch_without_retry(
   req: Request(BitArray),
   timeout_ms: Int,
   family: IpFamily,
+) -> Result(Response(BitArray), Error) {
+  dispatch_with_error_body(req, timeout_ms, family, False)
+}
+
+fn dispatch_plain_without_retry(
+  req: Request(BitArray),
+  timeout_ms: Int,
+  family: IpFamily,
+) -> Result(Response(BitArray), Error) {
+  dispatch_with_error_body(req, timeout_ms, family, True)
+}
+
+fn dispatch_with_error_body(
+  req: Request(BitArray),
+  timeout_ms: Int,
+  family: IpFamily,
+  read_error_body: Bool,
 ) -> Result(Response(BitArray), Error) {
   let port =
     option.unwrap(req.port, case req.scheme {
@@ -293,10 +380,9 @@ fn dispatch_without_retry(
     req.body,
     timeout_ms,
     family,
+    read_error_body,
   )
 }
-
-type HttpcError
 
 type SelectedFamily {
   Unknown
@@ -308,35 +394,6 @@ pub type IpFamily {
   Ipv4
   Ipv6
 }
-
-type Charlist
-
-type ErlHttpOption {
-  Autoredirect(Bool)
-  ConnectTimeout(Int)
-  Timeout(Int)
-}
-
-type BodyFormat {
-  Binary
-}
-
-type ErlOption {
-  BodyFormat(BodyFormat)
-  SocketOpts(List(SocketOpt))
-}
-
-type SocketOpt {
-  Ipfamily(InetFamily)
-}
-
-type InetFamily {
-  Inet
-  Inet6
-}
-
-@external(erlang, "httpc_adaptive_ffi", "normalise_error")
-fn normalise_error(error: HttpcError) -> Error
 
 @external(erlang, "httpc_adaptive_ffi", "selected_family")
 fn selected_family() -> SelectedFamily
@@ -356,39 +413,6 @@ fn select_ipv4() -> Nil
 @external(erlang, "httpc_adaptive_ffi", "take_warning")
 pub fn take_warning() -> Option(String)
 
-// OTP expects URL/header charlists rather than Gleam strings. URL bytes are
-// already encoded; response headers need Unicode conversion back to strings.
-@external(erlang, "erlang", "binary_to_list")
-fn charlist_from_string(value: String) -> Charlist
-
-@external(erlang, "unicode", "characters_to_binary")
-fn charlist_to_string(value: Charlist) -> String
-
-// Call OTP through the exception boundary to select inet/inet6 and bound timeouts;
-// gleam_httpc's automatic fallback does not preserve the probe behavior above.
-@external(erlang, "httpc_adaptive_ffi", "request")
-fn erl_request(
-  method: Method,
-  request: #(Charlist, List(#(Charlist, Charlist)), Charlist, BitArray),
-  http_options: List(ErlHttpOption),
-  options: List(ErlOption),
-) -> Result(
-  #(#(Charlist, Int, Charlist), List(#(Charlist, Charlist)), BitArray),
-  HttpcError,
-)
-
-// OTP requires a different request tuple for methods without a request body.
-@external(erlang, "httpc_adaptive_ffi", "request")
-fn erl_request_no_body(
-  method: Method,
-  request: #(Charlist, List(#(Charlist, Charlist))),
-  http_options: List(ErlHttpOption),
-  options: List(ErlOption),
-) -> Result(
-  #(#(Charlist, Int, Charlist), List(#(Charlist, Charlist)), BitArray),
-  HttpcError,
-)
-
 pub fn dispatch(
   request: Request(String),
   timeout_ms timeout_ms: Int,
@@ -406,7 +430,15 @@ pub fn dispatch_bits(
   request: Request(BitArray),
   timeout_ms timeout_ms: Int,
 ) -> Result(Response(BitArray), Error) {
-  dispatch_bits_with(request, timeout_ms, dispatch_with_family)
+  use _ <- result.try(admit(request.host))
+  let outcome =
+    dispatch_managed_bits_with(
+      request,
+      timeout_ms,
+      dispatch_plain_without_retry,
+    )
+  record_outcome(request.host, outcome)
+  outcome
 }
 
 /// Inject the transport so fallback behavior can be tested without network I/O.
@@ -446,7 +478,16 @@ pub fn select_family(
   }
 }
 
-fn select_family_with(
+@internal
+pub fn select_family_with(
+  request: Request(BitArray),
+  client: fn(Request(BitArray), Int, IpFamily) ->
+    Result(Response(BitArray), Error),
+) -> Result(IpFamily, Error) {
+  shared_probe(request.host, fn() { select_family_in_command(request, client) })
+}
+
+fn select_family_in_command(
   request: Request(BitArray),
   client: fn(Request(BitArray), Int, IpFamily) ->
     Result(Response(BitArray), Error),
@@ -503,66 +544,4 @@ fn ipv6_fallback_warning(error: Error) -> String {
     HostUnavailable(host) -> "host unavailable: " <> host
   }
   "IPv6 " <> reason <> "; using IPv4 for the remaining Hex and OSV requests"
-}
-
-fn dispatch_with_family(
-  request: Request(BitArray),
-  timeout_ms: Int,
-  family: IpFamily,
-) -> Result(Response(BitArray), Error) {
-  let url =
-    request
-    |> request.to_uri
-    |> uri.to_string
-    |> charlist_from_string
-  let headers =
-    list.map(request.headers, fn(header) {
-      #(charlist_from_string(header.0), charlist_from_string(header.1))
-    })
-  // OTP 28 verifies TLS by default. Keep both timeouts bounded for the probe.
-  let http_options = [
-    Autoredirect(False),
-    ConnectTimeout(timeout_ms),
-    Timeout(timeout_ms),
-  ]
-  let inet_family = case family {
-    Ipv4 -> Inet
-    Ipv6 -> Inet6
-  }
-  let options = [BodyFormat(Binary), SocketOpts([Ipfamily(inet_family)])]
-
-  use raw_response <- result.try(
-    case request.method {
-      http.Options | http.Head | http.Get ->
-        erl_request_no_body(
-          request.method,
-          #(url, headers),
-          http_options,
-          options,
-        )
-      _ -> {
-        let content_type =
-          request
-          |> request.get_header("content-type")
-          |> result.unwrap("application/octet-stream")
-          |> charlist_from_string
-        erl_request(
-          request.method,
-          #(url, headers, content_type, request.body),
-          http_options,
-          options,
-        )
-      }
-    }
-    |> result.map_error(normalise_error),
-  )
-
-  let #(#(_version, status, _reason), response_headers, body) = raw_response
-  Ok(Response(
-    status: status,
-    headers: list.map(response_headers, fn(header) {
-      #(charlist_to_string(header.0), charlist_to_string(header.1))
-    }),
-    body: body,
-  ))
 }
