@@ -120,7 +120,9 @@ fn local_error(package: String, reason: String) -> error.Error {
   error.Input("Invalid local SBOM package `" <> package <> "`: " <> reason)
 }
 
-fn validate_graph(locked: manifest.SbomManifest) -> Result(Nil, error.Error) {
+pub fn validate_graph(
+  locked: manifest.SbomManifest,
+) -> Result(Nil, error.Error) {
   let names =
     dict.from_list(list.map(locked.entries, fn(entry) { #(entry.name, Nil) }))
   use _ <- result.try(validate_requirements(
@@ -887,8 +889,14 @@ fn match_spdx(raw: String) -> Result(String, Nil) {
     })
   {
     Ok(_) -> Error(Nil)
-    Error(_) -> list.find(spdx_ids, fn(id) { string.lowercase(id) == lower })
+    Error(_) -> spdx_license_id(raw)
   }
+}
+
+/// Canonical SPDX identifier, without CycloneDX 1.6's schema restrictions.
+pub fn spdx_license_id(raw: String) -> Result(String, Nil) {
+  let lower = string.lowercase(raw)
+  list.find(spdx_ids, fn(id) { string.lowercase(id) == lower })
 }
 
 import gleam/dict.{type Dict}

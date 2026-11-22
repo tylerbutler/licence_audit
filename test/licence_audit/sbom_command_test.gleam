@@ -54,6 +54,7 @@ dev_dep = \"1.0.0\"
     offline: False,
     reproducible: True,
     with_vulns: False,
+    format: cli.CyclonedxJson,
     license_text: False,
   )
 }
@@ -121,6 +122,94 @@ pub fn reproducible_document_and_write_preserve_locked_metadata_and_scopes_test(
   should.equal(root_result.output, text)
   should.equal(root_events, progress.events(domain_reporter))
   let output = "build/sbom-command-test/document/sbom.json"
+  let #(written, _) =
+    network.with_command(fn() {
+      sbom_command.run(
+        cli.SbomOptions(..options, output: Some(output)),
+        metadata_fetcher,
+        publication_fetcher,
+        batch_fetcher,
+        advisory_fetcher,
+        clients,
+        reporter,
+      )
+    })
+  should.equal(written, Ok(""))
+  should.equal(simplifile.read(output), Ok(text))
+}
+
+pub fn spdx_reproducible_document_and_write_use_locked_metadata_test() -> Nil {
+  let assert Ok(archive) =
+    simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
+  let assert Ok(checksum) = source_archive.sha256_hex(archive)
+  let options =
+    cli.SbomOptions(
+      ..project("spdx-document", checksum),
+      format: cli.SpdxJson,
+    )
+  let clients =
+    notice.Clients(
+      ..no_network_clients(),
+      fetch_hex_tarball: fn(_, version) {
+        should.equal(version, "1.0.0")
+        Ok(archive)
+      },
+    )
+  let metadata_fetcher = fn(_) { panic as "Must use locked metadata" }
+  let publication_fetcher = fn(_, _) { panic as "No local publications" }
+  let batch_fetcher = fn(_) { panic as "SPDX does not fetch advisories" }
+  let advisory_fetcher = fn(_, _) { panic as "SPDX does not fetch advisories" }
+  let reporter = progress.capturing(progress.Verbose, "sbom")
+  let #(result, domain_reporter) =
+    network.with_command(fn() {
+      sbom_command.run(
+        options,
+        metadata_fetcher,
+        publication_fetcher,
+        batch_fetcher,
+        advisory_fetcher,
+        clients,
+        reporter,
+      )
+    })
+  let assert Ok(text) = result
+  let version = {
+    use value <- decode.field("spdxVersion", decode.string)
+    decode.success(value)
+  }
+  let names = {
+    use value <- decode.field(
+      "packages",
+      decode.list({
+        use name <- decode.field("name", decode.string)
+        decode.success(name)
+      }),
+    )
+    decode.success(value)
+  }
+  should.equal(json.parse(text, version), Ok("SPDX-2.3"))
+  should.equal(json.parse(text, names), Ok(["fixture", "dev_dep", "hex_dep"]))
+  let #(root_result, root_events) =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--format=spdx-json",
+        "--reproducible",
+        "--manifest=build/sbom-command-test/spdx-document",
+      ],
+      licence_audit.Clients(
+        ..licence_audit.default_clients(),
+        fetcher: metadata_fetcher,
+        publication_fetcher: publication_fetcher,
+        osv_batch_fetcher: batch_fetcher,
+        notice_clients: clients,
+      ),
+      reporter,
+    )
+  should.equal(root_result.exit_code, 0)
+  should.equal(root_result.output, text)
+  should.equal(root_events, progress.events(domain_reporter))
+  let output = "build/sbom-command-test/spdx-document/sbom.json"
   let #(written, _) =
     network.with_command(fn() {
       sbom_command.run(
