@@ -7,6 +7,8 @@ import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/cli
+import licence_audit/color
 import licence_audit/error as licence_audit_error
 import licence_audit/gleam_toml
 import licence_audit/hex
@@ -481,6 +483,147 @@ pub fn selected_vulnerability_gates_keep_incomplete_exit_priority_test() {
   let assert Ok(_) = simplifile.delete(root)
 }
 
+pub fn selected_vulnerability_gates_retain_findings_when_details_are_incomplete_test() -> Nil {
+  use selection <- list.each(["vulns", "all"])
+  use severity <- list.each([osv.High, osv.UnknownSeverity])
+  let root =
+    selection_project(
+      "partial-details",
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"MIT\"]\n",
+    )
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=" <> selection,
+        "--vuln-block-unknown",
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fake_fetcher),
+        osv_batch_fetcher: fn(purls) {
+          Ok(
+            list.map(purls, fn(purl) {
+              osv.BatchEntry(purl, ["OSV-available", "OSV-missing"])
+            }),
+          )
+        },
+        osv_detail_fetcher: fn(id) {
+          case id {
+            "OSV-missing" -> Error(osv.NotFound)
+            _ -> vulnerability_with_severity(severity)(id)
+          }
+        },
+      ),
+      progress.capturing(progress.Normal, "check"),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "OSV-available")
+  assert string.contains(result.output, "gleam_stdlib@1.0.0")
+  assert string.contains(result.output, "argv@1.1.0")
+  assert string.contains(result.output, "Skipped 2 unsupported source(s)")
+  should.equal(
+    string.contains(result.output, "denied: MIT"),
+    selection == "all",
+  )
+  assert !string.contains(result.output, "OSV-missing")
+  assert !string.contains(result.output, "Dependency licence audit failed")
+  assert !string.contains(result.output, "Vulnerability check failed:")
+  should.equal(list.filter(events, fn(event) { event.kind == progress.Error }), [
+    progress.Event(
+      progress.Error,
+      "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories. The gate cannot confirm these are safe, so the check fails:\n  OSV-missing: OSV resource not found",
+    ),
+  ])
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn incomplete_vulnerability_gate_retains_reviewed_coverage_test() -> Nil {
+  let root =
+    selection_project(
+      "partial-reviewed",
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\n"
+        <> "[[tools.licence_audit.exceptions]]\npurl = \"pkg:hex/gleam_stdlib@1.0.0\"\nfinding = \"advisory\"\nadvisory = \"OSV-available\"\nreason = \"Reviewed available evidence\"\n"
+        <> "[[tools.licence_audit.exceptions]]\npurl = \"pkg:hex/argv@1.1.0\"\nfinding = \"advisory\"\nadvisory = \"OSV-missing\"\nreason = \"Missing evidence must not be excepted\"\n",
+    )
+  let result =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=vulns",
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(_) { panic as "licence scan is not selected" }),
+        osv_batch_fetcher: fn(purls) {
+          Ok(
+            list.map(purls, fn(purl) {
+              osv.BatchEntry(purl, case purl {
+                "pkg:hex/gleam_stdlib@1.0.0" -> ["OSV-available"]
+                _ -> ["OSV-missing"]
+              })
+            }),
+          )
+        },
+        osv_detail_fetcher: fn(id) {
+          case id {
+            "OSV-missing" -> Error(osv.NotFound)
+            _ -> vulnerability_with_severity(osv.High)(id)
+          }
+        },
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "OSV-available")
+  assert string.contains(result.output, "1 excepted finding(s)")
+  assert string.contains(result.output, "excepted #1")
+  assert string.contains(
+    result.output,
+    "not evaluated: OSV advisory details unavailable #2",
+  )
+  simplifile.delete(root) |> should.be_ok
+}
+
+pub fn licence_metadata_failure_keeps_available_vulnerability_findings_test() -> Nil {
+  let root =
+    selection_project(
+      "partial-licences",
+      "[tools.licence_audit]\nallow = [\"MIT\", \"Apache-2.0\"]\n",
+    )
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "check",
+        "--checks=all",
+        "--manifest=" <> root <> "/manifest.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(fn(name) {
+          case name {
+            "argv" -> Error(hex.NetworkFailure("connection refused"))
+            _ -> fake_fetcher(name)
+          }
+        }),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: one_vuln_detail,
+      ),
+      progress.capturing(progress.Normal, "check"),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "CVE-2024-0001")
+  assert !string.contains(result.output, "Dependency licence audit failed")
+  assert !string.contains(result.output, "Vulnerability check failed:")
+  assert list.contains(
+    events,
+    progress.Event(
+      progress.Error,
+      "Licence audit failed: package metadata could not be fetched",
+    ),
+  )
+  simplifile.delete(root) |> should.be_ok
+}
+
 fn notice_metadata_fetcher(
   name: String,
 ) -> Result(hex.PackageMetadata, hex.Error) {
@@ -572,9 +715,14 @@ fn run_licence_evidence_command(
         update.run_with_picker(
           manifest_path,
           path.dirname(manifest_path),
-          None,
-          True,
-          None,
+          cli.UpdateOptions(
+            manifest_path: None,
+            config_path: None,
+            verbosity: progress.Quiet,
+            color: color.Never,
+            no_cache: True,
+            cache_dir: None,
+          ),
           clients.notice_clients,
           fn(_, _, _, _) { panic as "invalid evidence must stop before picker" },
           progress.disabled(),
@@ -2177,9 +2325,14 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
     update.run_with_picker(
       root <> "/manifest.toml",
       root,
-      None,
-      True,
-      None,
+      cli.UpdateOptions(
+        manifest_path: None,
+        config_path: None,
+        verbosity: progress.Quiet,
+        color: color.Never,
+        no_cache: True,
+        cache_dir: None,
+      ),
       clients.notice_clients,
       fn(_, labels, allow, deny) {
         should.equal(labels, ["Apache-2.0", "MIT"])

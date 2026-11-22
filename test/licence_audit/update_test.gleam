@@ -1,8 +1,10 @@
 import gleam/erlang/process
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit/cli
+import licence_audit/color
 import licence_audit/config
 import licence_audit/notice
 import licence_audit/picker
@@ -25,6 +27,17 @@ fn fresh_path(name: String) -> String {
 
 fn reporter() -> progress.Reporter {
   progress.capturing(progress.Verbose, "update")
+}
+
+fn options(config_path: Option(String)) -> cli.UpdateOptions {
+  cli.UpdateOptions(
+    manifest_path: None,
+    config_path: config_path,
+    verbosity: progress.Verbose,
+    color: color.Never,
+    no_cache: True,
+    cache_dir: None,
+  )
 }
 
 fn successful_fetcher() -> notice.Clients {
@@ -86,9 +99,7 @@ pub fn user_cancel_exits_130_without_writing_file_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       cancelling_pick,
       reporter(),
@@ -106,9 +117,7 @@ pub fn not_interactive_exits_2_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       not_interactive_pick,
       reporter(),
@@ -143,9 +152,11 @@ pub fn terminal_preflight_skips_discovery_and_cache_test() -> Nil {
               update.run_with_terminal_check(
                 manifest,
                 tmp_dir,
-                config_path,
-                False,
-                Some(cache_path),
+                cli.UpdateOptions(
+                  ..options(config_path),
+                  no_cache: False,
+                  cache_dir: Some(cache_path),
+                ),
                 clients,
                 reporter(),
                 stdin_is_tty: fn() { terminals.0 },
@@ -180,9 +191,7 @@ pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       failing_fetcher(),
       should_not_pick,
       reporter(),
@@ -208,9 +217,7 @@ pub fn manifest_load_failure_exits_2_without_picker_test() {
     update.run_with_picker(
       "test/fixtures/missing_manifest.toml",
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       should_not_pick,
       reporter(),
@@ -233,9 +240,7 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       selecting_pick,
       reporter(),
@@ -261,9 +266,7 @@ pub fn empty_allow_selection_is_saved_with_check_warning_test() {
       update.run_with_picker(
         manifest_path,
         ".",
-        Some(path),
-        True,
-        None,
+        options(Some(path)),
         successful_fetcher(),
         fn(_, _, _, _) { Ok(picker.Selection(allow: [], deny: deny)) },
         reporter(),
@@ -293,9 +296,7 @@ pub fn invalid_target_parent_fails_before_writing_test() {
       update.run_with_picker(
         manifest_path,
         ".",
-        Some(blocker <> suffix),
-        True,
-        None,
+        options(Some(blocker <> suffix)),
         notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
           panic as "invalid target must stop before fetching"
         }),
@@ -317,9 +318,7 @@ pub fn malformed_toml_exits_2_before_picker_without_changing_file_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       should_not_pick,
       reporter(),
@@ -339,9 +338,7 @@ pub fn file_write_failure_exits_2_test() {
       update.run_with_picker(
         manifest_path,
         ".",
-        Some(path),
-        True,
-        None,
+        options(Some(path)),
         successful_fetcher(),
         selected_pick,
         reporter(),
@@ -361,9 +358,7 @@ pub fn update_preserves_unreadable_text_before_picker_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       should_not_pick,
       reporter(),
@@ -386,9 +381,7 @@ pub fn update_preserves_writable_file_without_read_permission_test() {
         update.run_with_picker(
           manifest_path,
           ".",
-          Some(path),
-          True,
-          None,
+          options(Some(path)),
           successful_fetcher(),
           should_not_pick,
           reporter(),
@@ -411,9 +404,7 @@ pub fn update_preserves_file_when_read_fails_after_selection_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       fn(_title, _labels, _allow, _deny) {
         let assert Ok(_) = simplifile.write_bits(to: path, bits: original)
@@ -434,9 +425,7 @@ pub fn update_creates_missing_default_and_explicit_config_test() {
       update.run_with_picker(
         manifest_path,
         tmp_dir,
-        config_path,
-        True,
-        None,
+        options(config_path),
         successful_fetcher(),
         selected_pick,
         reporter(),
@@ -457,9 +446,7 @@ pub fn cancellation_preserves_existing_policy_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       cancelling_pick,
       reporter(),
@@ -483,9 +470,7 @@ pub fn update_creates_policy_section_in_default_and_explicit_targets_test() {
       update.run_with_picker(
         manifest_path,
         tmp_dir,
-        config_path,
-        True,
-        None,
+        options(config_path),
         successful_fetcher(),
         fn(_title, _labels, allow, deny) {
           should.equal(allow, [])
@@ -530,9 +515,7 @@ pub fn update_rejects_invalid_existing_policy_in_default_and_explicit_targets_te
           update.run_with_picker(
             manifest_path,
             tmp_dir,
-            config_path,
-            True,
-            None,
+            options(config_path),
             notice.Clients(
               ..notice.default_clients(),
               fetch_hex_tarball: fn(_, _) {
@@ -561,9 +544,7 @@ pub fn update_revalidates_policy_changed_during_selection_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       fn(_, _, _, _) {
         let assert Ok(_) = simplifile.write(path, invalid)
@@ -591,9 +572,7 @@ pub fn update_rejects_valid_concurrent_policy_edits_test() -> Nil {
         update.run_with_picker(
           manifest_path,
           ".",
-          Some(path),
-          True,
-          None,
+          options(Some(path)),
           successful_fetcher(),
           fn(_, labels, allow, deny) {
             let assert Ok(_) = simplifile.write(path, newer)
@@ -623,9 +602,7 @@ pub fn update_preserves_concurrent_unrelated_edits_test() -> Nil {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       fn(_, _, _, _) {
         let assert Ok(_) = simplifile.write(path, newer)
@@ -657,9 +634,7 @@ pub fn update_merges_labels_with_policy_matching_tokens_test() -> Nil {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       fn(title, labels, allow, deny) {
         should.equal(title, "Allow which licences? (8 total, 2 new)")
@@ -694,9 +669,7 @@ pub fn unchanged_update_preserves_overlapping_rules_and_unrelated_verdicts_test(
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       fn(_, labels, allow, deny) {
         picker.new_state("Policy", labels, allow, deny)
@@ -751,9 +724,7 @@ reason = \"Reviewed affected code\"
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       selected_pick,
       reporter(),
@@ -800,9 +771,7 @@ pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test()
       update.run_with_picker(
         manifest_path,
         ".",
-        Some(path),
-        True,
-        None,
+        options(Some(path)),
         successful_fetcher(),
         selected_pick,
         reporter(),
@@ -857,9 +826,7 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(link),
-      True,
-      None,
+      options(Some(link)),
       successful_fetcher(),
       selected_pick,
       reporter(),
@@ -925,9 +892,7 @@ pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
     update.run_with_picker(
       manifest_path,
       ".",
-      Some(path),
-      True,
-      None,
+      options(Some(path)),
       successful_fetcher(),
       should_not_pick,
       reporter(),

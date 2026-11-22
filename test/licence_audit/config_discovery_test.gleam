@@ -3,6 +3,8 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/cli
+import licence_audit/color
 import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
@@ -237,9 +239,14 @@ pub fn update_creates_missing_section_in_explicit_write_target_test() {
     update.run_with_picker(
       fixture_root <> "/project/manifest.toml",
       fixture_root,
-      Some(path),
-      True,
-      None,
+      cli.UpdateOptions(
+        manifest_path: None,
+        config_path: Some(path),
+        verbosity: progress.Quiet,
+        color: color.Never,
+        no_cache: True,
+        cache_dir: None,
+      ),
       source_archive_test.metadata_clients(metadata_fetcher),
       fn(_title, _labels, allow, deny) {
         should.equal(allow, [])
