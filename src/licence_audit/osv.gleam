@@ -111,17 +111,32 @@ const max_batch_pages = 32
 /// `BatchEntry` per input purl, preserving input order. Empty `vuln_ids`
 /// means OSV reports no known vulnerabilities for that purl.
 /// GitHub purls use commit queries; Hex purls use package queries.
+/// Initial requests contain at most 1,000 queries; any chunk or pagination
+/// failure returns an error instead of partial coverage.
 pub fn query_batch(
   purls: List(String),
   client: fn(Request(String)) -> Result(Response(String), Error),
 ) -> Result(List(BatchEntry), Error) {
+  query_chunks(purls, client, [])
+}
+
+fn query_chunks(
+  purls: List(String),
+  client: fn(Request(String)) -> Result(Response(String), Error),
+  accumulated: List(List(BatchEntry)),
+) -> Result(List(BatchEntry), Error) {
   case purls {
-    [] -> Ok([])
-    _ ->
-      case fetch_batch_page(purls, initial_page_tokens(purls), client) {
-        Error(error) -> Error(error)
-        Ok(entries) -> follow_paginated_entries(entries, client)
-      }
+    [] -> Ok(accumulated |> list.reverse |> list.flatten)
+    _ -> {
+      let #(chunk, rest) = list.split(purls, 1000)
+      use entries <- result.try(fetch_batch_page(
+        chunk,
+        initial_page_tokens(chunk),
+        client,
+      ))
+      use entries <- result.try(follow_paginated_entries(entries, client))
+      query_chunks(rest, client, [entries, ..accumulated])
+    }
   }
 }
 
@@ -137,10 +152,9 @@ fn fetch_vulnerability(
   }
 }
 
-// --- Default HTTP client (httpc, mirrors hex.gleam) ----------------------
+// --- Default HTTP client (mirrors hex.gleam) -----------------------------
 
-/// Default OSV client. Suitable for the small number of requests a single
-/// `licence_audit vulns` run makes.
+/// Default OSV client with bounded retries and a command-scoped host cutoff.
 pub fn query_batch_from_osv(
   purls: List(String),
 ) -> Result(List(BatchEntry), Error) {
@@ -153,8 +167,7 @@ pub fn fetch_vulnerability_from_osv(
   fetch_vulnerability(id, send)
 }
 
-/// Dispatches the request synchronously via Erlang's built-in `httpc`
-/// (TLS verified by default).
+/// Dispatch synchronously with at most two retries and verified TLS.
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req =
     req
@@ -164,7 +177,7 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
     Post -> request.set_header(req, "content-type", "application/json")
     _ -> req
   }
-  case httpc_adaptive.dispatch(req, timeout_ms: osv_timeout_ms) {
+  case httpc_adaptive.dispatch_retry(req, osv_timeout_ms, retries: 2) {
     Ok(response) -> Ok(response)
     Error(error) -> Error(from_http_error(req, error))
   }

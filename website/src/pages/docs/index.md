@@ -180,6 +180,30 @@ their failures warn but can still exit `0`. Required metadata and OSV batch
 failures exit `2`. See the [partial-result rules](/docs/compatibility#exit-codes-and-output-streams)
 for the command-specific exceptions and release impact.
 
+## Network retries
+
+For Hex API and publication requests, the CLI permits one retry. For OSV batch
+and advisory requests, it permits two retries. These limits apply to rate limits,
+transient server errors, timeouts, and known connection failures. TLS verification,
+invalid input, and decode errors do not cause retries. Archive downloads keep
+their existing transport behavior.
+
+Each logical request has a total retry-wait budget of 30 seconds, separate from
+its per-attempt network timeout. The CLI honors usable `Retry-After` values
+(seconds or HTTP dates) and `x-ratelimit-reset` deadlines. If a deadline requires
+more than the remaining budget, the request fails without an early retry.
+Without a usable deadline, retries wait one second, then two seconds.
+
+After three consecutive logical requests exhaust their attempts with timeout
+or connection failures, the CLI stops new requests to that service host for
+the rest of the command. Successful responses reset the failure count; rate
+limits do not increase it. Hex package and publication requests share a count,
+as do OSV batch and advisory requests. A new command resets the counts.
+
+Required network failures leave coverage incomplete and return exit code `2`.
+Optional SBOM enrichment and individual advisory-detail failures keep their
+existing warnings and fallback behavior.
+
 ## Compatibility
 
 From version 1.0.0, the CLI and configuration follow the
