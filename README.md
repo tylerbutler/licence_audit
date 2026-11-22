@@ -54,7 +54,11 @@ usage and flag tables, and command behavior:
 
 Use `licence_audit --help` or `licence_audit <command> --help` for the CLI
 options in your installed version. `-h` is an alias for `--help`.
-`--version` is available only at the root.
+Use `--version` or `-V` at the root to print the installed version.
+Use `-v` for verbose progress output.
+
+Use `-o PATH` or `--output=PATH` with `sbom` and `notices` to write a file
+instead of stdout.
 
 Reports and checks read `allow` and `deny` from `[tools.licence_audit]` in TOML.
 Use `--config=policies/release.toml` to select an alternate policy.
