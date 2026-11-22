@@ -370,9 +370,16 @@ class CliStreamTest(unittest.TestCase):
                     self.assert_diagnostic(result)
                     lines = result.stderr.splitlines()
                     progress = [line for line in lines if " | " in line]
-                    self.assertTrue(progress, result.stderr)
-                    for line in progress:
-                        self.assertEqual("\x1b[" in line, colored, line)
+                    if command == "update":
+                        self.assertEqual(
+                            result.stderr,
+                            "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                        )
+                        self.assertEqual(progress, [])
+                    else:
+                        self.assertTrue(progress, result.stderr)
+                        for line in progress:
+                            self.assertEqual("\x1b[" in line, colored, line)
 
     def test_deferred_diagnostics_respect_color_mode(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
