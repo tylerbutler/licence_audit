@@ -140,6 +140,27 @@ Required evidence includes a valid `outer_checksum` and the locked archive's
 metadata cannot fall back to API licences. Create a checksum-bearing lockfile
 with `gleam deps download`.
 
+## Report output
+
+Licence-only and combined checks print [package totals](/docs/report#totals)
+on stdout. Totals include all packages in the selected scope, including
+passing trees that a failed check omits from the display.
+
+A completed, passing licence gate prints `Licence check passed.`.
+A failed licence gate repeats each package with an unaccepted finding once
+under `Packages with findings:`, after the tree and before the failure
+verdict. Each row includes its name, version, declared licences, and reason.
+The list also includes packages whose required metadata failed.
+
+Incomplete checks keep exit code `2` and omit the pass verdict, including
+combined checks with failed OSV requests. A completed combined check can
+pass the licence gate and fail the vulnerability gate; its vulnerability
+verdict and exit code still indicate failure. `--checks=vulns` prints no
+licence totals, findings list, or licence verdict.
+
+Reports and verdicts use stdout. Progress and deferred operational errors
+use stderr. `--quiet` suppresses progress, not the report or verdict.
+
 ## Production-only gates
 
 Use `--scope=prod` when your gate should consider only production dependencies.
