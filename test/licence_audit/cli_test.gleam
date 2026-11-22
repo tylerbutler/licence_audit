@@ -118,8 +118,12 @@ pub fn help_and_usage_colors_follow_destination_levels_test() {
     color.resolve_with_color_level(mode, level).enabled,
   )
   case help {
-    True -> assert string.contains(text, "USAGE:")
-    False -> assert string.contains(text, "Error:")
+    True -> {
+      assert string.contains(text, "USAGE:")
+    }
+    False -> {
+      assert string.contains(text, "Error:")
+    }
   }
 }
 
@@ -251,8 +255,8 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
 
 pub fn path_values_that_look_like_aliases_are_preserved_test() {
   use value <- list.each([
-    "-v", "-q", "-h", "--help", "--colour", "--colour=never",
-    "check", "--allow", "--prod-only",
+    "-v", "-q", "-h", "--help", "--colour", "--colour=never", "check", "--allow",
+    "--prod-only",
   ])
   use command <- list.each(optional_path_flags)
   let #(command, names) = command
@@ -1203,7 +1207,10 @@ pub fn check_selection_accepts_only_supported_values_test() {
   use flags <- list.each([["--checks=" <> value], ["--checks", value]])
   let message = usage_error(["check", ..flags])
   assert string.contains(message, "checks")
-  assert string.contains(message, "expected licences or licenses or vulns or all")
+  assert string.contains(
+    message,
+    "expected licences or licenses or vulns or all",
+  )
 }
 
 pub fn check_licenses_alias_matches_canonical_action_test() -> Nil {
@@ -1298,18 +1305,26 @@ pub fn audit_alias_remains_unsupported_test() {
 
 pub fn usage_diagnostic_classes_have_short_contextual_messages_test() {
   use #(command, _) <- list.each(optional_path_flags)
-  let help = "\nRun '" <> string.join(["licence_audit", ..command], " ")
+  let help =
+    "\nRun '"
+    <> string.join(["licence_audit", ..command], " ")
     <> " --help' for usage."
   use #(flags, cause) <- list.each([
     #(["--bogus"], "unknown flag --bogus"),
     #(["--=bogus"], "unknown flag --=bogus"),
     #(["--manifest"], "--manifest requires a value"),
-    #(["--quiet=bogus"], "invalid value 'bogus' for --quiet (expected true or false)"),
+    #(
+      ["--quiet=bogus"],
+      "invalid value 'bogus' for --quiet (expected true or false)",
+    ),
     #(["--color=bogus"], "invalid --color value: bogus"),
     #(["--"], "the '--' separator is not supported"),
     #(["--quiet", "--verbose"], "--quiet and --verbose cannot be used together"),
   ])
-  should.equal(usage_error(list.append(command, flags)), "Error: " <> cause <> help)
+  should.equal(
+    usage_error(list.append(command, flags)),
+    "Error: " <> cause <> help,
+  )
 }
 
 pub fn constrained_value_diagnostics_do_not_show_parser_internals_test() {
@@ -1325,8 +1340,13 @@ pub fn constrained_value_diagnostics_do_not_show_parser_internals_test() {
   ])
   should.equal(
     usage_error(["check", ..flags]),
-    "Error: invalid value '" <> value <> "' for --" <> flag
-      <> " (expected " <> expected <> ")\nRun 'licence_audit check --help' for usage.",
+    "Error: invalid value '"
+      <> value
+      <> "' for --"
+      <> flag
+      <> " (expected "
+      <> expected
+      <> ")\nRun 'licence_audit check --help' for usage.",
   )
 }
 
@@ -1341,7 +1361,10 @@ pub fn unknown_commands_and_pseudo_commands_remain_errors_with_help_test() {
   use suffix <- list.each([[], ["--help"], ["-h"]])
   should.equal(
     usage_error([word, ..suffix]),
-    "Error: unknown command '" <> word <> "'" <> suggestion
+    "Error: unknown command '"
+      <> word
+      <> "'"
+      <> suggestion
       <> "\nCommands: check, notices, report, sbom, update, vulns"
       <> "\nRun 'licence_audit --help' for usage.",
   )
@@ -1350,24 +1373,42 @@ pub fn unknown_commands_and_pseudo_commands_remain_errors_with_help_test() {
   should.equal(
     usage_error(list.append(command, ["extra", ..suffix])),
     "Error: unexpected argument 'extra'\nRun 'licence_audit "
-      <> string.join(command, " ") <> " --help' for usage.",
+      <> string.join(command, " ")
+      <> " --help' for usage.",
   )
 }
 
 pub fn every_removed_flag_form_has_its_exact_migration_hint_test() {
   use command <- list.each([[], ..commands])
   use #(name, hint) <- list.each([
-    #("allow", "Put the lists in [tools.licence_audit] and select the file with --config."),
-    #("deny", "Put the lists in [tools.licence_audit] and select the file with --config."),
+    #(
+      "allow",
+      "Put the lists in [tools.licence_audit] and select the file with --config.",
+    ),
+    #(
+      "deny",
+      "Put the lists in [tools.licence_audit] and select the file with --config.",
+    ),
     #("prod-only", "Use --scope=prod."),
     #("include-dev", "Use --scope=all."),
     #("cache-path", "Use --cache-dir with the application cache root."),
   ])
-  use suffix <- list.each(["", "=", "=true", "=false", "=MIT", "=path=with=equals"])
+  use suffix <- list.each([
+    "",
+    "=",
+    "=true",
+    "=false",
+    "=MIT",
+    "=path=with=equals",
+  ])
   should.equal(
     usage_error(list.append(command, ["--" <> name <> suffix])),
-    "Error: unknown flag --" <> name <> "\n" <> hint
-      <> "\nRun '" <> string.join(["licence_audit", ..command], " ")
+    "Error: unknown flag --"
+      <> name
+      <> "\n"
+      <> hint
+      <> "\nRun '"
+      <> string.join(["licence_audit", ..command], " ")
       <> " --help' for usage.",
   )
 }
@@ -1383,7 +1424,14 @@ pub fn invalid_arguments_escape_control_text_without_extra_lines_test() {
   ])
   let message = usage_error(args)
   should.equal(list.length(string.split(message, "\n")) <= 3, True)
-  use control <- list.each(["\r", "\t", "\u{1b}", "\u{85}", "\u{2028}", "\u{2029}"])
+  use control <- list.each([
+    "\r",
+    "\t",
+    "\u{1b}",
+    "\u{85}",
+    "\u{2028}",
+    "\u{2029}",
+  ])
   assert !string.contains(message, control)
   assert string.contains(message, "\\n")
   assert string.contains(message, "\\'")

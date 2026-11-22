@@ -613,8 +613,10 @@ fn do_execute(
             Some(InternalCommand(
               unnamed_args: Some(EqArgs(0)),
               named_args: [],
-              ..
-            )), True ->
+              ..,
+            )),
+              True
+            ->
               execute_root(command_path, config, cmd, args, flags)
               |> result.map(Out)
             _, _ -> Ok(Help(cmd_help(command_path, cmd, config)))
@@ -653,10 +655,12 @@ fn execute_root(
 ) -> Result(a, ExecutionError) {
   {
     // check if the command can actually be executed
-    use contents <- result.try(option.to_result(
-      cmd.contents,
-      #(CommandNotFound, snag.new("command not found")),
-    ))
+    use contents <- result.try(
+      option.to_result(cmd.contents, #(
+        CommandNotFound,
+        snag.new("command not found"),
+      )),
+    )
 
     // merge flags and parse flag inputs
     use new_flags <- result.try(list.try_fold(
@@ -672,14 +676,17 @@ fn execute_root(
         True -> Ok(dict.from_list(named))
         False -> {
           let missing = list.drop(contents.named_args, list.length(named))
-          Error(#(UnmatchedNamedArguments(missing), snag.new(
-            "unmatched named arguments: "
-            <> {
-              missing
-              |> list.map(fn(s) { "'" <> s <> "'" })
-              |> string.join(", ")
-            },
-          )))
+          Error(#(
+            UnmatchedNamedArguments(missing),
+            snag.new(
+              "unmatched named arguments: "
+              <> {
+                missing
+                |> list.map(fn(s) { "'" <> s <> "'" })
+                |> string.join(", ")
+              },
+            ),
+          ))
         }
       }
     })

@@ -66,7 +66,8 @@ pub fn optional_group_getters_preserve_defaults_and_values_test() -> Nil {
 }
 
 pub fn detailed_execution_preserves_input_and_command_context_test() {
-  let app = glint.new()
+  let app =
+    glint.new()
     |> glint.add(at: ["group", "run"], do: {
       use <- glint.unnamed_args(glint.EqArgs(0))
       use _ <- glint.optional_flag(glint.int_flag("count"))
@@ -82,11 +83,17 @@ pub fn detailed_execution_preserves_input_and_command_context_test() {
   should.equal(missing.cause, glint.MissingFlagValue("count", "--count"))
   let assert Error(invalid) =
     glint.execute_detailed(app, ["group", "run", "--count=--help"])
-  should.equal(invalid.cause, glint.InvalidFlagValue("count", "--help", "--count=--help"))
+  should.equal(
+    invalid.cause,
+    glint.InvalidFlagValue("count", "--help", "--count=--help"),
+  )
   let assert Error(extra) =
     glint.execute_detailed(app, ["group", "run", "extra", "--help"])
   should.equal(extra.command_path, ["group", "run"])
-  should.equal(extra.cause, glint.InvalidArgumentCount(glint.EqArgs(0), ["extra"]))
+  should.equal(
+    extra.cause,
+    glint.InvalidArgumentCount(glint.EqArgs(0), ["extra"]),
+  )
   let assert Ok(glint.Help(_)) =
     glint.execute(app, ["group", "run", "extra", "--help"])
   let assert Ok(glint.Help(_)) =
@@ -97,17 +104,29 @@ pub fn detailed_execution_preserves_input_and_command_context_test() {
 }
 
 pub fn detailed_execution_retains_custom_constraint_and_runner_results_test() {
-  let app = glint.new()
+  let app =
+    glint.new()
     |> glint.add(at: [], do: {
       use _ <- glint.optional_flag(
         glint.string_flag("value")
-        |> glint.flag_constraint(fn(_) { snag.error("custom constraint failure") }),
+        |> glint.flag_constraint(fn(_) {
+          snag.error("custom constraint failure")
+        }),
       )
       use _, _, _ <- glint.command()
       Error("runner failure")
     })
   let assert Error(error) = glint.execute_detailed(app, ["--value=raw"])
-  should.equal(error.cause, glint.InvalidFlagValue("value", "raw", "--value=raw"))
-  assert string.contains(snag.pretty_print(error.diagnostic), "custom constraint failure")
-  should.equal(glint.execute_detailed(app, []), Ok(glint.Out(Error("runner failure"))))
+  should.equal(
+    error.cause,
+    glint.InvalidFlagValue("value", "raw", "--value=raw"),
+  )
+  assert string.contains(
+    snag.pretty_print(error.diagnostic),
+    "custom constraint failure",
+  )
+  should.equal(
+    glint.execute_detailed(app, []),
+    Ok(glint.Out(Error("runner failure"))),
+  )
 }

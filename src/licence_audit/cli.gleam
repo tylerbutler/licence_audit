@@ -133,8 +133,7 @@ pub fn execute(
 ) -> Result(glint.Out(CliAction), String) {
   let args = normalize_args(args)
   let mode = help_color_mode(args, color.Auto)
-  let palette =
-    color.resolve_with_color_level(mode, stdout_color_level)
+  let palette = color.resolve_with_color_level(mode, stdout_color_level)
   let error_palette = color.resolve_with_color_level(mode, stderr_color_level)
   let app = case palette.enabled {
     True -> app() |> glint.pretty_help(glint.default_pretty_help())
@@ -178,16 +177,23 @@ fn parser_error_message(
   palette: color.Palette,
 ) -> String {
   let #(message, hint) = case error.cause {
-    glint.UnknownFlag("", "--") ->
-      #("the '--' separator is not supported", "")
-    glint.UnknownFlag("", input) ->
-      #("unknown flag " <> escape_input(input), "")
-    glint.UnknownFlag(name, _) ->
-      #("unknown flag --" <> escape_input(name), migration_hint(name))
-    glint.MissingFlagValue(name, _) ->
-      #("--" <> escape_input(name) <> " requires a value", "")
-    glint.InvalidFlagValue(name, value, _) ->
-      #(invalid_value_message(name, value), "")
+    glint.UnknownFlag("", "--") -> #("the '--' separator is not supported", "")
+    glint.UnknownFlag("", input) -> #(
+      "unknown flag " <> escape_input(input),
+      "",
+    )
+    glint.UnknownFlag(name, _) -> #(
+      "unknown flag --" <> escape_input(name),
+      migration_hint(name),
+    )
+    glint.MissingFlagValue(name, _) -> #(
+      "--" <> escape_input(name) <> " requires a value",
+      "",
+    )
+    glint.InvalidFlagValue(name, value, _) -> #(
+      invalid_value_message(name, value),
+      "",
+    )
     glint.InvalidArgumentCount(_, [argument, ..]) -> {
       case error.command_path, string.starts_with(argument, "-") {
         _, True -> #("unknown flag " <> escape_input(argument), "")
@@ -202,14 +208,17 @@ fn parser_error_message(
             "Commands: " <> string.join(command_names(), ", "),
           )
         }
-        [_, ..], False ->
-          #("unexpected argument '" <> escape_input(argument) <> "'", "")
+        [_, ..], False -> #(
+          "unexpected argument '" <> escape_input(argument) <> "'",
+          "",
+        )
       }
     }
-    glint.InvalidArgumentCount(_, []) ->
-      #("missing required arguments", "")
-    glint.UnmatchedNamedArguments(names) ->
-      #("missing required arguments: " <> escape_input(string.join(names, ", ")), "")
+    glint.InvalidArgumentCount(_, []) -> #("missing required arguments", "")
+    glint.UnmatchedNamedArguments(names) -> #(
+      "missing required arguments: " <> escape_input(string.join(names, ", ")),
+      "",
+    )
     glint.CommandNotFound -> #("a command is required", "")
   }
   usage_message(message, error.command_path, hint, palette)
@@ -222,12 +231,16 @@ fn usage_message(
   palette: color.Palette,
 ) -> String {
   let command = string.join(["licence_audit", ..path], " ")
-  color.red(palette, "Error:") <> " " <> message
+  color.red(palette, "Error:")
+  <> " "
+  <> message
   <> case hint {
     "" -> ""
     _ -> "\n" <> hint
   }
-  <> "\nRun '" <> command <> " --help' for usage."
+  <> "\nRun '"
+  <> command
+  <> " --help' for usage."
 }
 
 fn migration_hint(name: String) -> String {
@@ -242,7 +255,9 @@ fn migration_hint(name: String) -> String {
 }
 
 const scope_values = ["prod", "all"]
+
 const check_values = ["licences", "licenses", "vulns", "all"]
+
 const severity_values = ["low", "medium", "high", "critical"]
 
 fn invalid_value_message(name: String, value: String) -> String {
@@ -252,8 +267,13 @@ fn invalid_value_message(name: String, value: String) -> String {
     "vuln-severity" -> severity_values
     _ -> ["true", "false"]
   }
-  "invalid value '" <> escape_input(value) <> "' for --" <> escape_input(name)
-  <> " (expected " <> string.join(expected, " or ") <> ")"
+  "invalid value '"
+  <> escape_input(value)
+  <> "' for --"
+  <> escape_input(name)
+  <> " (expected "
+  <> string.join(expected, " or ")
+  <> ")"
 }
 
 fn escape_input(value: String) -> String {
@@ -272,9 +292,13 @@ fn escape_controls(value: String) -> String {
       10 -> "\\n"
       13 -> "\\r"
       9 -> "\\t"
-      code if code < 32 || code >= 127 && code <= 159
-        || code == 8232 || code == 8233 ->
-        "\\u{" <> int.to_base16(code) <> "}"
+      code
+        if code < 32
+        || code >= 127
+        && code <= 159
+        || code == 8232
+        || code == 8233
+      -> "\\u{" <> int.to_base16(code) <> "}"
       _ -> string.from_utf_codepoints([point])
     }
   })
@@ -579,9 +603,7 @@ fn checks_flag() -> glint.Flag(String) {
 
 fn vuln_severity_flag() -> glint.Flag(String) {
   glint.string_flag("vuln-severity")
-  |> glint.flag_constraint(
-    constraint.one_of(severity_values),
-  )
+  |> glint.flag_constraint(constraint.one_of(severity_values))
   |> glint.flag_help(
     "Minimum blocking vulnerability severity: low|medium|high|critical (overrides config; default high; requires --checks=vulns or --checks=all)",
   )
