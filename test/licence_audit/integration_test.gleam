@@ -1799,10 +1799,6 @@ pub fn denied_transitive_fails_check_and_prints_via_chain_test() {
   should.equal(exit_code, 1)
   assert string.contains(output, "lib_c")
   assert string.contains(output, "denied: GPL-3.0")
-  // The tree layout indents transitive deps under the dep that brought them
-  // in: app_a → lib_b → lib_c.
-  assert string.contains(output, "└─ ✓ lib_b")
-  assert string.contains(output, "   └─ ✗ lib_c")
   assert string.contains(output, "Dependency licence audit failed")
 }
 

@@ -31,6 +31,7 @@ gluegun = ">= 1.0.0 and < 2.0.0"
 weft = "== 0.4.6"
 
 [dev_dependencies]
+birdie = ">= 2.0.0 and < 3.0.0"
 gleeunit = ">= 1.0.0 and < 2.0.0"
 glinter = ">= 2.19.0 and < 3.0.0"
 glugify = ">= 3.0.0 and < 4.0.0"

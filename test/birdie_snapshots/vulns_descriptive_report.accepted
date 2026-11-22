@@ -1,0 +1,12 @@
+---
+version: 2.0.2
+title: vulns descriptive report
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: vulns_descriptive_report_test
+---
+╭─ Vulnerabilities · OSV.dev ──────────────────────────────────────────────────╮
+│ gleam_stdlib 1.0.0  [prod]                                                   │
+│   [HIGH    ]  GHSA-snapshot  Malformed input can interrupt request handling. │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Checked 2 packages: 1 with vulnerabilities, 1 clean. Skipped 2 unsupported source(s): local_dep, git_dep
+

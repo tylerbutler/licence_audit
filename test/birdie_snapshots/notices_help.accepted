@@ -1,0 +1,51 @@
+---
+version: 2.0.2
+title: notices help
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: notices_help_test
+---
+Generate a release-ready `THIRD_PARTY_NOTICES`-style file from locked
+dependencies. The output inventories each product, includes its applicable
+licence text, and preserves package-specific NOTICE attribution. Products with
+identical licence text are grouped so the shared text is emitted once. Each
+package's own source archive is used first; when it ships no licence text the
+command falls back to the declared repository (GitHub, Codeberg, or GitLab, at
+an immutable tag commit) and then to canonical SPDX License List text. A
+transient repository failure is non-fatal: it warns and continues to the SPDX
+fallback. Output stays plain in every color mode. Configuration reads only
+notices include/exclude settings; a missing notices section means no filters.
+
+Command: notices
+
+USAGE:
+    licence_audit notices [ --cache-dir=<DIR> --color=<auto|always|never>
+        --config=<PATH> --ignore-config --manifest=<PATH> --no-cache --output=<PATH>
+        --quiet --scope=<prod|all> --verbose ]
+
+FLAGS:
+    --cache-dir=<DIR>            Use DIR as the application cache root for all
+                                 cache families
+
+    --color=<auto|always|never>  Colorize output: auto|always|never (default
+                                 auto; alias: --colour)
+
+    --config=<PATH>              Read configuration from PATH
+
+    --help                       Print help information
+
+    --ignore-config              Ignore configuration files
+
+    --manifest=<PATH>            Read manifest from PATH
+
+    --no-cache                   Bypass the on-disk caches
+
+    --output=<PATH>              Write notices to PATH instead of stdout (alias:
+                                 -o)
+
+    --quiet                      Suppress progress output (alias: -q)
+
+    --scope=<prod|all>           Dependency scope: prod|all (production only or
+                                 all dependencies)
+
+    --verbose                    Show detailed progress output (alias: -v)
+

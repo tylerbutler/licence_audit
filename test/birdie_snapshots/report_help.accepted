@@ -1,0 +1,42 @@
+---
+version: 2.0.2
+title: report help
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: report_help_test
+---
+Report Hex package licences without enforcing policy findings. Operational
+failures exit 2. Use `check` to enforce a licence policy.
+
+Command: report
+
+USAGE:
+    licence_audit report [ --cache-dir=<DIR> --color=<auto|always|never>
+        --config=<PATH> --format=<text|json> --ignore-config --manifest=<PATH>
+        --no-cache --quiet --scope=<prod|all> --verbose ]
+
+FLAGS:
+    --cache-dir=<DIR>            Use DIR as the application cache root for all
+                                 cache families
+
+    --color=<auto|always|never>  Colorize output: auto|always|never (default
+                                 auto; alias: --colour)
+
+    --config=<PATH>              Read configuration from PATH
+
+    --format=<text|json>         Output format: text|json (default text)
+
+    --help                       Print help information
+
+    --ignore-config              Ignore configuration files
+
+    --manifest=<PATH>            Read manifest from PATH
+
+    --no-cache                   Bypass the on-disk caches
+
+    --quiet                      Suppress progress output (alias: -q)
+
+    --scope=<prod|all>           Dependency scope: prod|all (production only or
+                                 all dependencies)
+
+    --verbose                    Show detailed progress output (alias: -v)
+

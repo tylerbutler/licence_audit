@@ -1,0 +1,14 @@
+---
+version: 2.0.2
+title: check vulns gate
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: check_vulns_gate_test
+---
+
+╭─ Vulnerability check · threshold: high ──────────╮
+│ ✗  [HIGH    ]  GHSA-snapshot  gleam_stdlib@1.0.0 │
+╰──────────────────────────────────────────────────╯
+1 advisory/advisories at or above high (of 1 total reported).
+Skipped 2 unsupported source(s): local_dep, git_dep
+Vulnerability check failed: one or more advisories at or above threshold severity.
+
