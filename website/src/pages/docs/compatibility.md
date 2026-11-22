@@ -108,7 +108,7 @@ Vulnerability-only checks do not require licence policy.
 
 Existing documented commands, flags, aliases, and valid argument forms remain
 available within a major version. We preserve their meanings, defaults, and
-documented environment-variable controls.
+documented [environment-variable controls](/docs/environment).
 
 Existing valid configuration remains valid with the same meaning. This includes
 configuration discovery, CLI/config precedence, and merge behavior. We can
@@ -157,6 +157,19 @@ configuration, remove `--config`. Commands that accept `--no-cache` and
 root, remove `--no-cache`; to bypass storage, remove `--cache-dir`.
 Explicit `--ignore-config=false` and `--no-cache=false` do not conflict with
 their path flags.
+
+Usage errors start with `Error:` and write at most three lines to stderr.
+They name the cause and point to the relevant command's `--help`; they do not
+print the full help text. stdout stays empty and the exit code stays `2`.
+Unknown commands list `check`, `notices`, `report`, `sbom`, `update`, and
+`vulns`. `help` and `version` are not commands; use `--help` and `--version`.
+An unknown command remains an error when followed by `--help`.
+
+Removed `--allow` and `--deny` flags point to `[tools.licence_audit]` and
+`--config`. Removed `--prod-only` and `--include-dev` flags point to
+`--scope=prod` and `--scope=all`. Removed `--cache-path` points to
+`--cache-dir` with the application cache root. These hints also apply to
+`=value` forms; the removed flags remain rejected.
 
 ### Completion and output
 
@@ -262,7 +275,7 @@ defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
-`SOURCE_DATE_EPOCH`, plus matching usable publication evidence for local
+[`SOURCE_DATE_EPOCH`](/docs/environment), plus matching usable publication evidence for local
 components. Hex metadata comes from
 checksum-verified locked package archives and Git metadata comes from the
 archive at the locked commit, or their immutable cache entries. Offline runs

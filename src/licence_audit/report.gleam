@@ -40,9 +40,87 @@ pub type Summary {
   Summary(skipped_names: List(String))
 }
 
+pub type Counts {
+  Counts(
+    total: Int,
+    allowed: Int,
+    denied: Int,
+    unknown: Int,
+    excepted: Int,
+    skipped: Int,
+  )
+}
+
+/// Count each locked package name once. Unaccepted deny findings take priority
+/// over unknown findings; only fully accepted findings count as excepted.
+/// Unchecked or unavailable metadata counts as unknown, never as allowed.
+pub fn counts(rows: List(Row), summary: Summary) -> Counts {
+  let statuses =
+    list.fold(rows, dict.new(), fn(statuses, row) {
+      dict.insert(statuses, row.package, row.status)
+    })
+  let statuses =
+    list.fold(summary.skipped_names, statuses, fn(statuses, name) {
+      case dict.has_key(statuses, name) {
+        True -> statuses
+        False -> dict.insert(statuses, name, Skipped("non-hex"))
+      }
+    })
+  list.fold(
+    dict.values(statuses),
+    Counts(total: 0, allowed: 0, denied: 0, unknown: 0, excepted: 0, skipped: 0),
+    fn(counts, status) {
+      let counts = Counts(..counts, total: counts.total + 1)
+      case status {
+        NotChecked | Failed(_) -> Counts(..counts, unknown: counts.unknown + 1)
+        Skipped(_) -> Counts(..counts, skipped: counts.skipped + 1)
+        Checked(policy.Allowed) -> Counts(..counts, allowed: counts.allowed + 1)
+        Checked(policy.DeniedLicence(_)) ->
+          Counts(..counts, denied: counts.denied + 1)
+        Checked(policy.NoLicencesDeclared)
+        | Checked(policy.UnallowedLicence(_))
+        | Checked(policy.InvalidLicenceExpression(_)) ->
+          Counts(..counts, unknown: counts.unknown + 1)
+        Reviewed(findings) -> {
+          let unaccepted =
+            list.filter(findings, fn(finding) { !exception.accepted(finding.1) })
+          let denied =
+            list.any(unaccepted, fn(finding) {
+              case finding.0 {
+                exception.DeniedLicence(_) -> True
+                exception.UnallowedLicence(_)
+                | exception.InvalidLicenceExpression(_)
+                | exception.NoLicencesDeclared
+                | exception.Advisory(_) -> False
+              }
+            })
+          case denied, unaccepted, exception.matched(decisions(status)) {
+            True, _, _ -> Counts(..counts, denied: counts.denied + 1)
+            False, [_, ..], _ -> Counts(..counts, unknown: counts.unknown + 1)
+            False, [], [_, ..] ->
+              Counts(..counts, excepted: counts.excepted + 1)
+            False, [], [] -> Counts(..counts, allowed: counts.allowed + 1)
+          }
+        }
+      }
+    },
+  )
+}
+
 pub fn format(
   rows: List(Row),
   summary: Summary,
+  mode: Mode,
+  palette: color.Palette,
+) -> String {
+  format_with_counts(rows, summary, counts(rows, summary), mode, palette)
+}
+
+/// Render selected trees with counts computed from the full in-scope report.
+pub fn format_with_counts(
+  rows: List(Row),
+  summary: Summary,
+  counts: Counts,
   mode: Mode,
   palette: color.Palette,
 ) -> String {
@@ -60,7 +138,62 @@ pub fn format(
     })
   let summary_line = skipped_summary_text(summary.skipped_names)
 
-  string.join(sections, "\n\n") <> "\n" <> summary_line <> "\n" <> "\n"
+  string.join(sections, "\n\n")
+  <> "\n"
+  <> counts_text(counts)
+  <> "\n"
+  <> summary_line
+  <> "\n\n"
+}
+
+fn counts_text(counts: Counts) -> String {
+  int.to_string(counts.total)
+  <> " packages: "
+  <> int.to_string(counts.allowed)
+  <> " allowed, "
+  <> int.to_string(counts.denied)
+  <> " denied, "
+  <> int.to_string(counts.unknown)
+  <> " unknown, "
+  <> int.to_string(counts.excepted)
+  <> " excepted, "
+  <> int.to_string(counts.skipped)
+  <> " skipped"
+}
+
+/// Repeat each package with an unaccepted finding or metadata error once,
+/// without tree context. Reuse the report's licence and finding formatting.
+pub fn format_findings(rows: List(Row), palette: color.Palette) -> String {
+  let rows =
+    rows
+    |> list.filter(fn(row) {
+      case row.status {
+        Failed(_) -> True
+        NotChecked | Checked(_) | Reviewed(_) | Skipped(_) ->
+          is_failure(row.status)
+      }
+    })
+    |> list.fold(dict.new(), fn(rows, row) {
+      dict.insert(rows, row.package, row)
+    })
+    |> dict.values
+    |> list.sort(fn(first, second) {
+      string.compare(first.package, second.package)
+    })
+  case rows {
+    [] -> ""
+    _ -> {
+      let widths = widths_loop(rows, dict.new(), Widths(7, 7, 8))
+      "Packages with findings:\n"
+      <> color.bold_underline(palette, header(widths, Audit))
+      <> "\n"
+      <> string.join(
+        list.map(rows, row_text(_, "", widths, Audit, palette)),
+        "\n",
+      )
+      <> "\n\n"
+    }
+  }
 }
 
 /// Keep only rows that belong to a dependency tree containing at least one
@@ -118,6 +251,7 @@ pub fn decisions(status: Status) -> List(exception.Decision) {
 /// Lists the names (sorted) so the user knows exactly what was skipped; falls
 /// back to a bare `0` when nothing was omitted.
 fn skipped_summary_text(skipped_names: List(String)) -> String {
+  let skipped_names = list.unique(skipped_names)
   let prefix =
     "Skipped non-Hex packages: " <> int.to_string(list.length(skipped_names))
   case list.sort(skipped_names, by: string.compare) {

@@ -1771,7 +1771,6 @@ fn audit_locked(
       active_packages,
       cached_fetcher,
       audit_policy,
-      evaluate_policy,
       dep_paths,
       scopes,
       reporter,
@@ -1800,13 +1799,19 @@ fn audit_locked(
       False -> all_rows
     }
     let skipped_names = list.map(active_skipped, fn(pkg) { pkg.name })
+    let summary = report.Summary(skipped_names: skipped_names)
     let licence_output =
-      report.format(
+      report.format_with_counts(
         display_rows,
-        report.Summary(skipped_names: skipped_names),
+        summary,
+        report.counts(all_rows, summary),
         mode,
         palette,
       )
+      <> case options.check {
+        True -> report.format_findings(all_rows, palette)
+        False -> ""
+      }
 
     // Vulnerability gate: combined checks also retain the licence findings.
     // Threshold resolution: CLI flag > config key > "high".
@@ -1911,6 +1916,15 @@ fn audit_locked(
         licence_coverage,
         vuln_coverage,
       )
+      <> case
+        options.check
+        && !result.fetch_failed
+        && !vuln_outcome.incomplete
+        && !policy_failed
+      {
+        True -> "Licence check passed.\n"
+        False -> ""
+      }
 
     let #(run_result, reporter) =
       finalize_audit(
@@ -1988,7 +2002,6 @@ fn fetch_packages(
   fetcher: fn(manifest.Package, progress.Reporter) ->
     #(Result(hex.PackageMetadata, notice.Error), progress.Reporter),
   audit_policy: policy.Policy,
-  check_mode: Bool,
   paths: dict.Dict(String, List(String)),
   scopes: dict.Dict(String, manifest.Scope),
   reporter: progress.Reporter,
@@ -2047,7 +2060,7 @@ fn fetch_packages(
             )
           }
           Ok(metadata) -> {
-            let status = status_for(check_mode, audit_policy, metadata.licences)
+            let status = status_for(audit_policy, metadata.licences)
             FetchResult(
               rows: [
                 report.Row(
@@ -2070,13 +2083,12 @@ fn fetch_packages(
   FetchResult(..result, rows: list.reverse(result.rows))
 }
 
-/// Audit status for a package in `check` mode, or `NotChecked` otherwise.
+/// Classify package licences when a policy is configured.
 fn status_for(
-  check_mode: Bool,
   audit_policy: policy.Policy,
   licences: List(String),
 ) -> report.Status {
-  case check_mode {
+  case policy.has_rules(audit_policy) {
     True -> report.Checked(policy.audit(audit_policy, licences))
     False -> report.NotChecked
   }

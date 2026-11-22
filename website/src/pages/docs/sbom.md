@@ -237,8 +237,10 @@ By default, `sbom` uses a random `serialNumber` and the current time for
 `--reproducible`, the command reads Hex metadata from each
 checksum-verified package archive and Git metadata from the archive at the
 locked commit. It omits mutable Hex publisher data, uses a content hash for
-`serialNumber`, and gets the timestamp from [`SOURCE_DATE_EPOCH`][sde], or uses the Unix epoch if
-the variable is not set. The same project files, lockfile, publication evidence,
+`serialNumber`, and gets the timestamp from
+[`SOURCE_DATE_EPOCH`](/docs/environment). See that table for parsing and
+fallback rules under the [reproducible-builds convention][sde].
+The same project files, lockfile, publication evidence,
 tool version, options, and timestamp produce byte-identical output, including
 online and offline runs with matching usable cache inputs.
 The resolved timestamp is part of the serial hash. A different timestamp
