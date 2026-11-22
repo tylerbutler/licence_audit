@@ -432,6 +432,58 @@ pub fn notices_explicit_config_controls_filters_and_preserves_project_paths_test
   let assert Ok(_) = simplifile.delete(root)
 }
 
+pub fn notices_missing_project_configuration_uses_lockfile_production_roots_test() -> Nil {
+  let root = project("missing-production-config", "")
+  let alternate = root <> "/alternate.toml"
+  let assert Ok(_) =
+    simplifile.write(
+      "[tools.licence_audit.notices]\ninclude = [\"path_dep\"]",
+      to: alternate,
+    )
+  let assert Ok(_) = simplifile.delete(root <> "/gleam.toml")
+  let assert Ok(_) = simplifile.create_directory_all(root <> "/local")
+  let assert Ok(_) =
+    simplifile.write("Local licence text", to: root <> "/local/LICENSE")
+  let result = run(root, ["--config=" <> alternate])
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "path_dep 1.0.0")
+  assert string.contains(result.output, "Local licence text")
+  assert !string.contains(result.output, "hex_dep 1.0.0")
+  let assert Ok(_) = simplifile.delete(root)
+  Nil
+}
+
+pub fn notices_production_seed_failures_keep_exact_diagnostics_before_fetch_test() -> Nil {
+  let root = project("production-config-errors", "")
+  let path = root <> "/gleam.toml"
+  list.each(["dependencies = []", "name = ["], fn(contents) {
+    let assert Ok(_) = simplifile.write(contents, to: path)
+    let result = run(root, ["--ignore-config"])
+    should.equal(result.exit_code, 2)
+    should.equal(
+      result.output,
+      "Error: Invalid production dependency configuration in "
+        <> path
+        <> ": expected valid TOML with a dependencies table when present\n",
+    )
+  })
+  let assert Ok(_) = simplifile.delete(path)
+  let assert Ok(_) = simplifile.create_directory_all(path)
+  let assert Error(reason) = simplifile.read(path)
+  let result = run(root, ["--ignore-config"])
+  should.equal(result.exit_code, 2)
+  should.equal(
+    result.output,
+    "Error: Could not read production dependency configuration from "
+      <> path
+      <> ": "
+      <> simplifile.describe_error(reason)
+      <> "\n",
+  )
+  let assert Ok(_) = simplifile.delete(root)
+  Nil
+}
+
 pub fn notices_config_failures_happen_before_network_requests_test() {
   let root = project("config-errors", "")
   let missing = root <> "/missing.toml"

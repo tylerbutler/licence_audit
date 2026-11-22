@@ -97,14 +97,11 @@ fn run_selected(
   clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(Result(String, error.Error), progress.Reporter) {
-  let #(metadata_cache_mode, source_cache_mode) = case
-    options.no_cache || selected == []
-  {
-    True -> #(cache.Disabled, notice_cache.Disabled)
-    False -> #(
-      cache.Enabled(path: options.cache_dir),
-      notice_cache.Enabled(path: options.cache_dir),
-    )
+  let no_cache = options.no_cache || selected == []
+  let metadata_cache_mode = cache.mode_for(no_cache, options.cache_dir)
+  let source_cache_mode = case no_cache {
+    True -> notice_cache.Disabled
+    False -> notice_cache.Enabled(path: options.cache_dir)
   }
   let metadata_cache = cache.open(metadata_cache_mode)
   let source_cache = notice_cache.open(source_cache_mode)
