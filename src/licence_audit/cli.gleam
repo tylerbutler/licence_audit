@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/string
@@ -131,18 +132,153 @@ pub fn execute(
   stderr_color_level: tty.ColorLevel,
 ) -> Result(glint.Out(CliAction), String) {
   let args = normalize_args(args)
-  // Glint returns help before validating flags whenever --help is present.
-  let level = case list.contains(args, "--help") {
-    True -> stdout_color_level
-    False -> stderr_color_level
-  }
+  let mode = help_color_mode(args, color.Auto)
   let palette =
-    color.resolve_with_color_level(help_color_mode(args, color.Auto), level)
+    color.resolve_with_color_level(mode, stdout_color_level)
+  let error_palette = color.resolve_with_color_level(mode, stderr_color_level)
   let app = case palette.enabled {
     True -> app() |> glint.pretty_help(glint.default_pretty_help())
     False -> app()
   }
-  glint.execute(app, args)
+  case glint.execute_detailed(app, args) {
+    Error(error) -> Error(parser_error_message(error, error_palette))
+    Ok(glint.Out(InvalidUsage(message))) ->
+      Error(usage_message(
+        escape_input(message),
+        command_path(args),
+        "",
+        error_palette,
+      ))
+    Ok(output) -> Ok(output)
+  }
+}
+
+fn command_path(args: List(String)) -> List(String) {
+  let positionals =
+    list.filter(args, fn(arg) { !string.starts_with(arg, "--") })
+  case positionals {
+    [name, ..] -> {
+      case list.contains(command_names(), name) {
+        True -> [name]
+        False -> []
+      }
+    }
+    [] -> []
+  }
+}
+
+fn command_names() -> List(String) {
+  glint.document(app()).subcommands
+  |> list.map(fn(command) { command.meta.name })
+  |> list.sort(string.compare)
+}
+
+fn parser_error_message(
+  error: glint.ExecutionError,
+  palette: color.Palette,
+) -> String {
+  let #(message, hint) = case error.cause {
+    glint.UnknownFlag("", "--") ->
+      #("the '--' separator is not supported", "")
+    glint.UnknownFlag("", input) ->
+      #("unknown flag " <> escape_input(input), "")
+    glint.UnknownFlag(name, _) ->
+      #("unknown flag --" <> escape_input(name), migration_hint(name))
+    glint.MissingFlagValue(name, _) ->
+      #("--" <> escape_input(name) <> " requires a value", "")
+    glint.InvalidFlagValue(name, value, _) ->
+      #(invalid_value_message(name, value), "")
+    glint.InvalidArgumentCount(_, [argument, ..]) -> {
+      case error.command_path, string.starts_with(argument, "-") {
+        _, True -> #("unknown flag " <> escape_input(argument), "")
+        [], False -> {
+          let suggestion = case argument {
+            "help" -> "; use --help"
+            "version" -> "; use --version"
+            _ -> ""
+          }
+          #(
+            "unknown command '" <> escape_input(argument) <> "'" <> suggestion,
+            "Commands: " <> string.join(command_names(), ", "),
+          )
+        }
+        [_, ..], False ->
+          #("unexpected argument '" <> escape_input(argument) <> "'", "")
+      }
+    }
+    glint.InvalidArgumentCount(_, []) ->
+      #("missing required arguments", "")
+    glint.UnmatchedNamedArguments(names) ->
+      #("missing required arguments: " <> escape_input(string.join(names, ", ")), "")
+    glint.CommandNotFound -> #("a command is required", "")
+  }
+  usage_message(message, error.command_path, hint, palette)
+}
+
+fn usage_message(
+  message: String,
+  path: List(String),
+  hint: String,
+  palette: color.Palette,
+) -> String {
+  let command = string.join(["licence_audit", ..path], " ")
+  color.red(palette, "Error:") <> " " <> message
+  <> case hint {
+    "" -> ""
+    _ -> "\n" <> hint
+  }
+  <> "\nRun '" <> command <> " --help' for usage."
+}
+
+fn migration_hint(name: String) -> String {
+  case name {
+    "allow" | "deny" ->
+      "Put the lists in [tools.licence_audit] and select the file with --config."
+    "prod-only" -> "Use --scope=prod."
+    "include-dev" -> "Use --scope=all."
+    "cache-path" -> "Use --cache-dir with the application cache root."
+    _ -> ""
+  }
+}
+
+const scope_values = ["prod", "all"]
+const check_values = ["licences", "licenses", "vulns", "all"]
+const severity_values = ["low", "medium", "high", "critical"]
+
+fn invalid_value_message(name: String, value: String) -> String {
+  let expected = case name {
+    "scope" -> scope_values
+    "checks" -> check_values
+    "vuln-severity" -> severity_values
+    _ -> ["true", "false"]
+  }
+  "invalid value '" <> escape_input(value) <> "' for --" <> escape_input(name)
+  <> " (expected " <> string.join(expected, " or ") <> ")"
+}
+
+fn escape_input(value: String) -> String {
+  value
+  |> string.replace("\\", "\\\\")
+  |> string.replace("'", "\\'")
+  |> escape_controls
+}
+
+fn escape_controls(value: String) -> String {
+  value
+  |> string.to_utf_codepoints
+  |> list.map(fn(point) {
+    let code = string.utf_codepoint_to_int(point)
+    case code {
+      10 -> "\\n"
+      13 -> "\\r"
+      9 -> "\\t"
+      code if code < 32 || code >= 127 && code <= 159
+        || code == 8232 || code == 8233 ->
+        "\\u{" <> int.to_base16(code) <> "}"
+      _ -> string.from_utf_codepoints([point])
+    }
+  })
+  |> string.concat
 }
 
 fn help_color_mode(args: List(String), mode: color.Mode) -> color.Mode {
@@ -412,7 +548,7 @@ fn version_flag() -> glint.Flag(Bool) {
 fn scope_flag(default: String) -> glint.Flag(String) {
   glint.string_flag("scope")
   |> glint.flag_default(default)
-  |> glint.flag_constraint(constraint.one_of(["prod", "all"]))
+  |> glint.flag_constraint(constraint.one_of(scope_values))
   |> glint.flag_help(
     "Dependency scope: prod|all (production only or all dependencies)",
   )
@@ -435,9 +571,7 @@ fn cache_dir_flag() -> glint.Flag(String) {
 fn checks_flag() -> glint.Flag(String) {
   glint.string_flag("checks")
   |> glint.flag_default("licences")
-  |> glint.flag_constraint(
-    constraint.one_of(["licences", "licenses", "vulns", "all"]),
-  )
+  |> glint.flag_constraint(constraint.one_of(check_values))
   |> glint.flag_help(
     "Select checks: licences|vulns|all (default licences); licences and all require a licence policy",
   )
@@ -446,7 +580,7 @@ fn checks_flag() -> glint.Flag(String) {
 fn vuln_severity_flag() -> glint.Flag(String) {
   glint.string_flag("vuln-severity")
   |> glint.flag_constraint(
-    constraint.one_of(["low", "medium", "high", "critical"]),
+    constraint.one_of(severity_values),
   )
   |> glint.flag_help(
     "Minimum blocking vulnerability severity: low|medium|high|critical (overrides config; default high; requires --checks=vulns or --checks=all)",
