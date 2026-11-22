@@ -170,3 +170,61 @@ pub fn output_write_failure_matches_root_diagnostic_test() -> Nil {
   should.equal(root_result.exit_code, 2)
   should.equal("Error: " <> error.message(failure) <> "\n", root_result.output)
 }
+
+pub fn manifest_directory_uses_project_configuration_and_matches_root_test() -> Nil {
+  let options =
+    project("directory", "[tools.licence_audit.notices]\nexclude = [\"dep\"]")
+  let root = "build/notice-command-test/directory"
+  let options = cli.NoticesOptions(..options, manifest_path: Some(root))
+  let clients = no_network_clients()
+  let reporter = progress.capturing(progress.Verbose, "notices")
+  let #(result, domain_reporter) =
+    network.with_command(fn() { notice_command.run(options, clients, reporter) })
+  let #(root_result, root_events) =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> root],
+      licence_audit.Clients(
+        ..licence_audit.default_clients(),
+        notice_clients: clients,
+      ),
+      reporter,
+    )
+  should.equal(
+    result,
+    Ok(notice.render([], manifest_path: root <> "/manifest.toml")),
+  )
+  should.equal(result, Ok(root_result.output))
+  should.equal(root_result.exit_code, 0)
+  should.equal(progress.events(domain_reporter), root_events)
+}
+
+pub fn missing_manifest_keeps_canonical_remedy_and_matches_root_test() -> Nil {
+  let options = project("missing-manifest", "")
+  let manifest_path = "build/notice-command-test/missing-manifest/custom.lock"
+  let options =
+    cli.NoticesOptions(..options, manifest_path: Some(manifest_path))
+  let clients = no_network_clients()
+  let reporter = progress.capturing(progress.Verbose, "notices")
+  let #(result, domain_reporter) =
+    network.with_command(fn() { notice_command.run(options, clients, reporter) })
+  let assert Error(failure) = result
+  should.equal(
+    failure,
+    error.Input(
+      "custom.lock not found in build/notice-command-test/missing-manifest\nRun 'gleam deps download', or use --manifest=PATH.",
+    ),
+  )
+  let #(root_result, root_events) =
+    licence_audit.run_configured(
+      ["notices", "--manifest=" <> manifest_path],
+      licence_audit.Clients(
+        ..licence_audit.default_clients(),
+        notice_clients: clients,
+      ),
+      reporter,
+    )
+  should.equal(error.exit_code(failure), 2)
+  should.equal(root_result.exit_code, 2)
+  should.equal("Error: " <> error.message(failure) <> "\n", root_result.output)
+  should.equal(progress.events(domain_reporter), root_events)
+}

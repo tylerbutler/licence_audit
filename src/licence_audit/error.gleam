@@ -31,7 +31,21 @@ pub fn exit_code(error: Error) -> Int {
   case error {
     Success -> 0
     AuditFailed -> 1
-    _ -> 2
+    MissingPolicy -> 2
+    Usage(_) -> 2
+    RuntimeStartup(_) -> 2
+    RuntimeException(_) -> 2
+    Config(_) -> 2
+    Input(_) -> 2
+    Hex(_) -> 2
+    Decode(_) -> 2
+    UnsupportedSourceForSbom(..) -> 2
+    SbomMetadataFailed(..) -> 2
+    SbomPublicationFailed(..) -> 2
+    SbomSerialNumberFailed -> 2
+    SbomWriteFailed(..) -> 2
+    Osv(_) -> 2
+    Notices(_) -> 2
   }
 }
 
@@ -144,6 +158,13 @@ pub fn from_manifest_error(error: manifest.Error) -> Error {
         <> path
         <> ": "
         <> simplifile.describe_error(reason),
+      )
+    manifest.ManifestNotFound(directory, filename) ->
+      Input(
+        filename
+        <> " not found in "
+        <> directory
+        <> "\nRun 'gleam deps download', or use --manifest=PATH.",
       )
   }
 }

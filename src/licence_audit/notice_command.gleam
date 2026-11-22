@@ -28,7 +28,10 @@ pub fn run(
   clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(Result(String, error.Error), progress.Reporter) {
-  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path =
+    options.manifest_path
+    |> option.unwrap("manifest.toml")
+    |> manifest.resolve_path
   let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Generating licence notices")
   let reporter = progress.detail(reporter, "Loading package manifest")

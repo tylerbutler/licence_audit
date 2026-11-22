@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit/manifest
@@ -76,6 +77,92 @@ pub fn load_reads_manifest_from_file_test() {
   let assert Ok(parsed) = manifest.load("test/fixtures/manifest.toml")
 
   should.equal(list.length(parsed.skipped_packages), 2)
+}
+
+pub fn directory_and_file_inputs_share_all_manifest_loaders_test() -> Nil {
+  use directory <- list.each([
+    "test/fixtures/config_discovery/project",
+    "test/fixtures/config_discovery/project/",
+    "test/fixtures/config_discovery/project/.",
+  ])
+  let file = "test/fixtures/config_discovery/project/manifest.toml"
+  let assert Ok(_) = manifest.load(file)
+  let assert Ok(_) = manifest.load_sbom(file)
+  let assert Ok(_) = manifest.load_vulns(file)
+  should.equal(manifest.load(directory), manifest.load(file))
+  should.equal(manifest.load_sbom(directory), manifest.load_sbom(file))
+  should.equal(manifest.load_vulns(directory), manifest.load_vulns(file))
+}
+
+pub fn missing_manifest_names_directory_without_parent_search_test() -> Nil {
+  let root = "build/manifest-missing-directory"
+  let directory = root <> "/child"
+  let assert Ok(_) = simplifile.create_directory_all(directory)
+  let assert Ok(_) = simplifile.write(root <> "/manifest.toml", "packages = []")
+  list.each([directory, directory <> "/manifest.toml"], fn(input) {
+    let expected = Error(manifest.ManifestNotFound(directory, "manifest.toml"))
+    list.each(load_results(input), should.equal(_, expected))
+  })
+  let assert Ok(_) = simplifile.delete(root <> "/manifest.toml")
+  let assert Ok(_) = simplifile.delete(directory)
+  let assert Ok(_) = simplifile.delete(root)
+  Nil
+}
+
+pub fn missing_explicit_manifest_names_its_directory_test() -> Nil {
+  let input = "test/fixtures/absent-manifest-directory/custom.toml"
+  let expected =
+    Error(manifest.ManifestNotFound(
+      "test/fixtures/absent-manifest-directory",
+      "custom.toml",
+    ))
+  list.each(load_results(input), should.equal(_, expected))
+}
+
+pub fn non_directory_ancestor_is_not_a_missing_manifest_test() -> Nil {
+  let input = "test/fixtures/manifest.toml/manifest.toml"
+  let expected = Error(manifest.FileReadError(input))
+  list.each(load_results(input), should.equal(_, expected))
+}
+
+pub fn unreadable_manifest_is_not_a_missing_manifest_test() -> Nil {
+  let directory = "build/manifest-unreadable-directory"
+  let file = directory <> "/manifest.toml"
+  let assert Ok(_) = simplifile.create_directory_all(directory)
+  let assert Ok(_) = simplifile.write(file, "packages = []")
+  let assert Ok(_) = simplifile.set_permissions_octal(file, 0o000)
+  let probe = simplifile.read(file)
+  let results = load_results(directory)
+  let assert Ok(_) = simplifile.set_permissions_octal(file, 0o600)
+  let assert Ok(_) = simplifile.delete(file)
+  let assert Ok(_) = simplifile.delete(directory)
+  case probe {
+    Ok(_) -> Nil
+    Error(_) -> {
+      let expected = Error(manifest.FileReadError(file))
+      list.each(results, should.equal(_, expected))
+    }
+  }
+}
+
+pub fn malformed_directory_manifest_keeps_decode_error_test() -> Nil {
+  let directory = "build/manifest-invalid-directory"
+  let file = directory <> "/manifest.toml"
+  let assert Ok(_) = simplifile.create_directory_all(directory)
+  let assert Ok(_) = simplifile.write(file, "packages = [")
+  let expected = Error(manifest.InvalidToml("Invalid TOML"))
+  list.each(load_results(directory), should.equal(_, expected))
+  let assert Ok(_) = simplifile.delete(file)
+  let assert Ok(_) = simplifile.delete(directory)
+  Nil
+}
+
+fn load_results(input: String) -> List(Result(Nil, manifest.Error)) {
+  [
+    manifest.load(input) |> result.replace(Nil),
+    manifest.load_sbom(input) |> result.replace(Nil),
+    manifest.load_vulns(input) |> result.replace(Nil),
+  ]
 }
 
 pub fn audit_requires_hex_checksum_but_not_skipped_source_fields_test() {

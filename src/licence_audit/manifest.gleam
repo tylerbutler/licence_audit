@@ -1,9 +1,11 @@
+import filepath
 import gleam/dict.{type Dict}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import licence_audit/path
 import licence_audit/toml.{type Document, type Value}
 import simplifile
 
@@ -59,6 +61,7 @@ pub type Error {
   FileReadError(String)
   InvalidProductionConfiguration(path: String)
   ProductionConfigurationReadFailed(path: String, reason: simplifile.FileError)
+  ManifestNotFound(directory: String, filename: String)
 }
 
 pub type Provenance {
@@ -117,18 +120,62 @@ fn sbom_entries_from_document(
 }
 
 pub fn load_sbom(path: String) -> Result(SbomManifest, Error) {
-  case simplifile.read(from: path) {
-    Ok(contents) -> sbom_entries(contents)
-    Error(_) -> Error(FileReadError(path))
-  }
+  use contents <- result.try(read_manifest(path))
+  sbom_entries(contents)
 }
 
 /// Load vulnerability identities without requiring archive checksums. Missing
 /// source fields affect only that entry, not valid provenance elsewhere.
 pub fn load_vulns(path: String) -> Result(SbomManifest, Error) {
-  case simplifile.read(from: path) {
-    Ok(contents) -> parse_entries(contents, decode_vuln_entry)
-    Error(_) -> Error(FileReadError(path))
+  use contents <- result.try(read_manifest(path))
+  parse_entries(contents, decode_vuln_entry)
+}
+
+/// Resolve directory inputs before deriving the project root or configuration.
+pub fn resolve_path(input: String) -> String {
+  case simplifile.file_info(input) {
+    Ok(info) ->
+      case simplifile.file_info_type(info) {
+        simplifile.Directory -> path.join(input, "manifest.toml")
+        simplifile.File | simplifile.Symlink | simplifile.Other -> input
+      }
+    // The subsequent read is authoritative for missing and unreadable inputs.
+    Error(_) -> input
+  }
+}
+
+fn read_manifest(input: String) -> Result(String, Error) {
+  let manifest_path = resolve_path(input)
+  case simplifile.read(from: manifest_path) {
+    Ok(contents) -> Ok(contents)
+    Error(simplifile.Enoent) ->
+      case has_directory_ancestor(path.dirname(manifest_path)) {
+        True ->
+          Error(ManifestNotFound(
+            path.dirname(manifest_path),
+            manifest_path
+              |> filepath.split
+              |> list.last
+              |> result.unwrap(manifest_path),
+          ))
+        False -> Error(FileReadError(manifest_path))
+      }
+    Error(_) -> Error(FileReadError(manifest_path))
+  }
+}
+
+fn has_directory_ancestor(directory: String) -> Bool {
+  case simplifile.file_info(directory) {
+    Ok(info) -> simplifile.file_info_type(info) == simplifile.Directory
+    // Windows can report Enoent for a file used as an ancestor directory.
+    Error(simplifile.Enoent) -> {
+      let parent = path.dirname(directory)
+      case parent == directory {
+        True -> False
+        False -> has_directory_ancestor(parent)
+      }
+    }
+    Error(_) -> False
   }
 }
 
@@ -290,10 +337,8 @@ type RawPackage {
 }
 
 pub fn load(path: String) -> Result(LockedPackages, Error) {
-  case simplifile.read(from: path) {
-    Ok(contents) -> parse(contents)
-    Error(_) -> Error(FileReadError(path))
-  }
+  use contents <- result.try(read_manifest(path))
+  parse(contents)
 }
 
 pub fn parse(input: String) -> Result(LockedPackages, Error) {

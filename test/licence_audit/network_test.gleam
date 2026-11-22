@@ -10,6 +10,8 @@ import gleam/string
 import gleeunit/should
 import licence_audit
 import licence_audit/archive_download
+import licence_audit/cli
+import licence_audit/color
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/network
@@ -183,9 +185,14 @@ pub fn real_command_fetch_loops_admit_four_and_reduce_in_input_order_test() {
         update.run_with_picker(
           root <> "/manifest.toml",
           root,
-          option.None,
-          True,
-          option.None,
+          cli.UpdateOptions(
+            manifest_path: option.None,
+            config_path: option.None,
+            verbosity: progress.Verbose,
+            color: color.Never,
+            no_cache: True,
+            cache_dir: option.None,
+          ),
           clients,
           fn(_, _, _, _) { Error(picker.Cancelled) },
           progress.capturing(progress.Verbose, "update"),
@@ -850,9 +857,14 @@ pub fn required_and_optional_metadata_worker_crashes_exit_two_test() {
     update.run_with_picker(
       "test/fixtures/manifest_github_git.toml",
       "test/fixtures",
-      option.None,
-      True,
-      option.None,
+      cli.UpdateOptions(
+        manifest_path: option.None,
+        config_path: option.None,
+        verbosity: progress.Verbose,
+        color: color.Never,
+        no_cache: True,
+        cache_dir: option.None,
+      ),
       clients.notice_clients,
       fn(_, _, _, _) { panic as "incomplete discovery must not open picker" },
       progress.capturing(progress.Verbose, "update"),
