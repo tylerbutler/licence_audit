@@ -23,7 +23,7 @@ fn load_options() -> config.LoadOptions {
     allow_licences: [],
     deny_licences: [],
     vuln_severity: None,
-    vuln_block_unknown: False,
+    vuln_block_unknown: None,
     ignore_config: False,
     check: False,
   )
@@ -41,6 +41,7 @@ fn clients() -> licence_audit.Clients {
   licence_audit.Clients(
     ..licence_audit.default_clients(),
     fetcher: unused_fetcher,
+    notice_clients: source_archive_test.metadata_clients(unused_fetcher),
     osv_batch_fetcher: fn(_) {
       panic as "invalid configuration must stop before OSV fetch"
     },
@@ -59,7 +60,7 @@ pub fn explicit_missing_section_cannot_be_hidden_by_cli_policy_test() {
             allow_licences: ["MIT"],
             deny_licences: ["GPL-3.0-only"],
             vuln_severity: Some("critical"),
-            vuln_block_unknown: True,
+            vuln_block_unknown: Some(True),
           )
       }
       should.equal(
@@ -142,31 +143,62 @@ pub fn implicit_missing_section_keeps_report_and_cli_policy_behavior_test() {
 pub fn explicit_invalid_config_stops_report_check_and_vulns_test() {
   [["report"], ["check"], ["vulns"]]
   |> list.each(fn(command) {
-    let overrides = case command {
-      ["vulns"] -> [[]]
-      _ -> [[], ["--allow=MIT", "--deny=GPL-3.0-only"]]
-    }
-    list.each(overrides, fn(flags) {
-      let #(result, _) =
-        licence_audit.run_configured(
-          command
-            |> list.append([
-              "--manifest=" <> fixture_root <> "/project/manifest.toml",
-              "--config=" <> missing_section,
-            ])
-            |> list.append(flags),
-          clients(),
-          progress.disabled(),
-        )
-      should.equal(result.exit_code, 2)
-      should.equal(
-        result.output,
-        "Error: Config file "
-          <> missing_section
-          <> " is missing [tools.licence_audit]\n",
+    let #(result, _) =
+      licence_audit.run_configured(
+        command
+          |> list.append([
+            "--manifest=" <> fixture_root <> "/project/manifest.toml",
+            "--config=" <> missing_section,
+          ]),
+        clients(),
+        progress.disabled(),
       )
-    })
+    should.equal(result.exit_code, 2)
+    should.equal(
+      result.output,
+      "Error: Config file "
+        <> missing_section
+        <> " is missing [tools.licence_audit]\n",
+    )
   })
+}
+
+pub fn config_and_ignore_config_are_rejected_before_reads_test() -> Nil {
+  let assert Ok(original) = simplifile.read(missing_section)
+  use path <- list.each([missing_section, fixture_root <> "/absent.toml"])
+  use command <- list.each([[], ["report"], ["check"]])
+  let #(result, _) =
+    licence_audit.run_configured(
+      list.append(command, [
+        "--manifest=" <> fixture_root <> "/project/manifest.toml",
+        "--config=" <> path,
+        "--ignore-config",
+      ]),
+      clients(),
+      progress.disabled(),
+    )
+  should.equal(result.exit_code, 2)
+  should.equal(
+    result.output,
+    "Error: --config and --ignore-config cannot be used together\n",
+  )
+  should.equal(simplifile.read(missing_section), Ok(original))
+}
+
+pub fn explicit_missing_config_stops_reports_and_checks_test() -> Nil {
+  let path = fixture_root <> "/absent.toml"
+  use command <- list.each([[], ["report"], ["check"]])
+  let #(result, _) =
+    licence_audit.run_configured(
+      list.append(command, [
+        "--manifest=" <> fixture_root <> "/project/manifest.toml",
+        "--config=" <> path,
+      ]),
+      clients(),
+      progress.disabled(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, path)
 }
 
 pub fn discovery_uses_manifest_sibling_not_current_directory_or_parent_test() {
@@ -198,29 +230,7 @@ pub fn discovery_does_not_search_above_manifest_directory_test() {
   assert string.contains(result.output, "requires a non-empty allow list")
 }
 
-pub fn update_rejects_missing_section_before_fetch_picker_or_write_test() {
-  let assert Ok(original) = simplifile.read(missing_section)
-  let #(result, _) =
-    update.run_with_picker(
-      fixture_root <> "/project/manifest.toml",
-      fixture_root,
-      Some(missing_section),
-      False,
-      True,
-      None,
-      source_archive_test.metadata_clients(unused_fetcher),
-      fn(_title, _labels, _allow, _deny) {
-        panic as "invalid configuration must stop before selection"
-      },
-      progress.disabled(),
-    )
-  should.equal(result.exit_code, 2)
-  assert string.contains(result.output, missing_section)
-  assert string.contains(result.output, "missing [tools.licence_audit]")
-  should.equal(simplifile.read(missing_section), Ok(original))
-}
-
-pub fn update_ignore_config_keeps_explicit_write_target_test() {
+pub fn update_creates_missing_section_in_explicit_write_target_test() {
   let path = "build/config-discovery-update.toml"
   let assert Ok(_) = simplifile.write(path, "name = \"project\"\n")
   let #(result, _) =
@@ -228,7 +238,6 @@ pub fn update_ignore_config_keeps_explicit_write_target_test() {
       fixture_root <> "/project/manifest.toml",
       fixture_root,
       Some(path),
-      True,
       True,
       None,
       source_archive_test.metadata_clients(metadata_fetcher),

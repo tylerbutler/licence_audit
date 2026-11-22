@@ -14,6 +14,8 @@ on:
         type: string
         default: ""
 
+permissions: {}
+
 concurrency:
   group: trellis-release
   cancel-in-progress: false
@@ -38,12 +40,13 @@ jobs:
       - name: Setup environment
         uses: ./.github/actions/setup
 
-      - name: Cache Hex licence metadata
+      - name: Cache licence_audit application data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache@v6
         with:
           path: .hex-cache
-          key: hex-licence-v4-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+          key: licence-audit-root-v1-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
           restore-keys: |
+            licence-audit-root-v1-${{ runner.os }}-
             hex-licence-v4-${{ runner.os }}-
 
       - name: Create or update release PR
@@ -58,7 +61,7 @@ jobs:
             echo "Run release preparation on main." >&2
             exit 1
           fi
-          args=(--base main --branch release/pending --github-output)
+          args=(--github-output)
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             shopt -s extglob
             INPUT_PRE="${INPUT_PRE##+([[:space:]])}"
@@ -73,7 +76,7 @@ jobs:
               args+=(--set "licence_audit=$INPUT_VERSION")
             fi
           fi
-          mise exec -- trellis release pr "${args[@]}" >> "$GITHUB_OUTPUT"
+          just release-pr "${args[@]}" >> "$GITHUB_OUTPUT"
 
       - name: Refresh generated release files
         if: steps.prepare.outputs.outcome == 'prepared'

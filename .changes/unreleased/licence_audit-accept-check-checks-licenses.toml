@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Accept `check --checks=licenses` as an alias of `--checks=licences`, with the same licence-only validation."

@@ -146,6 +146,7 @@ class ReleaseNoticesTest(unittest.TestCase):
             binary.write_bytes(b"Native executable fixture\n")
         Path("scripts").mkdir()
         shutil.copy(ROOT / "scripts/release_notices.py", "scripts/")
+        shutil.copy(ROOT / "justfile", "justfile")
         with zipfile.ZipFile("licence_audit", "w") as archive:
             archive.writestr("app.beam", b"Escript fixture")
         notices.embed(Path("licence_audit"))

@@ -3,7 +3,7 @@
 //// policy, then write the result back to `gleam.toml` under
 //// `[tools.licence_audit]`.
 
-import gleam/bool
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -15,10 +15,13 @@ import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/notice
+import licence_audit/path
 import licence_audit/picker
 import licence_audit/progress
+import licence_audit/spdx_expression
 import licence_audit/toml
 import simplifile
+import tty
 
 pub type UpdateResult {
   UpdateResult(exit_code: Int, output: String)
@@ -29,22 +32,56 @@ pub fn run(
   manifest_path: String,
   project_root: String,
   config_path: Option(String),
-  ignore_config: Bool,
   no_cache: Bool,
-  cache_path: Option(String),
+  cache_root: Option(String),
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
-  run_with_picker(
+  run_with_terminal_check(
     manifest_path,
     project_root,
     config_path,
-    ignore_config,
     no_cache,
-    cache_path,
+    cache_root,
     source_clients,
-    picker.pick,
     reporter,
+    stdin_is_tty: fn() { tty.is_tty(tty.Stdin) },
+    stdout_is_tty: fn() { tty.is_tty(tty.Stdout) },
+  )
+}
+
+/// Check the real picker path before policy, manifest, or metadata discovery.
+pub fn run_with_terminal_check(
+  manifest_path: String,
+  project_root: String,
+  config_path: Option(String),
+  no_cache: Bool,
+  cache_root: Option(String),
+  source_clients: notice.Clients,
+  reporter: progress.Reporter,
+  stdin_is_tty stdin_is_tty: fn() -> Bool,
+  stdout_is_tty stdout_is_tty: fn() -> Bool,
+) -> #(UpdateResult, progress.Reporter) {
+  case stdin_is_tty(), stdout_is_tty() {
+    True, True ->
+      run_with_picker(
+        manifest_path,
+        project_root,
+        config_path,
+        no_cache,
+        cache_root,
+        source_clients,
+        picker.pick,
+        reporter,
+      )
+    _, _ -> #(not_interactive(), reporter)
+  }
+}
+
+fn not_interactive() -> UpdateResult {
+  UpdateDiagnostic(
+    exit_code: 2,
+    output: "Error: The update picker requires an interactive terminal on stdin and stdout\n",
   )
 }
 
@@ -54,9 +91,8 @@ pub fn run_with_picker(
   manifest_path: String,
   project_root: String,
   config_path: Option(String),
-  ignore_config: Bool,
   no_cache: Bool,
-  cache_path: Option(String),
+  cache_root: Option(String),
   source_clients: notice.Clients,
   pick: fn(String, List(String), List(String), List(String)) ->
     Result(picker.Selection, picker.PickerError),
@@ -66,7 +102,7 @@ pub fn run_with_picker(
 
   let outcome = {
     use existing <- result.try(
-      load_existing_policy(config_path, project_root, ignore_config)
+      load_existing_policy(config_path, project_root)
       |> result.map_error(fn(config_error) {
         #(
           UpdateDiagnostic(
@@ -99,7 +135,7 @@ pub fn run_with_picker(
 
     let cache_mode = case no_cache {
       True -> cache.Disabled
-      False -> cache.Enabled(path: cache_path)
+      False -> cache.Enabled(path: cache_root)
     }
     let cache_handle = cache.open(cache_mode)
     let cached_fetcher =
@@ -176,17 +212,20 @@ fn handle_selection(
       )
     }
     Error(picker.NotInteractive) -> {
-      let message =
-        "The update picker requires an interactive terminal on stdin and stdout"
-      let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
-      #(
-        UpdateDiagnostic(exit_code: 1, output: "Error: " <> message <> "\n"),
-        reporter,
-      )
+      #(not_interactive(), reporter)
     }
-    Ok(picker.Selection(allow, deny)) ->
+    Ok(selection) -> {
+      let initial =
+        picker.new_state(title, labels, existing.allow, existing.deny)
+        |> picker.state_selection
+      // Retain overlapping rules: dropping the last allow rule widens reports.
+      let picker.Selection(allow, deny) = case selection == initial {
+        True -> picker.Selection(existing.allow, existing.deny)
+        False -> selection
+      }
       write_selection(
+        existing,
         allow,
         deny,
         config_path,
@@ -194,11 +233,13 @@ fn handle_selection(
         cache_warning,
         reporter,
       )
+    }
   }
 }
 
 /// Write the chosen policy to disk and report success or failure.
 fn write_selection(
+  activation: config.Policy,
   allow: List(String),
   deny: List(String),
   config_path: Option(String),
@@ -207,12 +248,14 @@ fn write_selection(
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   let target = resolve_output_path(config_path, project_root)
-  case write_policy(target, allow, deny) {
+  case write_policy(target, activation, allow, deny) {
     Error(error) -> {
       let message = write_error_message(error)
       let exit_code = case error {
         FileReadFailed(_, _) -> error.exit_code(error.Input(message))
         TomlEditFailed(_) -> error.exit_code(error.Config(message))
+        InvalidPolicy(_) -> error.exit_code(error.Config(message))
+        PolicyChanged(_) -> error.exit_code(error.Config(message))
         FileWriteFailed(_) -> error.exit_code(error.Input(message))
       }
       let reporter = progress.fail(reporter, message)
@@ -287,27 +330,45 @@ fn discover_licences(
 fn load_existing_policy(
   config_path: Option(String),
   project_root: String,
-  ignore_config: Bool,
 ) -> Result(config.Policy, config.Error) {
-  use <- bool.guard(when: ignore_config, return: Ok(empty_policy()))
-  let load_result =
-    config.load(config.LoadOptions(
-      config_path: config_path,
-      project_root: project_root,
-      allow_licences: [],
-      deny_licences: [],
-      vuln_severity: None,
-      vuln_block_unknown: False,
-      ignore_config: False,
-      check: False,
-    ))
-  case load_result {
-    Ok(policy) -> Ok(policy)
-    Error(config.FileReadError(path) as error) ->
-      case simplifile.read(path) {
-        Error(simplifile.Enoent) -> Ok(empty_policy())
-        Ok(_) | Error(_) -> Error(error)
+  let path = resolve_output_path(config_path, project_root)
+  case simplifile.read(path) {
+    Ok(contents) -> parse_existing_policy(contents)
+    Error(simplifile.Enoent) -> {
+      // Windows also reports Enoent when an existing ancestor is not a directory.
+      case validate_policy_parent(path.dirname(path)) {
+        Ok(Nil) -> Ok(empty_policy())
+        Error(Nil) -> Error(config.FileReadError(path))
       }
+    }
+    Error(_) -> Error(config.FileReadError(path))
+  }
+}
+
+fn validate_policy_parent(directory: String) -> Result(Nil, Nil) {
+  case simplifile.file_info(directory) {
+    Ok(info) ->
+      case simplifile.file_info_type(info) == simplifile.Directory {
+        True -> Ok(Nil)
+        False -> Error(Nil)
+      }
+    Error(simplifile.Enoent) -> {
+      let parent = path.dirname(directory)
+      case parent == directory {
+        True -> Error(Nil)
+        False -> validate_policy_parent(parent)
+      }
+    }
+    Error(_) -> Error(Nil)
+  }
+}
+
+fn parse_existing_policy(
+  contents: String,
+) -> Result(config.Policy, config.Error) {
+  case config.parse(contents) {
+    Ok(policy) -> Ok(policy)
+    Error(config.MissingPolicy) -> Ok(empty_policy())
     Error(error) -> Error(error)
   }
 }
@@ -330,14 +391,22 @@ fn merge_labels(
   |> list.append(existing.allow)
   |> list.append(existing.deny)
   |> list.append(discovered)
-  |> list.unique
+  // dict.from_list keeps the last value; retain the first configured spelling.
+  |> list.reverse
+  |> list.map(fn(label) { #(spdx_expression.matching_tokens(label), label) })
+  |> dict.from_list
+  |> dict.values
   |> list.sort(string.compare)
 }
 
 fn only_new(existing: config.Policy, discovered: List(String)) -> List(String) {
-  let known = list.append(existing.allow, existing.deny)
-  list.filter(discovered, fn(l) { !list.contains(known, l) })
-  |> list.unique
+  let known =
+    list.append(existing.allow, existing.deny)
+    |> list.map(spdx_expression.matching_tokens)
+  merge_labels(empty_policy(), discovered)
+  |> list.filter(fn(label) {
+    !list.contains(known, spdx_expression.matching_tokens(label))
+  })
 }
 
 fn resolve_output_path(
@@ -352,6 +421,8 @@ fn resolve_output_path(
 
 type WriteError {
   TomlEditFailed(toml.Error)
+  InvalidPolicy(config.Error)
+  PolicyChanged(path: String)
   FileReadFailed(path: String, reason: simplifile.FileError)
   FileWriteFailed(path: String)
 }
@@ -359,6 +430,11 @@ type WriteError {
 fn write_error_message(error: WriteError) -> String {
   case error {
     TomlEditFailed(e) -> toml.error_message(e)
+    InvalidPolicy(e) -> error.message(error.from_config_error(e))
+    PolicyChanged(path) ->
+      "Policy conflict: allow or deny rules in "
+      <> path
+      <> " changed during selection; rerun update."
     FileReadFailed(path, reason) ->
       "Failed to read " <> path <> ": " <> simplifile.describe_error(reason)
     FileWriteFailed(path) -> "Failed to write " <> path
@@ -367,6 +443,7 @@ fn write_error_message(error: WriteError) -> String {
 
 fn write_policy(
   path: String,
+  activation: config.Policy,
   allow: List(String),
   deny: List(String),
 ) -> Result(Nil, WriteError) {
@@ -375,6 +452,15 @@ fn write_policy(
     Error(simplifile.Enoent) -> Ok("")
     Error(reason) -> Error(FileReadFailed(path, reason))
   })
+  use current <- result.try(
+    parse_existing_policy(existing) |> result.map_error(InvalidPolicy),
+  )
+  use _ <- result.try(
+    case current.allow == activation.allow && current.deny == activation.deny {
+      True -> Ok(Nil)
+      False -> Error(PolicyChanged(path))
+    },
+  )
   let section = ["tools", "licence_audit"]
   case toml.set_string_array(existing, section, "allow", allow) {
     Error(e) -> Error(TomlEditFailed(e))

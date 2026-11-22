@@ -1,9 +1,12 @@
 """Exercise the CLI with stdout and stderr captured independently."""
 
+from concurrent.futures import ThreadPoolExecutor
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -13,6 +16,7 @@ import uuid
 ROOT = Path(__file__).resolve().parent.parent
 HEX_ARCHIVE = ROOT / "test/fixtures/sbom_metadata/hex.tar"
 HEX_CHECKSUM = hashlib.sha256(HEX_ARCHIVE.read_bytes()).hexdigest().upper()
+EBINS = sorted(map(str, (ROOT / "build/prod/erlang").glob("*/ebin")))
 
 
 class CliStreamTest(unittest.TestCase):
@@ -22,22 +26,97 @@ class CliStreamTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.project)
         (self.project / "gleam.toml").write_text(
             'name = "stream_fixture"\nversion = "1.0.0"\n'
+            '[tools.licence_audit]\nallow = ["MIT"]\n'
         )
 
-    def run_cli(self, *arguments, environment=None):
+    def run_cli(
+        self, *arguments, environment=None, fixture=None,
+        stdout_tty=False, stderr_tty=False,
+    ):
         env = {**os.environ, "NO_COLOR": "1"}
         if environment is not None:
             for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
                 env.pop(name, None)
             env.update(environment)
+        command = [str(ROOT / "licence_audit"), *arguments]
+        if fixture is not None:
+            command = [
+                "erl", "-noshell", "-pa", *EBINS, "-pa", str(fixture),
+                "-eval", "licence_audit:main().", "-extra", *arguments,
+            ]
+        if stdout_tty or stderr_tty:
+            return self.run_cli_with_terminals(
+                command, env, stdout_tty, stderr_tty,
+            )
         return subprocess.run(
-            [str(ROOT / "licence_audit"), *arguments],
+            command,
             cwd=self.project,
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
+
+    def run_cli_with_terminals(self, command, env, stdout_tty, stderr_tty):
+        def read_terminal(master):
+            chunks = []
+            while True:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    break
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks).decode().replace("\r\n", "\n")
+
+        terminals = {}
+        with ThreadPoolExecutor(max_workers=2) as readers:
+            try:
+                for stream, enabled in (
+                    ("stdout", stdout_tty), ("stderr", stderr_tty),
+                ):
+                    if enabled:
+                        master, slave = os.openpty()
+                        terminals[stream] = (
+                            master, slave, readers.submit(read_terminal, master),
+                        )
+                try:
+                    result = subprocess.run(
+                        command, cwd=self.project, text=True, env=env, timeout=30,
+                        **{
+                            stream: terminals[stream][1]
+                            if stream in terminals else subprocess.PIPE
+                            for stream in ("stdout", "stderr")
+                        },
+                    )
+                finally:
+                    for _, slave, _ in terminals.values():
+                        os.close(slave)
+                for stream, (_, _, reader) in terminals.items():
+                    setattr(result, stream, reader.result(timeout=5))
+                return result
+            finally:
+                for master, _, _ in terminals.values():
+                    os.close(master)
+
+    def compile_fixture(self, evaluation, environment):
+        directory = self.project / f"fixture_{uuid.uuid4().hex}"
+        directory.mkdir()
+        result = subprocess.run(
+            ["erl", "-noshell", "-pa", *EBINS, "-eval", evaluation],
+            cwd=self.project, capture_output=True, text=True, timeout=30,
+            env={
+                **os.environ, **environment,
+                "STREAM_FIXTURE_EBIN": str(directory),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
+        return directory
 
     def assert_diagnostic(self, result, status=2):
         self.assertEqual(result.returncode, status, result.stderr)
@@ -66,6 +145,123 @@ class CliStreamTest(unittest.TestCase):
             self.assertFalse(cache.exists())
             self.assertFalse((self.project / "unused-home").exists())
 
+    def assert_help_stream(self, result, usage_error, colored):
+        destination = result.stderr if usage_error else result.stdout
+        other = result.stdout if usage_error else result.stderr
+        self.assertEqual(result.returncode, 2 if usage_error else 0, destination)
+        self.assertEqual(other, "")
+        self.assertIn("USAGE:", destination)
+        self.assertEqual("\x1b" in destination, colored, destination)
+        return destination
+
+    def test_help_pipe_color_modes_and_aliases_on_every_command(self):
+        for command in ([], ["report"], ["check"], ["update"], ["sbom"], ["vulns"], ["notices"]):
+            for flags, environment, colored in (
+                ([], {"TERM": "xterm-256color"}, False),
+                (["--color=always"], {"NO_COLOR": "1"}, True),
+                (["--colour", "ALWAYS"], {"TERM": "dumb"}, True),
+                (["--colour=never"], {"FORCE_COLOR": "3"}, False),
+                (["--color", "never"], {"FORCE_COLOR": "1"}, False),
+            ):
+                for usage_error in (False, True):
+                    with self.subTest(command=command, flags=flags, error=usage_error):
+                        suffix = "--unknown" if usage_error else "-h"
+                        result = self.run_cli(
+                            *command, *flags, suffix, environment=environment,
+                        )
+                        self.assert_help_stream(result, usage_error, colored)
+
+    def test_help_auto_uses_report_environment_policy_in_pipes(self):
+        for environment, colored in (
+            ({}, False),
+            ({"NO_COLOR": "1", "FORCE_COLOR": "3"}, False),
+            ({"FORCE_COLOR": "0", "TERM": "xterm-256color"}, False),
+            ({"FORCE_COLOR": "1"}, True),
+            ({"FORCE_COLOR": "2", "CI": "1"}, True),
+            ({"FORCE_COLOR": "3", "TERM": "dumb"}, True),
+            ({"TERM": "xterm-256color"}, False),
+            ({"COLORTERM": "truecolor"}, False),
+            ({"CI": "1", "TERM": "xterm-256color"}, False),
+        ):
+            for usage_error in (False, True):
+                with self.subTest(environment=environment, error=usage_error):
+                    result = self.run_cli(
+                        "--color=auto",
+                        "--unknown" if usage_error else "--help",
+                        environment=environment,
+                    )
+                    self.assert_help_stream(result, usage_error, colored)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "requires POSIX terminals")
+    def test_help_pipe_terminal_matrix_uses_actual_destination(self):
+        for stdout_tty, stderr_tty in (
+            (False, False), (True, False), (False, True), (True, True),
+        ):
+            for usage_error in (False, True):
+                for mode, environment, forced in (
+                    ("auto", {"TERM": "xterm-256color"}, None),
+                    ("auto", {"TERM": "xterm-256color", "CI": "1"}, None),
+                    ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True),
+                    ("never", {"FORCE_COLOR": "3"}, False),
+                ):
+                    with self.subTest(
+                        stdout_tty=stdout_tty, stderr_tty=stderr_tty,
+                        error=usage_error, mode=mode, environment=environment,
+                    ):
+                        colored = (
+                            stderr_tty if usage_error else stdout_tty
+                        ) if forced is None else forced
+                        result = self.run_cli(
+                            f"--color={mode}",
+                            "--unknown" if usage_error else "--help",
+                            environment=environment,
+                            stdout_tty=stdout_tty, stderr_tty=stderr_tty,
+                        )
+                        self.assert_help_stream(result, usage_error, colored)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "requires POSIX terminals")
+    def test_help_terminal_environment_disables_or_enables_auto(self):
+        for environment, colored in (
+            ({"NO_COLOR": "1", "TERM": "xterm-256color"}, False),
+            ({"FORCE_COLOR": "0", "COLORTERM": "truecolor"}, False),
+            ({"TERM": "dumb", "COLORTERM": "truecolor"}, False),
+            ({"COLORTERM": "truecolor"}, True),
+            ({"COLORTERM": "24bit"}, True),
+            ({"TERM": "xterm"}, False),
+            ({"TERM": "xterm", "CI": "1"}, True),
+        ):
+            for usage_error in (False, True):
+                with self.subTest(environment=environment, error=usage_error):
+                    result = self.run_cli(
+                        "--unknown" if usage_error else "-h",
+                        environment=environment, stdout_tty=True, stderr_tty=True,
+                    )
+                    self.assert_help_stream(result, usage_error, colored)
+
+    def test_help_color_does_not_scan_literal_option_values(self):
+        for command, flag in (([], "--manifest"), (["sbom"], "--output")):
+            for value in ("--color=always", "--colour=always"):
+                for flags in ([flag, value], [f"{flag}={value}"]):
+                    for usage_error in (False, True):
+                        with self.subTest(command=command, flags=flags, error=usage_error):
+                            result = self.run_cli(
+                                *command, *flags,
+                                "--unknown" if usage_error else "--help",
+                                environment={"TERM": "xterm-256color"},
+                            )
+                            self.assert_help_stream(result, usage_error, False)
+
+    def test_help_color_preserves_plain_layout_and_usage_diagnostics(self):
+        for usage_error in (False, True):
+            suffix = "--unknown" if usage_error else "--help"
+            plain = self.assert_help_stream(
+                self.run_cli("--color=never", suffix), usage_error, False,
+            )
+            colored = self.assert_help_stream(
+                self.run_cli("--color=always", suffix), usage_error, True,
+            )
+            self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", colored), plain)
+
     def test_default_report_matches_named_report_with_root_options(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
         (self.project / "locked.toml").write_text("packages = []\n")
@@ -78,11 +274,11 @@ class CliStreamTest(unittest.TestCase):
             "NO_COLOR": "1",
         }
         for flags in (
-            [], ["--manifest=locked.toml", "--config=policy.toml"],
-            ["--ignore-config", "--allow=MIT", "--deny=GPL-3.0-only"],
-            ["--scope=prod", "--no-cache", "-q", "--colour=never"],
-            ["--scope=all", "--no-cache", "-q", "--colour=never"],
-            ["--cache-path=explicit-cache", "-v", "--color=never"],
+            [],
+            [
+                "--manifest=locked.toml", "--config=policy.toml",
+                "--scope=all", "--cache-dir=explicit-cache", "-v", "--colour=never",
+            ],
         ):
             with self.subTest(flags=flags):
                 root = self.run_cli(*flags, environment=environment)
@@ -94,7 +290,7 @@ class CliStreamTest(unittest.TestCase):
                 )
                 self.assertIn("Skipped non-Hex packages: 0", root.stdout)
         result = self.run_cli("audit")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")
 
     def test_missing_manifest_diagnostics_ignore_quiet(self):
@@ -104,13 +300,152 @@ class CliStreamTest(unittest.TestCase):
                 arguments += ["--quiet"]
                 if command != "vulns":
                     arguments += ["--no-cache"]
-                if command == "check":
-                    arguments += ["--allow=MIT"]
                 self.assert_diagnostic(self.run_cli(*arguments))
+
+    def test_usage_error_classes_exit_two_before_io(self):
+        for arguments, diagnostic in (
+            (["--unknown"], "unknown"),
+            (["unknown-command"], "invalid number of arguments"),
+            (["check", "unexpected"], "invalid number of arguments"),
+            (["check", "--scope=invalid"], "must be one of"),
+            (["report", "--color=invalid"], "color"),
+            (["check", "--manifest"], "has no assigned value"),
+            (["report", "--quiet", "--verbose"], "cannot be used together"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(diagnostic, result.stderr)
+                self.assertNotIn("Could not read", result.stderr)
+
+    def test_conflicting_paths_and_enabled_booleans_exit_two_before_io(self):
+        for commands, path_flag, boolean_flag, diagnostic in (
+            (
+                ([], ["report"], ["check"], ["notices"], ["vulns"]),
+                "--config=missing-policy.toml", "--ignore-config",
+                "--config and --ignore-config cannot be used together",
+            ),
+            (
+                ([], ["report"], ["check"], ["update"], ["sbom"], ["notices"]),
+                "--cache-dir=unused-cache", "--no-cache",
+                "--no-cache and --cache-dir cannot be used together",
+            ),
+        ):
+            for command in commands:
+                for suffix in ("", "=true"):
+                    with self.subTest(command=command, flag=boolean_flag + suffix):
+                        result = self.run_cli(*command, path_flag, boolean_flag + suffix)
+                        self.assert_diagnostic(result)
+                        self.assertEqual(result.stderr, f"Error: {diagnostic}\n")
+                        self.assertFalse((self.project / "unused-cache").exists())
 
     def test_invalid_config_is_a_diagnostic(self):
         (self.project / "gleam.toml").write_text("invalid = [")
         self.assert_diagnostic(self.run_cli("report", "--quiet", "--no-cache"))
+
+    def test_removed_policy_flags_keep_usage_errors_on_stderr(self):
+        for command in ([], ["report"], ["check"]):
+            for name in ("allow", "deny"):
+                with self.subTest(command=command, name=name):
+                    result = self.run_cli(
+                        *command, "--config=missing.toml", f"--{name}=MIT"
+                    )
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn("invalid flag", result.stderr)
+
+    def test_update_rejects_ignore_config_before_loading_files(self):
+        for flags in (
+            ["--ignore-config"],
+            ["--ignore-config=true"],
+            ["--ignore-config=false"],
+            ["--ignore-config="],
+            ["--ignore-config", "true"],
+            ["--ignore-config", "false"],
+        ):
+            with self.subTest(flags=flags):
+                result = self.run_cli("update", "--quiet", *flags)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("invalid flag 'ignore-config'", result.stderr)
+                self.assertNotIn("Could not read", result.stderr)
+
+    def test_update_terminal_preflight_precedes_invalid_target(self):
+        target = self.project / "policy.toml"
+        for original in (
+            "name = [",
+            "[tools.licence_audit]\nallow = true\n",
+            "[[tools.licence_audit.exceptions]]\nreason = 'Missing finding'\n",
+        ):
+            with self.subTest(original=original):
+                target.write_text(original)
+                result = self.run_cli(
+                    "update", "--config=policy.toml", "--quiet", "--no-cache"
+                )
+                self.assert_diagnostic(result)
+                self.assertNotIn("manifest", result.stderr)
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                self.assertEqual(target.read_text(), original)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires named pipes")
+    def test_update_terminal_preflight_does_not_read_config_or_manifest(self):
+        for filename, flag in (
+            ("blocked-policy.toml", "--config"),
+            ("blocked-manifest.toml", "--manifest"),
+        ):
+            with self.subTest(filename=filename):
+                os.mkfifo(self.project / filename)
+                result = self.run_cli(
+                    "update", f"{flag}={filename}", "--cache-dir=unused-cache"
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                self.assertFalse((self.project / "unused-cache").exists())
+
+    def test_update_terminal_preflight_prints_one_diagnostic_without_cache(self):
+        (self.project / "manifest.toml").write_text(
+            (ROOT / "test/fixtures/update_manifest.toml").read_text()
+        )
+        for verbosity in ([], ["--quiet"], ["--verbose"]):
+            with self.subTest(verbosity=verbosity):
+                result = self.run_cli(
+                    "update", "--cache-dir=unused-cache", *verbosity,
+                    environment={
+                        "NO_COLOR": "1",
+                        "HOME": str(self.project / "unused-home"),
+                        "XDG_CACHE_HOME": str(self.project / "unused-xdg-cache"),
+                    },
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                for name in ("unused-cache", "unused-home", "unused-xdg-cache"):
+                    self.assertFalse((self.project / name).exists())
+
+    def test_update_missing_policy_reaches_terminal_requirement_without_writing(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for target in (None, "policy.toml", "missing.toml"):
+            with self.subTest(target=target):
+                path = self.project / (target or "gleam.toml")
+                if target != "missing.toml":
+                    path.write_text("# Keep settings\nname = 'stream_fixture'\n")
+                original = path.read_bytes() if path.exists() else None
+                flags = [f"--config={target}"] if target else []
+                result = self.run_cli("update", "--quiet", "--no-cache", *flags)
+                self.assert_diagnostic(result)
+                self.assertIn("interactive terminal", result.stderr)
+                self.assertEqual(path.read_bytes() if path.exists() else None, original)
 
     def test_vulnerability_flags_require_scan_before_reading_manifest(self):
         for flags in (
@@ -122,18 +457,21 @@ class CliStreamTest(unittest.TestCase):
             for scan in ([], ["--checks=licences"]):
                 with self.subTest(flags=flags, scan=scan):
                     result = self.run_cli("check", "--quiet", *flags, *scan)
-                    self.assert_diagnostic(result, status=1)
+                    self.assert_diagnostic(result)
                     self.assertIn("require --checks=vulns or --checks=all", result.stderr)
                     self.assertNotIn("manifest", result.stderr)
 
     def test_check_selection_usage_and_missing_policy_diagnostics(self):
+        (self.project / "gleam.toml").write_text(
+            'name = "stream_fixture"\nversion = "1.0.0"\n'
+        )
         for flag in (
             "--checks=invalid", "--checks=", "--vulns",
             "--vulns=true", "--vulns=false",
         ):
             with self.subTest(flag=flag):
                 result = self.run_cli("check", flag, "--quiet")
-                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.returncode, 2)
                 self.assertEqual(result.stdout, "")
                 self.assertIn("invalid flag", result.stderr)
         for selection in ("licences", "all"):
@@ -145,22 +483,21 @@ class CliStreamTest(unittest.TestCase):
         self.assertIn("manifest.toml", result.stderr)
         self.assertNotIn("allow list", result.stderr)
 
-    def test_help_alias_and_root_only_version(self):
-        for command in ("", "report", "check", "sbom", "vulns", "notices", "update"):
-            arguments = [command] if command else []
-            with self.subTest(command=command):
-                help_result = self.run_cli(*arguments, "-h")
-                self.assertEqual(help_result.returncode, 0, help_result.stderr)
-                if command:
-                    self.assertIn("--quiet", help_result.stdout)
-                    self.assertIn("-q", help_result.stdout)
-                version = self.run_cli(*arguments, "--version")
-                self.assertEqual(version.returncode, 1 if command else 0)
+    def test_subcommand_help_and_version_streams(self):
+        help_result = self.run_cli("check", "-h")
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertEqual(help_result.stderr, "")
+        self.assertIn("--quiet", help_result.stdout)
+        self.assertIn("-q", help_result.stdout)
+        version = self.run_cli("check", "--version")
+        self.assertEqual(version.returncode, 2)
+        self.assertEqual(version.stdout, "")
+        self.assertIn("invalid flag", version.stderr)
 
     def test_vulns_removed_cache_flags_and_short_quiet(self):
-        for flag in ("--no-cache", "--cache-path=cache.sqlite3"):
+        for flag in ("--no-cache", "--cache-dir=cache"):
             result = self.run_cli("vulns", flag)
-            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout, "")
             self.assertIn("invalid flag", result.stderr)
         for arguments in (("vulns", "-q"), ("-q", "vulns")):
@@ -186,29 +523,35 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(destination.read_text(), plain.stdout)
 
     def test_progress_color_mode_on_every_command(self):
+        forced = ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True)
         cases = (
             ("never", {"FORCE_COLOR": "1"}, False),
-            ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True),
+            forced,
             ("auto", {"NO_COLOR": "1", "FORCE_COLOR": "1"}, False),
             ("auto", {"FORCE_COLOR": "1"}, True),
             ("auto", {"TERM": "dumb"}, False),
         )
         for command in ("report", "check", "sbom", "vulns", "notices", "update"):
-            for mode, environment, colored in cases:
+            command_cases = cases if command == "report" else (forced,)
+            for mode, environment, colored in command_cases:
                 with self.subTest(command=command, mode=mode, env=environment):
-                    arguments = [command] if command else []
-                    if command == "check":
-                        arguments += ["--allow=MIT"]
                     result = self.run_cli(
-                        *arguments, "--verbose", f"--color={mode}",
+                        command, "--verbose", f"--color={mode}",
                         environment=environment,
                     )
                     self.assert_diagnostic(result)
                     lines = result.stderr.splitlines()
                     progress = [line for line in lines if " | " in line]
-                    self.assertTrue(progress, result.stderr)
-                    for line in progress:
-                        self.assertEqual("\x1b[" in line, colored, line)
+                    if command == "update":
+                        self.assertEqual(
+                            result.stderr,
+                            "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                        )
+                        self.assertEqual(progress, [])
+                    else:
+                        self.assertTrue(progress, result.stderr)
+                        for line in progress:
+                            self.assertEqual("\x1b[" in line, colored, line)
 
     def test_deferred_diagnostics_respect_color_mode(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
@@ -222,7 +565,7 @@ class CliStreamTest(unittest.TestCase):
             ):
                 with self.subTest(command=command, mode=mode):
                     arguments = (
-                        ["--allow=MIT"] if command == "check"
+                        [] if command == "check"
                         else ["--offline", "--reproducible"]
                     )
                     result = self.run_cli(
@@ -264,7 +607,7 @@ class CliStreamTest(unittest.TestCase):
                 try:
                     result = subprocess.run(
                         [
-                            str(ROOT / "licence_audit"), "check", "--allow=MIT",
+                            str(ROOT / "licence_audit"), "check",
                             f"--color={mode}",
                         ],
                         cwd=self.project, stdout=subprocess.PIPE, stderr=slave,
@@ -298,7 +641,7 @@ class CliStreamTest(unittest.TestCase):
             '[requirements]\nlocal = { path = "local" }\n'
         )
         cache_path = self.project / "metadata.dets"
-        result = self.run_cli("notices", "--quiet", f"--cache-path={cache_path}")
+        result = self.run_cli("notices", "--quiet", f"--cache-dir={cache_path}")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Third-party licences", result.stdout)
         self.assertNotIn("Products using this licence", result.stdout)
@@ -316,7 +659,7 @@ class CliStreamTest(unittest.TestCase):
         (self.project / "gleam.toml").write_text(
             project_config + 'exclude = ["stale"]\n'
         )
-        result = self.run_cli("notices", "--quiet", f"--cache-path={cache_path}")
+        result = self.run_cli("notices", "--quiet", f"--cache-dir={cache_path}")
         self.assert_diagnostic(result)
         self.assertIn("Unknown locked package names", result.stderr)
         self.assertFalse(cache_path.exists())
@@ -333,14 +676,16 @@ class CliStreamTest(unittest.TestCase):
             )
         )
 
-    def test_sbom_license_text_uses_default_notice_cache_with_metadata_override(self):
+    def test_sbom_license_text_uses_only_explicit_application_root(self):
         (self.project / "manifest.toml").write_text(
             'packages = [{ name = "example", version = "1.0.0", '
-            'source = "hex", outer_checksum = "ABC" }]\n'
+            f'source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\nexample = "1.0.0"\n'
         )
-        metadata_path = self.project / "metadata.sqlite3"
+        cache_root = self.project / "cache-é中"
+        metadata_path = cache_root / "hex-v2"
         cache_home = self.project / "cache"
+        home = self.project / "unused-home"
         evaluation = """
             Mode = os:getenv("SBOM_CACHE_MODE"),
             Metadata = 'licence_audit@hex':licences_only([<<"Apache-2.0">>]),
@@ -382,13 +727,15 @@ class CliStreamTest(unittest.TestCase):
                         "erl", "-noshell", "-pa",
                         *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
                         "-eval", evaluation, "-extra", "sbom", "--license-text",
-                        "--quiet", f"--cache-path={metadata_path}",
-                        *(["--no-cache"] if mode == "no_cache" else []),
+                        "--quiet",
+                        *(["--no-cache"] if mode == "no_cache"
+                          else [f"--cache-dir={cache_root}"]),
                     ],
                     cwd=self.project, capture_output=True, text=True, timeout=30,
                     env={
                         **os.environ, "NO_COLOR": "1",
-                        "XDG_CACHE_HOME": str(cache_home), "SBOM_CACHE_MODE": mode,
+                        "XDG_CACHE_HOME": str(cache_home), "HOME": str(home),
+                        "SBOM_CACHE_MODE": mode,
                     },
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -406,12 +753,15 @@ class CliStreamTest(unittest.TestCase):
                 self.assertEqual(
                     json.loads(metadata_files[0].read_text())["key"], "example@1.0.0"
                 )
-                notice_files = list((cache_home / "licence_audit").glob("notices-v*/*.json"))
+                notice_files = list(cache_root.glob("spdx-v1/*.json"))
                 self.assertEqual(len(notice_files), 1)
                 entry = json.loads(notice_files[0].read_text())
                 self.assertTrue(entry["key"].startswith("spdx:"))
                 self.assertTrue(entry["key"].endswith(":license:Apache-2.0"))
                 self.assertEqual(entry["value"], "Cached SPDX text")
+                self.assertFalse(cache_home.exists())
+                self.assertFalse(home.exists())
+                self.assertFalse(list(cache_root.rglob("*.tmp")))
                 if mode == "cold":
                     cached_files = {
                         file: file.read_bytes() for file in metadata_files + notice_files
@@ -462,11 +812,15 @@ class CliStreamTest(unittest.TestCase):
         )
         self.assertEqual(seed.returncode, 0, seed.stdout + seed.stderr)
         for licence, status in (("MIT", 1), ("Apache-2.0", 0)):
+            policy = self.project / "gate-policy.toml"
+            policy.write_text(
+                f'[tools.licence_audit]\nallow = ["{licence}"]\n'
+            )
             for quiet in (False, True):
                 with self.subTest(licence=licence, quiet=quiet):
                     result = self.run_cli(
-                        "check", f"--allow={licence}",
-                        f"--cache-path={cache_path}",
+                        "check", f"--config={policy}",
+                        f"--cache-dir={cache_path}",
                         *(["--quiet"] if quiet else []),
                     )
                     self.assertEqual(result.returncode, status, result.stderr)
@@ -487,8 +841,7 @@ class CliStreamTest(unittest.TestCase):
             f'otp_app = "example", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\nexample = ">= 1.0.0"\n'
         )
-        # Replace only fetch functions in a fresh VM, retaining the real OSV
-        # formatting/severity functions and main's stream dispatch.
+        # Precompile only fetch replacements; keep real formatting and stream dispatch.
         evaluation = """
             {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
             SourceResult = case os:getenv("STREAM_CHECK_SELECTION") of
@@ -507,18 +860,20 @@ class CliStreamTest(unittest.TestCase):
                 (Form) -> Form
             end, NoticeForms),
             {ok, Notice, NoticeBinary} = compile:forms(SourceForms, [binary]),
-            {module, Notice} = code:load_binary(Notice, "stream_fixture", NoticeBinary),
+            Directory = os:getenv("STREAM_FIXTURE_EBIN"),
+            ok = file:write_file(
+                filename:join(Directory, atom_to_list(Notice) ++ ".beam"), NoticeBinary),
             Mode = os:getenv("STREAM_OSV_MODE"),
             Severity = case Mode of "unknown" -> unknown_severity; _ -> high end,
             Batch = case Mode of
-                "batch_failure" -> {error, network_failure};
+                "batch_failure" -> {error, {network_failure, <<"fixture connection failed">>}};
                 _ -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>,
                     [<<"CVE-STREAM-0001">>]}]}
             end,
             Detail = case Mode of
                 "detail_failure" -> {error, not_found};
                 _ -> {ok, {vulnerability, <<"CVE-STREAM-0001">>, [],
-                    <<"Fixture advisory">>, Severity, []}}
+                    <<"Fixture advisory">>, Severity, [], []}}
             end,
             Osv = 'licence_audit@osv',
             {ok, {Osv, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
@@ -538,8 +893,9 @@ class CliStreamTest(unittest.TestCase):
                 (Form) -> Form
             end, Forms),
             {ok, Osv, OsvBinary} = compile:forms(Replaced, [binary]),
-            {module, Osv} = code:load_binary(Osv, "stream_fixture", OsvBinary),
-            licence_audit:main().
+            ok = file:write_file(
+                filename:join(Directory, atom_to_list(Osv) ++ ".beam"), OsvBinary),
+            halt(0).
         """
         cases = (
             (mode, deny, status, selection)
@@ -553,39 +909,41 @@ class CliStreamTest(unittest.TestCase):
                 ("detail_failure", True, 2),
             )
         )
+        fixtures = {}
         for mode, deny_licence, status, selection in cases:
+            key = (mode, selection)
+            if key not in fixtures:
+                fixtures[key] = self.compile_fixture(
+                    evaluation,
+                    {
+                        "STREAM_OSV_MODE": mode,
+                        "STREAM_CHECK_SELECTION": selection,
+                        "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
+                    },
+                )
             for quiet in (False, True):
                 with self.subTest(
                     mode=mode, deny_licence=deny_licence, quiet=quiet,
                     selection=selection,
                 ):
+                    policy = self.project / "vulnerability-policy.toml"
+                    policy.write_text(
+                        '[tools.licence_audit]\nallow = ["Apache-2.0"]\n'
+                        + ('deny = ["Apache-2.0"]\n' if deny_licence else '')
+                    )
                     cache_path = self.project / "vulnerability-only-cache"
-                    arguments = ["check", f"--checks={selection}"]
+                    arguments = [
+                        "check", f"--checks={selection}", f"--config={policy}"
+                    ]
                     if selection == "all":
-                        arguments += ["--allow=Apache-2.0", "--no-cache"]
+                        arguments += ["--no-cache"]
                     else:
-                        arguments += [f"--cache-path={cache_path}"]
+                        arguments += [f"--cache-dir={cache_path}"]
                     if mode == "unknown":
                         arguments += ["--vuln-block-unknown"]
-                    if deny_licence:
-                        arguments += ["--deny=Apache-2.0"]
                     if quiet:
                         arguments += ["--quiet"]
-                    result = subprocess.run(
-                        [
-                            "erl", "-noshell", "-pa",
-                            *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
-                            "-eval", evaluation, "-extra", *arguments,
-                        ],
-                        cwd=self.project, capture_output=True, text=True,
-                        timeout=30,
-                        env={
-                            **os.environ, "NO_COLOR": "1",
-                            "STREAM_OSV_MODE": mode,
-                            "STREAM_CHECK_SELECTION": selection,
-                            "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE),
-                        },
-                    )
+                    result = self.run_cli(*arguments, fixture=fixtures[key])
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
                     if selection == "all" or status == 1:
                         self.assertIn("example", result.stdout)
@@ -622,7 +980,7 @@ class CliStreamTest(unittest.TestCase):
         blocker = self.project / "cache"
         blocker.write_text("not a directory")
         env = {**os.environ, "XDG_CACHE_HOME": str(blocker)}
-        for arguments in (["report"], ["check", "--allow=MIT"], ["sbom", "--offline"]):
+        for arguments in (["report"], ["check"], ["sbom", "--offline"]):
             for no_cache in (False, True):
                 with self.subTest(command=arguments[0], no_cache=no_cache):
                     flags = ["--quiet", "--no-cache"] if no_cache else []
@@ -649,11 +1007,13 @@ class CliStreamTest(unittest.TestCase):
             self.assertTrue(result.stdout)
             self.assertEqual(result.stderr, "")
         result = self.run_cli("--not-an-option")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr)
 
     def test_incomplete_reports_exit_two_on_stdout(self):
+        policy = self.project / "archive-policy.toml"
+        policy.write_text('[tools.licence_audit]\nallow = ["Apache-2.0"]\n')
         packages = [
             '{ name = "' + name + '", version = "1.0.0", '
             'build_tools = ["gleam"], requirements = [], '
@@ -664,7 +1024,7 @@ class CliStreamTest(unittest.TestCase):
             "packages = [" + ", ".join(packages) + "]\n"
             '[requirements]\nhealthy = ">= 1.0.0"\nunavailable = ">= 1.0.0"\n'
         )
-        # Replace archive fetching in a fresh VM; retain verification and decoding.
+        # All cases share an immutable fetch fixture, but run in separate VMs.
         evaluation = """
             {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
             Module = 'licence_audit@notice',
@@ -681,12 +1041,17 @@ class CliStreamTest(unittest.TestCase):
                 (Form) -> Form
             end, Forms),
             {ok, Module, Binary} = compile:forms(Replaced, [binary]),
-            {module, Module} = code:load_binary(Module, "stream_fixture", Binary),
-            licence_audit:main().
+            ok = file:write_file(
+                filename:join(os:getenv("STREAM_FIXTURE_EBIN"),
+                    atom_to_list(Module) ++ ".beam"), Binary),
+            halt(0).
         """
+        fixture = self.compile_fixture(
+            evaluation, {"STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE)}
+        )
         for command, mode, environment, colored in (
             (command, mode, environment, colored)
-            for command in ([], ["report"], ["check", "--allow=Apache-2.0"])
+            for command in ([], ["report"], ["check", f"--config={policy}"])
             for mode, environment, colored in (
                 ("never", {"FORCE_COLOR": "1"}, False),
                 ("always", {"NO_COLOR": "1"}, True),
@@ -694,23 +1059,9 @@ class CliStreamTest(unittest.TestCase):
             )
         ):
             with self.subTest(command=command, mode=mode):
-                env = dict(os.environ)
-                for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
-                    env.pop(name, None)
-                env.update(environment)
-                env["STREAM_ARCHIVE_PATH"] = str(HEX_ARCHIVE)
-                result = subprocess.run(
-                    [
-                        "erl", "-noshell", "-pa",
-                        *map(str, (ROOT / "build/prod/erlang").glob("*/ebin")),
-                        "-eval", evaluation, "-extra",
-                        *command, "--no-cache", f"--color={mode}",
-                    ],
-                    cwd=self.project,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    env=env,
+                result = self.run_cli(
+                    *command, "--no-cache", f"--color={mode}",
+                    environment=environment, fixture=fixture,
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn("healthy", result.stdout)
@@ -775,7 +1126,7 @@ class CliStreamTest(unittest.TestCase):
             f'otp_app = "gleam_stdlib", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
             '[requirements]\ngleam_stdlib = ">= 0.60.0"\n'
         )
-        for arguments in (["check", "--allow=MIT", "--no-cache"], ["vulns"]):
+        for arguments in (["check", "--no-cache"], ["vulns"]):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(
                     [str(ROOT / "licence_audit"), *arguments],

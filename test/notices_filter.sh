@@ -9,7 +9,7 @@ export XDG_CACHE_HOME="$root/cache"
 
 cat > "$root/manifest.toml" <<'TOML'
 packages = [
-  { name = "hex_dep", version = "1.0.0", source = "hex", outer_checksum = "unused" },
+  { name = "hex_dep", version = "1.0.0", source = "hex", outer_checksum = "0000000000000000000000000000000000000000000000000000000000000000" },
   { name = "git_dep", version = "1.0.0", source = "git", repo = "https://github.com/example/dep", commit = "abc" },
   { name = "path_dep", version = "1.0.0", source = "local", path = "missing" },
 ]
@@ -20,9 +20,15 @@ exclude = ["hex_dep", "git_dep", "path_dep"]
 TOML
 
 run_cli() {
+  local cache_flag="--cache-dir=$root/metadata"
+  for argument in "$@"; do
+    if [[ "$argument" == "--no-cache" ]]; then
+      cache_flag=""
+    fi
+  done
   timeout --kill-after=5s 30s erl -noshell -pa build/dev/erlang/*/ebin \
     -eval 'licence_audit:main().' -extra notices \
-    "--manifest=$root/manifest.toml" "--cache-path=$root/metadata" "$@"
+    "--manifest=$root/manifest.toml" ${cache_flag:+"$cache_flag"} "$@"
 }
 
 output=$(run_cli --scope=prod --quiet)
@@ -46,7 +52,7 @@ test ! -e "$root/cache"
 
 cat > "$root/manifest.toml" <<'TOML'
 packages = [
-  { name = "hex_dep", version = "1.0.0", source = "hex", outer_checksum = "unused" },
+  { name = "hex_dep", version = "1.0.0", source = "hex", outer_checksum = "0000000000000000000000000000000000000000000000000000000000000000" },
   { name = "path_dep", version = "1.0.0", source = "local", path = "missing" },
 ]
 [requirements]
@@ -54,7 +60,7 @@ hex_dep = { version = ">= 1.0.0" }
 path_dep = { path = "missing" }
 TOML
 cat > "$root/gleam.toml" <<'TOML'
-[dev-dependencies]
+[dev_dependencies]
 hex_dep = ">= 1.0.0"
 path_dep = { path = "missing" }
 [tools.licence_audit.notices]

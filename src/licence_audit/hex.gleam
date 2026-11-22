@@ -47,6 +47,60 @@ pub type Error {
   NetworkFailure(reason: String)
 }
 
+/// Publication of a name/version, not verification of local source contents.
+pub type Publication {
+  Published
+  Unpublished
+}
+
+pub fn fetch_publication_from_hex(
+  name: String,
+  version: String,
+) -> Result(Publication, Error) {
+  fetch_publication(name, version, send)
+}
+
+/// Only a release-endpoint 404 proves absence. Validate successful responses
+/// against the requested identity; never use archive hashes as local evidence.
+pub fn fetch_publication(
+  name: String,
+  version: String,
+  client: fn(Request(String)) -> Result(Response(String), Error),
+) -> Result(Publication, Error) {
+  let req =
+    package_request(uri.percent_encode(name))
+    |> request.set_path(
+      "/api/packages/"
+      <> uri.percent_encode(name)
+      <> "/releases/"
+      <> uri.percent_encode(version),
+    )
+  use response <- result.try(client(req))
+  case response.status {
+    404 -> Ok(Unpublished)
+    429 -> Error(RateLimited)
+    200 -> {
+      let decoder = {
+        use release_version <- decode.field("version", decode.string)
+        use package_url <- decode.field("package_url", decode.string)
+        decode.success(#(release_version, package_url))
+      }
+      case json.parse(response.body, decoder) {
+        Ok(#(release_version, package_url))
+          if release_version == version
+          && package_url == "https://hex.pm/api/packages/" <> name
+        -> Ok(Published)
+        Ok(_) | Error(json.UnableToDecode(_)) ->
+          Error(InvalidMetadata(
+            "release identity does not match " <> name <> "@" <> version,
+          ))
+        Error(_) -> Error(InvalidJson("Invalid Hex release JSON"))
+      }
+    }
+    status -> Error(UnexpectedResponse(status))
+  }
+}
+
 /// Decode the immutable `metadata.config` stored in a Hex package tarball.
 /// Accept byte strings, quoted `/utf8` strings, decimal byte segments, and
 /// mixtures of these binary segments. Reject unsupported literals or malformed
@@ -101,11 +155,10 @@ pub fn fetch_package_metadata_from_hex(
   fetch_package_metadata(name, send)
 }
 
-/// Default HTTP client: dispatches the request synchronously via Erlang's
-/// built-in `httpc` (TLS verified by default).
+/// Default HTTP client with one retry, verified TLS and a shared host cutoff.
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req = request.set_header(req, "user-agent", "licence_audit")
-  case httpc_adaptive.dispatch(req, timeout_ms: request_timeout_ms) {
+  case httpc_adaptive.dispatch_retry(req, request_timeout_ms, retries: 1) {
     Ok(response) -> Ok(response)
     Error(error) -> Error(from_http_error(req, error))
   }
@@ -119,25 +172,8 @@ pub fn from_http_error(
     "GET "
     <> uri.to_string(request.to_uri(req))
     <> ": "
-    <> describe_http_error(error),
+    <> httpc_adaptive.describe_error(error, request_timeout_ms),
   )
-}
-
-/// Render an `httpc` transport error into a concise reason string so callers
-/// can report *why* a Hex request failed (DNS/connection, TLS, or timeout)
-/// rather than a generic "request failed".
-fn describe_http_error(error: httpc_adaptive.Error) -> String {
-  case error {
-    httpc_adaptive.InvalidUtf8Response -> "response body was not valid UTF-8"
-    httpc_adaptive.NoIpv6Address -> "IPv6 DNS lookup found no address"
-    httpc_adaptive.ResponseTimeout ->
-      "HTTP request timed out after "
-      <> int.to_string(request_timeout_ms)
-      <> " ms (HTTP client did not report which stage timed out)"
-    httpc_adaptive.FailedToConnect(reason) ->
-      "connection setup failed: " <> reason
-    httpc_adaptive.RequestFailed(reason) -> "HTTP request failed: " <> reason
-  }
 }
 
 fn package_request(name: String) -> Request(String) {

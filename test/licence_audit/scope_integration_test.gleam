@@ -9,6 +9,7 @@ import licence_audit/notice
 import licence_audit/osv
 import licence_audit/progress
 import licence_audit/source_archive
+import licence_audit/test_policy
 import simplifile
 
 const project_header = "name = \"scope_fixture\"\nversion = \"1.0.0\"\n"
@@ -22,11 +23,6 @@ fn archive() -> BitArray {
 }
 
 fn write_project(name: String, project: String, mixed: Bool) -> String {
-  let root = "build/tmp/scope-185-" <> name
-  let assert Ok(_) = simplifile.create_directory_all(root)
-  let assert Ok(_) =
-    simplifile.write(root <> "/gleam.toml", project_header <> project)
-  let assert Ok(checksum) = source_archive.sha256_hex(archive())
   let packages = [
     #("dev_dep", ["dev_leaf", "shared"]),
     #("dev_leaf", []),
@@ -36,6 +32,24 @@ fn write_project(name: String, project: String, mixed: Bool) -> String {
     False -> packages
     True -> [#("prod_dep", ["shared"]), ..packages]
   }
+  let direct_names = case mixed {
+    False -> ["dev_dep"]
+    True -> ["dev_dep", "prod_dep"]
+  }
+  write_graph_project(name, project, packages, direct_names)
+}
+
+fn write_graph_project(
+  name: String,
+  project: String,
+  packages: List(#(String, List(String))),
+  direct_names: List(String),
+) -> String {
+  let root = "build/tmp/scope-185-" <> name
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(_) =
+    simplifile.write(root <> "/gleam.toml", project_header <> project)
+  let assert Ok(checksum) = source_archive.sha256_hex(archive())
   let entries =
     list.map(packages, fn(package) {
       "{ name = \""
@@ -49,17 +63,16 @@ fn write_project(name: String, project: String, mixed: Bool) -> String {
       )
       <> "] }"
     })
-  let requirements = case mixed {
-    False -> ""
-    True -> "prod_dep = \"1.0.0\"\n"
-  }
+  let requirements =
+    list.map(direct_names, fn(name) { name <> " = \"1.0.0\"\n" })
+    |> string.concat
   let manifest_path = root <> "/manifest.toml"
   let assert Ok(_) =
     simplifile.write(
       manifest_path,
       "packages = ["
         <> string.join(entries, ",")
-        <> "]\n[requirements]\ndev_dep = \"1.0.0\"\n"
+        <> "]\n[requirements]\n"
         <> requirements,
     )
   manifest_path
@@ -74,6 +87,9 @@ fn cleanup(manifest_path: String) -> Nil {
 fn no_clients() -> licence_audit.Clients {
   licence_audit.Clients(
     fetcher: fn(_) { panic as "excluded packages must not fetch metadata" },
+    publication_fetcher: fn(_, _) {
+      panic as "scope commands must not verify local publication"
+    },
     osv_batch_fetcher: fn(_) { panic as "excluded packages must not query OSV" },
     osv_detail_fetcher: fn(_) {
       panic as "excluded packages must not fetch advisories"
@@ -101,6 +117,7 @@ fn no_clients() -> licence_audit.Clients {
 
 fn selected_clients(names: List(String)) -> licence_audit.Clients {
   licence_audit.Clients(
+    publication_fetcher: no_clients().publication_fetcher,
     fetcher: fn(name) {
       assert list.contains(names, name)
       Ok(hex.licences_only(["Apache-2.0"]))
@@ -125,6 +142,7 @@ fn selected_clients(names: List(String)) -> licence_audit.Clients {
           summary: "scope fixture advisory",
           severity: osv.High,
           scores: [],
+          affected: [],
         ),
       )
     },
@@ -174,11 +192,10 @@ pub fn dev_only_and_empty_production_tables_filter_all_commands_test() {
     [
       ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
-      ["check", "--ignore-config", "--allow=MIT", "--scope=prod"],
+      ["check", test_policy.flag(["MIT"], []), "--scope=prod"],
       [
         "check",
-        "--ignore-config",
-        "--allow=MIT",
+        test_policy.flag(["MIT"], []),
         "--scope=prod",
         "--checks=all",
       ],
@@ -214,14 +231,14 @@ pub fn dev_only_project_preserves_command_defaults_and_all_scope_test() {
   assert string.contains(audit.output, "dev_dep")
   assert string.contains(audit.output, "dev_leaf")
   let check =
-    run(manifest_path, ["check", "--ignore-config", "--allow=MIT"], clients)
+    run(manifest_path, ["check", test_policy.flag(["MIT"], [])], clients)
   should.equal(check.exit_code, 1)
   assert string.contains(check.output, "dev_dep")
   assert string.contains(check.output, "dev_leaf")
   let combined =
     run(
       manifest_path,
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--checks=all"],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--checks=all"],
       clients,
     )
   should.equal(combined.exit_code, 1)
@@ -241,8 +258,8 @@ pub fn dev_only_project_preserves_command_defaults_and_all_scope_test() {
     [
       ["--ignore-config"],
       ["report", "--ignore-config"],
-      ["check", "--ignore-config", "--allow=MIT"],
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--checks=all"],
+      ["check", test_policy.flag(["MIT"], [])],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--checks=all"],
       ["check", "--ignore-config", "--checks=vulns"],
       ["vulns", "--ignore-config"],
     ],
@@ -268,11 +285,10 @@ pub fn mixed_project_keeps_shared_transitive_production_dependencies_test() {
     [
       ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--scope=prod"],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--scope=prod"],
       [
         "check",
-        "--ignore-config",
-        "--allow=Apache-2.0",
+        test_policy.flag(["Apache-2.0"], []),
         "--scope=prod",
         "--checks=all",
       ],
@@ -319,6 +335,78 @@ pub fn mixed_project_keeps_shared_transitive_production_dependencies_test() {
   cleanup(manifest_path)
 }
 
+pub fn production_reports_keep_full_chain_when_development_path_is_shorter_test() {
+  let manifest_path =
+    write_graph_project(
+      "shorter-dev-path",
+      "[dependencies]\napp = \"1.0.0\"\n[dev-dependencies]\ndevtool = \"1.0.0\"\n",
+      [
+        #("app", ["middle"]),
+        #("middle", ["shared"]),
+        #("shared", []),
+        #("devtool", ["shared"]),
+      ],
+      ["app", "devtool"],
+    )
+  let clients = selected_clients(["app", "middle", "shared"])
+  list.each(
+    [
+      #(["--ignore-config"], 0, "?"),
+      #(["report", "--ignore-config"], 0, "?"),
+      #(["check", test_policy.flag(["Apache-2.0"], [])], 0, "✓"),
+      #(["check", test_policy.flag(["MIT"], [])], 1, "?"),
+      #(["check", test_policy.flag(["MIT"], ["Apache-2.0"])], 1, "✗"),
+      #(
+        [
+          "check",
+          test_policy.flag(["Apache-2.0"], []),
+          "--checks=all",
+        ],
+        1,
+        "✓",
+      ),
+    ],
+    fn(command) {
+      let result =
+        run(manifest_path, list.append(command.0, ["--scope=prod"]), clients)
+      should.equal(result.exit_code, command.1)
+      let rows =
+        result.output
+        |> string.split("\n")
+        |> list.filter(fn(line) {
+          string.contains(line, "1.0.0") && string.contains(line, "Apache-2.0")
+        })
+        |> list.map(fn(line) {
+          let assert [name, ..] = string.split(line, "  1.0.0")
+          string.trim_end(name)
+        })
+      should.equal(rows, [
+        command.2 <> " app",
+        "└─ " <> command.2 <> " middle",
+        "   └─ " <> command.2 <> " shared",
+      ])
+      assert !string.contains(result.output, "devtool")
+    },
+  )
+  let all_clients = selected_clients(["app", "middle", "shared", "devtool"])
+  let all = run(manifest_path, ["report", "--ignore-config"], all_clients)
+  should.equal(
+    run(
+      manifest_path,
+      ["report", "--ignore-config", "--scope=all"],
+      all_clients,
+    ),
+    all,
+  )
+  should.equal(all.exit_code, 0)
+  assert string.contains(all.output, "└─ ? middle")
+  assert !string.contains(all.output, "└─ ? shared")
+  assert string.contains(all.output, "\n? shared")
+  assert string.contains(all.output, "DEVELOPMENT DEPENDENCIES")
+  assert string.contains(all.output, "? devtool")
+  cleanup(manifest_path)
+}
+
 pub fn missing_project_file_keeps_direct_dependency_fallback_test() {
   let manifest_path = write_project("missing", "", False)
   let assert Ok(_) =
@@ -332,7 +420,7 @@ pub fn missing_project_file_keeps_direct_dependency_fallback_test() {
     [
       ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
-      ["check", "--ignore-config", "--allow=Apache-2.0", "--scope=prod"],
+      ["check", test_policy.flag(["Apache-2.0"], []), "--scope=prod"],
       ["vulns", "--ignore-config", "--scope=prod"],
       ["notices", "--ignore-config"],
     ],
@@ -357,16 +445,15 @@ pub fn invalid_project_configuration_fails_even_with_ignore_config_test() {
   let manifest_path = write_project(name, project, False)
   list.each(
     [
-      ["check", "--ignore-config", "--allow=MIT"],
+      ["check", test_policy.flag(["MIT"], [])],
       ["--ignore-config", "--scope=prod"],
       ["--ignore-config", "--scope=all"],
       ["report", "--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=all"],
-      ["check", "--ignore-config", "--allow=MIT", "--scope=prod"],
+      ["check", test_policy.flag(["MIT"], []), "--scope=prod"],
       [
         "check",
-        "--ignore-config",
-        "--allow=MIT",
+        test_policy.flag(["MIT"], []),
         "--scope=prod",
         "--checks=all",
       ],
@@ -401,7 +488,7 @@ pub fn unreadable_project_configuration_fails_in_scoped_commands_test() {
     [
       ["--ignore-config", "--scope=prod"],
       ["report", "--ignore-config", "--scope=prod"],
-      ["check", "--ignore-config", "--allow=MIT", "--scope=prod"],
+      ["check", test_policy.flag(["MIT"], []), "--scope=prod"],
       ["check", "--ignore-config", "--checks=vulns", "--scope=prod"],
       ["vulns", "--ignore-config", "--scope=prod"],
       ["notices", "--ignore-config"],

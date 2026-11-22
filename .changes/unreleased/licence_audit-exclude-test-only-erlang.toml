@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Exclude test-only Erlang helpers from the shipped executable."

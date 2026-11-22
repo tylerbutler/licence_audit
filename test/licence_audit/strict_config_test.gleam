@@ -133,7 +133,7 @@ fn load_options(allow: List(String), deny: List(String)) -> config.LoadOptions {
     allow_licences: allow,
     deny_licences: deny,
     vuln_severity: None,
-    vuln_block_unknown: False,
+    vuln_block_unknown: None,
     ignore_config: False,
     check: False,
   )
@@ -152,24 +152,27 @@ pub fn malformed_licences_fail_in_parse_load_and_merge_test() {
       }
       let input =
         "[tools.licence_audit]\n" <> field <> " = ['''" <> licence <> "''']\n"
-      should.equal(config.parse(input), Error(config.InvalidLicenceIdentifier))
-      should.equal(
-        config.parse_notices(input),
-        Error(config.InvalidLicenceIdentifier),
-      )
+      let expected = config.InvalidLicenceIdentifier(field, licence)
+      let parsed_error =
+        config.InvalidLicenceIdentifier(
+          field,
+          string.replace(licence, "\r\n", "\n"),
+        )
+      should.equal(config.parse(input), Error(parsed_error))
+      should.equal(config.parse_notices(input), Error(parsed_error))
       let options = load_options(allow, deny)
-      should.equal(config.load(options), Error(config.InvalidLicenceIdentifier))
+      should.equal(config.load(options), Error(expected))
       should.equal(
         config.load(config.LoadOptions(..options, ignore_config: True)),
-        Error(config.InvalidLicenceIdentifier),
+        Error(expected),
       )
       should.equal(
-        config.merge(policy(["MIT"], []), policy(allow, deny)),
-        Error(config.InvalidLicenceIdentifier),
+        config.merge(policy(["MIT"], []), load_options(allow, deny)),
+        Error(expected),
       )
       should.equal(
-        config.merge(policy(allow, deny), policy(["MIT"], [])),
-        Error(config.InvalidLicenceIdentifier),
+        config.merge(policy(allow, deny), load_options(["MIT"], [])),
+        Error(expected),
       )
     })
   })
@@ -191,7 +194,10 @@ pub fn valid_spdx_syntax_is_preserved_without_membership_checks_test() {
   should.equal(parsed.allow, licences)
   should.equal(parsed.deny, licences)
   should.equal(config.load(load_options(licences, licences)), Ok(parsed))
-  should.equal(config.merge(policy([], []), parsed), Ok(parsed))
+  should.equal(
+    config.merge(policy([], []), load_options(licences, licences)),
+    Ok(parsed),
+  )
 }
 
 fn no_fetch_clients() -> licence_audit.Clients {
@@ -223,12 +229,15 @@ fn assert_invalid_cli(
       progress.disabled(),
     )
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "valid SPDX expressions")
+  assert string.contains(result.output, "invalid flag")
 }
 
-pub fn cli_malformed_entries_fail_before_fetching_test() {
-  list.each(["report", "check"], fn(command) {
-    let commands = [command]
+pub fn removed_cli_entries_fail_before_fetching_test() {
+  list.each(["", "report", "check"], fn(command) {
+    let commands = case command {
+      "" -> []
+      _ -> [command]
+    }
     list.each(["allow", "deny"], fn(field) {
       list.each(
         ["MIT/Apache-2.0", "Apache 2.0", "", "MIT,", ",MIT", "MIT,,Apache-2.0"],
@@ -242,7 +251,7 @@ pub fn cli_malformed_entries_fail_before_fetching_test() {
   })
 }
 
-pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
+pub fn file_errors_stop_checks_before_fetching_test() {
   let root = "build/strict-config-validation"
   let assert Ok(_) = simplifile.create_directory_all(root)
   let manifest_path = root <> "/manifest.toml"
@@ -259,13 +268,7 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
       }
       let #(result, _) =
         licence_audit.run_configured(
-          [
-            "check",
-            "--manifest=" <> manifest_path,
-            "--allow=MIT",
-            "--deny=GPL-3.0-only",
-            ..flags
-          ],
+          ["check", "--manifest=" <> manifest_path, ..flags],
           no_fetch_clients(),
           progress.disabled(),
         )
@@ -290,13 +293,7 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
       }
       let #(result, _) =
         licence_audit.run_configured(
-          [
-            "check",
-            "--manifest=" <> manifest_path,
-            "--allow=MIT",
-            "--deny=GPL-3.0-only",
-            ..flags
-          ],
+          ["check", "--manifest=" <> manifest_path, ..flags],
           no_fetch_clients(),
           progress.disabled(),
         )
@@ -305,7 +302,7 @@ pub fn file_errors_cannot_be_hidden_by_cli_additions_test() {
     })
     should.equal(
       config.load_notices(root, None, False),
-      Error(config.InvalidLicenceIdentifier),
+      Error(config.InvalidLicenceIdentifier(field, "MIT/Apache-2.0")),
     )
   })
   let assert Ok(_) = simplifile.delete(config_path)

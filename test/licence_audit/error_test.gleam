@@ -4,6 +4,7 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/osv
 import licence_audit/policy
 
 pub fn success_report_maps_to_exit_zero_test() {
@@ -41,7 +42,7 @@ pub fn missing_policy_maps_to_exit_two_and_message_test() {
   should.equal(error.exit_code(error.MissingPolicy), 2)
   should.equal(
     error.message(error.MissingPolicy),
-    "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or pass --allow.",
+    "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or select a policy file with --config.",
   )
 }
 
@@ -82,8 +83,13 @@ pub fn config_errors_map_to_app_errors_test() {
     error.Config("Invalid config field allow: expected Array"),
   )
   should.equal(
-    error.from_config_error(config.InvalidLicenceIdentifier),
-    error.Config("Allow and deny entries must be valid SPDX expressions"),
+    error.from_config_error(config.InvalidLicenceIdentifier(
+      "deny",
+      "MIT/Apache-2.0",
+    )),
+    error.Config(
+      "Invalid config field deny entry `MIT/Apache-2.0`: Allow and deny entries must be valid SPDX expressions",
+    ),
   )
   should.equal(
     error.from_config_error(config.UnknownField("notices.incldue")),
@@ -144,6 +150,19 @@ pub fn hex_errors_map_to_app_errors_test() {
   should.equal(
     error.from_hex_error(hex.NetworkFailure("connection refused")),
     error.Hex("Hex.pm request failed: connection refused"),
+  )
+}
+
+pub fn osv_transport_reason_survives_app_error_mapping_test() -> Nil {
+  let failure =
+    error.from_osv_error(osv.NetworkFailure(
+      "POST https://api.osv.dev/v1/querybatch: TLS handshake failed: unknown_ca",
+    ))
+  should.equal(error.exit_code(failure), 2)
+  assert string.contains(error.message(failure), "OSV request failed")
+  assert string.contains(
+    error.message(failure),
+    "TLS handshake failed: unknown_ca",
   )
 }
 

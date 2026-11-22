@@ -33,11 +33,51 @@ destination(Path, Remaining) ->
                 Error -> Error
             end;
         {ok, #file_info{type = regular, mode = Mode, uid = User, gid = Group}} ->
-            {ok, Path, #file_info{mode = Mode, uid = User, gid = Group}};
+            case check_access_rules(Path) of
+                ok -> {ok, Path, #file_info{mode = Mode, uid = User, gid = Group}};
+                Error -> Error
+            end;
         {error, enoent} ->
             {ok, Path, new};
         {ok, _Info} -> {error, einval};
         Error -> Error
+    end.
+
+%% OTP cannot copy macOS ACLs. Refuse replacement unless the native ACL listing
+%% proves there are no entries; mode bits alone do not describe access rules.
+check_access_rules(Path) ->
+    case os:type() of
+        {unix, darwin} ->
+            try open_port({spawn_executable, "/bin/ls"}, [
+                binary, exit_status, use_stdio, stderr_to_stdout,
+                {env, [{"LC_ALL", "C"}, {"CLICOLOR", false}, {"CLICOLOR_FORCE", false}]},
+                {args, ["-lde", filename:absname(Path)]}
+            ]) of
+                Port ->
+                    try acl_listing(Port, <<>>, erlang:monotonic_time(millisecond) + 5000)
+                    after close_port(Port)
+                    end
+            catch
+                error:Reason -> {error, {acl_inspection_failed, Reason}}
+            end;
+        _ -> ok
+    end.
+
+acl_listing(Port, Output, Deadline) ->
+    Remaining = max(0, Deadline - erlang:monotonic_time(millisecond)),
+    receive
+        {Port, {data, Data}} when byte_size(Output) + byte_size(Data) =< 65536 ->
+            acl_listing(Port, <<Output/binary, Data/binary>>, Deadline);
+        {Port, {data, _}} -> {error, acl_listing_too_large};
+        {Port, {exit_status, 0}} ->
+            case binary:split(Output, <<"\n">>, [global]) of
+                [<<$-, _Permissions:9/binary, Marker, $\s, _/binary>>, <<>>]
+                        when Marker =:= $\s; Marker =:= $@ -> ok;
+                _ -> {error, acl_not_preserved}
+            end;
+        {Port, {exit_status, Status}} -> {error, {acl_inspection_failed, Status}}
+    after Remaining ->
+        {error, acl_inspection_timeout}
     end.
 
 prepare(Path, Contents, Metadata, Write, Replace) ->
@@ -65,6 +105,9 @@ prepare(Path, Contents, Metadata, Write, Replace) ->
         Error -> Error
     end.
 
+finish_write(ok, _Temporary) ->
+    %% Replacement consumed our file; the old pathname may belong to another writer.
+    ok;
 finish_write({error, {helper_not_stopped, _}} = Outcome, _Temporary) ->
     %% Do not race a helper whose termination could not be confirmed.
     Outcome;

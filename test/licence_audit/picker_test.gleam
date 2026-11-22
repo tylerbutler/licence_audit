@@ -1,5 +1,7 @@
+import gleam/list
 import gleeunit/should
 import licence_audit/picker
+import licence_audit/policy
 
 pub fn pick_with_terminal_check_rejects_non_tty_stdin_test() {
   should.equal(
@@ -60,7 +62,7 @@ pub fn apply_to_all_keys_set_every_label_test() {
   )
 }
 
-pub fn build_selection_excludes_ignored_and_prefers_allow_test() {
+pub fn build_selection_excludes_ignored_and_prefers_deny_test() -> Nil {
   let state =
     picker.new_state(
       "Choose licence policy:",
@@ -71,8 +73,33 @@ pub fn build_selection_excludes_ignored_and_prefers_allow_test() {
 
   should.equal(
     picker.state_selection(state),
-    picker.Selection(allow: ["MIT", "Apache-2.0"], deny: ["GPL-3.0"]),
+    picker.Selection(allow: ["MIT"], deny: ["Apache-2.0", "GPL-3.0"]),
   )
+}
+
+pub fn unchanged_selection_preserves_effective_verdicts_test() -> Nil {
+  let allow = [
+    "MIT", "ISC", "LicenseRef-Custom", "DocumentRef-A:LicenseRef-X",
+    "MIT OR Apache-2.0",
+  ]
+  let deny = [
+    "mit", "LicenseRef-custom", "DocumentRef-a:LicenseRef-X",
+    "mit\tOR\nApache-2.0",
+  ]
+  let labels = [
+    "MIT", "ISC", "LicenseRef-Custom", "LicenseRef-custom",
+    "DocumentRef-A:LicenseRef-X", "DocumentRef-a:LicenseRef-X",
+    "MIT OR Apache-2.0",
+  ]
+  let before = policy.Policy(allow, deny)
+  let selection =
+    picker.new_state("Policy", labels, allow, deny)
+    |> picker.state_selection
+  let after = policy.Policy(selection.allow, selection.deny)
+  should.equal(policy.audit(before, ["MIT"]), policy.DeniedLicence("MIT"))
+  list.each(labels, fn(label) {
+    should.equal(policy.audit(after, [label]), policy.audit(before, [label]))
+  })
 }
 
 pub fn cycle_at_index_handles_boundaries_and_empty_lists_test() {

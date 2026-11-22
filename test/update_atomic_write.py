@@ -31,7 +31,7 @@ Picker = fun(_, _, _, _) ->
 end,
 licence_audit@update:run_with_picker(
     <<"build/tmp/update_sigxfsz/manifest.toml">>, <<".">>,
-    {some, <<"build/tmp/update_sigxfsz/gleam.toml">>}, true, true, none,
+    {some, <<"build/tmp/update_sigxfsz/gleam.toml">>}, true, none,
     Clients, Picker, licence_audit@progress:capturing(verbose, <<"update">>)
 ),
 halt().

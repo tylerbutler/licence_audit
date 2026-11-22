@@ -19,6 +19,7 @@ pub type Error {
   Decode(String)
   UnsupportedSourceForSbom(package: String, source: String, detail: String)
   SbomMetadataFailed(package: String, reason: String)
+  SbomPublicationFailed(package: String, reason: String)
   SbomSerialNumberFailed
   SbomWriteFailed(path: String, reason: String)
   Osv(String)
@@ -39,7 +40,7 @@ pub fn message(error: Error) -> String {
     AuditFailed ->
       "Dependency licence audit failed. Review the report above and update the dependency or policy."
     MissingPolicy ->
-      "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or pass --allow."
+      "The `check` subcommand requires a non-empty allow list for --checks=licences (default) and --checks=all. Add allow to [tools.licence_audit] in gleam.toml or select a policy file with --config."
     Usage(message) -> message
     RuntimeStartup(reason) -> "Could not start runtime applications: " <> reason
     RuntimeException(reason) -> "Unexpected Erlang exception: " <> reason
@@ -54,9 +55,14 @@ pub fn message(error: Error) -> String {
       <> source
       <> ", "
       <> detail
-      <> "). SBOM generation supports source = \"hex\" and source = \"git\" with a github.com repository."
+      <> "). SBOM generation supports Hex, GitHub git, and validated local path sources."
     SbomMetadataFailed(package, reason) ->
       "Failed to read reproducible SBOM metadata for "
+      <> package
+      <> ": "
+      <> reason
+    SbomPublicationFailed(package, reason) ->
+      "Failed to verify Hex publication for local package "
       <> package
       <> ": "
       <> reason
@@ -76,7 +82,7 @@ pub fn from_osv_error(error: osv.Error) -> Error {
     osv.RateLimited -> Osv("OSV rate limit exceeded")
     osv.UnexpectedResponse(status) ->
       Osv("OSV returned " <> int.to_string(status))
-    osv.NetworkFailure -> Osv("OSV request failed")
+    osv.NetworkFailure(reason) -> Osv("OSV request failed: " <> reason)
   }
 }
 
@@ -98,8 +104,14 @@ pub fn from_config_error(error: config.Error) -> Error {
     config.InvalidField(field, expected) ->
       Config("Invalid config field " <> field <> ": expected " <> expected)
     config.UnknownField(field) -> Config("Unknown config field " <> field)
-    config.InvalidLicenceIdentifier ->
-      Config("Allow and deny entries must be valid SPDX expressions")
+    config.InvalidLicenceIdentifier(field, value) ->
+      Config(
+        "Invalid config field "
+        <> field
+        <> " entry `"
+        <> value
+        <> "`: Allow and deny entries must be valid SPDX expressions",
+      )
     config.InvalidException(message) -> Config("Invalid config " <> message)
     config.FileReadError(path) -> Input("Could not read " <> path)
   }

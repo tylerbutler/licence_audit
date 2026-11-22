@@ -61,7 +61,7 @@ exit code `2`. The policy keys are `allow`, `deny`, `vuln_severity`,
 and `exclude`. The error names the unknown key. An older binary therefore
 rejects keys added by a newer release instead of silently ignoring them.
 
-Every `allow` and `deny` entry, from config or CLI, must parse as an SPDX
+Every configured `allow` and `deny` entry must parse as an SPDX
 expression. Empty entries and malformed expressions such as `MIT/Apache-2.0`
 or `Apache 2.0` cause exit code `2`. Validation checks syntax, not membership in
 the SPDX License List. Custom identifiers and `LicenseRef-`/`DocumentRef-`
@@ -107,28 +107,26 @@ For untrusted metadata, the parser limits each expression to 64 KiB,
 1024 tokens, and 64 nested parentheses. Expressions above these limits fail
 the gate.
 
-## Ad-hoc and merged policy
+## Select an alternate policy
 
-CLI `--allow` and `--deny` values form a union with the corresponding
-configuration lists; duplicates are removed. `--allow` adds permitted licences
-for this run and can widen the gate. `--deny` adds denied licences for this run.
-Neither option replaces the configured list, and `deny` still takes precedence
-over `allow`.
-
-For example, add permitted and denied licences to the configured policy:
+Use `--config` to select a different policy file:
 
 ```sh
-licence_audit check --allow=Apache-2.0,MIT --deny=GPL-3.0-only
+licence_audit check --config=policies/release.toml
 ```
 
-Use `--config=other.toml` to read a different file. The file must have a
-`[tools.licence_audit]` section for licence checks. Vulnerability-only checks
-accept a valid file without this section. Both flows validate supplied settings,
-including exceptions. Use `--ignore-config` to use only CLI options.
+For licence-only or combined checks, the file must have a
+`[tools.licence_audit]` section with a non-empty `allow` list.
+Vulnerability-only checks accept a valid file without this section.
+Both flows validate supplied settings, including exceptions.
+The selected file supplies the lists and exceptions without adding rules
+from the default configuration. Edit TOML or run `update` to change policy.
 
-> **Note:** `--allow` and `--deny` also work on [`report`](/docs/report). These options
-> show a policy preview. Findings return exit code `0` when the scan completes.
-> Use `check` to return a failure for a violation.
+The default report and [`report`](/docs/report) preview the selected policy and return
+exit code `0` for findings when the scan completes. Use `--ignore-config`
+for a report without policy evaluation. Licence-only and combined checks with
+`--ignore-config` return exit code `2` because they have no licence policy to
+enforce. Vulnerability-only checks can use `--ignore-config` with CLI settings.
 
 ## Exit codes
 
@@ -194,15 +192,30 @@ vuln_block_unknown = true
 
 The CLI flags `--vuln-severity` and `--vuln-block-unknown` require
 `--checks=vulns` or `--checks=all`.
-With licence-only selection, they cause a usage error (exit 1), including an explicit
+With licence-only selection, they cause a usage error (exit `2`), including an explicit
 `--vuln-block-unknown=false`. They do not enable a scan. The configuration keys
 remain valid with any selection and apply only to selected vulnerability gates.
 
-`--vuln-severity` overrides the configured threshold. `--vuln-block-unknown`
-can only enable blocking: if you omit it, a configured `true` still applies.
-There is no CLI flag to turn this setting off. Use `--ignore-config` to ignore
-both configured vulnerability settings and use CLI-only defaults, which do
-not block unknown severity.
+CLI values take precedence over configuration for both controls:
+
+- `--vuln-severity=low|medium|high|critical` overrides `vuln_severity`.
+  Without the flag, the command uses the configured threshold, or `high` if
+  neither supplies a value.
+- `--vuln-block-unknown` and `--vuln-block-unknown=true` enable blocking.
+  `--vuln-block-unknown=false` disables blocking, including when configuration
+  sets `vuln_block_unknown = true`. Without the flag, the command uses the
+  configured value, or `false` if neither supplies a value.
+
+For example, keep the configured severity threshold but turn off blocking for
+unknown severity:
+
+```sh
+licence_audit check --checks=vulns --vuln-block-unknown=false
+licence_audit check --checks=all --vuln-block-unknown=false
+```
+
+The first command does not enforce licence policy or fetch licence metadata.
+The second still enforces the licence policy.
 
 ## Scoped policy exceptions
 
@@ -279,9 +292,9 @@ one entry instead of relying on file order.
 ### Precedence and expiry
 
 The command evaluates global rules first, then applies each matching
-exception. An active exception can accept an explicit deny, including a deny
-added through the CLI. It does not modify the global lists or declared
-metadata. Exceptions alone do not replace the licence policy required by
+exception. An active exception can accept an explicit configured deny.
+It does not modify the global lists or declared metadata.
+Exceptions alone do not replace the licence policy required by
 licence-only or combined checks. Vulnerability-only checks use advisory
 exceptions and report licence exceptions as `not evaluated`.
 `--ignore-config` ignores the exceptions along with other settings.
@@ -331,18 +344,16 @@ licence_audit check [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--checks` | `STRING` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
-| `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (default false; requires --checks=vulns or --checks=all) |
-| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (default high; requires --checks=vulns or --checks=all) |
+| `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (true or false overrides config; default false; requires --checks=vulns or --checks=all) |
+| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
 <!-- cli-referencestop -->

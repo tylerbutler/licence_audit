@@ -1,6 +1,6 @@
 -module(update_test_ffi).
--export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2,
-    windows_worker/0]).
+-export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2, is_symlink/1,
+    replace_and_recreate_temporary/1, failed_replacement/1, windows_worker/0]).
 -include_lib("kernel/include/file.hrl").
 
 %% Successful Gleam file writes cannot model partial I/O, owner death, or native
@@ -21,6 +21,23 @@ partial_write(Path, Interrupt) ->
         _ -> {error, nil}
     end.
 
+replace_and_recreate_temporary(Path) ->
+    Replace = fun(From, To) ->
+        ok = file:rename(From, To),
+        file:write_file(From, <<"another writer's temporary file">>)
+    end,
+    case policy_file_ffi:write(Path, <<"complete replacement">>, fun file:write/2, Replace) of
+        ok -> {ok, nil};
+        {error, _Reason} -> {error, nil}
+    end.
+
+failed_replacement(Path) ->
+    Replace = fun(_, _) -> {error, injected_replacement_failure} end,
+    case policy_file_ffi:write(Path, <<"replacement">>, fun file:write/2, Replace) of
+        {error, injected_replacement_failure} -> {ok, nil};
+        _ -> {error, nil}
+    end.
+
 set_private_mode(Path) ->
     ok = file:change_mode(Path, 8#640),
     nil.
@@ -35,10 +52,20 @@ temporary_files(Path) ->
     )].
 
 make_link(Target, Link) ->
-    case file:make_symlink(Target, Link) of
+    %% OTP resolves Windows symlink targets from the CWD, not the link directory.
+    Existing = case os:type() of
+        {win32, _} -> filename:absname(filename:join(filename:dirname(Link), Target));
+        _ -> Target
+    end,
+    case file:make_symlink(Existing, Link) of
         ok -> {ok, nil};
         {error, _Reason} -> {error, nil}
     end.
+
+%% Windows reports symlink type separately from its regular-file mode bits.
+is_symlink(Path) ->
+    {ok, #file_info{type = Type}} = file:read_link_info(Path),
+    Type =:= symlink.
 
 windows_worker() ->
     Path = unicode:characters_to_binary(os:getenv("POLICY_TEST_PATH")),
@@ -61,7 +88,7 @@ windows_worker() ->
             end,
             {{update_result, 0, _}, _} = licence_audit@update:run_with_picker(
                 <<"test/fixtures/update_manifest.toml">>, <<".">>,
-                {some, Path}, true, true, none, Clients, Picker,
+                {some, Path}, true, none, Clients, Picker,
                 licence_audit@progress:capturing(verbose, <<"update">>)
             );
         "failure" ->

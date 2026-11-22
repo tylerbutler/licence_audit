@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/http
 import gleam/http/request
 import gleam/http/response
 import gleam/int
@@ -24,6 +25,27 @@ fn with_untrusted_tls(check: fn(String) -> a) -> a
 
 @external(erlang, "httpc_adaptive_test_ffi", "reset")
 fn reset() -> Nil
+
+type ProbeFailure {
+  Nxdomain
+  Econnrefused
+  Enetunreach
+  Etimedout
+  Timeout
+}
+
+@external(erlang, "archive_download_test_ffi", "probe_failure")
+fn probe_failure(
+  reason: ProbeFailure,
+  family: httpc_adaptive.IpFamily,
+) -> archive_download.Error
+
+type TimeUnit {
+  Millisecond
+}
+
+@external(erlang, "erlang", "monotonic_time")
+fn monotonic_time(unit: TimeUnit) -> Int
 
 fn fetch(
   url: String,
@@ -171,33 +193,94 @@ pub fn source_download_preserves_tls_peer_verification_test() {
 }
 
 pub fn archive_probe_reuses_command_ipv4_fallback_test() {
-  let #(outcome, _) =
-    with_response(
-      "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
-      [<<"text":utf8>>],
-      0,
-      fn(url) {
-        reset()
-        let outcome =
-          fetch(string.replace(url, "127.0.0.1", "localhost"), 2000, 64)
-        let assert option.Some(_) = httpc_adaptive.take_warning()
-        let assert Ok(metadata_request) = request.to(url)
-        let metadata_request =
-          request.map(metadata_request, bit_array.from_string)
-        let assert Ok(_) =
-          httpc_adaptive.dispatch_bits_with(
-            metadata_request,
-            1000,
-            fn(sent, _, family) {
-              should.equal(sent, metadata_request)
-              should.equal(family, httpc_adaptive.Ipv4)
-              Ok(response.Response(200, [], <<>>))
-            },
-          )
-        outcome
-      },
-    )
-  should.equal(outcome, Ok(<<"text":utf8>>))
+  list.each(
+    [Nxdomain, Econnrefused, Enetunreach, Etimedout, Timeout],
+    fn(reason) {
+      reset()
+      let assert Ok(archive_request) = request.to("https://archive.invalid/pkg")
+      let archive_request =
+        request.set_body(archive_request, <<"request body":utf8>>)
+      should.equal(
+        archive_download.fetch_with(
+          archive_request,
+          5000,
+          64,
+          fn(sent, deadline, family, limit) {
+            should.equal(limit, 64)
+            case family {
+              httpc_adaptive.Ipv6 -> {
+                should.equal(sent.method, http.Head)
+                should.equal(sent.body, <<>>)
+                should.equal(sent.host, archive_request.host)
+                assert deadline - monotonic_time(Millisecond) <= 1000
+                Error(probe_failure(reason, family))
+              }
+              httpc_adaptive.Ipv4 -> {
+                should.equal(sent, archive_request)
+                Ok(response.Response(200, [], <<"text":utf8>>))
+              }
+            }
+          },
+        ),
+        Ok(<<"text":utf8>>),
+      )
+      case reason {
+        Nxdomain -> should.equal(httpc_adaptive.take_warning(), option.None)
+        Econnrefused | Enetunreach | Etimedout | Timeout -> {
+          let assert option.Some(warning) = httpc_adaptive.take_warning()
+          assert string.contains(warning, case reason {
+            Timeout -> "probe timed out after 1000ms"
+            Nxdomain | Econnrefused | Enetunreach | Etimedout ->
+              "connection failed:"
+          })
+        }
+      }
+      let assert Ok(metadata_request) =
+        request.to("https://metadata.invalid/pkg")
+      let metadata_request = request.set_body(metadata_request, <<>>)
+      let assert Ok(_) =
+        httpc_adaptive.dispatch_bits_with(
+          metadata_request,
+          1000,
+          fn(sent, _, family) {
+            should.equal(sent, metadata_request)
+            should.equal(family, httpc_adaptive.Ipv4)
+            Ok(response.Response(200, [], <<>>))
+          },
+        )
+      should.equal(
+        archive_download.fetch_with(
+          archive_request,
+          5000,
+          64,
+          fn(sent, _, family, _) {
+            should.equal(sent, archive_request)
+            should.equal(family, httpc_adaptive.Ipv4)
+            Ok(response.Response(200, [], <<"next":utf8>>))
+          },
+        ),
+        Ok(<<"next":utf8>>),
+      )
+      should.equal(httpc_adaptive.take_warning(), option.None)
+      reset()
+    },
+  )
+}
+
+pub fn ipv4_dns_failure_is_not_silenced_or_hidden_by_archive_probe_test() {
+  reset()
+  let assert Ok(archive_request) = request.to("https://archive.invalid/pkg")
+  let archive_request = request.set_body(archive_request, <<>>)
+  let failure = probe_failure(Nxdomain, httpc_adaptive.Ipv4)
+  let assert archive_download.NetworkFailure(error.ConnectionDown(_)) = failure
+  should.equal(
+    archive_download.fetch_with(archive_request, 5000, 64, fn(_, _, family, _) {
+      Error(probe_failure(Nxdomain, family))
+    }),
+    Error(failure),
+  )
+  should.equal(httpc_adaptive.take_warning(), option.None)
+  reset()
 }
 
 pub fn informational_headers_and_trailers_preserve_body_test() {

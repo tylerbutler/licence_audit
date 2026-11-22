@@ -124,9 +124,22 @@ jobs:
 |---|---|
 | [`check`](/docs/check) | Report metadata and enforce the licence policy. Returns a nonzero exit code for violations. |
 | [`notices`](/docs/notices) | Create a third-party licence notices file for a release. Does not evaluate policy. |
+| [`report`](/docs/report) | Report licences and policy findings without enforcing them. Explicit form of the default report. |
 | [`sbom`](/docs/sbom) | Create a CycloneDX 1.6 JSON SBOM. Does not evaluate policy. |
 | [`update`](/docs/update) | Select licences and write a policy to `gleam.toml`. |
 | [`vulns`](/docs/vulns) | Report known vulnerabilities from OSV.dev. Does not evaluate policy. |
+
+### Flag values and aliases
+
+Use `--flag=value` or `--flag value` for flags that take a value.
+For example, `licence_audit sbom --output -v` writes to a file named `-v`;
+it does not enable verbose output. Values can contain `=`, and you can use
+`--output=--colour` for a file named `--colour`.
+
+Use `-h`, `-q`, and `-v` as options for help, quiet output, and verbose output.
+Use `--colour` as an alias for `--color`. These aliases keep their literal
+text when you supply them as flag values. Do not use a `--` separator or
+positional arguments.
 
 ## Output, colours, and exit codes
 
@@ -159,14 +172,38 @@ The command uses these exit codes:
 | Code | Meaning |
 |---|---|
 | `0` | Successful completion. Report-only policy violations and vulnerabilities do not fail the command. |
-| `1` | Enforced check failure, invalid usage, or non-interactive use of `update`. |
-| `2` | Input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata and `update` edit/write failures. |
+| `1` | Enforced check failure. |
+| `2` | Invalid usage or an input, config, manifest, network, decode, or artifact-generation error that prevents completion, including incomplete licence metadata, non-interactive `update`, and `update` edit/write failures. |
 | `130` | `update` cancelled by the user. |
 
 Individual advisory details and default SBOM dependency enrichment are optional:
 their failures warn but can still exit `0`. Required metadata and OSV batch
 failures exit `2`. See the [partial-result rules](/docs/compatibility#exit-codes-and-output-streams)
 for the command-specific exceptions and release impact.
+
+## Network retries
+
+For Hex API and publication requests, the CLI permits one retry. For OSV batch
+and advisory requests, it permits two retries. These limits apply to rate limits,
+transient server errors, timeouts, and known connection failures. TLS verification,
+invalid input, and decode errors do not cause retries. Archive downloads keep
+their existing transport behavior.
+
+Each logical request has a total retry-wait budget of 30 seconds, separate from
+its per-attempt network timeout. The CLI honors usable `Retry-After` values
+(seconds or HTTP dates) and `x-ratelimit-reset` deadlines. If a deadline requires
+more than the remaining budget, the request fails without an early retry.
+Without a usable deadline, retries wait one second, then two seconds.
+
+After three consecutive logical requests exhaust their attempts with timeout
+or connection failures, the CLI stops new requests to that service host for
+the rest of the command. Successful responses reset the failure count; rate
+limits do not increase it. Hex package and publication requests share a count,
+as do OSV batch and advisory requests. A new command resets the counts.
+
+Required network failures leave coverage incomplete and return exit code `2`.
+Optional SBOM enrichment and individual advisory-detail failures keep their
+existing warnings and fallback behavior.
 
 ## Compatibility
 
@@ -178,11 +215,15 @@ integration interfaces.
 
 ## Caching
 
-`licence_audit` caches Hex licence metadata on disk between runs in the
-`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/hex-v2/` directory. Override it
-with `--cache-path=DIR`, or bypass the caches with `--no-cache`.
+`licence_audit` stores cache families below one application root:
+`${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/`. Use `--cache-dir=DIR`
+to select a root for metadata, locked-source metadata, notice materials, and
+SPDX text. An explicit root takes precedence over environment discovery.
+Use `--no-cache` to bypass reads and writes without deleting entries.
+Do not combine enabled `--no-cache` with `--cache-dir`; this is a usage error
+(exit `2`). See the [usage migration notes](/docs/compatibility#pre-10-usage-migration).
 When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
-the default is `%LOCALAPPDATA%\licence_audit\Cache\hex-v2\`, as resolved
+the root is `%LOCALAPPDATA%\licence_audit\Cache\`, as resolved
 by Erlang/OTP's user cache directory. A nonempty `XDG_CACHE_HOME` takes
 precedence over `HOME` on all platforms.
 Licence reports, `check`, and `update` share the immutable metadata cache with
@@ -199,17 +240,35 @@ and still requires checksum verification for licence scans.
 The cache is shared across projects and commands. Concurrent commands can
 share the cache. In CI, restore and save the
 cache directory between jobs, for example with `actions/cache`,
-`--cache-path=.hex-cache/hex-v2`, and `.hex-cache/` as the path to save. Use
+`--cache-dir=.hex-cache`, and `.hex-cache/` as the path to save. Use
 `--verbose` to see cache hits and misses.
 
-The cache directory contains one JSON file for each entry. A command writes
+The root contains versioned family directories:
+
+- `hex-v2/`: Hex API metadata and checksum/commit-keyed locked-source metadata.
+- `notices-v3/`: package and source materials, including repository resolutions.
+- `spdx-v1/`: pinned SPDX indexes and canonical licence/exception text.
+- `publication-v1/`: verified Hex publication identities for local SBOM components.
+
+The versioned directories are internal storage details, not CLI options.
+Confirmed local publications do not expire. Confirmed unpublished results
+expire at 24 hours; offline runs require usable verification evidence.
+See the [local SBOM contract](/docs/sbom#publication-verification).
+
+Each family contains one JSON file for each entry. A command writes
 each entry to a temporary file and then renames it, so other commands never
 read a partial entry. You can copy the cache directory at any time. To clear
 the cache, delete the directory.
 
 The cache fills on first use. `licence_audit` does not read or change old
-`.dets` or `.sqlite3` cache files. You can delete them. If `--cache-path`
+`.dets` or `.sqlite3` cache files. You can delete them. If `--cache-dir`
 points to a file, the command warns and continues without caching.
+
+**Migration:** replace `--cache-path=.hex-cache/hex-v2` with
+`--cache-dir=.hex-cache`. The old flag is rejected. Compatible metadata and
+immutable materials remain usable in their existing versioned directories.
+Pinned SPDX entries in `notices-v3/` are copied into `spdx-v1/` on a hit.
+Other incompatible layouts are cache misses; no repair or deletion is required.
 
 `licence_audit` caches each successful lookup when it completes. A later
 lookup failure keeps earlier entries, and the audit continues with the
@@ -251,8 +310,9 @@ against a policy committed to version control.
 - **Manifest not found:** run `gleam deps download` to create `manifest.toml`.
 - **Hex request fails:** retry or reuse cached entries without `--no-cache`.
   Required metadata failures still make a licence report incomplete.
-- **Unsupported SBOM source:** `sbom` requires a valid purl for every dependency;
-  `--offline` does not bypass source validation.
+- **Unsupported SBOM source:** `sbom` requires valid Hex/GitHub package URLs or
+  validated local path metadata and publication evidence. `--offline` does not
+  bypass source validation or required evidence checks.
 - **OSV.dev unavailable:** vulnerability commands need access to `api.osv.dev`.
   Advisory responses are not cached.
 - **No colours in automated output:** use `--color=always` to force ANSI codes
@@ -294,11 +354,9 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--allow` | `STRING_LIST` | `` | Allow licences, comma-separated |
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--deny` | `STRING_LIST` | `` | Deny licences, comma-separated |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

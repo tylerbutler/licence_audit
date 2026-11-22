@@ -72,6 +72,11 @@ file. Two types of sections follow:
 
 ## Licence text sources
 
+Declared licences come from the locked source: `metadata.config` in the
+checksum-verified Hex archive, or `gleam.toml` in the Git package directory at
+the locked commit. A newer Hex release or a stale `build/packages/` checkout
+cannot supply the declaration.
+
 `notices` looks for licence text in the sources below, in this order. It uses
 a later source only when the earlier sources give no licence text.
 
@@ -83,8 +88,9 @@ a later source only when the earlier sources give no licence text.
 2. **Declared repository** (Hex packages only). The command follows declared
    repository links for `github.com`, `codeberg.org`, and `gitlab.com`. It
    resolves a version tag, first `v<version>` and then `<version>`, to an
-   immutable commit SHA. It gets the archive for that commit, not a branch or
-   `HEAD`. The command uses only the licence text from this repository. It does
+   immutable commit SHA. Annotated tags resolve to their underlying commit.
+   A same-named branch is not a tag. It gets the archive for that commit, not a
+   branch or `HEAD`. The command uses only the licence text from this repository. It does
    not include ancillary `NOTICE` files from the repository.
 3. **Canonical SPDX text.** The command converts declared SPDX identifiers and
    expressions to canonical text from a fixed SPDX License List revision. It
@@ -105,6 +111,9 @@ For local path dependencies, Gleam writes `source = "local"` in the manifest.
 `notices` reads licence files and declared licences from the local package.
 Relative paths resolve from the directory that contains the selected manifest.
 The older `source = "path"` spelling is also accepted.
+The search excludes the local package's generated `build/` directory. It still
+accepts intentional source paths such as `legal/LICENSE`.
+Symbolic links and other non-regular files are excluded, including on Windows.
 
 For Git dependencies with a manifest `path`, the command searches only inside
 the selected package subdirectory at the locked commit. Package-root notice
@@ -151,7 +160,7 @@ continues to SPDX text. These limits bound archive sizes, not total VM memory.
 
 ## Caching
 
-In addition to the shared Hex metadata cache, `notices` keeps a cache of
+In addition to the shared locked metadata cache, `notices` keeps a cache of
 resolved licence materials. The cache prevents repeated downloads and fallback
 operations:
 
@@ -163,14 +172,34 @@ When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
 the default is `%LOCALAPPDATA%\licence_audit\Cache\notices-v3\`, as resolved
 by Erlang/OTP's user cache directory.
 
-Immutable content addresses are the cache keys. The cache contains extracted
+Immutable content addresses identify cached materials. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
-licence files from repositories, and canonical SPDX records. Packages that
-declare the same identifier share one SPDX record. Cache entries do not expire.
-Use `XDG_CACHE_HOME` to relocate the caches, or use `--no-cache` to bypass
-both the metadata and licence materials caches. `--cache-path=DIR` overrides
-only the metadata cache directory. The command reads local path dependencies
+and licence files from repositories. Pinned canonical SPDX records and indexes
+use `spdx-v1/` below the same application root. Packages that declare the same
+identifier share one SPDX record.
+Use `--cache-dir=DIR` to select the root for all these caches, taking precedence
+over `XDG_CACHE_HOME` and `HOME`. Use `--no-cache` to bypass them without deleting
+stored entries. The command reads local path dependencies
 live and does not cache them.
+
+Tag-to-commit results expire **24 hours** after resolution. Reading a tag result
+does not extend its lifetime. After expiry, the command resolves the tag again.
+If it moved, the command uses licence text from the new commit. If it is
+unchanged, the command reuses the commit-keyed licence files without downloading
+the repository archive again.
+
+Final Hex package materials cannot bypass tag revalidation. When a package has
+repository fallback candidates, the command reuses final materials only if they
+match licence files from its checksum-verified source. Otherwise, it combines
+the source materials with repository or SPDX text again, using their caches.
+Legacy tag entries without timestamps are misses; legacy final entries must
+pass the same source check. Older branch-derived entries are not reused.
+Immutable source materials, repository archives keyed by commit, and pinned
+SPDX records do not expire.
+
+If a tag refresh fails, the command warns and tries declared SPDX licences.
+It does not use expired repository-derived final materials or cache that
+degraded final result. A later run retries the repository.
 
 Corrupt cached values are treated as misses. Transient network failures are
 never cached as successful results.
@@ -190,7 +219,7 @@ licence_audit notices [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |

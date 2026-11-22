@@ -12,6 +12,10 @@ you upgrade.
 The CLI is the only supported interface. We do not provide a supported Gleam
 library API.
 
+Source builds require Gleam 1.19.2 or newer. This compiler minimum prevents
+incorrect rejection of valid Hex publication identities during SBOM generation.
+Prebuilt self-contained executables do not require a Gleam installation.
+
 ## Canonical documentation
 
 The [documentation website](/docs) is the canonical source for user-facing
@@ -65,10 +69,42 @@ locked graph and each component's production or development scope.
 ## Commands and configuration
 
 `licence_audit report` is an explicit form of the default licence report.
-Bare invocation and root scan flags remain supported; no migration is
-required. Both forms use the same report options and behavior.
+Bare invocation and root scan flags remain supported, except for the removed
+policy flags below. Both forms use the same report options and behavior.
 There is no `audit` alias. Root `--help`, `-h`, and `--version` still work
 without reading project files or making network calls.
+
+### Migration before 1.0
+
+The licence report and `check` reject `--allow` and `--deny`, including empty
+values. They have no aliases. Ad-hoc CLI additions can no longer widen a
+configured allow list or add deny rules for one run.
+
+Move those entries into `[tools.licence_audit]` in a TOML file, then select it:
+
+```toml
+[tools.licence_audit]
+allow = ["MIT", "Apache-2.0"]
+deny = ["GPL-3.0-only"]
+```
+
+```sh
+licence_audit check --config=policies/release.toml
+licence_audit --config=policies/release.toml
+licence_audit report --config=policies/release.toml
+```
+
+Include the complete policy in the alternate file; its lists replace the
+default file selection. Keep the file in version control for review.
+Use interactive `update` or edit TOML to change it. `update` does not provide
+non-interactive list editing flags.
+
+Reports can run without policy, including with `--ignore-config`. Licence
+enforcement requires a non-empty configured `allow` list, so licence-only and
+combined checks with `--ignore-config` return exit code `2`.
+Vulnerability-only checks do not require licence policy.
+
+### Guarantees from 1.0
 
 Existing documented commands, flags, aliases, and valid argument forms remain
 available within a major version. We preserve their meanings, defaults, and
@@ -88,8 +124,8 @@ We preserve the documented exit-code categories:
 | Code | Meaning |
 | ---- | ------- |
 | `0` | Successful completion. Report-only commands do not fail because they find policy violations or vulnerabilities. |
-| `1` | An enforced gate failed, CLI usage was invalid, or `update` could not run with non-interactive stdin. |
-| `2` | An input, configuration, manifest, network, decode, or artifact-generation error prevented completion. |
+| `1` | An enforced gate failed. |
+| `2` | Invalid CLI usage or an input, configuration, manifest, network, decode, or artifact-generation error prevented completion. This includes `update` without interactive stdin and stdout. |
 | `130` | The user cancelled `update`. |
 
 These categories apply after the CLI starts on a supported runtime. Escript
@@ -104,7 +140,25 @@ Missing or invalid policy configuration is an error, not a passing check.
 Licence reports exit `2` if required package metadata cannot be fetched or
 decoded, even when they show results for other packages. Policy findings in a
 completed report still exit `0`. `update` TOML edit and file-write failures
-also exit `2`, not the gate/usage category `1`.
+also exit `2`, not the gate-failure category `1`.
+
+### Pre-1.0 usage migration
+
+Update scripts to treat exit `1` as an enforced gate failure and exit `2` as
+an error. Unknown flags or commands, invalid flag values, conflicting flags,
+unexpected positional arguments, and non-interactive `update` now exit `2`
+instead of `1`. User cancellation of `update` still exits `130`.
+
+Remove one flag from each contradictory pair. Commands that accept both
+`--config` and `--ignore-config` reject the pair when `--ignore-config` is
+enabled. To read the selected file, remove `--ignore-config`; to ignore
+configuration, remove `--config`. Commands that accept `--no-cache` and
+`--cache-dir` reject the pair when `--no-cache` is enabled. To use the cache
+root, remove `--no-cache`; to bypass storage, remove `--cache-dir`.
+Explicit `--ignore-config=false` and `--no-cache=false` do not conflict with
+their path flags.
+
+### Completion and output
 
 Optional enrichment has separate completion rules:
 
@@ -115,15 +169,24 @@ Optional enrichment has separate completion rules:
   advisory details are unavailable because the gate cannot evaluate severity.
 - Default `sbom` generation tolerates missing Hex or local Git dependency
   enrichment: it warns, omits unavailable fields, and exits `0`. `--offline`
-  deliberately skips Hex enrichment. Without `--offline`, `--reproducible`
-  requires metadata from locked source archives and exits `2` if it cannot
-  obtain it. `--reproducible --offline` skips all dependency enrichment,
-  including Git, and can exit `0` without dependency licence fields. Root
-  metadata, supported sources, and artifact generation/writes remain required.
+  prohibits network requests and reads local files and usable cached evidence.
+  `--reproducible` requires locked Hex/Git metadata, including offline.
+  Local metadata, locked identities, paths, and edges must be valid in each
+  mode; local cycles fail. Local components require publication verification:
+  positive records do not expire, and negative records expire at 24 hours.
+  Missing required metadata, verification, or requested pinned SPDX text
+  exits `2`; `--offline` and `--no-cache` do not waive these requirements.
+  Root metadata, supported sources, and artifact generation/writes remain required.
 
 These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.
 Scripts that relied on those codes must use `2` for operational failure.
+
+Before 1.0, `sbom --offline` changes from enrichment skipping to network
+prohibition. Warm the selected `--cache-dir` with the required online options
+before running offline. `--licence-text --offline` now accepts cached pinned
+text; missing text returns `2`. Reproducible offline runs no longer succeed
+by omitting required locked metadata.
 
 Reports, gate verdicts, and generated artifacts go to stdout unless the user
 selects an output file. Progress, warnings, and operational errors go to stderr.
@@ -189,11 +252,16 @@ defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
-`SOURCE_DATE_EPOCH`. Without `--offline`, Hex metadata comes from
+`SOURCE_DATE_EPOCH`, plus matching usable publication evidence for local
+components. Hex metadata comes from
 checksum-verified locked package archives and Git metadata comes from the
-archive at the locked commit. The combined flags omit all dependency
-enrichment, including Git. Mutable Hex publisher and OSV advisory data are not
-included. Reproducibility does not extend across tool versions.
+archive at the locked commit, or their immutable cache entries. Offline runs
+require the same evidence without network requests. The command reads local
+path metadata from current `gleam.toml` files without caching it. Local references use normalized manifest-relative paths; local
+source contents are not hashed or attested. Mutable Hex publisher and OSV advisory data are not
+included. Refreshing expired negative publication evidence can add a purl
+without changing local files; the manifest alone does not fix output over
+time. Reproducibility does not extend across tool versions.
 
 ## Internal details
 

@@ -27,7 +27,7 @@ packages = [
   { name = "gleeunit", version = "1.11.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "EC31ABA74256AEA531EDF8169931D775BBB384FED0A8A1BDC4DD9354E3E21826" },
   { name = "glexer", version = "2.5.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "splitter"], otp_app = "glexer", source = "hex", outer_checksum = "D423CF63B8D4F9654EF53D0AF4904B249EB0679BD41C63440170AC508C9CC65E" },
   { name = "glinter", version = "2.19.2", build_tools = ["gleam"], requirements = ["argv", "glance", "gleam_json", "gleam_stdlib", "simplifile", "tom"], otp_app = "glinter", source = "hex", outer_checksum = "19CBB4D78E58E54D6B0E8554C389DC01071334FB11E9140C9487C9A4BBCA6158" },
-  { name = "gluegun", version = "1.0.0-rc.1", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_http", "gleam_stdlib", "gun"], otp_app = "gluegun", source = "hex", outer_checksum = "44AEDF058C47C18ADFB537F7E7F385F528F1C3A26A6D800E7BB35624025C6CCD" },
+  { name = "gluegun", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_http", "gleam_stdlib", "gun"], otp_app = "gluegun", source = "hex", outer_checksum = "9BD8F3C0CC554523E2C1D79049057E9B6B65175EB6D3183AE07CC30187FAD734" },
   { name = "glugify", version = "3.1.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "glugify", source = "hex", outer_checksum = "335FDF5B353557A53BB0FFE5ACFA01D7A52C4E7239F43F0C0A28F9C3AC7CBD71" },
   { name = "gun", version = "2.8.0", build_tools = ["make", "rebar3"], requirements = ["cowlib"], otp_app = "gun", source = "hex", outer_checksum = "21A7C716F472FC5BC2C2BBCB2EC74FFA5D20D8073DC712ACD054862B0A5176D8" },
   { name = "houdini", version = "1.2.1", build_tools = ["gleam"], requirements = [], otp_app = "houdini", source = "hex", outer_checksum = "6F8AC2F12974567FB744BEA66AC93CEB76AAEA19AD28564623F76CDA9BC26A85" },
@@ -57,7 +57,7 @@ gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_time = { version = ">= 1.8.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
 glinter = { version = ">= 2.19.0 and < 3.0.0" }
-gluegun = { version = ">= 1.0.0-rc.0 and < 2.0.0" }
+gluegun = { version = ">= 1.0.0 and < 2.0.0" }
 glugify = { version = ">= 3.0.0 and < 4.0.0" }
 simplifile = { version = ">= 2.4.0 and < 3.0.0" }
 snag = { version = ">= 1.0.0 and < 2.0.0" }

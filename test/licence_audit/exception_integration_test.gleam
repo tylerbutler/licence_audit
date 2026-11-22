@@ -104,6 +104,7 @@ fn detail(_id: String) -> Result(osv.Vulnerability, osv.Error) {
       summary: "Affected feature",
       severity: osv.High,
       scores: [],
+      affected: [],
     ),
   )
 }
@@ -162,6 +163,9 @@ fn run(
     ]),
     licence_audit.Clients(
       fetcher: fetch,
+      publication_fetcher: fn(_, _) {
+        panic as "non-SBOM commands must not verify local publication"
+      },
       notice_clients: source_archive_test.metadata_clients(fetch),
       osv_batch_fetcher: query,
       osv_detail_fetcher: details,
@@ -187,16 +191,14 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   let preview = run(root, ["report"], licences, batch, detail)
   should.equal(preview.exit_code, 0)
   assert string.contains(preview.output, "excepted #1")
-  let ignored =
-    run(
-      root,
-      ["check", "--ignore-config", "--allow=MIT", "--deny=GPL-3.0-only"],
-      licences,
-      batch,
-      detail,
-    )
-  should.equal(ignored.exit_code, 1)
+  let ignored = run(root, ["check", "--ignore-config"], licences, batch, detail)
+  should.equal(ignored.exit_code, 2)
+  assert string.contains(ignored.output, "requires a non-empty allow list")
   assert !string.contains(ignored.output, "Policy exceptions:")
+  let ignored_preview = run(root, ["--ignore-config"], licences, batch, detail)
+  should.equal(ignored_preview.exit_code, 0)
+  assert !string.contains(ignored_preview.output, "excepted #1")
+  assert !string.contains(ignored_preview.output, "Policy exceptions:")
 }
 
 pub fn whole_expression_exception_ignores_token_whitespace_test() {
@@ -633,6 +635,7 @@ pub fn accepted_advisory_cannot_hide_another_advisory_or_licence_test() {
             summary: "",
             severity: osv.Critical,
             scores: [],
+            affected: [],
           ),
         )
       _ -> detail(id)
@@ -655,7 +658,7 @@ pub fn failed_osv_evidence_is_never_excepted_test() {
       root,
       ["check", "--checks=all"],
       clean_licences,
-      fn(_) { Error(osv.NetworkFailure) },
+      fn(_) { Error(osv.NetworkFailure("connection refused")) },
       detail,
     )
   should.equal(result.exit_code, 2)
@@ -825,7 +828,7 @@ pub fn standalone_vulns_prod_scope_keeps_shared_production_dependencies_test() {
 pub fn standalone_vulns_rejects_explicit_removed_cache_flag_test() {
   let root = project("standalone-no-cache", "")
   let result = run(root, ["vulns", "--no-cache"], clean_licences, batch, detail)
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   assert string.contains(result.output, "no-cache")
 }
 
@@ -852,7 +855,7 @@ pub fn standalone_vulns_accepts_flags_before_command_without_cache_injection_tes
   should.equal(actual, expected)
   let explicit =
     run(root, [quiet, "vulns", "--no-cache"], clean_licences, batch, detail)
-  should.equal(explicit.exit_code, 1)
+  should.equal(explicit.exit_code, 2)
 }
 
 pub fn unknown_severity_obeys_exception_and_existing_threshold_rules_test() {

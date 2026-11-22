@@ -10,6 +10,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
@@ -36,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           : "${HEXPM_API_KEY:?Set the repository Actions secret HEXPM_API_KEY before publishing.}"
-          mise exec -- trellis publish --tag "$RELEASE_TAG"
+          just publish --tag "$RELEASE_TAG"
 
   test:
     uses: ./.github/workflows/ci.yml
@@ -81,9 +84,9 @@ jobs:
       - name: Embed required notices in bare escript
         run: |
           set -euo pipefail
-          mise exec -- python3 -B scripts/release_notices.py embed licence_audit
-          mise exec -- python3 -B scripts/release_notices.py check licence_audit
-          ./licence_audit --help
+          just release-notices embed licence_audit
+          just release-notices check licence_audit
+          just test-escript
 
       - name: Generate CycloneDX SBOM
         env:
@@ -91,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          ./licence_audit sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
+          just --no-deps sbom --output="dist/licence_audit-${REF_NAME}.cdx.json"
 
       - name: Build Queso executables
         env:
@@ -103,7 +106,7 @@ jobs:
           export TMPDIR="$PWD/build/release-tmp"
           rustup component add rust-docs
           just build-queso 2>&1 | tee build/queso-build.log
-          mise exec -- python3 -B scripts/runtime_notices.py --build-log build/queso-build.log
+          just runtime-notices --build-log build/queso-build.log
 
       - name: Stage release artifacts
         env:
@@ -117,17 +120,17 @@ jobs:
           escript_stage="licence_audit-${REF_NAME}"
           mkdir -p "$escript_stage"
           cp licence_audit "$escript_stage/"
-          mise exec -- python3 -B scripts/release_notices.py stage "$escript_stage"
+          just release-notices stage "$escript_stage"
           [ -f README.md ] && cp README.md "$escript_stage/" || true
           tar -czf "dist/${escript_stage}.tar.gz" "$escript_stage"
           (cd "$escript_stage" && zip -qr "../dist/${escript_stage}.zip" .)
-          mise exec -- python3 -B scripts/release_notices.py check "dist/${escript_stage}.tar.gz"
-          mise exec -- python3 -B scripts/release_notices.py check "dist/${escript_stage}.zip"
+          just release-notices check "dist/${escript_stage}.tar.gz"
+          just release-notices check "dist/${escript_stage}.zip"
 
           # Ship the bare escript alongside the archives so it can be attested
           # and downloaded directly.
           cp licence_audit dist/
-          mise exec -- python3 -B scripts/release_notices.py check dist/licence_audit
+          just release-notices check dist/licence_audit
 
           targets=(
             aarch64-linux-glibc
@@ -156,15 +159,15 @@ jobs:
               chmod +x "$archive_stage/licence_audit"
             fi
 
-            mise exec -- python3 -B scripts/release_notices.py stage "$archive_stage" --target "$target"
+            just release-notices stage "$archive_stage" --target "$target"
             [ -f README.md ] && cp README.md "$archive_stage/" || true
 
             if [[ "$target" == *-windows ]]; then
               (cd "$archive_stage" && zip -qr "../dist/${archive_stage}.zip" .)
-              mise exec -- python3 -B scripts/release_notices.py check "dist/${archive_stage}.zip" --target "$target"
+              just release-notices check "dist/${archive_stage}.zip" --target "$target"
             else
               tar -czf "dist/${archive_stage}.tar.gz" "$archive_stage"
-              mise exec -- python3 -B scripts/release_notices.py check "dist/${archive_stage}.tar.gz" --target "$target"
+              just release-notices check "dist/${archive_stage}.tar.gz" --target "$target"
             fi
           done
 
@@ -176,7 +179,9 @@ jobs:
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
-          (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt *.tar.gz *.zip *.cdx.json > checksums.txt)
+          (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt \
+            "licence_audit-${REF_NAME}"*.tar.gz "licence_audit-${REF_NAME}"*.zip \
+            "licence_audit-${REF_NAME}.cdx.json" > checksums.txt)
           ls -la dist
 
       - name: Test packaged cache and HTTPS without system Erlang
@@ -189,23 +194,25 @@ jobs:
           extracted="$PWD/build/release-smoke"
           mkdir -p "$extracted"
           tar -xzf "dist/licence_audit-${REF_NAME}.tar.gz" -C "$extracted"
-          mise exec -- python3 -B test/native_cache_smoke.py \
+          just test-cache \
             "$extracted/licence_audit-${REF_NAME}/licence_audit" --escript
-          mise exec -- python3 -B test/native_cache_smoke.py dist/licence_audit --escript
+          just test-cache dist/licence_audit --escript
           tar -xzf "dist/${archive}.tar.gz" -C "$extracted"
-          docker run --rm \
-            --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
-            debian:bookworm-slim sh -ec '
-              apt-get update -qq
-              apt-get install -y --no-install-recommends ca-certificates libstdc++6 libtinfo6 python3
-              exec python3 -B test/native_cache_smoke.py "$1"
-            ' sh "build/release-smoke/$archive/licence_audit"
+          just test-native-cache "build/release-smoke/$archive/licence_audit"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
         with:
           name: licence_audit-release
-          path: dist/
+          path: |
+            dist/licence_audit
+            dist/LICENSE
+            dist/NOTICE
+            dist/THIRD_PARTY_NOTICES.txt
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.tar.gz
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.zip
+            dist/licence_audit-${{ env.RELEASE_TAG }}.cdx.json
+            dist/checksums.txt
 
   release:
     needs: build-release-artifacts
@@ -231,8 +238,8 @@ jobs:
         with:
           subject-path: |
             dist/licence_audit
-            dist/*.tar.gz
-            dist/*.zip
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.tar.gz
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.zip
             dist/checksums.txt
 
       - name: Attest SBOM for release artifacts
@@ -240,8 +247,8 @@ jobs:
         with:
           subject-path: |
             dist/licence_audit
-            dist/*.tar.gz
-            dist/*.zip
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.tar.gz
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.zip
           sbom-path: dist/licence_audit-${{ env.RELEASE_TAG }}.cdx.json
 
       - name: Attach assets to GitHub Release
@@ -259,7 +266,10 @@ jobs:
             echo "Release $REF_NAME not yet available, sleeping..."
             sleep 10
           done
-          gh release upload "$REF_NAME" dist/* --clobber
+          gh release upload "$REF_NAME" \
+            dist/licence_audit dist/LICENSE dist/NOTICE dist/THIRD_PARTY_NOTICES.txt \
+            "dist/licence_audit-${REF_NAME}"*.tar.gz "dist/licence_audit-${REF_NAME}"*.zip \
+            "dist/licence_audit-${REF_NAME}.cdx.json" dist/checksums.txt --clobber
 
       - name: Add install instructions to release body
         env:

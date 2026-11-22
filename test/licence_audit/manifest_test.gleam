@@ -245,15 +245,39 @@ pub fn sbom_entries_captures_optional_inner_checksum_test() {
 [requirements]
 foo = { version = \">= 1.0.0\" }
 "
-  let assert Ok(parsed) = manifest.sbom_entries(input)
+  let assert Ok(parsed) = manifest.sbom_entries(audit_fixture(input))
   let assert [entry] = parsed.entries
   should.equal(
     entry.provenance,
     manifest.HexProvenance(
-      outer_checksum: "AAAA",
-      inner_checksum: option.Some("BBBB"),
+      outer_checksum: string.repeat("A", 64),
+      inner_checksum: option.Some(string.repeat("B", 64)),
     ),
   )
+}
+
+pub fn sbom_rejects_malformed_hex_checksums_test() {
+  list.each(["outer_checksum", "inner_checksum"], fn(field) {
+    list.each(
+      ["\"oops\"", "\"\"", "\"" <> string.repeat("g", 64) <> "\"", "42"],
+      fn(value) {
+        let input =
+          "packages = [{ name = \"widget\", version = \"1.0.0\", source = \"hex\", "
+          <> case field {
+            "inner_checksum" ->
+              "outer_checksum = \"" <> string.repeat("a", 64) <> "\", "
+            _ -> ""
+          }
+          <> field
+          <> " = "
+          <> value
+          <> " }]"
+        let assert Error(manifest.InvalidPackageField(package, actual_field, _)) =
+          manifest.sbom_entries(input)
+        should.equal(#(package, actual_field), #("widget", field))
+      },
+    )
+  })
 }
 
 pub fn sbom_entries_returns_git_provenance_test() {
@@ -393,6 +417,47 @@ pub fn dep_scopes_classifies_prod_wins_test() {
   should.equal(dict.get(scopes, "lib_b"), Ok(manifest.Prod))
   should.equal(dict.get(scopes, "shared"), Ok(manifest.Prod))
   should.equal(dict.get(scopes, "test_helper"), Ok(manifest.Dev))
+}
+
+pub fn production_paths_ignore_shorter_development_paths_test() {
+  let assert Ok(locked) = manifest.parse(audit_fixture(scope_fixture))
+  let paths = manifest.dep_paths_from(locked, ["app_a"])
+  should.equal(dict.get(paths, "app_a"), Ok(["app_a"]))
+  should.equal(dict.get(paths, "lib_b"), Ok(["app_a", "lib_b"]))
+  should.equal(dict.get(paths, "shared"), Ok(["app_a", "lib_b", "shared"]))
+  should.equal(dict.get(paths, "test_helper"), Error(Nil))
+  should.equal(
+    dict.get(manifest.dep_paths(locked), "shared"),
+    Ok(["test_helper", "shared"]),
+  )
+  should.equal(manifest.dep_paths_from(locked, []), dict.new())
+}
+
+pub fn production_paths_keep_non_hex_and_transitive_direct_dependencies_test() {
+  let input =
+    "packages = [
+  { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
+  { name = \"lib_b\", version = \"2.0.0\", source = \"path\", requirements = [\"test_helper\"] },
+  { name = \"test_helper\", version = \"1.0.0\", source = \"hex\", requirements = [\"shared\"] },
+  { name = \"shared\", version = \"3.0.0\", source = \"hex\", requirements = [] },
+]
+
+[requirements]
+app_a = \"1.0.0\"
+test_helper = \"1.0.0\"
+"
+  let assert Ok(locked) = manifest.parse(audit_fixture(input))
+  let paths = manifest.dep_paths_from(locked, ["app_a", "missing"])
+  should.equal(dict.get(paths, "lib_b"), Ok(["app_a", "lib_b"]))
+  should.equal(
+    dict.get(paths, "shared"),
+    Ok(["app_a", "lib_b", "test_helper", "shared"]),
+  )
+  should.equal(dict.get(paths, "missing"), Error(Nil))
+  should.equal(
+    dict.get(manifest.dep_paths(locked), "shared"),
+    Ok(["test_helper", "shared"]),
+  )
 }
 
 pub fn dep_scopes_all_prod_fallback_test() {

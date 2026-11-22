@@ -1,0 +1,285 @@
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Exclude symbolic links from local `notices` source traversal on Windows by using the native file type instead of POSIX mode bits."
+
+[fragments.source]
+commit = "5c7642ad9ed045b31bde7a5fc06b6cc60adc6c1b"
+
+[[fragments.source.issues]]
+number = 339
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Handle Git package subdirectories correctly in mixed local SBOM workspaces and accept local packages declared in `[dev_dependencies]` with optional scope."
+
+[fragments.source]
+commit = "e1027b00539feba9fad02c6ddf937575360e1f4e"
+
+[[fragments.source.issues]]
+number = 337
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = "Include local path dependencies in CycloneDX `sbom` output with validated current metadata, dependency edges, scopes, and stable manifest-relative references. Reject stale root local dependency declarations before network requests or output writes. Require Hex publication verification in online, offline, and reproducible modes; add a Hex purl only for a confirmed published name/version while retaining local provenance without release checksums. Store permanent positive and 24-hour negative verification records under `--cache-dir`; `--no-cache` does not bypass verification."
+
+[fragments.source]
+commit = "69182d2eab91e911dd71e7d36b646f637830acb9"
+
+[[fragments.source.issues]]
+number = 259
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Keep deny rules selected in `update` and merge equivalent SPDX spellings without merging case-distinct custom references."
+
+[fragments.source]
+commit = "96c652d33f231180f3bc475bdd12e2fc676ad540"
+
+[[fragments.source.issues]]
+number = 336
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Let `check --checks=vulns` and `check --checks=all` use `--vuln-block-unknown=false` to override configured `vuln_block_unknown = true`. Omitted flags retain the configured value; severity threshold precedence is unchanged."
+
+[fragments.source]
+commit = "a306605d7b724d59ebfad85ede13a983cf106d67"
+
+[[fragments.source.issues]]
+number = 309
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Make `sbom --licence-text` the primary spelling and keep `--license-text` as a supported alias, with the same boolean and repeated-flag behavior."
+
+[fragments.source]
+commit = "eb69da0e8a3fabd5c9f325c920f6547c9e55c065"
+
+[[fragments.source.issues]]
+number = 283
+
+[[fragments]]
+package = "licence_audit"
+kind = "Changed"
+body = "Make `sbom --offline` prohibit network access while retaining required locked metadata, local publication verification, and requested pinned SPDX text. Warm-cache online and offline reproducible runs use the same evidence; missing required cache entries or `--no-cache` return exit 2 instead of omitting evidence."
+
+[fragments.source]
+commit = "69182d2eab91e911dd71e7d36b646f637830acb9"
+
+[[fragments.source.issues]]
+number = 259
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = "Add `licence_audit report` as an explicit form of the default non-enforcing licence report. Bare invocation and root scan flags remain supported, with the same report options, findings, and operational exit codes."
+
+[fragments.source]
+commit = "b415920fb556d1cc1cf73c676e8c9a328ecde9b2"
+
+[[fragments.source.issues]]
+number = 284
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Name invalid allow/deny fields and entries, and preserve OSV transport failure reasons with the shared Hex HTTP formatter."
+
+[fragments.source]
+commit = "d4e225f70fae5762c786db4006f6427f9f0ae0bb"
+
+[[fragments.source.issues]]
+number = 338
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Preserve cache read warnings for blocked Windows parent paths and prevent scratch-file leaks during concurrent cache replacement."
+
+[fragments.source]
+commit = "a54c874aab842359e981e1b21316bc0aa260e801"
+
+[[fragments.source.issues]]
+number = 340
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Preserve literal values such as `-v`, `-q`, `-h`, and `--colour` after value-taking flags, including `sbom --output -v`, while retaining option aliases."
+
+[fragments.source]
+commit = "39fc11863ccb5543fe01f39112bfc0a35fce6113"
+
+[[fragments.source.issues]]
+number = 281
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Query OSV with the locked Git commit only, while retaining full subdirectory purls in reports and SBOM references."
+
+[fragments.source]
+commit = "d4e225f70fae5762c786db4006f6427f9f0ae0bb"
+
+[[fragments.source.issues]]
+number = 338
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Refuse policy replacement on macOS when an ACL is present or access-rule inspection fails, leaving the original file and its access rules intact."
+
+[fragments.source]
+commit = "96c652d33f231180f3bc475bdd12e2fc676ad540"
+
+[[fragments.source.issues]]
+number = 336
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Reject malformed Hex SHA-256 checksums and missing root or transitive lockfile targets before `sbom` writes output; preserve existing artifacts on failure."
+
+[fragments.source]
+commit = "e1027b00539feba9fad02c6ddf937575360e1f4e"
+
+[[fragments.source.issues]]
+number = 337
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Reject stale `update` selections when allow or deny rules change, and preserve concurrent edits to unrelated settings."
+
+[fragments.source]
+commit = "96c652d33f231180f3bc475bdd12e2fc676ad540"
+
+[[fragments.source.issues]]
+number = 336
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Reject `update` targets beneath an existing non-directory before fetching metadata or opening the picker on Windows."
+
+[fragments.source]
+commit = "96c652d33f231180f3bc475bdd12e2fc676ad540"
+
+[[fragments.source.issues]]
+number = 336
+
+[[fragments]]
+package = "licence_audit"
+kind = "Removed"
+body = "Remove `--allow` and `--deny` from licence reports and `check`. Put complete allow/deny lists in `[tools.licence_audit]` in TOML and select an alternate policy with `--config`; ad-hoc CLI policy widening is no longer supported. Reports can still run without policy, while licence enforcement requires a non-empty configured allow list."
+
+[fragments.source]
+commit = "9d006402f6bd6d8c6632e8dc73e6d8fa04934df0"
+
+[[fragments.source.issues]]
+number = 286
+
+[[fragments]]
+package = "licence_audit"
+kind = "Removed"
+body = "Remove `update --ignore-config`, including explicit boolean forms. `update` now creates missing policy sections in valid default and explicit targets without bypassing TOML, policy, or exception validation; clear preselected entries in the picker to start a new selection. Read-only commands keep `--ignore-config`."
+
+[fragments.source]
+commit = "0e54f8a15f969571be83b1357cd340ccaaff5a27"
+
+[[fragments.source.issues]]
+number = 280
+
+[[fragments]]
+package = "licence_audit"
+kind = "Changed"
+body = "Replace `--cache-path` with `--cache-dir`, one application root for metadata, immutable notice materials, and pinned SPDX text. An explicit root takes precedence over environment defaults; `--no-cache` bypasses storage without deleting entries. Existing compatible versioned caches remain reusable."
+
+[fragments.source]
+commit = "672933dc51da1e986d46c7974a8654ff54f99da3"
+
+[[fragments.source.issues]]
+number = 285
+
+[[fragments]]
+package = "licence_audit"
+kind = "Changed"
+body = "Replace `check --vulns` with `--checks=licences|vulns|all` (default `licences`). Use `check --checks=all` to keep combined enforcement, or `check --checks=vulns` for an OSV-only gate that does not require or enforce licence policy or fetch licence metadata. Standalone `vulns` and `sbom --vulns` are unchanged."
+
+[fragments.source]
+commit = "36d776e0948eed0bead4b064bc8fb8296f83d7ca"
+
+[[fragments.source.issues]]
+number = 287
+
+[[fragments]]
+package = "licence_audit"
+kind = "Removed"
+body = "Replace `--prod-only` and `--include-dev` with `--scope=prod|all` on licence reports, `check`, `vulns`, and `notices`. Reports, checks, and vulnerability reports still default to all dependencies; notices still defaults to production dependencies. The removed flags, including boolean forms, are rejected. `sbom` keeps its full graph and `update` has no scope option."
+
+[fragments.source]
+commit = "3a9bbd48570de605ee2ce1280e3fb2feec506a63"
+
+[[fragments.source.issues]]
+number = 282
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Require Gleam 1.19.2 or newer for source builds to preserve strict, correct Hex publication verification in `sbom`."
+
+[fragments.source]
+commit = "e1027b00539feba9fad02c6ddf937575360e1f4e"
+
+[[fragments.source.issues]]
+number = 337
+
+[[fragments]]
+package = "licence_audit"
+kind = "Changed"
+body = "Reserve exit code `1` for enforced gate failures. CLI usage errors, including non-interactive `update`, now exit `2`; cancellation remains `130`. Reject enabled `--ignore-config` with `--config` and enabled `--no-cache` with `--cache-dir` on commands that accept both flags. Remove one flag from each pair; explicit `=false` remains valid."
+
+[fragments.source]
+commit = "3d046ab4cfce8cc90d2edba3aa0fd2db18b8803f"
+
+[[fragments.source.issues]]
+number = 310
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Use checksum-verified locked Hex archive licence declarations for reports, `check`, and `update`, with immutable cache reuse and no API licence fallback."
+
+[fragments.source]
+commit = "d3c303f8e2cc97416058c971c8bcc8e639407e2b"
+
+[[fragments.source.issues]]
+number = 288
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Use locked source licence declarations for notices, exclude local build output, and resolve repository fallback tags without accepting branches or old ambiguous cache entries."
+
+[fragments.source]
+commit = "5c7642ad9ed045b31bde7a5fc06b6cc60adc6c1b"
+
+[[fragments.source.issues]]
+number = 339
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = "Use matching affected-package OSV scores in vulnerability reports, checks, and SBOM ratings without mixing package or version severities."
+
+[fragments.source]
+commit = "d4e225f70fae5762c786db4006f6427f9f0ae0bb"
+
+[[fragments.source.issues]]
+number = 338

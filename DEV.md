@@ -49,7 +49,28 @@ Queso and cargo-about. The release job also installs the Rust targets, Zig,
 cargo-zigbuild, and system packages. These use their own trust and verification
 mechanisms. The build is not fully hermetic.
 
+## Dependency decisions
+
+Keep direct dependencies limited to what the CLI needs:
+
+| Dependency removed | Rationale |
+|---|---|
+| `envoy` | Use the small `licence_audit/env` Erlang FFI helper for environment lookup. |
+| `gleam_regexp` | Parse GitHub repository URLs with string operations instead of a regular expression. |
+| `youid` | Format SBOM UUIDs from core-library random bytes or content hashes. |
+
+See [#29](https://github.com/tylerbutler/licence_audit/pull/29) for the
+dependency removal and [#273](https://github.com/tylerbutler/licence_audit/issues/273)
+for the test decision. Test behavior rather than the absence of source strings.
+Source-text checks reject harmless identifiers and comments and depend on file
+paths and the working directory. These decisions do not impose a CI dependency
+ban or a source identifier/comment guard.
+
 ## Build from source
+
+Source builds require Gleam 1.19.2 or newer. Older compilers can reject valid
+Hex publication identities during SBOM generation. The compiler constraint in
+`gleam.toml` excludes those versions; publication identity checks remain strict.
 
 ```sh
 just build
@@ -118,8 +139,12 @@ the compiler's source roots. The docs recipes compile that helper into the
 development build only. Its JavaScript companion stays in `dev/`.
 The script rejects new or changed native development files until a
 contributor reviews them.
+Native test helpers stay under `native/test/` for the same reason.
+`just test-ffi` builds the development application and compiles these helpers
+into its `ebin` directory. `just test` runs this step automatically, including
+in CI before the Windows process-level test.
 `just test-vendor-production` checks the production application, BEAM files,
-and shipped escript.
+and shipped escript for both documentation tooling and native test helpers.
 The root `NOTICE` records both vendored packages and includes their Apache-2.0
 licence text. Release archives include this notice.
 
@@ -173,7 +198,20 @@ including cleanup while the exception unwinds. `just test-cli-streams` checks
 the escript with an invalid CA bundle path
 (`ERL_FLAGS='-public_key cacerts_path [47,110,111]'`).
 These runtime failures must exit 2 without a raw
-stack trace. Policy and usage failures must still exit 1.
+stack trace. Enforced gate failures exit 1; usage errors exit 2.
+
+`just test-cli-streams` keeps process-level checks for stdout, stderr, exit
+codes, terminal detection, and disk caches. Keep argument combinations in
+`cli_test.gleam` and configuration precedence in `integration_test.gleam`.
+The stream tests compile repeated fetch fixtures into temporary directories
+once per variant, then start a fresh VM for each case. They do not change
+production BEAM files. After a build, use `just --no-deps test-cli-streams`
+to run them without another export. Complete builds and exports before running
+the stream tests. These tests check completed output, not live arrival timing.
+
+`just test-update-atomic` selects the policy-write checks for the current
+platform: Linux interruption handling, macOS ACL refusal, or Windows atomic
+replacement and helper lifetime.
 
 To test environment conversion and cache paths without network access:
 
@@ -186,10 +224,16 @@ disabled. It then writes cache entries, runs the cache-enabled
 CLI, and checks for cache hits. It also checks conversion failures and the
 deferred warning when neither environment variable is set.
 The isolated Python checks also cover Unicode paths with caching enabled,
-empty values, explicit metadata overrides, and notice cache persistence.
+empty values, explicit application roots, and notice/SPDX cache persistence.
 The Windows CI job runs these checks with `HOME` and `XDG_CACHE_HOME` removed
 and a scratch `LOCALAPPDATA`. Its relocated escript smoke test checks the
-default metadata and notice caches through real CLI commands.
+default metadata and notice caches through real CLI commands. It also checks
+cold notices and licence-text SBOM runs under explicit Unicode roots, warm
+reuse, cache bypass without deletion, and absence of default-root accesses.
+For native executables, Queso still unpacks its runtime into `app/` and `erts/`
+in its platform cache before parsing CLI flags. The isolation check permits
+only those launcher directories; application cache families must use the
+explicit root. Escript checks require the default directories to stay absent.
 
 ## File cache
 
@@ -201,17 +245,23 @@ a deferred warning and a cache miss. Immutable metadata and notice values use
 a null timestamp.
 
 A write goes to a temporary file with a random name in the same directory.
-Then `simplifile.rename` moves it over the entry file. On POSIX systems, this
-rename is atomic, so a reader sees the old entry or the new entry. OTP's
-Windows rename moves an existing entry aside before it moves the new file into
-place. Thus a reader can see no entry for a short time, which is a cache miss.
-Readers never see a partial file. If a rename fails and the entry file exists,
-another writer won the race, and the write is a success.
+Then a same-volume replacement moves it over the entry file. POSIX uses
+`file:rename`; Windows uses the native replacement helper shared with policy
+writes. This avoids OTP's Windows destination-aside rename, which can leave
+scratch files when concurrent writers race. Readers never see a partial file.
+If replacement fails and the entry file exists, another writer won the race,
+and the write is a success. If a native helper cannot be confirmed stopped,
+the write returns a warning and leaves its temporary file untouched.
+Each Windows cache write starts a Windows PowerShell process. Cold-cache
+population pays this startup cost per entry; cache hits do not start a helper.
+
+A missing entry or directory is a cache miss. An inaccessible or non-directory
+parent returns a read warning, including when Windows reports it as `ENOENT`.
 
 The cache has no locks. Concurrent commands can share a cache directory: when
-two writers race on one key, both values are valid. A failed write leaves a
-`.tmp` file only if the command stops during the write. Lookups ignore these
-files. The cache does not remove old entries; delete the directory to clear it.
+two writers race on one key, both values are valid. An interrupted write or an
+unconfirmed native helper can leave a `.tmp` file. Lookups ignore these files.
+The cache does not remove old entries; delete the directory to clear it.
 
 ### Cache snapshots
 
@@ -221,31 +271,66 @@ a running command writes during the copy, but each copied entry is complete.
 ## Common tasks
 
 ```sh
-just test           # gleam test
+just test           # prepare native test helpers, then gleam test
 just check          # gleam check (type check only)
 just format         # gleam format src test dev
 just format-check   # gleam format --check src test dev
 just glint          # gleam run -m glinter (linter; fails only on error-level rules)
 just lint           # format-check + glint
-just ci             # full validation (vendoring + formatting + lint + check + tests + builds + docs + SBOM)
-just clean          # remove build artifacts
+just ci             # full validation (vendoring + formatting + lint + tests + builds + docs + SBOM)
+just clean          # remove build artifacts and the local Hex cache; preserve dist/
 ```
+
+`just clean` leaves `dist/` unchanged, including the tracked `dist/sbom.json`
+and any local changes to it.
 
 Run `just` with no arguments to see the full recipe list. The local `just ci`
 recipe and GitHub Actions both validate the SBOM after checking the committed
 SBOM for drift.
+
+CI and `just ci` omit a separate `gleam check`: `gleam build` and `gleam test`
+type check the same development sources (`src`, `test`, and `dev`) and
+dependencies. In Gleam 1.19.2, `check` generates dependency code but skips code
+generation for the root package.
+
+CI uses the same `just` recipes as local development for build, test, website,
+and release-tool tasks. Runner installation and GitHub-specific orchestration
+stay in the workflows. Jobs with separate tool versions install `just`
+separately and set `LICENCE_AUDIT_TOOLCHAIN=""` for the shared recipes. This
+uses the tools on `PATH`, preserving minimum-OTP coverage and the website and
+PR-title jobs' separate Node versions.
+
+`just build-strict` runs `gleam build --warnings-as-errors` to reject Gleam
+warnings in the root package, including cached warnings. `gleam test` has no
+warnings-as-errors option. The recipe also runs `gleam export escript`, which
+rebuilds production sources without dev-only dependencies and writes
+`./licence_audit` and `build/prod/erlang`. The production boundary, CLI stream,
+and escript smoke tests need these artifacts, as do the docs and SBOM commands.
+Development builds also compile native Erlang files; `gleam check` skips this
+for the root package. Compiler checks do not prove that an external function
+exists at runtime.
+
+See the pinned compiler's [check and build options](https://github.com/gleam-lang/gleam/blob/v1.19.2/compiler-cli/src/lib.rs#L1039-L1083),
+[test build options](https://github.com/gleam-lang/gleam/blob/v1.19.2/compiler-cli/src/run.rs#L127-L153),
+and [escript exporter](https://github.com/gleam-lang/gleam/blob/v1.19.2/compiler-cli/src/export.rs#L23-L51).
 
 For PRs from `release/pending`, CI and PR Validation cancel older queued
 and running workflow runs when a new run arrives. Each workflow has its own
 concurrency group for the PR. Other branches and release builds use separate
 groups for each run and do not cancel earlier runs.
 
-To run a single Gleam test module, invoke `gleam test` directly through
-mise and pass the module name:
+Before running `gleam test` directly, prepare the native test helpers. Repeat
+this step after cleaning the build or changing an Erlang test helper. To
+run a single Gleam test module, pass its module name:
 
 ```sh
+just test-ffi
 mise exec -- gleam test --target erlang -- <module_name>_test
 ```
+
+Without `just` or mise, run `python3 -B scripts/test_ffi.py` with Gleam and
+Erlang on `PATH` (`python` on Windows). This also prepares the helpers for
+`test/update_atomic_windows.py`, which runs them in fresh Erlang VMs.
 
 ## Update subcommand
 
@@ -261,13 +346,14 @@ bundle (use `default_clients()` and replace fields as needed) and a progress
 reporter; it returns the run result and captured progress events. `run(args)`
 is the result-only convenience entry point with default clients and progress
 disabled. Pass `flags` or `["report", ..flags]` for a licence report; an empty
-argument list runs the default report. Both runners add `--no-cache` to default
-and named reports and other cache-capable
-commands, so they do not touch the on-disk caches or add unsupported flags
-to root help/version or standalone `vulns`. Concurrent CLI runs can share
-cache paths. `--no-cache` bypasses
-the caches, and `--cache-path=DIR` overrides the licence metadata cache
-directory.
+argument list runs the default report. Both runners validate user arguments,
+then disable caching on parsed cache-capable actions. An explicit `--cache-dir`
+alone remains valid and does not enable storage; explicit contradictory flags
+still return a usage error. Concurrent CLI runs can share
+cache paths. `--no-cache` bypasses the caches without deleting entries.
+`--cache-dir=DIR` selects the application root for metadata, notice materials,
+SPDX text, and local publication evidence. Stores use versioned subdirectories
+below that root.
 
 ## SBOM reproducibility (`sbom --reproducible`)
 
@@ -288,6 +374,19 @@ comes from that package subdirectory's `gleam.toml`, not the repository root.
 The cache key includes the package path. Hex publisher data is omitted because package
 owners can change after publication. `--vulns` is incompatible with
 `--reproducible` because OSV advisory data also changes over time.
+
+Local path components use current validated `gleam.toml` metadata and
+manifest-relative references. A verified Hex release can add a purl without
+adding release checksums or registry provenance. Publication records use
+`publication-v1` under the same cache root: positive results have no expiry;
+negative results expire at 24 hours. Separate keys prevent concurrent negative
+writes from erasing positive evidence.
+
+`--offline` prevents network calls, including in reproducible mode. Required
+locked metadata, publication evidence, and requested pinned SPDX text must
+come from local files or usable cache entries. Offline mode does not omit
+required evidence. Default optional enrichment can read cached API metadata
+and local Git files. `--no-cache` bypasses storage without waiving verification.
 
 The flag exists rather than being always-on for these reasons:
 

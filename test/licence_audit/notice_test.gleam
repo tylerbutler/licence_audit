@@ -151,6 +151,16 @@ pub fn selected_path_notices_report_unreadable_licence_test() {
   let assert Ok(_) = simplifile.delete(root)
 }
 
+@external(erlang, "notice_test_ffi", "assert_native_symlink")
+fn assert_native_symlink(path: String) -> Nil
+
+@external(erlang, "notice_test_ffi", "windows_symlink_type")
+fn windows_symlink_type() -> Result(simplifile.FileType, simplifile.FileError)
+
+pub fn native_symlink_type_overrides_windows_regular_file_mode_test() {
+  should.equal(windows_symlink_type(), Ok(simplifile.Symlink))
+}
+
 pub fn selected_path_notices_skip_symlinks_test() {
   let root = fresh_dir("selected_path_symlinks")
   let outside = fresh_dir("selected_path_symlinks_outside")
@@ -162,6 +172,7 @@ pub fn selected_path_notices_skip_symlinks_test() {
       to: cwd <> "/" <> outside <> "/LICENSE",
       from: root <> "/LICENSE-MIT",
     )
+  assert_native_symlink(root <> "/LICENSE-MIT")
   should.equal(
     notice.read_source_notices(
       package("local", notice.PathPackage(root)),
@@ -171,6 +182,29 @@ pub fn selected_path_notices_skip_symlinks_test() {
   )
   let assert Ok(_) = simplifile.delete(root)
   let assert Ok(_) = simplifile.delete(outside)
+}
+
+pub fn local_build_output_cannot_supply_a_package_licence_test() {
+  let root = fresh_dir("generated_build")
+  let local = package("local", notice.PathPackage(root))
+  let clients = notice.default_clients()
+  should.equal(notice.read_source_notices(local, clients), Ok([]))
+  let assert Ok(_) =
+    simplifile.create_directory_all(root <> "/build/packages/third_party")
+  let assert Ok(_) =
+    simplifile.write(
+      "Wrong dependency licence",
+      to: root <> "/build/packages/third_party/LICENSE",
+    )
+  should.equal(notice.read_source_notices(local, clients), Ok([]))
+  let assert Ok(_) = simplifile.create_directory_all(root <> "/legal")
+  let assert Ok(_) =
+    simplifile.write("Local licence", to: root <> "/legal/LICENSE")
+  should.equal(
+    notice.read_source_notices(local, clients),
+    Ok([notice.NoticeFile("legal/LICENSE", "Local licence")]),
+  )
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn notice_transports_return_network_failure_on_disconnect_test() {
@@ -336,6 +370,7 @@ pub fn read_path_source_skips_symlink_targets_outside_root_test() {
       to: cwd <> "/" <> outside_dir <> "/outside.txt",
       from: root <> "/LINKED_LICENSE",
     )
+  assert_native_symlink(root <> "/LINKED_LICENSE")
   let pkg = package("local_dep", notice.PathPackage(path: root))
 
   let assert Ok(files) =
@@ -1158,11 +1193,46 @@ pub fn commit_response_maps_github_422_to_not_found_test() {
 pub fn commit_response_decodes_sha_on_2xx_test() {
   let repo = repository.Repository(repository.GitHub, "o", "r")
   should.equal(
-    notice.commit_response(repo, 200, "{\"sha\":\"abc123\"}"),
+    notice.commit_response(
+      repo,
+      200,
+      "{\"object\":{\"type\":\"commit\",\"sha\":\"abc123\"}}",
+    ),
     Ok(option.Some("abc123")),
   )
   // A 2xx body missing the provider's SHA field is treated as "not found".
   should.equal(notice.commit_response(repo, 200, "{}"), Ok(None))
+}
+
+pub fn annotated_github_tags_are_peeled_to_commits_test() {
+  let repo = repository.Repository(repository.GitHub, "o", "r")
+  should.equal(
+    notice.resolve_tag(repo, "v1.0.0", fn(req) {
+      case req.path {
+        "/repos/o/r/git/ref/tags/v1.0.0" ->
+          Ok(#(200, "{\"object\":{\"type\":\"tag\",\"sha\":\"outer-tag\"}}"))
+        "/repos/o/r/git/tags/outer-tag" ->
+          Ok(#(200, "{\"object\":{\"type\":\"tag\",\"sha\":\"inner-tag\"}}"))
+        "/repos/o/r/git/tags/inner-tag" ->
+          Ok(#(
+            200,
+            "{\"object\":{\"type\":\"commit\",\"sha\":\"locked-commit\"}}",
+          ))
+        _ -> panic as "unexpected tag request"
+      }
+    }),
+    Ok(Some("locked-commit")),
+  )
+}
+
+pub fn cyclic_annotated_tags_fail_without_unbounded_requests_test() {
+  let repo = repository.Repository(repository.GitHub, "o", "r")
+  should.equal(
+    notice.resolve_tag(repo, "v1.0.0", fn(_) {
+      Ok(#(200, "{\"object\":{\"type\":\"tag\",\"sha\":\"cycle\"}}"))
+    }),
+    Error(notice.FetchInvalidTag),
+  )
 }
 
 pub fn commit_response_maps_other_status_to_transient_test() {

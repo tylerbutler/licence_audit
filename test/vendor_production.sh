@@ -18,14 +18,29 @@ for file in build/prod/erlang/licence_audit/ebin/*glint_markdown*.beam \
 done
 
 python3 -B - <<'PY'
+from pathlib import Path
+import re
 import zipfile
+
+test_modules = {path.stem for path in Path("native/test").rglob("*.erl")}
+assert test_modules, "No native test helpers found under native/test"
+ebin = Path("build/prod/erlang/licence_audit/ebin")
+application_modules = set(re.findall(r"[\w@]+", (ebin / "licence_audit.app").read_text()))
+leaked = sorted(test_modules & application_modules)
+if leaked:
+    raise SystemExit(f"Test helpers appear in the production application: {leaked}")
+
+leaked = sorted(path.name for path in ebin.glob("*.beam") if path.stem in test_modules)
+if leaked:
+    raise SystemExit(f"Test helpers appear in production BEAM files: {leaked}")
 
 with zipfile.ZipFile("licence_audit") as archive:
     files = archive.namelist()
     assert "licence_audit@internal@vendor@glint.beam" in files
     leaked = [
         name for name in files
-        if any(module in name for module in ("glint_markdown", "gen_docs", "glugify"))
+        if Path(name).stem in test_modules
+        or any(module in name for module in ("glint_markdown", "gen_docs", "glugify"))
     ]
     if leaked:
         raise SystemExit(f"Development files appear in the shipped escript: {leaked}")

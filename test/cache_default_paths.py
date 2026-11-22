@@ -24,10 +24,10 @@ ROUND_TRIP = """
     Reopened = licence_audit@cache:open({enabled, Override}),
     {{ok, Metadata}, none} = licence_audit@cache:fetch_cached_quiet(
         Reopened, <<"example">>, <<"1.0.0">>, fun(_) -> error(cache_miss) end),
-    Notices = licence_audit@notice_cache:open({enabled, none}),
+    Notices = licence_audit@notice_cache:open({enabled, Override}),
     none = licence_audit@notice_cache:close(Notices),
     none = licence_audit@notice_cache:put_text(Notices, <<"spdx:MIT">>, <<"MIT text">>),
-    ReopenedNotices = licence_audit@notice_cache:open({enabled, none}),
+    ReopenedNotices = licence_audit@notice_cache:open({enabled, Override}),
     {{ok, <<"MIT text">>}, none} =
         licence_audit@notice_cache:get_text(ReopenedNotices, <<"spdx:MIT">>),
     halt().
@@ -89,15 +89,14 @@ def main():
                     """, env, root)
                     assert list(root.iterdir()) == [], list(root.iterdir())
                     continue
-            metadata = expected / "hex-v2"
             if case == "override":
-                metadata = root / "explicit"
-                env["CACHE_TEST_OVERRIDE"] = str(metadata)
+                expected = root / "explicit"
+                env["CACHE_TEST_OVERRIDE"] = str(expected)
             run(ROUND_TRIP, env, root)
-            check_entry(metadata, "example@1.0.0", "MIT")
-            check_entry(expected / "notices-v3", "spdx:MIT", "MIT text")
+            check_entry(expected / "hex-v2", "example@1.0.0", "MIT")
+            check_entry(expected / "spdx-v1", "spdx:MIT", "MIT text")
             if case == "override":
-                assert not (expected / "hex-v2").exists()
+                assert not (root / "xdg").exists()
             if case in ("xdg", "override"):
                 assert not (root / "home").exists()
             if case not in ("missing", "empty"):

@@ -439,6 +439,35 @@ pub fn render_emits_dependency_graph_test() {
     string.contains(json_str, "\"dependsOn\":[\"pkg:hex/birch@0.2.1\"]")
 }
 
+pub fn render_rejects_unresolved_root_and_package_edges_test() {
+  let input = minimal_input()
+  let assert [entry] = input.manifest.entries
+  list.each(
+    [
+      #(
+        manifest.SbomManifest([entry], ["birch", "missing_root"]),
+        "root",
+        "missing_root",
+      ),
+      #(
+        manifest.SbomManifest(
+          [manifest.SbomEntry(..entry, requirements: ["missing_leaf"])],
+          ["birch"],
+        ),
+        "birch",
+        "missing_leaf",
+      ),
+    ],
+    fn(example) {
+      let assert Error(failure) =
+        sbom.try_render(sbom.SbomInput(..input, manifest: example.0))
+      should.equal(error.exit_code(failure), 2)
+      assert string.contains(error.message(failure), example.1)
+      assert string.contains(error.message(failure), example.2)
+    },
+  )
+}
+
 pub fn render_offline_omits_licenses_test() {
   // No package metadata (offline) and a root without its own licences, so no
   // component should declare a licence.
@@ -493,7 +522,7 @@ pub fn render_errors_on_unsupported_source_test() {
       name: "foo",
       version: "1.0.0",
       requirements: [],
-      provenance: manifest.PathProvenance(path: "../foo"),
+      provenance: manifest.UnknownProvenance("unsupported"),
     )
   let input =
     sbom.SbomInput(
@@ -504,6 +533,113 @@ pub fn render_errors_on_unsupported_source_test() {
     )
   let assert Error(err) = sbom.try_render(input)
   let assert error.UnsupportedSourceForSbom(_, _, _) = err
+}
+
+pub fn render_local_identity_and_graph_without_published_provenance_test() {
+  let local =
+    manifest.SbomEntry(
+      "local_dep",
+      "1.0.0",
+      ["birch"],
+      manifest.PathProvenance("../local dir"),
+    )
+  let assert Ok(ref) = sbom.component_ref(local)
+  assert string.starts_with(ref, "local:")
+  let input = minimal_input()
+  let output =
+    render(
+      sbom.SbomInput(
+        ..input,
+        manifest: manifest.SbomManifest([local, ..input.manifest.entries], [
+          "local_dep",
+        ]),
+        scopes: dict.from_list([#("local_dep", manifest.Dev)]),
+        publications: dict.from_list([#("local_dep", hex.Unpublished)]),
+        package_metadata: dict.insert(
+          input.package_metadata,
+          "local_dep",
+          hex.licences_only(["MIT"]),
+        ),
+      ),
+    )
+  let assert Ok(components) =
+    json.parse(
+      output,
+      decode.at(
+        ["components"],
+        decode.list({
+          use name <- decode.field("name", decode.string)
+          use ref <- decode.field("bom-ref", decode.string)
+          use scope <- decode.field("scope", decode.string)
+          use purl <- decode.optional_field("purl", "", decode.string)
+          use hashes <- decode.optional_field(
+            "hashes",
+            [],
+            decode.list(decode.dynamic),
+          )
+          use supplier <- decode.optional_field(
+            "supplier",
+            "",
+            decode.at(["name"], decode.string),
+          )
+          decode.success(#(
+            name,
+            ref,
+            scope,
+            purl,
+            list.length(hashes),
+            supplier,
+          ))
+        }),
+      ),
+    )
+  should.equal(components, [
+    #("local_dep", ref, "optional", "", 0, ""),
+    #(
+      "birch",
+      "pkg:hex/birch@0.2.1",
+      "required",
+      "pkg:hex/birch@0.2.1",
+      1,
+      "Hex",
+    ),
+  ])
+  let assert Ok(dependencies) =
+    json.parse(
+      output,
+      decode.at(
+        ["dependencies"],
+        decode.list({
+          use ref <- decode.field("ref", decode.string)
+          use children <- decode.field("dependsOn", decode.list(decode.string))
+          decode.success(#(ref, children))
+        }),
+      ),
+    )
+  should.equal(dependencies, [
+    #("root", [ref]),
+    #(ref, ["pkg:hex/birch@0.2.1"]),
+    #("pkg:hex/birch@0.2.1", []),
+  ])
+  assert string.contains(output, "\"licence_audit:local_path\"")
+  assert !string.contains(output, "pkg:hex/local_dep")
+  assert !string.contains(output, "tarballs/local_dep")
+}
+
+pub fn render_requires_publication_evidence_for_local_components_test() {
+  let local =
+    manifest.SbomEntry(
+      "local_dep",
+      "1.0.0",
+      [],
+      manifest.PathProvenance("../local_dep"),
+    )
+  let input =
+    sbom.SbomInput(
+      ..minimal_input(),
+      manifest: manifest.SbomManifest([local], ["local_dep"]),
+    )
+  let assert Error(error.SbomPublicationFailed(_, _)) = sbom.try_render(input)
 }
 
 pub fn reproducible_serial_is_byte_stable_test() {
@@ -826,6 +962,7 @@ fn minimal_input() -> sbom.SbomInput {
     ),
     timestamp: "2026-05-24T22:51:00Z",
     package_metadata: package_metadata,
+    publications: dict.new(),
     scopes: dict.new(),
     vulnerabilities: [],
     license_texts: dict.new(),
@@ -919,6 +1056,7 @@ pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
       id: "GHSA-aaaa-bbbb-cccc",
       summary: "Cross-site scripting in example",
       severity: osv.High,
+      affected: [],
       scores: [
         osv.Score(
           kind: "CVSS_V3",
@@ -928,7 +1066,11 @@ pub fn render_embeds_vulnerabilities_with_ratings_and_affects_test() {
     )
   let input =
     sbom.SbomInput(..minimal_input(), vulnerabilities: [
-      sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
+      sbom.EmbeddedVulnerability(
+        vuln: vuln,
+        affects: ["pkg:hex/birch@0.2.1"],
+        purls: ["pkg:hex/birch@0.2.1"],
+      ),
     ])
   let out = render(input)
 
@@ -961,10 +1103,15 @@ pub fn render_embeds_vulnerability_without_cvss_vector_test() {
       summary: "",
       severity: osv.Medium,
       scores: [],
+      affected: [],
     )
   let input =
     sbom.SbomInput(..minimal_input(), vulnerabilities: [
-      sbom.EmbeddedVulnerability(vuln: vuln, affects: ["pkg:hex/birch@0.2.1"]),
+      sbom.EmbeddedVulnerability(
+        vuln: vuln,
+        affects: ["pkg:hex/birch@0.2.1"],
+        purls: ["pkg:hex/birch@0.2.1"],
+      ),
     ])
   let out = render(input)
 
@@ -981,11 +1128,14 @@ pub fn render_none_rating_without_vector_test() -> Nil {
       summary: "",
       severity: osv.NoSeverity,
       scores: [],
+      affected: [],
     )
   let output =
     render(
       sbom.SbomInput(..minimal_input(), vulnerabilities: [
-        sbom.EmbeddedVulnerability(vuln, ["pkg:hex/birch@0.2.1"]),
+        sbom.EmbeddedVulnerability(vuln, ["pkg:hex/birch@0.2.1"], [
+          "pkg:hex/birch@0.2.1",
+        ]),
       ]),
     )
   let assert Ok(ratings) =

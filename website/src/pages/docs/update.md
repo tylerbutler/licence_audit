@@ -18,12 +18,35 @@ licence_audit update
 See [configuration discovery](/docs/configuration#discovery) for policy
 selection and the [write target](/docs/configuration#update-write-target).
 
-1. `update` resolves the dependency tree and reads licence declarations from
+1. `update` checks that stdin and stdout are interactive terminals.
+2. It validates the target's TOML, policy, and exceptions.
+3. It resolves the dependency tree and reads licence declarations from
    checksum-verified locked Hex archives.
-2. It shows an interactive list of the licences. Existing allow and deny
-   entries are preselected.
-3. It writes the result to `gleam.toml`. Existing comments and formatting do
-   not change.
+4. It shows an interactive list of the licences. Existing allow and deny
+   entries are preselected. Deny takes precedence if both lists match an entry.
+   Equivalent SPDX spellings share one choice; custom reference case stays distinct.
+5. It reads and validates the target again. If the allow or deny list changed
+   during selection, it exits `2` with a conflict message. The newer file stays
+   intact. Rerun `update` to review those rules.
+6. It writes the result to the selected target. Existing comments, formatting,
+   and edits to unrelated settings stay intact.
+
+Use `--config=PATH` to select an alternate target:
+
+```sh
+licence_audit update --config=policies/project.toml
+```
+
+`update` creates a missing policy section in a valid default or explicit target.
+It can create a missing target file if the parent directory exists. It rejects
+malformed TOML or invalid policy before fetching metadata or showing the picker.
+It also rejects a target beneath an existing non-directory before these steps.
+To change the starting selection, clear or change the preselected entries.
+If you accept the selection without changes, the original allow and deny lists
+are kept, including overlaps. This prevents an empty allow list from changing
+the verdict for unrelated licences.
+See [update migration](/docs/configuration#update-migration) for the removal of
+`update --ignore-config`.
 
 `update` preserves [scoped policy exceptions](/docs/check#scoped-policy-exceptions)
 and their comments. It does not create, renew, or remove review decisions.
@@ -52,6 +75,11 @@ before an atomic replacement. It preserves file permissions and ownership.
 A failed write leaves the original intact; forced termination can leave a
 `*.licence-audit-*.tmp` file beside it.
 
+On macOS, `update` cannot copy access control lists (ACLs). It uses the native
+ACL listing to check the destination before writing. If an ACL is present or
+the check fails, it exits `2` without replacing the original file. Its contents,
+permissions, ownership, and access rules stay intact.
+
 On Windows, replacement uses `MoveFileExW` through Windows PowerShell. Existing
 owner, group, and access rules apply to the temporary file from creation,
 before content is written. New policy files allow access only to the current
@@ -62,7 +90,9 @@ The command does not use OTP's non-atomic Windows rename.
 
 `update` is interactive and requires a TTY:
 
-- It exits `1` on non-interactive stdin (for example, in CI).
+- It exits `2` if stdin or stdout is non-interactive (for example, in CI).
+  It prints one diagnostic to stderr before reading configuration or the
+  manifest, opening the cache, or making network requests.
 - It exits `130` if you cancel.
 
 > **Note:** If you use the escript, Erlang/OTP **28 or later** is required
@@ -88,10 +118,9 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-path` | `STRING` |  | Override the licence metadata cache directory |
+| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config` | `STRING` |  | Read configuration from PATH |
-| `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |

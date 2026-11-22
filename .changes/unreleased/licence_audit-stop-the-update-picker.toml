@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Stop the `update` picker keyboard reader before restoring the terminal or writing policy."

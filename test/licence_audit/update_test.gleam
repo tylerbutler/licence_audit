@@ -1,3 +1,4 @@
+import gleam/erlang/process
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -5,6 +6,7 @@ import gleeunit/should
 import licence_audit/config
 import licence_audit/notice
 import licence_audit/picker
+import licence_audit/policy
 import licence_audit/progress
 import licence_audit/source_archive_test
 import licence_audit/update
@@ -86,7 +88,6 @@ pub fn user_cancel_exits_130_without_writing_file_test() {
       ".",
       Some(path),
       True,
-      True,
       None,
       successful_fetcher(),
       cancelling_pick,
@@ -98,15 +99,14 @@ pub fn user_cancel_exits_130_without_writing_file_test() {
   let assert Error(_) = simplifile.read(from: path)
 }
 
-pub fn not_interactive_exits_1_test() {
+pub fn not_interactive_exits_2_test() {
   let path = fresh_path("not_interactive")
 
-  let #(result, _) =
+  let #(result, updated_reporter) =
     update.run_with_picker(
       manifest_path,
       ".",
       Some(path),
-      True,
       True,
       None,
       successful_fetcher(),
@@ -114,9 +114,63 @@ pub fn not_interactive_exits_1_test() {
       reporter(),
     )
 
-  should.equal(result.exit_code, 1)
+  should.equal(result.exit_code, 2)
   let assert True =
     string.contains(result.output, "requires an interactive terminal")
+  let assert Error(_) = simplifile.read(path)
+  assert !list.any(progress.events(updated_reporter), fn(event) {
+    string.contains(event.message, "requires an interactive terminal")
+  })
+}
+
+pub fn terminal_preflight_skips_discovery_and_cache_test() -> Nil {
+  list.each([#(False, False), #(False, True), #(True, False)], fn(terminals) {
+    let calls = process.new_subject()
+    let clients =
+      notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
+        process.send(calls, Nil)
+        Error(notice.FetchNetworkFailure)
+      })
+    let cache_path = fresh_path("unused_cache")
+    let path = fresh_path("preflight_policy")
+    list.each(
+      ["[tools.licence_audit]\nallow = [\"MIT\"]\n", "name = [\n"],
+      fn(original) {
+        let assert Ok(_) = simplifile.write(path, original)
+        list.each([Some(path), None], fn(config_path) {
+          list.each([manifest_path, "missing-manifest.toml"], fn(manifest) {
+            let #(result, updated_reporter) =
+              update.run_with_terminal_check(
+                manifest,
+                tmp_dir,
+                config_path,
+                False,
+                Some(cache_path),
+                clients,
+                reporter(),
+                stdin_is_tty: fn() { terminals.0 },
+                stdout_is_tty: fn() { terminals.1 },
+              )
+            should.equal(
+              result,
+              update.UpdateDiagnostic(
+                2,
+                "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+              ),
+            )
+            should.equal(progress.events(updated_reporter), [])
+            should.equal(process.receive(calls, 0), Error(Nil))
+            should.equal(
+              simplifile.file_info(cache_path),
+              Error(simplifile.Enoent),
+            )
+            should.equal(simplifile.read(path), Ok(original))
+          })
+        })
+      },
+    )
+    simplifile.delete(path) |> should.be_ok
+  })
 }
 
 pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
@@ -127,7 +181,6 @@ pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {
       manifest_path,
       ".",
       Some(path),
-      True,
       True,
       None,
       failing_fetcher(),
@@ -157,7 +210,6 @@ pub fn manifest_load_failure_exits_2_without_picker_test() {
       ".",
       Some(path),
       True,
-      True,
       None,
       successful_fetcher(),
       should_not_pick,
@@ -182,7 +234,6 @@ pub fn successful_write_persists_selection_and_passes_merged_labels_to_picker_te
       manifest_path,
       ".",
       Some(path),
-      False,
       True,
       None,
       successful_fetcher(),
@@ -212,7 +263,6 @@ pub fn empty_allow_selection_is_saved_with_check_warning_test() {
         ".",
         Some(path),
         True,
-        True,
         None,
         successful_fetcher(),
         fn(_, _, _, _) { Ok(picker.Selection(allow: [], deny: deny)) },
@@ -237,28 +287,29 @@ pub fn invalid_target_parent_fails_before_writing_test() {
   let _ = simplifile.create_directory_all(tmp_dir)
   let blocker = tmp_dir <> "/blocker.file"
   let _ = simplifile.delete(blocker)
-  let _ = simplifile.write("data", to: blocker)
-  let target = blocker <> "/gleam.toml"
-
-  let #(result, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(target),
-      True,
-      True,
-      None,
-      successful_fetcher(),
-      selected_pick,
-      reporter(),
-    )
-
-  should.equal(result.exit_code, 2)
-  let assert True = string.contains(result.output, "Failed to read")
-  let _ = simplifile.delete(blocker)
+  let assert Ok(_) = simplifile.write("data", to: blocker)
+  list.each(["/gleam.toml", "/missing/gleam.toml"], fn(suffix) {
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(blocker <> suffix),
+        True,
+        None,
+        notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
+          panic as "invalid target must stop before fetching"
+        }),
+        should_not_pick,
+        reporter(),
+      )
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "Could not read")
+    should.equal(simplifile.read(blocker), Ok("data"))
+  })
+  let assert Ok(_) = simplifile.delete(blocker)
 }
 
-pub fn toml_edit_failure_exits_2_without_changing_file_test() {
+pub fn malformed_toml_exits_2_before_picker_without_changing_file_test() {
   let path = fresh_path("toml_edit_failure")
   let original = "name = [\n"
   let assert Ok(_) = simplifile.write(to: path, contents: original)
@@ -268,37 +319,38 @@ pub fn toml_edit_failure_exits_2_without_changing_file_test() {
       ".",
       Some(path),
       True,
-      True,
       None,
       successful_fetcher(),
-      selected_pick,
+      should_not_pick,
       reporter(),
     )
 
   should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "TOML edit failed")
+  assert string.contains(result.output, "Invalid TOML")
   should.equal(simplifile.read(path), Ok(original))
   let assert Ok(_) = simplifile.delete(path)
 }
 
 pub fn file_write_failure_exits_2_test() {
-  let path = fresh_path("missing_parent") <> "/gleam.toml"
-  let #(result, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(path),
-      True,
-      True,
-      None,
-      successful_fetcher(),
-      selected_pick,
-      reporter(),
-    )
+  let parent = fresh_path("missing_parent")
+  list.each(["/gleam.toml", "/missing/gleam.toml"], fn(suffix) {
+    let path = parent <> suffix
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        ".",
+        Some(path),
+        True,
+        None,
+        successful_fetcher(),
+        selected_pick,
+        reporter(),
+      )
 
-  should.equal(result.exit_code, 2)
-  assert string.contains(result.output, "Failed to write " <> path)
-  let assert Error(_) = simplifile.read(path)
+    should.equal(result.exit_code, 2)
+    assert string.contains(result.output, "Failed to write " <> path)
+    let assert Error(_) = simplifile.read(path)
+  })
 }
 
 pub fn update_preserves_unreadable_text_before_picker_test() {
@@ -310,7 +362,6 @@ pub fn update_preserves_unreadable_text_before_picker_test() {
       manifest_path,
       ".",
       Some(path),
-      False,
       True,
       None,
       successful_fetcher(),
@@ -318,19 +369,6 @@ pub fn update_preserves_unreadable_text_before_picker_test() {
       reporter(),
     )
   should.equal(result.exit_code, 2)
-  let #(ignored, _) =
-    update.run_with_picker(
-      manifest_path,
-      ".",
-      Some(path),
-      True,
-      True,
-      None,
-      successful_fetcher(),
-      selected_pick,
-      reporter(),
-    )
-  should.equal(ignored.exit_code, 2)
   should.equal(simplifile.read_bits(path), Ok(original))
   let assert Ok(_) = simplifile.delete(path)
 }
@@ -349,7 +387,6 @@ pub fn update_preserves_writable_file_without_read_permission_test() {
           manifest_path,
           ".",
           Some(path),
-          False,
           True,
           None,
           successful_fetcher(),
@@ -375,7 +412,6 @@ pub fn update_preserves_file_when_read_fails_after_selection_test() {
       manifest_path,
       ".",
       Some(path),
-      False,
       True,
       None,
       successful_fetcher(),
@@ -391,25 +427,296 @@ pub fn update_preserves_file_when_read_fails_after_selection_test() {
   let assert Ok(_) = simplifile.delete(path)
 }
 
-pub fn update_creates_missing_explicit_config_test() {
-  let path = fresh_path("new_policy")
+pub fn update_creates_missing_default_and_explicit_config_test() {
+  list.each([None, Some(tmp_dir <> "/gleam.toml")], fn(config_path) {
+    let path = fresh_path("gleam")
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        tmp_dir,
+        config_path,
+        True,
+        None,
+        successful_fetcher(),
+        selected_pick,
+        reporter(),
+      )
+    should.equal(result.exit_code, 0)
+    let assert Ok(contents) = simplifile.read(path)
+    let assert Ok(policy) = config.parse(contents)
+    should.equal(policy.allow, ["MIT"])
+    let assert Ok(_) = simplifile.delete(path)
+  })
+}
+
+pub fn cancellation_preserves_existing_policy_test() {
+  let path = fresh_path("cancel_existing")
+  let original = "# Keep selection\n[tools.licence_audit]\nallow = [\"MIT\"]\n"
+  let assert Ok(_) = simplifile.write(path, original)
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
       ".",
       Some(path),
-      False,
       True,
       None,
       successful_fetcher(),
-      selected_pick,
+      cancelling_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 130)
+  should.equal(simplifile.read(path), Ok(original))
+  should.equal(temporary_files(path), [])
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_creates_policy_section_in_default_and_explicit_targets_test() {
+  list.each([None, Some(tmp_dir <> "/gleam.toml")], fn(config_path) {
+    let path = tmp_dir <> "/gleam.toml"
+    let _ = simplifile.create_directory_all(tmp_dir)
+    let original =
+      "# Project settings\nname = \"keep_me\" # project name\n[tools.other]\nenabled = true\n"
+    let assert Ok(_) = simplifile.write(path, original)
+    set_private_mode(path)
+    let original_metadata = metadata(path)
+    let #(result, _) =
+      update.run_with_picker(
+        manifest_path,
+        tmp_dir,
+        config_path,
+        True,
+        None,
+        successful_fetcher(),
+        fn(_title, _labels, allow, deny) {
+          should.equal(allow, [])
+          should.equal(deny, [])
+          selected_pick("", [], allow, deny)
+        },
+        reporter(),
+      )
+    should.equal(result.exit_code, 0)
+    let assert Ok(contents) = simplifile.read(path)
+    assert string.contains(contents, original)
+    let assert Ok(policy) = config.parse(contents)
+    should.equal(policy.allow, ["MIT"])
+    should.equal(policy.deny, ["BSD-3-Clause"])
+    should.equal(metadata(path), original_metadata)
+    should.equal(temporary_files(path), [])
+    let assert Ok(_) = simplifile.delete(path)
+  })
+}
+
+pub fn update_rejects_invalid_existing_policy_in_default_and_explicit_targets_test() {
+  list.each([None, Some(tmp_dir <> "/gleam.toml")], fn(config_path) {
+    list.each(
+      [
+        "name = [\n",
+        "[tools.licence_audit]\nallow = true\n",
+        "[tools.licence_audit]\nallow = [\"not a licence\"]\n",
+        "[tools.licence_audit]\nvuln_severity = \"urgent\"\n",
+        "[tools.licence_audit]\nexceptions = \"ignore\"\n",
+        "[[tools.licence_audit.exceptions]]\nreason = \"Missing finding\"\n",
+        "[tools.licence_audit.exceptions]\n",
+        "[tools.licence_audit]\nunknown = true\n",
+        "[tools]\nlicence_audit = false\n",
+      ],
+      fn(original) {
+        let path = tmp_dir <> "/gleam.toml"
+        let _ = simplifile.create_directory_all(tmp_dir)
+        let assert Ok(_) = simplifile.write(path, original)
+        set_private_mode(path)
+        let original_metadata = metadata(path)
+        let #(result, _) =
+          update.run_with_picker(
+            manifest_path,
+            tmp_dir,
+            config_path,
+            True,
+            None,
+            notice.Clients(
+              ..notice.default_clients(),
+              fetch_hex_tarball: fn(_, _) {
+                panic as "invalid policy must stop before fetching"
+              },
+            ),
+            should_not_pick,
+            reporter(),
+          )
+        should.equal(result.exit_code, 2)
+        should.equal(simplifile.read(path), Ok(original))
+        should.equal(metadata(path), original_metadata)
+        should.equal(temporary_files(path), [])
+        let assert Ok(_) = simplifile.delete(path)
+      },
+    )
+  })
+}
+
+pub fn update_revalidates_policy_changed_during_selection_test() {
+  let path = fresh_path("changed_policy")
+  let assert Ok(_) =
+    simplifile.write(path, "[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  let invalid = "[tools.licence_audit]\nexceptions = false\n"
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(_, _, _, _) {
+        let assert Ok(_) = simplifile.write(path, invalid)
+        Ok(picker.Selection(["MIT"], []))
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  should.equal(simplifile.read(path), Ok(invalid))
+  should.equal(temporary_files(path), [])
+  let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_rejects_valid_concurrent_policy_edits_test() -> Nil {
+  list.each(
+    [
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"MIT\"]\n",
+      "[tools.licence_audit]\nallow = [\"ISC\"]\ndeny = []\n",
+    ],
+    fn(newer) {
+      let path = fresh_path("concurrent_policy")
+      let assert Ok(_) =
+        simplifile.write(path, "[tools.licence_audit]\nallow = [\"MIT\"]\n")
+      let #(result, _) =
+        update.run_with_picker(
+          manifest_path,
+          ".",
+          Some(path),
+          True,
+          None,
+          successful_fetcher(),
+          fn(_, labels, allow, deny) {
+            let assert Ok(_) = simplifile.write(path, newer)
+            picker.new_state("Policy", labels, allow, deny)
+            |> picker.state_selection
+            |> Ok
+          },
+          reporter(),
+        )
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "changed")
+      assert string.contains(result.output, "rerun")
+      should.equal(simplifile.read(path), Ok(newer))
+      should.equal(temporary_files(path), [])
+      let assert Ok(_) = simplifile.delete(path)
+    },
+  )
+}
+
+pub fn update_preserves_concurrent_unrelated_edits_test() -> Nil {
+  let path = fresh_path("concurrent_unrelated")
+  let assert Ok(_) =
+    simplifile.write(path, "[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  let newer =
+    "# Added during selection\nname = \"new_name\"\n[tools.licence_audit]\nallow = [\"MIT\"]\nvuln_block_unknown = true\n"
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(_, _, _, _) {
+        let assert Ok(_) = simplifile.write(path, newer)
+        Ok(picker.Selection(["MIT", "ISC"], ["GPL-3.0-only"]))
+      },
       reporter(),
     )
   should.equal(result.exit_code, 0)
   let assert Ok(contents) = simplifile.read(path)
-  let assert Ok(policy) = config.parse(contents)
-  should.equal(policy.allow, ["MIT"])
-  let assert Ok(_) = simplifile.delete(path)
+  assert string.contains(
+    contents,
+    "# Added during selection\nname = \"new_name\"",
+  )
+  let assert Ok(saved) = config.parse(contents)
+  should.equal(saved.allow, ["MIT", "ISC"])
+  should.equal(saved.deny, ["GPL-3.0-only"])
+  should.equal(saved.vuln_block_unknown, True)
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn update_merges_labels_with_policy_matching_tokens_test() -> Nil {
+  let path = fresh_path("normalized_labels")
+  let assert Ok(_) =
+    simplifile.write(
+      path,
+      "[tools.licence_audit]\nallow = [\"mit\", \"ISC\", \"LicenseRef-Custom\", \"DocumentRef-A:LicenseRef-X\"]\ndeny = [\"mIt\", \"LicenseRef-custom\", \"DocumentRef-a:LicenseRef-X\"]\n",
+    )
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(title, labels, allow, deny) {
+        should.equal(title, "Allow which licences? (8 total, 2 new)")
+        should.equal(labels, [
+          "Apache-2.0", "BSD-3-Clause", "DocumentRef-A:LicenseRef-X",
+          "DocumentRef-a:LicenseRef-X", "ISC", "LicenseRef-Custom",
+          "LicenseRef-custom", "mit",
+        ])
+        picker.new_state("Policy", labels, allow, deny)
+        |> picker.state_selection
+        |> Ok
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  let assert Ok(saved) = config.parse(contents)
+  should.equal(saved.allow, [
+    "mit", "ISC", "LicenseRef-Custom", "DocumentRef-A:LicenseRef-X",
+  ])
+  should.equal(saved.deny, [
+    "mIt", "LicenseRef-custom", "DocumentRef-a:LicenseRef-X",
+  ])
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn unchanged_update_preserves_overlapping_rules_and_unrelated_verdicts_test() -> Nil {
+  let path = fresh_path("overlapping_rules")
+  let original = "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"mit\"]\n"
+  let assert Ok(_) = simplifile.write(path, original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      Some(path),
+      True,
+      None,
+      successful_fetcher(),
+      fn(_, labels, allow, deny) {
+        picker.new_state("Policy", labels, allow, deny)
+        |> picker.state_selection
+        |> Ok
+      },
+      reporter(),
+    )
+  should.equal(result.exit_code, 0)
+  let assert Ok(contents) = simplifile.read(path)
+  let assert Ok(saved) = config.parse(contents)
+  should.equal(saved.allow, ["MIT"])
+  should.equal(saved.deny, ["mit"])
+  let assert Ok(audit_policy) = policy.from_config(saved, check_mode: True)
+  should.equal(policy.audit(audit_policy, ["MIT"]), policy.DeniedLicence("MIT"))
+  should.equal(
+    policy.audit(audit_policy, ["ISC"]),
+    policy.UnallowedLicence("ISC"),
+  )
+  simplifile.delete(path) |> should.be_ok
 }
 
 pub fn update_preserves_reviewed_exceptions_and_comments_test() {
@@ -445,7 +752,6 @@ reason = \"Reviewed affected code\"
       manifest_path,
       ".",
       Some(path),
-      False,
       True,
       None,
       successful_fetcher(),
@@ -495,7 +801,6 @@ pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test()
         manifest_path,
         ".",
         Some(path),
-        False,
         True,
         None,
         successful_fetcher(),
@@ -516,6 +821,12 @@ pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test()
 @external(erlang, "update_test_ffi", "partial_write")
 fn partial_write(path: String, interrupt: Bool) -> Result(Nil, Nil)
 
+@external(erlang, "update_test_ffi", "replace_and_recreate_temporary")
+fn replace_and_recreate_temporary(path: String) -> Result(Nil, Nil)
+
+@external(erlang, "update_test_ffi", "failed_replacement")
+fn failed_replacement(path: String) -> Result(Nil, Nil)
+
 @external(erlang, "update_test_ffi", "set_private_mode")
 fn set_private_mode(path: String) -> Nil
 
@@ -528,6 +839,9 @@ fn temporary_files(path: String) -> List(String)
 @external(erlang, "update_test_ffi", "make_link")
 fn make_link(target: String, link: String) -> Result(Nil, Nil)
 
+@external(erlang, "update_test_ffi", "is_symlink")
+fn is_symlink(path: String) -> Bool
+
 pub fn update_preserves_symlink_and_replaces_its_target_test() {
   let target = fresh_path("link_target")
   let link = fresh_path("linked_policy")
@@ -537,12 +851,13 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
       contents: "# Keep this comment\n[tools.licence_audit]\n",
     )
   let assert Ok(_) = make_link("link_target.toml", link)
+  assert is_symlink(link)
+  should.equal(simplifile.read(link), simplifile.read(target))
   let #(result, _) =
     update.run_with_picker(
       manifest_path,
       ".",
       Some(link),
-      False,
       True,
       None,
       successful_fetcher(),
@@ -554,6 +869,7 @@ pub fn update_preserves_symlink_and_replaces_its_target_test() {
   assert string.contains(contents, "# Keep this comment")
   assert string.contains(contents, "allow = [\"MIT\"]")
   should.equal(simplifile.read(link), Ok(contents))
+  assert is_symlink(link)
   let assert Ok(_) = simplifile.delete(target)
   should.equal(simplifile.read(link), Error(simplifile.Enoent))
   let assert Ok(_) = simplifile.delete(link)
@@ -574,6 +890,32 @@ pub fn update_preserves_original_after_partial_write_failure_or_interruption_tes
   let assert Ok(_) = simplifile.delete(path)
 }
 
+pub fn update_leaves_recreated_temporary_path_after_successful_replacement_test() -> Nil {
+  let path = fresh_path("recreated_temporary")
+  let assert Ok(_) = simplifile.write(path, "original")
+  should.equal(replace_and_recreate_temporary(path), Ok(Nil))
+  should.equal(simplifile.read(path), Ok("complete replacement"))
+  let assert [temporary] = temporary_files(path)
+  should.equal(
+    simplifile.read(temporary),
+    Ok("another writer's temporary file"),
+  )
+  simplifile.delete(temporary) |> should.be_ok
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn update_cleans_temporary_after_failed_replacement_test() -> Nil {
+  let path = fresh_path("failed_replacement")
+  let assert Ok(_) = simplifile.write(path, "original")
+  set_private_mode(path)
+  let original_metadata = metadata(path)
+  should.equal(failed_replacement(path), Ok(Nil))
+  should.equal(simplifile.read(path), Ok("original"))
+  should.equal(metadata(path), original_metadata)
+  should.equal(temporary_files(path), [])
+  simplifile.delete(path) |> should.be_ok
+}
+
 pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
   let path = fresh_path("invalid_exceptions")
   let original =
@@ -584,7 +926,6 @@ pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
       manifest_path,
       ".",
       Some(path),
-      False,
       True,
       None,
       successful_fetcher(),

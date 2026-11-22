@@ -19,9 +19,13 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
+import gleam/result
 import gleam/string
+import gleam/uri
 import licence_audit/cvss
 import licence_audit/httpc_adaptive
+import licence_audit/semver
 
 pub type Severity {
   NoSeverity
@@ -47,7 +51,30 @@ pub type Vulnerability {
     summary: String,
     severity: Severity,
     scores: List(Score),
+    affected: List(AffectedPackage),
   )
+}
+
+pub opaque type AffectedPackage {
+  AffectedPackage(
+    purl: String,
+    ecosystem: String,
+    name: String,
+    versions: List(String),
+    ranges: List(AffectedRange),
+    scores: List(Score),
+  )
+}
+
+type AffectedRange {
+  AffectedRange(kind: String, events: List(RangeEvent))
+}
+
+type RangeEvent {
+  Introduced(String)
+  Fixed(String)
+  LastAffected(String)
+  Limit(String)
 }
 
 /// A single per-purl result from `/v1/querybatch`.
@@ -69,7 +96,7 @@ pub type Error {
   RateLimited
   NotFound
   UnexpectedResponse(status: Int)
-  NetworkFailure
+  NetworkFailure(reason: String)
 }
 
 const osv_host = "api.osv.dev"
@@ -84,17 +111,32 @@ const max_batch_pages = 32
 /// `BatchEntry` per input purl, preserving input order. Empty `vuln_ids`
 /// means OSV reports no known vulnerabilities for that purl.
 /// GitHub purls use commit queries; Hex purls use package queries.
+/// Initial requests contain at most 1,000 queries; any chunk or pagination
+/// failure returns an error instead of partial coverage.
 pub fn query_batch(
   purls: List(String),
   client: fn(Request(String)) -> Result(Response(String), Error),
 ) -> Result(List(BatchEntry), Error) {
+  query_chunks(purls, client, [])
+}
+
+fn query_chunks(
+  purls: List(String),
+  client: fn(Request(String)) -> Result(Response(String), Error),
+  accumulated: List(List(BatchEntry)),
+) -> Result(List(BatchEntry), Error) {
   case purls {
-    [] -> Ok([])
-    _ ->
-      case fetch_batch_page(purls, initial_page_tokens(purls), client) {
-        Error(error) -> Error(error)
-        Ok(entries) -> follow_paginated_entries(entries, client)
-      }
+    [] -> Ok(accumulated |> list.reverse |> list.flatten)
+    _ -> {
+      let #(chunk, rest) = list.split(purls, 1000)
+      use entries <- result.try(fetch_batch_page(
+        chunk,
+        initial_page_tokens(chunk),
+        client,
+      ))
+      use entries <- result.try(follow_paginated_entries(entries, client))
+      query_chunks(rest, client, [entries, ..accumulated])
+    }
   }
 }
 
@@ -110,10 +152,9 @@ fn fetch_vulnerability(
   }
 }
 
-// --- Default HTTP client (httpc, mirrors hex.gleam) ----------------------
+// --- Default HTTP client (mirrors hex.gleam) -----------------------------
 
-/// Default OSV client. Suitable for the small number of requests a single
-/// `licence_audit vulns` run makes.
+/// Default OSV client with bounded retries and a command-scoped host cutoff.
 pub fn query_batch_from_osv(
   purls: List(String),
 ) -> Result(List(BatchEntry), Error) {
@@ -126,8 +167,7 @@ pub fn fetch_vulnerability_from_osv(
   fetch_vulnerability(id, send)
 }
 
-/// Dispatches the request synchronously via Erlang's built-in `httpc`
-/// (TLS verified by default).
+/// Dispatch synchronously with at most two retries and verified TLS.
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req =
     req
@@ -137,10 +177,23 @@ fn send(req: Request(String)) -> Result(Response(String), Error) {
     Post -> request.set_header(req, "content-type", "application/json")
     _ -> req
   }
-  case httpc_adaptive.dispatch(req, timeout_ms: osv_timeout_ms) {
+  case httpc_adaptive.dispatch_retry(req, osv_timeout_ms, retries: 2) {
     Ok(response) -> Ok(response)
-    Error(_) -> Error(NetworkFailure)
+    Error(error) -> Error(from_http_error(req, error))
   }
+}
+
+pub fn from_http_error(
+  req: Request(String),
+  error: httpc_adaptive.Error,
+) -> Error {
+  NetworkFailure(
+    http.method_to_string(req.method)
+    <> " "
+    <> uri.to_string(request.to_uri(req))
+    <> ": "
+    <> httpc_adaptive.describe_error(error, osv_timeout_ms),
+  )
 }
 
 // --- Request construction ------------------------------------------------
@@ -184,7 +237,13 @@ fn encode_batch_body_with_tokens(
     list.map(purls, fn(entry) {
       let #(purl, page_token) = entry
       let fields = case string.split(purl, "@") {
-        ["pkg:github/" <> _, commit] -> [#("commit", json.string(commit))]
+        ["pkg:github/" <> _, revision] -> {
+          let commit =
+            string.split_once(revision, "#")
+            |> result.map(fn(parts) { parts.0 })
+            |> result.unwrap(revision)
+          [#("commit", json.string(commit))]
+        }
         _ -> [#("package", json.object([#("purl", json.string(purl))]))]
       }
       let fields = case page_token {
@@ -403,6 +462,11 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
     [],
     decode.list(of: score_decoder()),
   )
+  use affected <- decode.optional_field(
+    "affected",
+    [],
+    decode.list(affected_package_decoder()),
+  )
 
   let resolved_summary = case summary {
     "" -> details
@@ -421,7 +485,192 @@ fn vulnerability_decoder(fallback_id: String) -> decode.Decoder(Vulnerability) {
     summary: resolved_summary,
     severity: severity,
     scores: scores,
+    affected: affected,
   ))
+}
+
+fn affected_package_decoder() -> decode.Decoder(AffectedPackage) {
+  use package <- decode.optional_field("package", #("", "", ""), {
+    use purl <- decode.optional_field("purl", "", decode.string)
+    use ecosystem <- decode.optional_field("ecosystem", "", decode.string)
+    use name <- decode.optional_field("name", "", decode.string)
+    decode.success(#(purl, ecosystem, name))
+  })
+  use versions <- decode.optional_field(
+    "versions",
+    [],
+    decode.list(decode.string),
+  )
+  use ranges <- decode.optional_field(
+    "ranges",
+    [],
+    decode.list({
+      use kind <- decode.field("type", decode.string)
+      use events <- decode.field("events", decode.list(range_event_decoder()))
+      decode.success(AffectedRange(kind:, events:))
+    }),
+  )
+  use scores <- decode.optional_field(
+    "severity",
+    [],
+    decode.list(score_decoder()),
+  )
+  decode.success(AffectedPackage(
+    purl: package.0,
+    ecosystem: package.1,
+    name: package.2,
+    versions:,
+    ranges:,
+    scores:,
+  ))
+}
+
+fn range_event_decoder() -> decode.Decoder(RangeEvent) {
+  decode.one_of(
+    decode.field("introduced", decode.string, fn(value) {
+      decode.success(Introduced(value))
+    }),
+    [
+      decode.field("fixed", decode.string, fn(value) {
+        decode.success(Fixed(value))
+      }),
+      decode.field("last_affected", decode.string, fn(value) {
+        decode.success(LastAffected(value))
+      }),
+      decode.field("limit", decode.string, fn(value) {
+        decode.success(Limit(value))
+      }),
+    ],
+  )
+}
+
+/// Batch results establish advisory membership. Scope only the scores here;
+/// never transfer scores from another affected package or version.
+pub fn for_package(vuln: Vulnerability, purl: String) -> Vulnerability {
+  let #(identity, version) = purl_identity(purl)
+  let scores =
+    vuln.affected
+    |> list.filter(fn(affected) {
+      let matches = case affected.purl {
+        "" ->
+          affected.ecosystem == "Hex"
+          && {
+            identity == "pkg:hex/" <> affected.name
+            || affected.name == "*"
+            && string.starts_with(identity, "pkg:hex/")
+          }
+        other -> other == identity
+      }
+      matches && affected_version(affected, version)
+    })
+    |> list.flat_map(fn(affected) { affected.scores })
+    |> list.unique
+  case scores {
+    [] -> vuln
+    _ ->
+      Vulnerability(
+        ..vuln,
+        severity: highest_severity_from_vectors(list.map(
+          scores,
+          severity_from_score,
+        )),
+        scores:,
+      )
+  }
+}
+
+fn purl_identity(purl: String) -> #(String, String) {
+  let #(package, subpath) =
+    string.split_once(purl, "#")
+    |> result.unwrap(#(purl, ""))
+  let #(identity, version) =
+    string.split_once(package, "@")
+    |> result.unwrap(#(package, ""))
+  #(
+    identity
+      <> case subpath {
+      "" -> ""
+      other -> "#" <> other
+    },
+    version,
+  )
+}
+
+fn affected_version(affected: AffectedPackage, version: String) -> Bool {
+  case affected.versions, affected.ranges {
+    [], [] -> True
+    versions, ranges ->
+      list.contains(versions, version)
+      || list.any(ranges, fn(range) { range_contains(range, version) })
+  }
+}
+
+fn range_contains(range: AffectedRange, version: String) -> Bool {
+  // Git ancestry cannot be inferred by ordering hashes; use OSV's versions list.
+  use <- bool.guard(
+    when: range.kind != "SEMVER" || !semver.is_valid(version),
+    return: False,
+  )
+  let evaluated = {
+    let limits =
+      list.filter_map(range.events, fn(event) {
+        case event {
+          Limit(bound) -> Ok(bound)
+          Introduced(_) | Fixed(_) | LastAffected(_) -> Error(Nil)
+        }
+      })
+    use before_limits <- result.try(
+      list.try_map(limits, fn(bound) {
+        case string.contains(bound, "*") {
+          True -> Ok(True)
+          False ->
+            semver.compare(version, bound)
+            |> result.map(fn(comparison) { comparison == order.Lt })
+        }
+      }),
+    )
+    use <- bool.guard(
+      when: limits != [] && !list.contains(before_limits, True),
+      return: Ok(False),
+    )
+    // Choose the latest applicable event; OSV does not require sorted events.
+    use latest <- result.try(
+      list.try_fold(range.events, None, fn(latest, event) {
+        case event {
+          Limit(_) -> Ok(latest)
+          Introduced("0") -> Ok(option.or(latest, Some(#("0", True))))
+          Introduced(bound) | Fixed(bound) | LastAffected(bound) -> {
+            use comparison <- result.try(semver.compare(version, bound))
+            let applies = case event {
+              LastAffected(_) -> comparison == order.Gt
+              Introduced(_) | Fixed(_) -> comparison != order.Lt
+              Limit(_) -> False
+            }
+            use <- bool.guard(when: !applies, return: Ok(latest))
+            let active = case event {
+              Introduced(_) -> True
+              Fixed(_) | LastAffected(_) | Limit(_) -> False
+            }
+            use newer <- result.try(case latest {
+              None | Some(#("0", _)) -> Ok(True)
+              Some(#(previous, _)) ->
+                semver.compare(bound, previous)
+                |> result.map(fn(comparison) { comparison != order.Lt })
+            })
+            Ok(case newer {
+              True -> Some(#(bound, active))
+              False -> latest
+            })
+          }
+        }
+      }),
+    )
+    Ok(case latest {
+      Some(#(_, affected)) -> affected
+      None -> False
+    })
+  }
+  result.unwrap(evaluated, False)
 }
 
 fn database_specific_severity_decoder() -> decode.Decoder(Severity) {

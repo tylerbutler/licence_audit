@@ -6,9 +6,8 @@
 //// or no entry, but never a partial file. Concurrent commands need no locks:
 //// when two writers race on one key, either value is acceptable.
 ////
-//// OTP's Windows rename moves an existing destination aside before it moves
-//// the new file into place, so a reader can see no entry for a short time.
-//// That is an ordinary cache miss.
+//// Windows uses native same-volume replacement to avoid OTP's scratch-file
+//// rename race. A missing entry is a cache miss; a blocked parent is a warning.
 
 import gleam/bit_array
 import gleam/crypto
@@ -30,6 +29,14 @@ const temporary_suffix = ".tmp"
 
 @external(erlang, "cache_dir_ffi", "windows_user_cache")
 fn windows_user_cache() -> Result(String, Nil)
+
+type ReplacementError {
+  ReplacementFailed(reason: String)
+  ReplacementUncertain(reason: String)
+}
+
+@external(erlang, "cache_dir_ffi", "replace_file")
+fn replace_file(from: String, to: String) -> Result(Nil, ReplacementError)
 
 /// An on-disk string cache rooted at one directory.
 pub opaque type Store {
@@ -77,30 +84,25 @@ fn describe_path_error(error: PathError) -> String {
   }
 }
 
-fn resolve_path(
-  override: Option(String),
-  directory: String,
-) -> Result(String, PathError) {
+/// Resolve the application root without creating or inspecting any directory.
+/// An explicit root bypasses environment discovery for every cache family.
+fn resolve_root(override: Option(String)) -> Result(String, Error) {
   case override {
-    Some(cache_path) -> Ok(cache_path)
-    None -> default_path(directory)
+    Some(root) -> Ok(root)
+    None -> default_root() |> result.map_error(PathFailed)
   }
 }
 
-fn default_path(directory: String) -> Result(String, PathError) {
+fn default_root() -> Result(String, PathError) {
   case env.get("XDG_CACHE_HOME") {
-    Ok(cache_home) if cache_home != "" ->
-      Ok(path.join(path.join(cache_home, cache_subdir), directory))
+    Ok(cache_home) if cache_home != "" -> Ok(path.join(cache_home, cache_subdir))
     _ ->
       case env.get("HOME") {
         Ok(home) if home != "" ->
-          Ok(path.join(
-            path.join(path.join(home, ".cache"), cache_subdir),
-            directory,
-          ))
+          Ok(path.join(path.join(home, ".cache"), cache_subdir))
         _ ->
           case windows_user_cache() {
-            Ok(root) -> Ok(path.join(root, directory))
+            Ok(root) -> Ok(root)
             Error(Nil) -> Error(CacheDirUnknown)
           }
       }
@@ -116,16 +118,15 @@ fn ensure_cache_dir(directory: String) -> Result(Nil, PathError) {
 
 /// Open a string-keyed cache store, returning its deferred warning on failure.
 ///
-/// `cache_path` overrides the store directory. Otherwise the store uses
-/// `directory` below the user cache directory.
+/// `cache_root` selects the application root. Each store uses its versioned
+/// `directory` below that root, including when the root is explicit.
 pub fn open_table(
-  cache_path: Option(String),
+  cache_root: Option(String),
   directory: String,
   name: String,
 ) -> Result(Store, Error) {
-  use resolved <- result.try(
-    resolve_path(cache_path, directory) |> result.map_error(PathFailed),
-  )
+  use root <- result.try(resolve_root(cache_root))
+  let resolved = path.join(root, directory)
   use _ <- result.try(
     ensure_cache_dir(resolved)
     |> result.map_error(fn(error) {
@@ -146,7 +147,27 @@ pub fn lookup_entry(store: Store, key: String) -> Result(Entry, Error) {
     Ok(contents) ->
       decode_entry(contents, key)
       |> result.map_error(fn(reason) { ReadFailed(key, reason) })
-    Error(simplifile.Enoent) -> Error(EntryMissing)
+    Error(simplifile.Enoent) -> missing_entry(store.directory, key)
+    Error(error) -> Error(ReadFailed(key, simplifile.describe_error(error)))
+  }
+}
+
+fn missing_entry(directory: String, key: String) -> Result(Entry, Error) {
+  // Windows can return ENOENT when a parent is a file, not just when absent.
+  case simplifile.file_info(directory) {
+    Ok(info) ->
+      case simplifile.file_info_type(info) {
+        simplifile.Directory -> Error(EntryMissing)
+        simplifile.File | simplifile.Symlink | simplifile.Other ->
+          Error(ReadFailed(key, simplifile.describe_error(simplifile.Enotdir)))
+      }
+    Error(simplifile.Enoent) -> {
+      let parent = path.dirname(directory)
+      case parent == directory {
+        True -> Error(EntryMissing)
+        False -> missing_entry(parent, key)
+      }
+    }
     Error(error) -> Error(ReadFailed(key, simplifile.describe_error(error)))
   }
 }
@@ -166,25 +187,17 @@ pub fn insert_at(
   let destination = entry_path(store, key)
   let temporary = temporary_path(destination)
   let contents = encode_entry(key, value, cached_at)
-  let fail = fn(error) {
+  let fail = fn(reason) {
     let _ = simplifile.delete(temporary)
-    Error(WriteFailed(key, simplifile.describe_error(error)))
+    Error(WriteFailed(key, reason))
   }
   case simplifile.write(to: temporary, contents: contents) {
-    Error(error) -> fail(error)
+    Error(error) -> fail(simplifile.describe_error(error))
     Ok(Nil) ->
-      case simplifile.rename(at: temporary, to: destination) {
+      case replace_file(temporary, destination) {
         Ok(Nil) -> Ok(Nil)
-        Error(error) ->
-          // On Windows, a rename that loses a race with another writer can
-          // fail. The other writer's entry is an equally valid cache value.
-          case simplifile.is_file(destination) {
-            Ok(True) -> {
-              let _ = simplifile.delete(temporary)
-              Ok(Nil)
-            }
-            Ok(False) | Error(_) -> fail(error)
-          }
+        Error(ReplacementUncertain(reason)) -> Error(WriteFailed(key, reason))
+        Error(ReplacementFailed(reason)) -> fail(reason)
       }
   }
 }

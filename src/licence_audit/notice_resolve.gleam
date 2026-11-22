@@ -15,9 +15,11 @@
 //// 3. **SPDX fallback.** Expand the declared SPDX identifiers/expressions to
 ////    canonical licence text from the pinned SPDX License List revision.
 ////
-//// Every network result is cached in the shared `notices_cache` under an
-//// immutable key so repeated runs — and packages that share an SPDX licence —
-//// avoid redundant traffic. Repository network/API failures are non-fatal:
+//// Source, repository archive, and SPDX results use immutable cache keys.
+//// Mutable tag→commit results expire after 24 hours. Final Hex materials with
+//// repository candidates are reused only when they match the locked source's
+//// licence files; otherwise resolution revisits the tag cache and recombines
+//// cached immutable materials. Repository network/API failures are non-fatal:
 //// they surface a deferred warning and resolution continues to the SPDX
 //// fallback. When that happens the final per-package result is deliberately
 //// *not* cached, so a later run retries the repository instead of being frozen
@@ -104,6 +106,32 @@ fn cached_final_files(
   package: notice.NoticePackage,
 ) -> #(Result(List(notice.NoticeFile), Nil), Option(String)) {
   use files <- cache_dir.try_with_warning(notice_cache.get_files(cache, key))
+  case package.source, list.filter_map(package.repo_links, repository.parse) {
+    notice.HexPackage(_), [_, ..] -> {
+      // Final files have no repository provenance. Only the locked source can
+      // prove they are immutable, including entries written by older versions.
+      use key <- cache_dir.try_with_warning(#(source_key(package), None))
+      use source <- cache_dir.try_with_warning(notice_cache.get_files(
+        cache,
+        key,
+      ))
+      case notice.has_licence_file(source) && source == files {
+        True -> #(Ok(files), None)
+        False -> #(Error(Nil), None)
+      }
+    }
+    notice.HexPackage(_), []
+    | notice.GitPackage(_, _, _, _), _
+    | notice.PathPackage(_), _
+    -> validate_final_files(cache, package, files)
+  }
+}
+
+fn validate_final_files(
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+  files: List(notice.NoticeFile),
+) -> #(Result(List(notice.NoticeFile), Nil), Option(String)) {
   case notice.has_licence_file(files) {
     True -> #(Ok(files), None)
     False -> {
@@ -155,12 +183,12 @@ fn cached_spdx_file(
   #(Ok(notice.spdx_file(canonical, text)), None)
 }
 
-// Version material keys so old empty selections cannot hide nested licences.
+// Older final materials can contain licence text recovered from a branch.
 fn final_key(package: notice.NoticePackage) -> Result(String, Nil) {
   use source <- result.try(source_identity(package))
   use metadata <- result.try(metadata_fingerprint(package))
   Ok(
-    "pkg:v2:"
+    "pkg:v3:"
     <> source
     <> ":metadata:"
     <> metadata
@@ -435,7 +463,7 @@ fn resolve_commit_loop(
   case tags {
     [] -> #(Ok(None), None)
     [tag, ..rest] -> {
-      let key = "tag:" <> repository.describe(repo) <> "@" <> tag
+      let key = "tag:v2:" <> repository.describe(repo) <> "@" <> tag
       use cached <- cache_dir.with_warning(notice_cache.get_text(cache, key))
       case cached {
         Ok(commit) -> #(Ok(Some(commit)), None)
@@ -650,6 +678,29 @@ fn resolve_spdx_requirements(
           ])
       }
     }
+  }
+}
+
+/// Read required pinned SPDX text without a network request.
+pub fn resolve_cached_spdx(
+  cache: notice_cache.Cache,
+  package: String,
+  requirement: spdx.Requirement,
+) -> #(Result(Option(notice.NoticeFile), notice.Error), Option(String)) {
+  use cached <- cache_dir.with_warning(notice_cache.get_text(
+    cache,
+    spdx_key(requirement),
+  ))
+  case cached {
+    Ok(text) -> #(Ok(Some(notice.spdx_file(requirement, text))), None)
+    Error(Nil) -> #(
+      Error(notice.SpdxFetchFailed(
+        package,
+        requirement_id(requirement),
+        "offline: required pinned SPDX text is not cached or caching is disabled",
+      )),
+      None,
+    )
   }
 }
 

@@ -19,8 +19,9 @@ import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
+import licence_audit/spdx_expression
 import tty
 
 const max_read_failures = 3
@@ -63,6 +64,7 @@ type LoopOutcome {
 }
 
 type WorkerMessage {
+  WorkerStarted(reader: process.Pid)
   WorkerFinished(LoopOutcome)
   WorkerDown
 }
@@ -77,8 +79,8 @@ fn spawn_monitor(running: fn() -> anything) -> #(process.Pid, process.Monitor)
 ///
 /// - `title` is shown above the list.
 /// - `labels` are the choices in display order.
-/// - Items whose label is in `allow` start as `Allow`.
-/// - Items whose label is in `deny` start as `Deny`.
+/// - Items matching `deny` start as `Deny`, even if also allowed.
+/// - Other items matching `allow` start as `Allow`.
 /// - Everything else (including newly discovered licences) starts as `Ignore`.
 ///
 /// Returns a `Selection` containing only the labels marked `Allow` and `Deny`
@@ -142,14 +144,17 @@ pub fn new_state(
   allow: List(String),
   deny: List(String),
 ) -> State {
+  let allowed = list.map(allow, spdx_expression.matching_tokens)
+  let denied = list.map(deny, spdx_expression.matching_tokens)
   let items =
     list.map(labels, fn(label) {
+      let tokens = spdx_expression.matching_tokens(label)
       let choice = case
-        list.contains(allow, label),
-        list.contains(deny, label)
+        list.contains(denied, tokens),
+        list.contains(allowed, tokens)
       {
-        True, _ -> Allow
-        False, True -> Deny
+        True, _ -> Deny
+        False, True -> Allow
         False, False -> Ignore
       }
       Item(label: label, choice: choice)
@@ -190,21 +195,49 @@ fn run_loop_worker(state: State) -> LoopOutcome {
   let subject = process.new_subject()
   let #(_, monitor) =
     spawn_monitor(fn() {
-      event.init_event_server()
+      let reader = event.init_event_server()
+      process.send(subject, WorkerStarted(reader))
       stdout.execute([command.HideCursor])
       render(state, first: True)
       process.send(subject, WorkerFinished(loop(state, read_failures: 0)))
     })
-  let message =
+  let selector =
     process.new_selector()
     |> process.select(subject)
     |> process.select_specific_monitor(monitor, fn(_down) { WorkerDown })
-    |> process.selector_receive_forever
+  let outcome = await_worker(selector, None)
   process.demonitor_process(monitor)
+  outcome
+}
 
-  case message {
-    WorkerFinished(outcome) -> outcome
-    WorkerDown -> LoopReadFailed
+fn await_worker(
+  selector: process.Selector(WorkerMessage),
+  reader: Option(process.Pid),
+) -> LoopOutcome {
+  case process.selector_receive_forever(selector) {
+    WorkerStarted(reader) -> await_worker(selector, Some(reader))
+    WorkerFinished(outcome) -> {
+      stop_reader(reader)
+      outcome
+    }
+    WorkerDown -> {
+      stop_reader(reader)
+      LoopReadFailed
+    }
+  }
+}
+
+fn stop_reader(reader: Option(process.Pid)) -> Nil {
+  case reader {
+    None -> Nil
+    Some(reader) -> {
+      // A normal worker exit leaves the linked reader blocked in terminal I/O.
+      let monitor = process.monitor(reader)
+      process.kill(reader)
+      process.new_selector()
+      |> process.select_specific_monitor(monitor, fn(_down) { Nil })
+      |> process.selector_receive_forever
+    }
   }
 }
 

@@ -8,6 +8,7 @@ import licence_audit/hex
 import licence_audit/progress
 import licence_audit/source_archive
 import licence_audit/source_archive_test
+import licence_audit/test_policy
 import licence_audit/toml
 import simplifile
 
@@ -74,15 +75,18 @@ pub fn merge_combines_file_and_cli_policy_with_stable_deduplication_test() {
       vuln_block_unknown: False,
     )
   let cli =
-    config.Policy(
-      exceptions: [],
-      allow: ["MIT", "BSD-3-Clause"],
-      deny: [
+    config.LoadOptions(
+      config_path: None,
+      project_root: "test/fixtures/no-policy",
+      allow_licences: ["MIT", "BSD-3-Clause"],
+      deny_licences: [
         "AGPL-3.0-only",
         "GPL-3.0-only",
       ],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
+      ignore_config: False,
+      check: False,
     )
 
   let assert Ok(policy) = config.merge(file, cli)
@@ -101,17 +105,20 @@ pub fn merge_errors_on_empty_licence_identifier_test() {
       vuln_block_unknown: False,
     )
   let cli =
-    config.Policy(
-      exceptions: [],
-      allow: [""],
-      deny: [],
+    config.LoadOptions(
+      config_path: None,
+      project_root: "test/fixtures/no-policy",
+      allow_licences: [""],
+      deny_licences: [],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
+      ignore_config: False,
+      check: False,
     )
 
   let assert Error(error) = config.merge(file, cli)
 
-  should.equal(error, config.InvalidLicenceIdentifier)
+  should.equal(error, config.InvalidLicenceIdentifier("allow", ""))
 }
 
 pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {
@@ -134,7 +141,7 @@ pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {
         allow_licences: ["MIT", "BSD-3-Clause", "MIT"],
         deny_licences: ["GPL-3.0-only", "AGPL-3.0-only", "GPL-3.0-only"],
         vuln_severity: None,
-        vuln_block_unknown: False,
+        vuln_block_unknown: None,
         ignore_config: False,
         check: True,
       ))
@@ -144,27 +151,35 @@ pub fn load_unions_cli_lists_with_explicit_and_project_config_test() {
   })
 }
 
-pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
+pub fn check_reads_selected_allow_and_deny_without_widening_test() {
   [
-    #("MIT", [], 1, "unknown: MIT"),
-    #("MIT", ["--allow=MIT"], 0, "allowed"),
-    #("BSD-3-Clause", ["--allow=MIT"], 0, "allowed"),
-    #("AGPL-3.0-only", ["--allow=AGPL-3.0-only"], 1, "denied: AGPL-3.0-only"),
+    #("MIT", ["BSD-3-Clause"], ["AGPL-3.0-only"], 1, "unknown: MIT"),
+    #("MIT", ["MIT"], [], 0, "allowed"),
+    #("BSD-3-Clause", ["MIT"], [], 1, "unknown: BSD-3-Clause"),
+    #(
+      "AGPL-3.0-only",
+      ["AGPL-3.0-only"],
+      ["AGPL-3.0-only"],
+      1,
+      "denied: AGPL-3.0-only",
+    ),
     #(
       "GPL-3.0-only",
-      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      ["AGPL-3.0-only", "GPL-3.0-only"],
+      ["GPL-3.0-only"],
       1,
       "denied: GPL-3.0-only",
     ),
     #(
       "AGPL-3.0-only",
-      ["--allow=AGPL-3.0-only,GPL-3.0-only", "--deny=GPL-3.0-only"],
+      ["AGPL-3.0-only", "GPL-3.0-only"],
+      ["AGPL-3.0-only", "GPL-3.0-only"],
       1,
       "denied: AGPL-3.0-only",
     ),
   ]
   |> list.each(fn(test_case) {
-    let #(licence, additions, expected_exit_code, expected_output) = test_case
+    let #(licence, allow, deny, expected_exit_code, expected_output) = test_case
     let archive = source_archive_test.metadata_archive([licence])
     let assert Ok(checksum) = source_archive.sha256_hex(archive)
     let manifest_path = "build/config-locked-licence.toml"
@@ -184,14 +199,11 @@ pub fn check_cli_additions_preserve_configured_allow_and_deny_test() {
       )
     let #(result, _) =
       licence_audit.run_configured(
-        list.append(
-          [
-            "check",
-            "--manifest=" <> manifest_path,
-            "--config=test/fixtures/licence_audit_config.toml",
-          ],
-          additions,
-        ),
+        [
+          "check",
+          "--manifest=" <> manifest_path,
+          test_policy.flag(allow, deny),
+        ],
         clients,
         progress.disabled(),
       )
@@ -367,8 +379,6 @@ pub fn check_rejects_nested_policy_before_fetching_metadata_test() {
   [
     [],
     [
-      "--allow=MIT",
-      "--deny=GPL-3.0-only",
       "--checks=all",
       "--vuln-severity=critical",
     ],
@@ -423,8 +433,6 @@ pub fn check_overrides_cannot_hide_empty_policy_headers_test() {
           "check",
           "--manifest=test/fixtures/manifest.toml",
           "--config=" <> path,
-          "--allow=MIT",
-          "--deny=GPL-3.0-only",
           "--checks=all",
           "--vuln-severity=critical",
           "--vuln-block-unknown",
@@ -473,27 +481,70 @@ pub fn parse_errors_on_non_boolean_vuln_block_unknown_test() {
   )
 }
 
-pub fn merge_preserves_configured_vuln_block_unknown_test() {
-  let file =
-    config.Policy(
-      exceptions: [],
-      allow: [],
-      deny: [],
-      vuln_severity: None,
-      vuln_block_unknown: True,
-    )
-  let cli =
-    config.Policy(
-      exceptions: [],
-      allow: [],
-      deny: [],
-      vuln_severity: None,
-      vuln_block_unknown: False,
-    )
+pub fn load_resolves_all_unknown_blocking_cli_and_config_combinations_test() {
+  let root = "build/config-unknown-precedence"
+  let path = root <> "/gleam.toml"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  list.each(
+    [
+      #("", False),
+      #("vuln_block_unknown = true\n", True),
+      #("vuln_block_unknown = false\n", False),
+    ],
+    fn(setting) {
+      let #(setting, configured) = setting
+      let assert Ok(_) =
+        simplifile.write(
+          path,
+          "[tools.licence_audit]\nvuln_severity = \"critical\"\n" <> setting,
+        )
+      use #(override, expected) <- list.each([
+        #(None, configured),
+        #(Some(True), True),
+        #(Some(False), False),
+      ])
+      use config_path <- list.each([None, Some(path)])
+      use #(severity_override, expected_severity) <- list.each([
+        #(None, Some("critical")),
+        #(Some("medium"), Some("medium")),
+      ])
+      let assert Ok(policy) =
+        config.load(config.LoadOptions(
+          config_path:,
+          project_root: root,
+          allow_licences: [],
+          deny_licences: [],
+          vuln_severity: severity_override,
+          vuln_block_unknown: override,
+          ignore_config: False,
+          check: False,
+        ))
+      should.equal(policy.vuln_block_unknown, expected)
+      should.equal(policy.vuln_severity, expected_severity)
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
 
-  let assert Ok(policy) = config.merge(file, cli)
-
-  should.equal(policy.vuln_block_unknown, True)
+pub fn load_resolves_optional_unknown_blocking_without_file_settings_test() {
+  use #(override, expected) <- list.each([
+    #(None, False),
+    #(Some(True), True),
+    #(Some(False), False),
+  ])
+  use ignore_config <- list.each([False, True])
+  let assert Ok(policy) =
+    config.load(config.LoadOptions(
+      config_path: None,
+      project_root: "test/fixtures/no-policy",
+      allow_licences: [],
+      deny_licences: [],
+      vuln_severity: None,
+      vuln_block_unknown: override,
+      ignore_config:,
+      check: False,
+    ))
+  should.equal(policy.vuln_block_unknown, expected)
 }
 
 pub fn load_uses_explicit_config_before_project_config_test() {
@@ -504,7 +555,7 @@ pub fn load_uses_explicit_config_before_project_config_test() {
       allow_licences: [],
       deny_licences: [],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
       ignore_config: False,
       check: False,
     )
@@ -531,7 +582,7 @@ pub fn load_reads_project_gleam_toml_test() {
       allow_licences: [],
       deny_licences: [],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
       ignore_config: False,
       check: False,
     )
@@ -558,7 +609,7 @@ pub fn load_uses_cli_policy_when_no_file_policy_exists_test() {
       allow_licences: ["MIT"],
       deny_licences: ["GPL-3.0-only"],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
       ignore_config: False,
       check: True,
     )
@@ -585,7 +636,7 @@ pub fn load_uses_cli_only_when_ignore_config_is_set_test() {
       allow_licences: ["ISC"],
       deny_licences: ["Unlicence"],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
       ignore_config: True,
       check: False,
     )
@@ -612,7 +663,7 @@ pub fn load_allows_missing_policy_in_report_mode_test() {
       allow_licences: [],
       deny_licences: [],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
       ignore_config: False,
       check: False,
     )
@@ -639,7 +690,7 @@ pub fn load_errors_on_missing_policy_in_check_mode_test() {
       allow_licences: [],
       deny_licences: [],
       vuln_severity: None,
-      vuln_block_unknown: False,
+      vuln_block_unknown: None,
       ignore_config: False,
       check: True,
     )
