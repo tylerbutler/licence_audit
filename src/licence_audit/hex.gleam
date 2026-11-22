@@ -155,11 +155,10 @@ pub fn fetch_package_metadata_from_hex(
   fetch_package_metadata(name, send)
 }
 
-/// Default HTTP client: dispatches the request synchronously via Erlang's
-/// built-in `httpc` (TLS verified by default).
+/// Default HTTP client with one retry, verified TLS and a shared host cutoff.
 fn send(req: Request(String)) -> Result(Response(String), Error) {
   let req = request.set_header(req, "user-agent", "licence_audit")
-  case httpc_adaptive.dispatch(req, timeout_ms: request_timeout_ms) {
+  case httpc_adaptive.dispatch_retry(req, request_timeout_ms, retries: 1) {
     Ok(response) -> Ok(response)
     Error(error) -> Error(from_http_error(req, error))
   }

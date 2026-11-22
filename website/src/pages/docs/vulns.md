@@ -47,6 +47,11 @@ The command queries Hex and GitHub dependencies. It skips other sources and
 lists them at the end. It gets advisories through HTTPS and does **not** cache
 them.
 
+Initial OSV requests contain at most 1,000 queries each. The CLI keeps input
+order and follows each result's pagination, with a limit of 32 pages per query.
+If a later batch or page fails, the command returns an error instead of partial
+coverage. OSV requests use the shared [network retry limits](/docs/#network-retries).
+
 Hex queries identify the package and locked version. GitHub queries send the
 locked commit through OSV's `commit` field. Reports, scoped exceptions, and
 SBOM component references keep the full GitHub purl, including any `#subpath`;

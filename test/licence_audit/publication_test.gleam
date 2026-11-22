@@ -1,8 +1,11 @@
 import gleam/dict
 import gleam/dynamic/decode
+import gleam/http/request
+import gleam/http/response.{Response}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -10,7 +13,9 @@ import licence_audit/cache
 import licence_audit/cache_dir
 import licence_audit/error
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import licence_audit/manifest
+import licence_audit/network_retry_test
 import licence_audit/notice
 import licence_audit/osv
 import licence_audit/progress
@@ -272,6 +277,121 @@ fn run(
     clients,
     progress.disabled(),
   ).0
+}
+
+fn retrying_publication_clients() -> licence_audit.Clients {
+  licence_audit.Clients(
+    ..online_clients(hex.Published),
+    publication_fetcher: fn(name, version) {
+      hex.fetch_publication(name, version, fn(req) {
+        network_retry_test.send(req, 1)
+        |> result.map_error(hex.from_http_error(req, _))
+      })
+    },
+  )
+}
+
+pub fn required_publication_rate_limit_then_success_completes_cli_test() {
+  let root = project("retry-publication")
+  network_retry_test.with_script(
+    [
+      Ok(Response(429, [#("retry-after", "1")], "")),
+      Ok(Response(
+        200,
+        [],
+        "{\"version\":\"1.0.0\",\"package_url\":\"https://hex.pm/api/packages/local_dep\"}",
+      )),
+    ],
+    fn() {
+      should.equal(
+        run(
+          root,
+          ["--reproducible", "--no-cache"],
+          retrying_publication_clients(),
+        ).exit_code,
+        0,
+      )
+      should.equal(list.length(network_retry_test.requests()), 2)
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn expired_publication_evidence_never_hides_exhaustion_or_wait_budget_failure_test() {
+  let root = project("retry-expired-publication")
+  let assert Ok(table) =
+    cache_dir.open_table(Some(root <> "/cache"), "publication-v1", "test")
+  let assert Ok(_) =
+    cache_dir.insert_at(
+      table,
+      "unpublished:local_dep@1.0.0",
+      "unpublished",
+      Some(1),
+    )
+  list.each(
+    [
+      #(
+        [
+          Error(httpc_adaptive.ResponseTimeout),
+          Error(httpc_adaptive.ResponseTimeout),
+        ],
+        "timed out",
+      ),
+      #([Ok(Response(429, [#("retry-after", "31")], ""))], "retry deadline"),
+    ],
+    fn(sample) {
+      let #(responses, diagnostic) = sample
+      network_retry_test.with_script(responses, fn() {
+        let result =
+          run(root, ["--reproducible"], retrying_publication_clients())
+        should.equal(result.exit_code, 2)
+        assert string.contains(result.output, diagnostic)
+        should.equal(
+          list.length(network_retry_test.requests()),
+          list.length(responses),
+        )
+      })
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn required_publication_cutoff_is_incomplete_instead_of_stale_success_test() {
+  let root = project("retry-cutoff-publication")
+  let assert Ok(table) =
+    cache_dir.open_table(Some(root <> "/cache"), "publication-v1", "test")
+  let assert Ok(_) =
+    cache_dir.insert_at(
+      table,
+      "unpublished:local_dep@1.0.0",
+      "unpublished",
+      Some(1),
+    )
+  network_retry_test.with_script(
+    list.repeat(Error(httpc_adaptive.ResponseTimeout), 3),
+    fn() {
+      let clients =
+        licence_audit.Clients(
+          ..retrying_publication_clients(),
+          publication_fetcher: fn(name, version) {
+            let assert Ok(req) =
+              request.to("https://hex.pm/api/packages/example")
+            list.each([1, 2, 3], fn(_) {
+              should.equal(
+                network_retry_test.send(req, 0),
+                Error(httpc_adaptive.ResponseTimeout),
+              )
+            })
+            retrying_publication_clients().publication_fetcher(name, version)
+          },
+        )
+      let result = run(root, ["--reproducible"], clients)
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "coverage is incomplete")
+      should.equal(list.length(network_retry_test.requests()), 3)
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn git_package_paths_are_not_filesystem_paths_in_mixed_workspaces_test() {
