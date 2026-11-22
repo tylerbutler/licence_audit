@@ -4,6 +4,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import licence_audit/cache_dir
 import licence_audit/cache_support
 import licence_audit/manifest
 import licence_audit/notice
@@ -211,8 +212,9 @@ pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
   let path = fresh_cache_path("source_identity")
   let source = read_bytes("hex.tar")
   let checksum = checksum_of(source)
-  let package = hex_package("same", string.lowercase(checksum), ["MIT"], [])
-  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let links = ["https://github.com/owner/repo"]
+  let package = hex_package("same", string.lowercase(checksum), ["MIT"], links)
+  let cache = cache_at(path, 1000)
   let assert #(Ok(first), None) =
     notice_resolve.resolve(
       cache,
@@ -227,11 +229,11 @@ pub fn immutable_source_cache_persists_and_changes_with_checksum_test() {
     )
   let assert None = notice_cache.close(cache)
 
-  let cache = notice_cache.open(notice_cache.Enabled(path: Some(path)))
+  let cache = cache_at(path, 1_000_000)
   let assert #(Ok(cached), None) =
     notice_resolve.resolve(
       cache,
-      hex_package("same", checksum, ["MIT"], []),
+      hex_package("same", checksum, ["MIT"], links),
       clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx),
     )
   should.equal(cached, first)
@@ -1496,6 +1498,228 @@ pub fn transient_repo_failure_is_not_cached_and_retries_test() {
   should.equal(paths(second_files), ["./NOTICE.txt", "LICENSE"])
   should.equal(second.warnings, [])
   let _ = notice_cache.close(cache)
+}
+
+fn cache_at(root: String, now: Int) -> notice_cache.Cache {
+  notice_cache.open(notice_cache.Enabled(Some(root)))
+  |> notice_cache.with_clock(fn() { now })
+}
+
+fn repository_package(name: String) -> notice.NoticePackage {
+  hex_package(name, checksum_of(read_bytes("notice_only_hex.tar")), ["MIT"], [
+    "https://github.com/owner/repo",
+  ])
+}
+
+fn warm_repository_final(
+  cache: notice_cache.Cache,
+  package: notice.NoticePackage,
+) -> notice_resolve.Resolution {
+  let assert #(Ok(resolution), None) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        fn(_, _) { Ok(read_bytes("notice_only_hex.tar")) },
+        panic_git,
+        fn(_, tag) {
+          should.equal(tag, "v1.0.0")
+          Ok(Some("commit-a"))
+        },
+        fn(_, commit) {
+          should.equal(commit, "commit-a")
+          Ok(read_bytes("repo_with_license.tar.gz"))
+        },
+        panic_spdx,
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = resolution.outcome
+  let identity =
+    package.name
+    <> "@1.0.0@hex:"
+    <> checksum_of(read_bytes("notice_only_hex.tar"))
+  should.equal(
+    notice_cache.get_files(cache, final_cache_key(package, identity)),
+    #(Ok(files), None),
+  )
+  should.equal(resolution.warnings, [])
+  resolution
+}
+
+pub fn warm_final_cache_revalidates_moved_tag_at_expiry_test() {
+  use archive <- source_archive_test.with_tar_gz([
+    #("repo/LICENSE", <<"Commit B licence":utf8>>),
+  ])
+  let root = fresh_cache_path("moved_tag")
+  let package = repository_package("moved")
+  let first = warm_repository_final(cache_at(root, 1000), package)
+  let assert #(Ok(warm), None) =
+    notice_resolve.resolve(
+      cache_at(root, 87_399),
+      package,
+      clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx),
+    )
+  should.equal(warm, first)
+  let assert #(Ok(moved), None) =
+    notice_resolve.resolve(
+      cache_at(root, 87_400),
+      package,
+      clients(
+        panic_hex,
+        panic_git,
+        fn(repo, tag) {
+          should.equal(repository.describe(repo), "github:owner/repo")
+          should.equal(tag, "v1.0.0")
+          Ok(Some("commit-b"))
+        },
+        fn(_, commit) {
+          should.equal(commit, "commit-b")
+          Ok(archive)
+        },
+        panic_spdx,
+      ),
+    )
+  let assert notice_resolve.Resolved(files) = moved.outcome
+  should.equal(paths(files), ["./NOTICE.txt", "LICENSE"])
+  assert list.contains(files, notice.NoticeFile("LICENSE", "Commit B licence"))
+  should.equal(moved.warnings, [])
+  assert moved != first
+  let assert #(Ok(cached), None) =
+    notice_resolve.resolve(
+      cache_at(root, 87_401),
+      package,
+      clients(panic_hex, panic_git, panic_resolve, panic_archive, panic_spdx),
+    )
+  should.equal(cached, moved)
+}
+
+pub fn expired_unchanged_tag_reuses_commit_archive_test() {
+  let root = fresh_cache_path("unchanged_tag")
+  let package = repository_package("unchanged")
+  let first = warm_repository_final(cache_at(root, 2000), package)
+  let assert Ok(table) = cache_dir.open_table(Some(root), "notices-v3", "test")
+  list.each([88_400, 174_800], fn(now) {
+    let assert #(Ok(refreshed), None) =
+      notice_resolve.resolve(
+        cache_at(root, now),
+        package,
+        clients(
+          panic_hex,
+          panic_git,
+          fn(_, tag) {
+            should.equal(tag, "v1.0.0")
+            Ok(Some("commit-a"))
+          },
+          panic_archive,
+          panic_spdx,
+        ),
+      )
+    should.equal(refreshed, first)
+    should.equal(
+      cache_dir.lookup_entry(table, "tag:v2:github:owner/repo@v1.0.0"),
+      Ok(cache_dir.Entry("commit-a", Some(now))),
+    )
+  })
+}
+
+pub fn expired_tag_refresh_failure_warns_uses_spdx_and_retries_test() {
+  let root = fresh_cache_path("expired_tag_failure")
+  let package = repository_package("refresh_failure")
+  let first = warm_repository_final(cache_at(root, 3000), package)
+  let cache = cache_at(root, 89_400)
+  let failed =
+    clients(
+      panic_hex,
+      panic_git,
+      fn(_, _) { Error(notice.FetchNetworkFailure) },
+      panic_archive,
+      fn(_) { Ok(Some("Canonical MIT text")) },
+    )
+  let assert #(Ok(degraded), None) =
+    notice_resolve.resolve(cache, package, failed)
+  let assert notice_resolve.Resolved(files) = degraded.outcome
+  should.equal(paths(files), ["./NOTICE.txt", "SPDX-License-List/MIT.txt"])
+  assert list.contains(
+    files,
+    notice.spdx_file(spdx.LicenseRequirement("MIT"), "Canonical MIT text"),
+  )
+  let assert [warning] = degraded.warnings
+  assert string.contains(warning, "could not resolve tag v1.0.0")
+  assert string.contains(warning, "trying declared SPDX licences")
+  let assert #(Ok(repeated), None) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      notice.Clients(..failed, fetch_spdx: panic_spdx),
+    )
+  should.equal(repeated, degraded)
+  let identity =
+    package.name
+    <> "@1.0.0@hex:"
+    <> checksum_of(read_bytes("notice_only_hex.tar"))
+  let assert notice_resolve.Resolved(original_files) = first.outcome
+  should.equal(
+    notice_cache.get_files(cache, final_cache_key(package, identity)),
+    #(Ok(original_files), None),
+  )
+  let assert #(Ok(recovered), None) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        panic_hex,
+        panic_git,
+        fn(_, _) { Ok(Some("commit-a")) },
+        panic_archive,
+        panic_spdx,
+      ),
+    )
+  should.equal(recovered, first)
+}
+
+pub fn legacy_final_and_undated_tag_cannot_bypass_revalidation_test() {
+  let root = fresh_cache_path("legacy_final_freshness")
+  let cache = cache_at(root, 1000)
+  let package = repository_package("legacy")
+  let identity =
+    package.name
+    <> "@1.0.0@hex:"
+    <> checksum_of(read_bytes("notice_only_hex.tar"))
+  notice_cache.put_files(cache, "source:v2:" <> identity, [
+    notice.NoticeFile("NOTICE", "Locked attribution"),
+  ])
+  notice_cache.put_files(cache, final_cache_key(package, identity), [
+    notice.NoticeFile("LICENSE", "Stale commit A licence"),
+  ])
+  let assert Ok(table) = cache_dir.open_table(Some(root), "notices-v3", "test")
+  let assert Ok(Nil) =
+    cache_dir.insert(table, "tag:v2:github:owner/repo@v1.0.0", "commit-a")
+  notice_cache.put_files(cache, "repo:v2:github:owner/repo@commit-b", [
+    notice.NoticeFile("LICENSE", "Commit B licence"),
+  ])
+  let assert #(Ok(resolution), None) =
+    notice_resolve.resolve(
+      cache,
+      package,
+      clients(
+        panic_hex,
+        panic_git,
+        fn(_, tag) {
+          should.equal(tag, "v1.0.0")
+          Ok(Some("commit-b"))
+        },
+        panic_archive,
+        panic_spdx,
+      ),
+    )
+  should.equal(
+    resolution.outcome,
+    notice_resolve.Resolved([
+      notice.NoticeFile("NOTICE", "Locked attribution"),
+      notice.NoticeFile("LICENSE", "Commit B licence"),
+    ]),
+  )
+  should.equal(resolution.warnings, [])
 }
 
 // --- Disabled cache re-resolves every namespace ------------------------------

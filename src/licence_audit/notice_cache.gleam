@@ -1,8 +1,8 @@
 //// Namespaced cache for notice/licence materials.
 ////
 //// Caches extracted files and licence text between runs. `notice_resolve`
-//// supplies immutable keys and bypasses this storage for mutable path
-//// dependencies.
+//// supplies immutable content keys and mutable tag keys, and bypasses this
+//// storage for mutable path dependencies. Tag results expire after 24 hours.
 ////
 //// Returned storage errors let the resolver read live and produce deferred
 //// warnings returned with each operation. Use `--no-cache` to bypass the
@@ -11,6 +11,7 @@
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleam/time/timestamp
 
 import licence_audit/cache_dir
 import licence_audit/notice
@@ -29,6 +30,7 @@ pub opaque type Cache {
     table: Option(cache_dir.Store),
     spdx_table: Option(cache_dir.Store),
     warning: Option(String),
+    clock: fn() -> Int,
   )
 }
 
@@ -43,6 +45,8 @@ pub opaque type Cache {
 /// as a miss, so forward-compatible drift self-heals without a bump.
 const cache_format_version = 3
 
+const tag_ttl_seconds = 86_400
+
 fn cache_directory() -> String {
   "notices-v" <> int.to_string(cache_format_version)
 }
@@ -54,13 +58,31 @@ fn cache_directory() -> String {
 /// `close`.
 pub fn open(mode: Mode) -> Cache {
   case mode {
-    Disabled -> Cache(table: None, spdx_table: None, warning: None)
+    Disabled ->
+      Cache(table: None, spdx_table: None, warning: None, clock: now_seconds)
     Enabled(path) -> {
       let #(table, warning) = open_store(path, cache_directory(), "notices")
       let #(spdx_table, spdx_warning) = open_store(path, "spdx-v1", "SPDX text")
-      Cache(table:, spdx_table:, warning: option.or(spdx_warning, warning))
+      Cache(
+        table:,
+        spdx_table:,
+        warning: option.or(spdx_warning, warning),
+        clock: now_seconds,
+      )
     }
   }
+}
+
+/// Set the clock used for mutable tag entries, in seconds since the Unix epoch.
+pub fn with_clock(cache: Cache, clock: fn() -> Int) -> Cache {
+  Cache(..cache, clock:)
+}
+
+fn now_seconds() -> Int {
+  let #(seconds, _) =
+    timestamp.system_time()
+    |> timestamp.to_unix_seconds_and_nanoseconds
+  seconds
 }
 
 fn open_store(
@@ -108,7 +130,8 @@ pub fn put_files(
 }
 
 /// Read a cached plain-text value (e.g. a resolved commit SHA or canonical SPDX
-/// text) stored under `key`. A blank stored value is treated as a miss.
+/// text) stored under `key`. Blank values and tag results without a fresh
+/// timestamp are treated as misses. Reads do not extend a tag's lifetime.
 pub fn get_text(
   cache: Cache,
   key: String,
@@ -116,12 +139,20 @@ pub fn get_text(
   lookup_text(cache, key)
 }
 
-/// Best-effort write of a plain-text value under `key`.
+/// Best-effort write of a plain-text value under `key`, timestamping tag results.
 pub fn put_text(cache: Cache, key: String, value: String) -> Option(String) {
   case text_table(cache, key) {
     None -> None
-    Some(table) -> store(table, key, value)
+    Some(table) ->
+      store_at(table, key, value, case is_tag_key(key) {
+        True -> Some(cache.clock())
+        False -> None
+      })
   }
+}
+
+fn is_tag_key(key: String) -> Bool {
+  string.starts_with(key, "tag:")
 }
 
 fn is_spdx_key(key: String) -> Bool {
@@ -141,13 +172,17 @@ fn lookup_text(
 ) -> #(Result(String, Nil), Option(String)) {
   let primary = case text_table(cache, key) {
     None -> #(Error(Nil), None)
-    Some(table) -> lookup_nonblank(table, key)
+    Some(table) -> lookup_nonblank(table, key, cache.clock)
   }
   use found <- cache_dir.with_warning(primary)
   case found, is_spdx_key(key), cache.table {
     Error(Nil), True, Some(legacy) -> {
       // Compatible pinned SPDX entries remain reusable within this root.
-      use value <- cache_dir.try_with_warning(lookup_nonblank(legacy, key))
+      use value <- cache_dir.try_with_warning(lookup_nonblank(
+        legacy,
+        key,
+        cache.clock,
+      ))
       let warning = case cache.spdx_table {
         None -> None
         Some(table) -> store(table, key, value)
@@ -162,11 +197,24 @@ fn lookup_text(
 fn lookup_nonblank(
   table: cache_dir.Store,
   key: String,
+  clock: fn() -> Int,
 ) -> #(Result(String, Nil), Option(String)) {
-  use value <- cache_dir.try_with_warning(lookup(table, key))
-  case notice.has_text(value) {
-    False -> #(Error(Nil), None)
-    True -> #(Ok(value), None)
+  case cache_dir.lookup_entry(table, key) {
+    Error(error) -> #(Error(Nil), cache_dir.access_warning(error, "notices"))
+    Ok(entry) -> {
+      let fresh = case is_tag_key(key), entry.cached_at {
+        False, _ -> True
+        True, None -> False
+        True, Some(cached_at) -> {
+          let now = clock()
+          cached_at <= now && now - cached_at < tag_ttl_seconds
+        }
+      }
+      case fresh && notice.has_text(entry.value) {
+        False -> #(Error(Nil), None)
+        True -> #(Ok(entry.value), None)
+      }
+    }
   }
 }
 
@@ -181,7 +229,16 @@ fn lookup(
 }
 
 fn store(table: cache_dir.Store, key: String, value: String) -> Option(String) {
-  case cache_dir.insert(table, key, value) {
+  store_at(table, key, value, None)
+}
+
+fn store_at(
+  table: cache_dir.Store,
+  key: String,
+  value: String,
+  cached_at: Option(Int),
+) -> Option(String) {
+  case cache_dir.insert_at(table, key, value, cached_at) {
     Ok(Nil) -> None
     Error(error) -> cache_dir.access_warning(error, "notices")
   }

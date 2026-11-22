@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Expire `notices` tag lookups after 24 hours and revalidate repository fallback before reusing final materials, so moved tags cannot retain stale licence text."

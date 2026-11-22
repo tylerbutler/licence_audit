@@ -172,19 +172,34 @@ When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
 the default is `%LOCALAPPDATA%\licence_audit\Cache\notices-v3\`, as resolved
 by Erlang/OTP's user cache directory.
 
-Immutable content addresses are the cache keys. The cache contains extracted
+Immutable content addresses identify cached materials. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
 and licence files from repositories. Pinned canonical SPDX records and indexes
 use `spdx-v1/` below the same application root. Packages that declare the same
-identifier share one SPDX record. This change preserves cache freshness rules.
+identifier share one SPDX record.
 Use `--cache-dir=DIR` to select the root for all these caches, taking precedence
 over `XDG_CACHE_HOME` and `HOME`. Use `--no-cache` to bypass them without deleting
 stored entries. The command reads local path dependencies
 live and does not cache them.
 
-Older tag results and final package materials that could contain branch-derived
-text are not reused. Immutable source materials, repository archives keyed by
-commit, and pinned SPDX records remain reusable.
+Tag-to-commit results expire **24 hours** after resolution. Reading a tag result
+does not extend its lifetime. After expiry, the command resolves the tag again.
+If it moved, the command uses licence text from the new commit. If it is
+unchanged, the command reuses the commit-keyed licence files without downloading
+the repository archive again.
+
+Final Hex package materials cannot bypass tag revalidation. When a package has
+repository fallback candidates, the command reuses final materials only if they
+match licence files from its checksum-verified source. Otherwise, it combines
+the source materials with repository or SPDX text again, using their caches.
+Legacy tag entries without timestamps are misses; legacy final entries must
+pass the same source check. Older branch-derived entries are not reused.
+Immutable source materials, repository archives keyed by commit, and pinned
+SPDX records do not expire.
+
+If a tag refresh fails, the command warns and tries declared SPDX licences.
+It does not use expired repository-derived final materials or cache that
+degraded final result. A later run retries the repository.
 
 Corrupt cached values are treated as misses. Transient network failures are
 never cached as successful results.
