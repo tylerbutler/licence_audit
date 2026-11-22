@@ -42,7 +42,7 @@ The Windows details above describe the delegated behavior in
 and the pinned
 [OTP 29.1.2](https://github.com/erlang/otp/blob/OTP-29.1.2/lib/stdlib/src/filename.erl).
 They are not a portable fallback-path guarantee across runtime versions.
-See [caching](/docs/#caching) for cache families and expiry rules.
+See [caching](/docs/network-and-caching#caching) for cache families and expiry rules.
 
 ## Colour selection
 

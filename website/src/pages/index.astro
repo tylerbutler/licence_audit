@@ -54,19 +54,19 @@ const checks = [
     id: "licences",
     icon: "scale",
     title: "Licence policy",
-    body: "licence_audit gets licence metadata from Hex for each locked package and checks it against your allow and deny policy. An allow list accepts only the specified licences. A deny list rejects the specified licences.",
+    body: "licence_audit reads the declared licences from each locked Hex archive, after it verifies the archive checksum. It then compares them to your policy. The allow list names the licences that you accept, and the deny list names the licences that you reject.",
   },
   {
     id: "sbom",
     icon: "package",
-    title: "CycloneDX SBOM",
-    body: "Create a CycloneDX 1.6 document that contains package URLs, SHA-256 hashes, declared licences, external references, and the dependency graph. Use <code>--reproducible</code> to create byte-identical output for the same input.",
+    title: "SBOM",
+    body: "The same scan also describes your dependencies for other tools. <code>sbom</code> creates a CycloneDX 1.6 or SPDX 2.3 document with package URLs, SHA-256 hashes, declared licences, and the dependency graph. With <code>--reproducible</code>, the same lockfile always gives the same bytes.",
   },
   {
     id: "vulns",
     icon: "bug",
     title: "Known vulnerabilities",
-    body: "Query OSV.dev for advisories about your Hex and GitHub dependencies. Use <code>--vuln-severity</code> to make CI fail at a specified severity. Advisories with unknown severity do not cause a failure.",
+    body: "A permitted licence does not make a package safe. <code>vulns</code> asks OSV.dev for advisories about your Hex and GitHub dependencies. In <code>check</code>, <code>--vuln-severity</code> sets the severity that fails CI. Advisories with unknown severity do not cause a failure.",
   },
 ] as const;
 
@@ -74,19 +74,19 @@ const workflow = [
   {
     n: "01",
     title: "Inspect",
-    body: "Run <code>licence_audit</code> with no arguments to report each licence in the resolved dependency tree. This command reports results and returns exit code 0.",
+    body: "First, look before you decide. Run <code>licence_audit</code> with no arguments to see each licence in the resolved dependency tree. Policy findings do not fail this report.",
     code: "gleam deps download\nlicence_audit",
   },
   {
     n: "02",
     title: "Create a policy",
-    body: "Select the licences that you permit or deny. The command writes a <code>[tools.licence_audit]</code> policy to <code>gleam.toml</code> and preserves comments.",
+    body: "Next, turn what you saw into rules. Pick the licences that you permit or deny. <code>update</code> writes them to <code>[tools.licence_audit]</code> in <code>gleam.toml</code> and keeps your comments.",
     code: "licence_audit update",
   },
   {
     n: "03",
     title: "Enforce",
-    body: "Run <code>check</code> to fail the build when a dependency violates the policy. Select <code>--checks=all</code> to include the vulnerability gate, or <code>--checks=vulns</code> to check vulnerabilities only.",
+    body: "Then let CI hold the line. <code>check</code> fails the build when a dependency violates the policy. Add <code>--checks=all</code> to also fail on known vulnerabilities.",
     code: "licence_audit check --checks=all",
   },
 ] as const;
@@ -100,7 +100,7 @@ const trust = [
   {
     icon: "checkCheck",
     title: "Defined exit codes",
-    body: "Exit code 0 means success, 1 means policy or usage failure, 2 means an input or runtime error, and 130 means user cancellation.",
+    body: "Exit code 0 means success, 1 means a check found a violation, 2 means invalid usage or an error that stopped the scan, and 130 means user cancellation. Your pipeline can tell a bad dependency from a broken run.",
   },
   {
     icon: "refresh",
@@ -110,7 +110,7 @@ const trust = [
   {
     icon: "gitBranch",
     title: "Gleam project files",
-    body: "licence_audit reads <code>manifest.toml</code> and <code>gleam.toml</code>. It identifies each non-Hex dependency that it skips.",
+    body: "licence_audit reads <code>manifest.toml</code> and <code>gleam.toml</code>, which you already have. When it skips a non-Hex dependency, it tells you which one.",
   },
 ] as const;
 ---
@@ -128,9 +128,9 @@ const trust = [
           Check your Gleam <span class="tw">dependencies</span>.
         </h1>
         <p class="hero__sub">
-          <strong>licence_audit</strong> reports licences, creates a CycloneDX
-          SBOM, and finds known vulnerabilities in your locked dependencies.
-          Use it during development or in CI.
+          You ship your dependencies too. <strong>licence_audit</strong> tells
+          you their licences and known vulnerabilities, then fails CI when one
+          breaks your rules.
         </p>
       </div>
 
@@ -164,7 +164,7 @@ const trust = [
     <div class="container">
       <header class="sec-head">
         <h2 id="workflow-h">Turn a dependency report into a CI gate.</h2>
-        <p>Run these three commands in sequence.</p>
+        <p>Look, decide, then enforce. Each step builds on the one before it.</p>
       </header>
 
       <ol class="steps">
@@ -190,8 +190,9 @@ const trust = [
       <header class="sec-head">
         <h2 id="checks-h">Audit licences and vulnerabilities from one dependency scan.</h2>
         <p>
-          licence_audit reads your locked dependencies once. It writes plain
-          text output that you can read in a terminal or log.
+          Your lockfile already lists everything that you ship. licence_audit
+          starts from it and answers three questions: can you use this code,
+          can you describe it to others, and is it safe?
         </p>
       </header>
 
@@ -230,8 +231,8 @@ const trust = [
       <div class="trust__intro">
         <h2 id="trust-h">Use predictable exit codes in CI.</h2>
         <p>
-          Run one executable with defined exit codes and reproducible output.
-          Use quiet progress output in pipelines.
+          A gate is only useful if you can trust its result. licence_audit is
+          one executable, and each exit code has one meaning.
         </p>
         <div class="trust__ci">
           <Code code={ciYaml} lang="yaml" title=".github/workflows/licence-audit.yml" frame="code" />
@@ -262,8 +263,8 @@ const trust = [
       <header class="sec-head">
         <h2 id="install-h">Install licence_audit.</h2>
         <p>
-          Install a prebuilt executable. Then, run it in a Gleam project that
-          has a resolved dependency tree.
+          Install a prebuilt executable. Then run it in a Gleam project that
+          has a <code>manifest.toml</code>.
         </p>
       </header>
 

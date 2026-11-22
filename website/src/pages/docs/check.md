@@ -12,7 +12,7 @@ your policy. A gate violation returns a nonzero exit code.
 The licence verdict uses declarations from the checksum-verified locked Hex
 archive, even if the Hex API reports different licences for the latest release.
 Reports and `update` use the same evidence and
-[checksum-keyed cache](/docs/#caching).
+[checksum-keyed cache](/docs/network-and-caching#caching).
 
 ```sh
 licence_audit check

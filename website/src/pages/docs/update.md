@@ -117,7 +117,7 @@ them from the configuration.
 Successful writes exit `0`. Metadata discovery, configuration, TOML edit, and
 file read/write failures exit `2`.
 
-Discovery shares the [immutable metadata cache](/docs/#caching) with licence
+Discovery shares the [immutable metadata cache](/docs/network-and-caching#caching) with licence
 reports, checks, and reproducible SBOMs. A cold cache requires larger archive
 downloads. Missing checksums, checksum mismatches, and invalid or missing
 archive metadata stop discovery before the picker or write. API licences
