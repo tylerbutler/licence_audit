@@ -525,10 +525,20 @@ fn local_links(document: toml.Document) -> List(#(String, String)) {
     toml.get_string(document, ["repository", "user"]),
     toml.get_string(document, ["repository", "repo"])
   {
-    Ok("github"), Ok(user), Ok(repo) ->
-      list.append(links, [
-        #("Repository", "https://github.com/" <> user <> "/" <> repo),
-      ])
+    Ok(kind), Ok(user), Ok(repo) -> {
+      let base = case kind {
+        "github" -> Ok("https://github.com/")
+        "gitlab" -> Ok("https://gitlab.com/")
+        "bitbucket" -> Ok("https://bitbucket.com/")
+        "sourcehut" -> Ok("https://git.sr.ht/~")
+        _ -> Error(Nil)
+      }
+      case base {
+        Ok(base) ->
+          list.append(links, [#("Repository", base <> user <> "/" <> repo)])
+        Error(_) -> links
+      }
+    }
     _, _, _ -> links
   }
 }

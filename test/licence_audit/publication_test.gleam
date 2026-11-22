@@ -700,6 +700,143 @@ pub fn reproducible_online_and_offline_use_the_same_required_evidence_test() {
   let assert Ok(_) = simplifile.delete(root)
 }
 
+pub fn local_repository_links_preserve_publication_identity_and_source_test() -> Nil {
+  list.each([hex.Published, hex.Unpublished], fn(status) {
+    let root = project("repository-links")
+    let file = root <> "/local_dep/gleam.toml"
+    let assert Ok(contents) = simplifile.read(file)
+    let contents =
+      string.replace(
+        contents,
+        "[dependencies]",
+        "links = [{ title = \"Docs\", href = \"https://example.com/docs\" }]\n[dependencies]",
+      )
+    let assert Ok(_) = simplifile.write(file, contents)
+    let clients =
+      licence_audit.Clients(..online_clients(status), fetcher: fn(_) {
+        Error(hex.NetworkFailure("optional metadata unavailable"))
+      })
+    let baseline = run(root, ["--no-cache"], clients)
+    should.equal(baseline.exit_code, 0)
+    let original = local_component(baseline.output)
+    should.equal(original.purl, case status {
+      hex.Published -> Some("pkg:hex/local_dep@1.0.0")
+      hex.Unpublished -> None
+    })
+    let graph =
+      decode.at(
+        ["dependencies"],
+        decode.list({
+          use ref <- decode.field("ref", decode.string)
+          use children <- decode.field("dependsOn", decode.list(decode.string))
+          decode.success(#(ref, children))
+        }),
+      )
+    let assert Ok(original_graph) = json.parse(baseline.output, graph)
+    list.each(
+      [
+        #("github", "example", "https://github.com/example/widget"),
+        #(
+          "gitlab",
+          "group/subgroup",
+          "https://gitlab.com/group/subgroup/widget",
+        ),
+        #("bitbucket", "example", "https://bitbucket.com/example/widget"),
+        #("sourcehut", "example", "https://git.sr.ht/~example/widget"),
+      ],
+      fn(provider) {
+        let assert Ok(_) =
+          simplifile.write(
+            file,
+            contents
+              <> "\n[repository]\ntype = \""
+              <> provider.0
+              <> "\"\nuser = \""
+              <> provider.1
+              <> "\"\nrepo = \"widget\"\npath = \"packages/local_dep\"\n",
+          )
+        let result = run(root, ["--no-cache"], clients)
+        should.equal(result.exit_code, 0)
+        let component = local_component(result.output)
+        should.equal(component.urls, [
+          "https://example.com/docs",
+          provider.2,
+        ])
+        should.equal(LocalComponent(..component, urls: original.urls), original)
+        should.equal(json.parse(result.output, graph), Ok(original_graph))
+        let assert Ok(references) =
+          json.parse(
+            result.output,
+            decode.at(
+              ["components"],
+              decode.list({
+                use name <- decode.field("name", decode.string)
+                use references <- decode.optional_field(
+                  "externalReferences",
+                  [],
+                  decode.list({
+                    use url <- decode.field("url", decode.string)
+                    use kind <- decode.field("type", decode.string)
+                    use comment <- decode.field("comment", decode.string)
+                    decode.success(#(url, kind, comment))
+                  }),
+                )
+                decode.success(#(name, references))
+              }),
+            ),
+          )
+        assert list.contains(
+          references,
+          #("local_dep", [
+            #("https://example.com/docs", "documentation", "Docs"),
+            #(provider.2, "vcs", "Repository"),
+          ]),
+        )
+      },
+    )
+    let assert Ok(_) = simplifile.delete(root)
+  })
+}
+
+pub fn invalid_local_repository_metadata_fails_before_network_test() -> Nil {
+  let root = project("invalid-repository")
+  let file = root <> "/local_dep/gleam.toml"
+  let assert Ok(contents) = simplifile.read(file)
+  let output = root <> "/previous.json"
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each(["github", "gitlab", "bitbucket", "sourcehut"], fn(provider) {
+    list.each(
+      [
+        "repo = \"widget\"",
+        "user = \"example\"\nrepo = 1",
+        "user = \"invalid user\"\nrepo = \"widget\"",
+      ],
+      fn(fields) {
+        let assert Ok(_) =
+          simplifile.write(
+            file,
+            contents
+              <> "\n[repository]\ntype = \""
+              <> provider
+              <> "\"\n"
+              <> fields
+              <> "\n",
+          )
+        let result =
+          run(root, ["--no-cache", "--output=" <> output], no_network_clients())
+        should.equal(result.exit_code, 2)
+        assert string.contains(
+          result.output,
+          "invalid description, licences, links, or repository",
+        )
+        should.equal(simplifile.read(output), Ok("previous output"))
+      },
+    )
+  })
+  let assert Ok(_) = simplifile.delete(root)
+  Nil
+}
+
 pub fn expired_unpublished_evidence_can_add_a_purl_without_changing_local_identity_test() {
   let root = project("becomes-published")
   let flags = ["--reproducible"]
