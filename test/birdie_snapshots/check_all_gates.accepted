@@ -1,0 +1,27 @@
+---
+version: 2.0.2
+title: check all gates
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: check_all_gates_test
+---
+PRODUCTION DEPENDENCIES
+  Package       Version  Licences         Status
+✓ gleam_stdlib  1.0.0    MIT              allowed
+
+DEVELOPMENT DEPENDENCIES
+  Package       Version  Licences         Status
+✓ argv          1.1.0    Apache-2.0       allowed
+· local_dep     0.1.0    non-hex (local)  skipped: local
+· git_dep       2.0.0    non-hex (git)    skipped: git
+4 packages: 2 allowed, 0 denied, 0 unknown, 0 excepted, 2 skipped
+Skipped non-Hex packages: 2 (git_dep, local_dep)
+
+
+╭─ Vulnerability check · threshold: high ──────────╮
+│ ✗  [HIGH    ]  GHSA-snapshot  gleam_stdlib@1.0.0 │
+╰──────────────────────────────────────────────────╯
+1 advisory/advisories at or above high (of 1 total reported).
+Skipped 2 unsupported source(s): local_dep, git_dep
+Licence check passed.
+Vulnerability check failed: one or more advisories at or above threshold severity.
+

@@ -1,0 +1,15 @@
+---
+version: 2.0.2
+title: root report pass
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: root_report_pass_test
+---
+PRODUCTION DEPENDENCIES
+  Package      Version  Licences  Status
+✓ app_a        1.0.0    MIT       allowed
+└─ ✓ lib_b     2.0.0    MIT       allowed
+   └─ ✓ lib_c  3.0.0    GPL-3.0   allowed
+3 packages: 3 allowed, 0 denied, 0 unknown, 0 excepted, 0 skipped
+Skipped non-Hex packages: 0
+
+
