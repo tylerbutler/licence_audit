@@ -21,6 +21,8 @@ pub type Error {
   NetworkFailure(reason: error.GluegunError)
   Timeout
   NoIpv6Address
+  ConnectionFailure(reason: httpc_adaptive.ConnectionReason, detail: String)
+  TlsFailure(detail: String)
   UnexpectedResponse(status: Int)
   DownloadTooLarge(limit: Int)
 }
@@ -38,6 +40,17 @@ fn await_up(
   timeout: connection.Timeout,
   family: httpc_adaptive.IpFamily,
 ) -> Result(connection.Protocol, Error)
+
+@external(erlang, "archive_download_ffi", "open")
+fn open(
+  host: String,
+  port: Int,
+  options: List(connection.ConnectOption),
+  deadline: Int,
+) -> Result(connection.Connection, Error)
+
+@external(erlang, "archive_download_ffi", "before_close")
+fn before_close(socket: connection.Connection) -> Nil
 
 pub fn fetch(
   request: http_request.Request(BitArray),
@@ -64,9 +77,17 @@ pub fn fetch_with(
   client: fn(http_request.Request(BitArray), Int, httpc_adaptive.IpFamily, Int) ->
     Result(Response(BitArray), Error),
 ) -> Result(BitArray, Error) {
+  use _ <- result.try(
+    httpc_adaptive.admit(request.host)
+    |> result.map_error(fn(reason) {
+      NetworkFailure(
+        error.ConnectionError(httpc_adaptive.describe_error(reason, timeout_ms)),
+      )
+    }),
+  )
   let deadline = monotonic_time(Millisecond) + timeout_ms
-  let family =
-    httpc_adaptive.select_family(request, fn(probe, probe_timeout, family) {
+  use family <- result.try(
+    httpc_adaptive.select_family_with(request, fn(probe, probe_timeout, family) {
       client(
         probe,
         int.min(deadline, monotonic_time(Millisecond) + probe_timeout),
@@ -77,6 +98,9 @@ pub fn fetch_with(
         case error {
           Timeout -> httpc_adaptive.ResponseTimeout
           NoIpv6Address -> httpc_adaptive.NoIpv6Address
+          ConnectionFailure(reason, detail) ->
+            httpc_adaptive.ConnectionFailure(reason, detail)
+          TlsFailure(detail) -> httpc_adaptive.TlsFailure(detail)
           NetworkFailure(reason) -> probe_error(reason)
           UnexpectedResponse(status) ->
             httpc_adaptive.RequestFailed(
@@ -89,8 +113,31 @@ pub fn fetch_with(
         }
       })
     })
-  client(request, deadline, family, limit)
-  |> result.map(fn(response) { response.body })
+    |> result.map_error(fn(reason) {
+      case reason {
+        httpc_adaptive.TlsFailure(detail) -> TlsFailure(detail)
+        reason ->
+          NetworkFailure(
+            error.ConnectionError(httpc_adaptive.describe_error(
+              reason,
+              timeout_ms,
+            )),
+          )
+      }
+    }),
+  )
+  let outcome = client(request, deadline, family, limit)
+  case outcome {
+    Ok(_) -> httpc_adaptive.clear_host_failures(request.host)
+    Error(Timeout) | Error(ConnectionFailure(_, _)) ->
+      httpc_adaptive.record_host_failure(request.host)
+    Error(NetworkFailure(_))
+    | Error(NoIpv6Address)
+    | Error(TlsFailure(_))
+    | Error(UnexpectedResponse(_))
+    | Error(DownloadTooLarge(_)) -> Nil
+  }
+  result.map(outcome, fn(response) { response.body })
 }
 
 fn probe_error(reason: error.GluegunError) -> httpc_adaptive.Error {
@@ -146,10 +193,15 @@ fn send(
     |> connection.with_domain_lookup_timeout(timeout)
     |> connection.with_connect_timeout(timeout)
     |> connection.with_tls_handshake_timeout(timeout)
-    |> connection.open(host: request.host, port: port)
-    |> result.map_error(NetworkFailure),
+    |> connection.options_to_ffi
+    |> open(request.host, port, _, deadline),
   )
-  let outcome = receive_response(socket, request, deadline, family, limit)
+  let outcome =
+    receive_response(socket, request, deadline, family, limit)
+    |> result.try(fn(response) {
+      remaining_timeout(deadline) |> result.replace(response)
+    })
+  before_close(socket)
   let closed = case outcome {
     Ok(_) -> connection.close(socket)
     Error(_) -> Ok(Nil)
@@ -171,6 +223,7 @@ fn receive_response(
 ) -> Result(Response(BitArray), Error) {
   use timeout <- result.try(remaining_timeout(deadline))
   use _protocol <- result.try(await_up(socket, timeout, family))
+  use _ <- result.try(remaining_timeout(deadline))
   use options <- result.try(
     request.options()
     |> request.with_initial_flow(1)
@@ -224,8 +277,11 @@ fn await(
   deadline: Int,
 ) -> Result(message.Message, Error) {
   use timeout <- result.try(remaining_timeout(deadline))
-  message.await(socket, stream, timeout)
-  |> result.map_error(transport_error)
+  use event <- result.try(
+    message.await(socket, stream, timeout)
+    |> result.map_error(transport_error),
+  )
+  remaining_timeout(deadline) |> result.replace(event)
 }
 
 fn receive_headers(
