@@ -87,6 +87,11 @@ test-ffi:
 test: test-ffi
     {{toolchain}} gleam test
 
+# Check picker reader exit before terminal restoration and policy writing.
+[unix]
+test-picker-lifecycle: test-ffi
+    {{toolchain}} {{python}} -B test/picker_lifecycle.py
+
 # Check notices filtering with real CLI cache settings in fresh Erlang VMs.
 test-notices-filter:
     mise exec -- gleam build
