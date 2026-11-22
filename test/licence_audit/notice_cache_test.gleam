@@ -231,3 +231,71 @@ pub fn blank_spdx_entry_does_not_shadow_compatible_legacy_text_test() {
   should.equal(cache_dir.lookup(spdx_store, key), Ok("Legacy MIT text"))
   should.equal(notice_cache.close(cache), None)
 }
+
+pub fn tag_expiry_is_exact_and_reads_do_not_extend_it_test() {
+  let root = fresh_path("tag_expiry")
+  let cache =
+    notice_cache.open(notice_cache.Enabled(Some(root)))
+    |> notice_cache.with_clock(fn() { 1000 })
+  let key = "tag:v2:github:owner/repo@v1.0.0"
+  should.equal(notice_cache.put_text(cache, key, "commit-a"), None)
+  let assert Ok(table) = cache_dir.open_table(Some(root), "notices-v3", "test")
+  should.equal(
+    cache_dir.lookup_entry(table, key),
+    Ok(cache_dir.Entry("commit-a", Some(1000))),
+  )
+  should.equal(
+    notice_cache.get_text(notice_cache.with_clock(cache, fn() { 87_399 }), key),
+    #(Ok("commit-a"), None),
+  )
+  list.each([999, 87_400, 87_401], fn(now) {
+    should.equal(
+      notice_cache.get_text(notice_cache.with_clock(cache, fn() { now }), key),
+      #(Error(Nil), None),
+    )
+  })
+  should.equal(
+    cache_dir.lookup_entry(table, key),
+    Ok(cache_dir.Entry("commit-a", Some(1000))),
+  )
+}
+
+pub fn legacy_tag_without_timestamp_is_a_miss_test() {
+  let root = fresh_path("legacy_tag")
+  let key = "tag:v2:github:owner/repo@v1.0.0"
+  write_raw_entry(root, key, "legacy-commit")
+  let cache =
+    notice_cache.open(notice_cache.Enabled(Some(root)))
+    |> notice_cache.with_clock(fn() { 1000 })
+  should.equal(notice_cache.get_text(cache, key), #(Error(Nil), None))
+  should.equal(notice_cache.put_text(cache, key, "fresh-commit"), None)
+  should.equal(notice_cache.get_text(cache, key), #(Ok("fresh-commit"), None))
+}
+
+pub fn tag_expiry_preserves_immutable_materials_and_disabled_mode_test() {
+  let root = fresh_path("immutable_tag_neighbours")
+  let cache =
+    notice_cache.open(notice_cache.Enabled(Some(root)))
+    |> notice_cache.with_clock(fn() { 0 })
+  let files = [notice("LICENSE", "Immutable licence")]
+  notice_cache.put_files(cache, "source:v2:locked-checksum", files)
+  notice_cache.put_files(cache, "repo:v2:github:owner/repo@commit", files)
+  notice_cache.put_text(cache, "spdx:pinned:license:MIT", "Pinned MIT text")
+  let later = notice_cache.with_clock(cache, fn() { 864_000 })
+  list.each(
+    ["source:v2:locked-checksum", "repo:v2:github:owner/repo@commit"],
+    fn(key) {
+      should.equal(notice_cache.get_files(later, key), #(Ok(files), None))
+    },
+  )
+  should.equal(notice_cache.get_text(later, "spdx:pinned:license:MIT"), #(
+    Ok("Pinned MIT text"),
+    None,
+  ))
+  let disabled =
+    notice_cache.open(notice_cache.Disabled)
+    |> notice_cache.with_clock(fn() { panic as "disabled cache used clock" })
+  let key = "tag:v2:github:owner/repo@v1.0.0"
+  should.equal(notice_cache.put_text(disabled, key, "commit"), None)
+  should.equal(notice_cache.get_text(disabled, key), #(Error(Nil), None))
+}

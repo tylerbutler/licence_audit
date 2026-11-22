@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Prevent `licence_audit update` from deleting a temporary pathname reused by another writer after a successful policy replacement."

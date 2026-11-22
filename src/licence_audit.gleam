@@ -39,6 +39,7 @@ import licence_audit/toml
 import licence_audit/update as update_cmd
 import licence_audit/version
 import simplifile
+import tty
 
 pub type RunResult {
   RunResult(exit_code: Int, output: String)
@@ -104,7 +105,13 @@ pub fn main() -> Nil {
 }
 
 fn main_action() -> Nil {
-  case glint.execute(cli.app(), cli.normalize_args(arguments())) {
+  case
+    cli.execute(
+      arguments(),
+      tty.detect_color_level(tty.Stdout),
+      tty.detect_color_level(tty.Stderr),
+    )
+  {
     Error(message) -> {
       io.println_error(message)
       halt(2)
@@ -1545,13 +1552,22 @@ fn run_options_with_clients(
 
   case prepare_audit(options, manifest_path, project_root, reporter) {
     Error(failure) -> failure
-    Ok(#(config_policy, audit_policy, locked, sbom_manifest, scopes, reporter)) ->
+    Ok(#(
+      config_policy,
+      audit_policy,
+      locked,
+      sbom_manifest,
+      prod_seed,
+      scopes,
+      reporter,
+    )) ->
       audit_locked(
         options,
         config_policy,
         audit_policy,
         locked,
         sbom_manifest,
+        prod_seed,
         scopes,
         osv_batch_fetcher,
         osv_detail_fetcher,
@@ -1575,6 +1591,7 @@ fn prepare_audit(
     policy.Policy,
     manifest.LockedPackages,
     Option(manifest.SbomManifest),
+    List(String),
     dict.Dict(String, manifest.Scope),
     progress.Reporter,
   ),
@@ -1610,11 +1627,20 @@ fn prepare_audit(
         })
     },
   )
-  use scopes <- result.try(
-    compute_scopes(project_root, locked)
+  use prod_seed <- result.try(
+    resolve_prod_seed(project_root, locked.direct_names)
     |> result.map_error(fn(scope_error) { #(diagnostic(scope_error), reporter) }),
   )
-  Ok(#(config_policy, audit_policy, locked, sbom_manifest, scopes, reporter))
+  let scopes = manifest.dep_scopes(locked, prod_seed)
+  Ok(#(
+    config_policy,
+    audit_policy,
+    locked,
+    sbom_manifest,
+    prod_seed,
+    scopes,
+    reporter,
+  ))
 }
 
 /// Run the audit over a loaded manifest: fetch licences, render the report,
@@ -1625,6 +1651,7 @@ fn audit_locked(
   audit_policy: policy.Policy,
   locked: manifest.LockedPackages,
   sbom_manifest: Option(manifest.SbomManifest),
+  prod_seed: List(String),
   scopes: dict.Dict(String, manifest.Scope),
   osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
   osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
@@ -1653,7 +1680,10 @@ fn audit_locked(
         source_clients.fetch_hex_tarball,
       )
     })
-  let dep_paths = manifest.dep_paths(locked)
+  let dep_paths = case options.scope {
+    cli.All -> manifest.dep_paths(locked)
+    cli.Prod -> manifest.dep_paths_from(locked, prod_seed)
+  }
   let #(active_packages, active_skipped) = case options.scope {
     cli.All -> #(locked.packages, locked.skipped_packages)
     cli.Prod -> #(
@@ -2034,14 +2064,6 @@ fn build_skipped_rows(
       path: path,
     )
   })
-}
-
-fn compute_scopes(
-  project_root: String,
-  locked: manifest.LockedPackages,
-) -> Result(dict.Dict(String, manifest.Scope), error.Error) {
-  resolve_prod_seed(project_root, locked.direct_names)
-  |> result.map(manifest.dep_scopes(locked, _))
 }
 
 /// Production direct dependency names from `<project_root>/gleam.toml`, or

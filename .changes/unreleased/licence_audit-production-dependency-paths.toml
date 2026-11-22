@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Keep the full production dependency chain in `report --scope=prod` and `check --scope=prod` when a shorter development path reaches the same package."

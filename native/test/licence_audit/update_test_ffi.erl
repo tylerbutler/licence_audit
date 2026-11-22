@@ -1,6 +1,6 @@
 -module(update_test_ffi).
 -export([partial_write/2, set_private_mode/1, metadata/1, temporary_files/1, make_link/2, is_symlink/1,
-    windows_worker/0]).
+    replace_and_recreate_temporary/1, failed_replacement/1, windows_worker/0]).
 -include_lib("kernel/include/file.hrl").
 
 %% Successful Gleam file writes cannot model partial I/O, owner death, or native
@@ -18,6 +18,23 @@ partial_write(Path, Interrupt) ->
     case {Interrupt, Result} of
         {true, {'EXIT', interrupted}} -> {ok, nil};
         {false, {error, enospc}} -> {ok, nil};
+        _ -> {error, nil}
+    end.
+
+replace_and_recreate_temporary(Path) ->
+    Replace = fun(From, To) ->
+        ok = file:rename(From, To),
+        file:write_file(From, <<"another writer's temporary file">>)
+    end,
+    case policy_file_ffi:write(Path, <<"complete replacement">>, fun file:write/2, Replace) of
+        ok -> {ok, nil};
+        {error, _Reason} -> {error, nil}
+    end.
+
+failed_replacement(Path) ->
+    Replace = fun(_, _) -> {error, injected_replacement_failure} end,
+    case policy_file_ffi:write(Path, <<"replacement">>, fun file:write/2, Replace) of
+        {error, injected_replacement_failure} -> {ok, nil};
         _ -> {error, nil}
     end.
 

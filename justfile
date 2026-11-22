@@ -87,6 +87,11 @@ test-ffi:
 test: test-ffi
     {{toolchain}} gleam test
 
+# Check picker reader exit before terminal restoration and policy writing.
+[unix]
+test-picker-lifecycle: test-ffi
+    {{toolchain}} {{python}} -B test/picker_lifecycle.py
+
 # Run only the SPDX/policy examples and fixed-seed properties.
 test-spdx-policy: test-ffi
     {{toolchain}} gleam build

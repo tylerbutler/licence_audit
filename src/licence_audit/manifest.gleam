@@ -345,6 +345,15 @@ fn build_locked(
 /// Packages with no incoming edges from a direct dep (orphans, which a
 /// well-formed lockfile should not contain) are omitted.
 pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
+  dep_paths_from(locked, locked.direct_names)
+}
+
+/// Compute shortest paths from the given direct dependency roots, retaining
+/// non-Hex nodes in the graph.
+pub fn dep_paths_from(
+  locked: LockedPackages,
+  direct_names: List(String),
+) -> Dict(String, List(String)) {
   let edges =
     list.fold(locked.graph, dict.new(), fn(acc, node) {
       dict.insert(acc, node.name, node.requirements)
@@ -356,7 +365,7 @@ pub fn dep_paths(locked: LockedPackages) -> Dict(String, List(String)) {
     })
 
   let sources =
-    list.filter(locked.direct_names, fn(name) { dict.has_key(nodes, name) })
+    list.filter(direct_names, fn(name) { dict.has_key(nodes, name) })
 
   let visited =
     list.fold(sources, dict.new(), fn(acc, name) { dict.insert(acc, name, Nil) })

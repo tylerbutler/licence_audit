@@ -10,6 +10,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
@@ -176,7 +179,9 @@ jobs:
           test ! -e "dist/licence_audit-${REF_NAME}-x86_64-linux-static.tar.gz"
           test ! -e "dist/licence_audit-${REF_NAME}-aarch64-linux-static.tar.gz"
 
-          (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt *.tar.gz *.zip *.cdx.json > checksums.txt)
+          (cd dist && sha256sum licence_audit LICENSE NOTICE THIRD_PARTY_NOTICES.txt \
+            "licence_audit-${REF_NAME}"*.tar.gz "licence_audit-${REF_NAME}"*.zip \
+            "licence_audit-${REF_NAME}.cdx.json" > checksums.txt)
           ls -la dist
 
       - name: Test packaged cache and HTTPS without system Erlang
@@ -199,7 +204,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
         with:
           name: licence_audit-release
-          path: dist/
+          path: |
+            dist/licence_audit
+            dist/LICENSE
+            dist/NOTICE
+            dist/THIRD_PARTY_NOTICES.txt
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.tar.gz
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.zip
+            dist/licence_audit-${{ env.RELEASE_TAG }}.cdx.json
+            dist/checksums.txt
 
   release:
     needs: build-release-artifacts
@@ -225,8 +238,8 @@ jobs:
         with:
           subject-path: |
             dist/licence_audit
-            dist/*.tar.gz
-            dist/*.zip
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.tar.gz
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.zip
             dist/checksums.txt
 
       - name: Attest SBOM for release artifacts
@@ -234,8 +247,8 @@ jobs:
         with:
           subject-path: |
             dist/licence_audit
-            dist/*.tar.gz
-            dist/*.zip
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.tar.gz
+            dist/licence_audit-${{ env.RELEASE_TAG }}*.zip
           sbom-path: dist/licence_audit-${{ env.RELEASE_TAG }}.cdx.json
 
       - name: Attach assets to GitHub Release
@@ -253,7 +266,10 @@ jobs:
             echo "Release $REF_NAME not yet available, sleeping..."
             sleep 10
           done
-          gh release upload "$REF_NAME" dist/* --clobber
+          gh release upload "$REF_NAME" \
+            dist/licence_audit dist/LICENSE dist/NOTICE dist/THIRD_PARTY_NOTICES.txt \
+            "dist/licence_audit-${REF_NAME}"*.tar.gz "dist/licence_audit-${REF_NAME}"*.zip \
+            "dist/licence_audit-${REF_NAME}.cdx.json" dist/checksums.txt --clobber
 
       - name: Add install instructions to release body
         env:

@@ -105,6 +105,9 @@ prepare(Path, Contents, Metadata, Write, Replace) ->
         Error -> Error
     end.
 
+finish_write(ok, _Temporary) ->
+    %% Replacement consumed our file; the old pathname may belong to another writer.
+    ok;
 finish_write({error, {helper_not_stopped, _}} = Outcome, _Temporary) ->
     %% Do not race a helper whose termination could not be confirmed.
     Outcome;

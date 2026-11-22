@@ -1,9 +1,12 @@
 """Exercise the CLI with stdout and stderr captured independently."""
 
+from concurrent.futures import ThreadPoolExecutor
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -26,7 +29,10 @@ class CliStreamTest(unittest.TestCase):
             '[tools.licence_audit]\nallow = ["MIT"]\n'
         )
 
-    def run_cli(self, *arguments, environment=None, fixture=None):
+    def run_cli(
+        self, *arguments, environment=None, fixture=None,
+        stdout_tty=False, stderr_tty=False,
+    ):
         env = {**os.environ, "NO_COLOR": "1"}
         if environment is not None:
             for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
@@ -38,6 +44,10 @@ class CliStreamTest(unittest.TestCase):
                 "erl", "-noshell", "-pa", *EBINS, "-pa", str(fixture),
                 "-eval", "licence_audit:main().", "-extra", *arguments,
             ]
+        if stdout_tty or stderr_tty:
+            return self.run_cli_with_terminals(
+                command, env, stdout_tty, stderr_tty,
+            )
         return subprocess.run(
             command,
             cwd=self.project,
@@ -46,6 +56,51 @@ class CliStreamTest(unittest.TestCase):
             timeout=30,
             env=env,
         )
+
+    def run_cli_with_terminals(self, command, env, stdout_tty, stderr_tty):
+        def read_terminal(master):
+            chunks = []
+            while True:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    break
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks).decode().replace("\r\n", "\n")
+
+        terminals = {}
+        with ThreadPoolExecutor(max_workers=2) as readers:
+            try:
+                for stream, enabled in (
+                    ("stdout", stdout_tty), ("stderr", stderr_tty),
+                ):
+                    if enabled:
+                        master, slave = os.openpty()
+                        terminals[stream] = (
+                            master, slave, readers.submit(read_terminal, master),
+                        )
+                try:
+                    result = subprocess.run(
+                        command, cwd=self.project, text=True, env=env, timeout=30,
+                        **{
+                            stream: terminals[stream][1]
+                            if stream in terminals else subprocess.PIPE
+                            for stream in ("stdout", "stderr")
+                        },
+                    )
+                finally:
+                    for _, slave, _ in terminals.values():
+                        os.close(slave)
+                for stream, (_, _, reader) in terminals.items():
+                    setattr(result, stream, reader.result(timeout=5))
+                return result
+            finally:
+                for master, _, _ in terminals.values():
+                    os.close(master)
 
     def compile_fixture(self, evaluation, environment):
         directory = self.project / f"fixture_{uuid.uuid4().hex}"
@@ -89,6 +144,123 @@ class CliStreamTest(unittest.TestCase):
                 self.assertIn("USAGE:", result.stdout)
             self.assertFalse(cache.exists())
             self.assertFalse((self.project / "unused-home").exists())
+
+    def assert_help_stream(self, result, usage_error, colored):
+        destination = result.stderr if usage_error else result.stdout
+        other = result.stdout if usage_error else result.stderr
+        self.assertEqual(result.returncode, 2 if usage_error else 0, destination)
+        self.assertEqual(other, "")
+        self.assertIn("USAGE:", destination)
+        self.assertEqual("\x1b" in destination, colored, destination)
+        return destination
+
+    def test_help_pipe_color_modes_and_aliases_on_every_command(self):
+        for command in ([], ["report"], ["check"], ["update"], ["sbom"], ["vulns"], ["notices"]):
+            for flags, environment, colored in (
+                ([], {"TERM": "xterm-256color"}, False),
+                (["--color=always"], {"NO_COLOR": "1"}, True),
+                (["--colour", "ALWAYS"], {"TERM": "dumb"}, True),
+                (["--colour=never"], {"FORCE_COLOR": "3"}, False),
+                (["--color", "never"], {"FORCE_COLOR": "1"}, False),
+            ):
+                for usage_error in (False, True):
+                    with self.subTest(command=command, flags=flags, error=usage_error):
+                        suffix = "--unknown" if usage_error else "-h"
+                        result = self.run_cli(
+                            *command, *flags, suffix, environment=environment,
+                        )
+                        self.assert_help_stream(result, usage_error, colored)
+
+    def test_help_auto_uses_report_environment_policy_in_pipes(self):
+        for environment, colored in (
+            ({}, False),
+            ({"NO_COLOR": "1", "FORCE_COLOR": "3"}, False),
+            ({"FORCE_COLOR": "0", "TERM": "xterm-256color"}, False),
+            ({"FORCE_COLOR": "1"}, True),
+            ({"FORCE_COLOR": "2", "CI": "1"}, True),
+            ({"FORCE_COLOR": "3", "TERM": "dumb"}, True),
+            ({"TERM": "xterm-256color"}, False),
+            ({"COLORTERM": "truecolor"}, False),
+            ({"CI": "1", "TERM": "xterm-256color"}, False),
+        ):
+            for usage_error in (False, True):
+                with self.subTest(environment=environment, error=usage_error):
+                    result = self.run_cli(
+                        "--color=auto",
+                        "--unknown" if usage_error else "--help",
+                        environment=environment,
+                    )
+                    self.assert_help_stream(result, usage_error, colored)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "requires POSIX terminals")
+    def test_help_pipe_terminal_matrix_uses_actual_destination(self):
+        for stdout_tty, stderr_tty in (
+            (False, False), (True, False), (False, True), (True, True),
+        ):
+            for usage_error in (False, True):
+                for mode, environment, forced in (
+                    ("auto", {"TERM": "xterm-256color"}, None),
+                    ("auto", {"TERM": "xterm-256color", "CI": "1"}, None),
+                    ("always", {"NO_COLOR": "1", "TERM": "dumb"}, True),
+                    ("never", {"FORCE_COLOR": "3"}, False),
+                ):
+                    with self.subTest(
+                        stdout_tty=stdout_tty, stderr_tty=stderr_tty,
+                        error=usage_error, mode=mode, environment=environment,
+                    ):
+                        colored = (
+                            stderr_tty if usage_error else stdout_tty
+                        ) if forced is None else forced
+                        result = self.run_cli(
+                            f"--color={mode}",
+                            "--unknown" if usage_error else "--help",
+                            environment=environment,
+                            stdout_tty=stdout_tty, stderr_tty=stderr_tty,
+                        )
+                        self.assert_help_stream(result, usage_error, colored)
+
+    @unittest.skipUnless(hasattr(os, "openpty"), "requires POSIX terminals")
+    def test_help_terminal_environment_disables_or_enables_auto(self):
+        for environment, colored in (
+            ({"NO_COLOR": "1", "TERM": "xterm-256color"}, False),
+            ({"FORCE_COLOR": "0", "COLORTERM": "truecolor"}, False),
+            ({"TERM": "dumb", "COLORTERM": "truecolor"}, False),
+            ({"COLORTERM": "truecolor"}, True),
+            ({"COLORTERM": "24bit"}, True),
+            ({"TERM": "xterm"}, False),
+            ({"TERM": "xterm", "CI": "1"}, True),
+        ):
+            for usage_error in (False, True):
+                with self.subTest(environment=environment, error=usage_error):
+                    result = self.run_cli(
+                        "--unknown" if usage_error else "-h",
+                        environment=environment, stdout_tty=True, stderr_tty=True,
+                    )
+                    self.assert_help_stream(result, usage_error, colored)
+
+    def test_help_color_does_not_scan_literal_option_values(self):
+        for command, flag in (([], "--manifest"), (["sbom"], "--output")):
+            for value in ("--color=always", "--colour=always"):
+                for flags in ([flag, value], [f"{flag}={value}"]):
+                    for usage_error in (False, True):
+                        with self.subTest(command=command, flags=flags, error=usage_error):
+                            result = self.run_cli(
+                                *command, *flags,
+                                "--unknown" if usage_error else "--help",
+                                environment={"TERM": "xterm-256color"},
+                            )
+                            self.assert_help_stream(result, usage_error, False)
+
+    def test_help_color_preserves_plain_layout_and_usage_diagnostics(self):
+        for usage_error in (False, True):
+            suffix = "--unknown" if usage_error else "--help"
+            plain = self.assert_help_stream(
+                self.run_cli("--color=never", suffix), usage_error, False,
+            )
+            colored = self.assert_help_stream(
+                self.run_cli("--color=always", suffix), usage_error, True,
+            )
+            self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", colored), plain)
 
     def test_default_report_matches_named_report_with_root_options(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
@@ -199,7 +371,7 @@ class CliStreamTest(unittest.TestCase):
                 self.assertIn("invalid flag 'ignore-config'", result.stderr)
                 self.assertNotIn("Could not read", result.stderr)
 
-    def test_update_validates_explicit_target_before_manifest_or_picker(self):
+    def test_update_terminal_preflight_precedes_invalid_target(self):
         target = self.project / "policy.toml"
         for original in (
             "name = [",
@@ -213,8 +385,53 @@ class CliStreamTest(unittest.TestCase):
                 )
                 self.assert_diagnostic(result)
                 self.assertNotIn("manifest", result.stderr)
-                self.assertNotIn("interactive terminal", result.stderr)
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
                 self.assertEqual(target.read_text(), original)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires named pipes")
+    def test_update_terminal_preflight_does_not_read_config_or_manifest(self):
+        for filename, flag in (
+            ("blocked-policy.toml", "--config"),
+            ("blocked-manifest.toml", "--manifest"),
+        ):
+            with self.subTest(filename=filename):
+                os.mkfifo(self.project / filename)
+                result = self.run_cli(
+                    "update", f"{flag}={filename}", "--cache-dir=unused-cache"
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                self.assertFalse((self.project / "unused-cache").exists())
+
+    def test_update_terminal_preflight_prints_one_diagnostic_without_cache(self):
+        (self.project / "manifest.toml").write_text(
+            (ROOT / "test/fixtures/update_manifest.toml").read_text()
+        )
+        for verbosity in ([], ["--quiet"], ["--verbose"]):
+            with self.subTest(verbosity=verbosity):
+                result = self.run_cli(
+                    "update", "--cache-dir=unused-cache", *verbosity,
+                    environment={
+                        "NO_COLOR": "1",
+                        "HOME": str(self.project / "unused-home"),
+                        "XDG_CACHE_HOME": str(self.project / "unused-xdg-cache"),
+                    },
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                for name in ("unused-cache", "unused-home", "unused-xdg-cache"):
+                    self.assertFalse((self.project / name).exists())
 
     def test_update_missing_policy_reaches_terminal_requirement_without_writing(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
@@ -325,9 +542,16 @@ class CliStreamTest(unittest.TestCase):
                     self.assert_diagnostic(result)
                     lines = result.stderr.splitlines()
                     progress = [line for line in lines if " | " in line]
-                    self.assertTrue(progress, result.stderr)
-                    for line in progress:
-                        self.assertEqual("\x1b[" in line, colored, line)
+                    if command == "update":
+                        self.assertEqual(
+                            result.stderr,
+                            "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                        )
+                        self.assertEqual(progress, [])
+                    else:
+                        self.assertTrue(progress, result.stderr)
+                        for line in progress:
+                            self.assertEqual("\x1b[" in line, colored, line)
 
     def test_deferred_diagnostics_respect_color_mode(self):
         (self.project / "manifest.toml").write_text("packages = []\n")

@@ -13,6 +13,7 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/notice
 import licence_audit/osv
+import licence_audit/path
 import licence_audit/path_test
 import licence_audit/picker
 import licence_audit/progress
@@ -559,6 +560,36 @@ fn manifest_args(extra: List(String)) -> List(String) {
   list.append(command, ["--manifest=test/fixtures/manifest.toml", ..flags])
 }
 
+fn run_licence_evidence_command(
+  command: List(String),
+  manifest_path: String,
+  clients: licence_audit.Clients,
+) -> licence_audit.RunResult {
+  case command {
+    ["update"] -> {
+      // Evidence tests must reach discovery without a real terminal.
+      let #(result, _) =
+        update.run_with_picker(
+          manifest_path,
+          path.dirname(manifest_path),
+          None,
+          True,
+          None,
+          clients.notice_clients,
+          fn(_, _, _, _) { panic as "invalid evidence must stop before picker" },
+          progress.disabled(),
+        )
+      licence_audit.RunResult(result.exit_code, result.output)
+    }
+    _ ->
+      licence_audit.run_configured(
+        list.append(command, ["--manifest=" <> manifest_path]),
+        clients,
+        progress.disabled(),
+      ).0
+  }
+}
+
 pub fn default_report_succeeds_without_policy_test() {
   let licence_audit.RunResult(exit_code, output) =
     licence_audit.run_configured(
@@ -594,11 +625,7 @@ pub fn licence_commands_require_checksum_but_standalone_vulns_does_not_test() {
   ]
   |> list.each(fn(args) {
     let audit =
-      licence_audit.run_configured(
-        list.append(args, ["--manifest=" <> path]),
-        test_clients(fake_fetcher),
-        progress.disabled(),
-      ).0
+      run_licence_evidence_command(args, path, test_clients(fake_fetcher))
     should.equal(audit.exit_code, 2)
     assert string.contains(audit.output, "gleam_stdlib")
     assert string.contains(audit.output, "outer_checksum")
@@ -2139,7 +2166,9 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
   let root_update =
     licence_audit.run_configured(
       ["update", "--manifest=" <> root <> "/manifest.toml"],
-      clients,
+      test_clients(fn(_) {
+        panic as "noninteractive update must stop before fetching"
+      }),
       progress.disabled(),
     ).0
   should.equal(root_update.exit_code, 2)
@@ -2198,16 +2227,16 @@ pub fn licence_commands_reject_bad_locked_evidence_without_api_fallback_test() {
     let assert Ok(_) = simplifile.write(root <> "/manifest.toml", test_case.0)
     list.each([[], ["report"], ["check"], ["update"]], fn(command) {
       let result =
-        licence_audit.run_configured(
-          list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),
+        run_licence_evidence_command(
+          command,
+          root <> "/manifest.toml",
           licence_audit.Clients(
             ..test_clients(fn(_) {
               panic as "API licences must not be a fallback"
             }),
             notice_clients: notice_clients(fn(_, _) { test_case.1 }),
           ),
-          progress.disabled(),
-        ).0
+        )
       should.equal(result.exit_code, 2)
       case command, test_case.2 {
         ["update"], "network failure" | ["update"], "Checksum mismatch" -> {
@@ -2248,16 +2277,16 @@ pub fn licence_commands_reject_missing_and_invalid_archive_metadata_test() {
       let assert Ok(original_policy) = simplifile.read(root <> "/gleam.toml")
       list.each([["report"], ["check"], ["update"]], fn(command) {
         let result =
-          licence_audit.run_configured(
-            list.append(command, ["--manifest=" <> root <> "/manifest.toml"]),
+          run_licence_evidence_command(
+            command,
+            root <> "/manifest.toml",
             licence_audit.Clients(
               ..test_clients(fn(_) {
                 panic as "invalid archive must not fall back to API licences"
               }),
               notice_clients: notice_clients(fn(_, _) { Ok(archive) }),
             ),
-            progress.disabled(),
-          ).0
+          )
         should.equal(result.exit_code, 2)
         case command {
           ["update"] -> {
