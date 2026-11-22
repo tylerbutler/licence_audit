@@ -1852,6 +1852,7 @@ fn audit_locked(
       False ->
         VulnGateOutcome(
           status: Ok(GateNotEvaluated),
+          scan_started: False,
           report_text: "",
           queries: [],
           occurrences: [],
@@ -2614,9 +2615,9 @@ fn finalize_json_audit(
         False -> json_report.NotEnforced
       },
     )
-  let document = case gate.status {
-    Ok(GateNotEvaluated) -> document
-    Ok(GateEvaluated(_, _)) | Ok(GateUnavailable(_)) | Error(_) ->
+  let document = case gate.scan_started {
+    False -> document
+    True ->
       case vulnerability_gate_json(gate, packages) {
         Ok(vulnerabilities) ->
           json_report.Document(
@@ -3202,6 +3203,7 @@ type VulnGateStatus {
 type VulnGateOutcome {
   VulnGateOutcome(
     status: Result(VulnGateStatus, error.Error),
+    scan_started: Bool,
     report_text: String,
     queries: List(VulnPair),
     occurrences: List(VulnOccurrence),
@@ -3459,6 +3461,7 @@ fn run_vuln_check_for_audit(
     Error(review_error) ->
       VulnGateOutcome(
         status: Error(review_error),
+        scan_started: False,
         report_text: "",
         queries: [],
         occurrences: [],
@@ -3473,6 +3476,7 @@ fn run_vuln_check_for_audit(
         [] ->
           VulnGateOutcome(
             status: Ok(GateEvaluated(NoBlockingAdvisories, CheckComplete)),
+            scan_started: True,
             report_text: format_unsupported_sources(unsupported_packages),
             queries: [],
             occurrences: [],
@@ -3528,6 +3532,7 @@ fn query_vuln_gate(
         )
       VulnGateOutcome(
         status: Ok(GateUnavailable(error.from_osv_error(osv_error))),
+        scan_started: True,
         report_text: format_unsupported_sources(unsupported_packages),
         queries: [],
         occurrences: [],
@@ -3606,6 +3611,7 @@ fn evaluate_vuln_gate(
     Error(review_error) ->
       VulnGateOutcome(
         status: Error(review_error),
+        scan_started: True,
         report_text: "",
         queries: merge_entries_with_packages(entries, purl_pairs),
         occurrences: [],
@@ -3681,6 +3687,7 @@ fn evaluate_vuln_gate(
             [_, ..] -> CheckIncomplete
           }),
         ),
+        scan_started: True,
         report_text: report_text,
         queries: merge_entries_with_packages(entries, purl_pairs),
         occurrences: occurrences,
