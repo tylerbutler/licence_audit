@@ -106,12 +106,10 @@ jobs:
         run: just test
 
       - name: Test real Windows replacement and interruption
-        run: just test-update-atomic
+        run: just --no-deps test-update-atomic
 
       - name: Test Windows escript cache
-        run: |
-          just test-cache-paths build
-          just test-cache licence_audit --escript
+        run: just test-cache-paths test-cache licence_audit --escript
 
   linux-minimum-otp:
     runs-on: ubuntu-latest
