@@ -30,6 +30,7 @@ import licence_audit/source_archive
 import licence_audit/spdx
 import licence_audit/toml
 import licence_audit/version
+import licence_audit/vulnerability_command
 import simplifile
 
 /// Return formatted SBOM text, or an empty string after writing the output.
@@ -510,13 +511,7 @@ fn gather_embedded_vulnerabilities(
             Error(reason) -> #(Error(error.from_osv_error(reason)), reporter)
             Ok(entries) -> {
               let id_to_components = build_id_to_components(purl_pairs, entries)
-              let seen =
-                list.fold(entries, dict.new(), fn(acc, entry) {
-                  list.fold(entry.vuln_ids, acc, fn(inner, id) {
-                    dict.insert(inner, id, Nil)
-                  })
-                })
-              let #(vulnerabilities, reporter) = case dict.keys(seen) {
+              let #(vulnerabilities, reporter) = case vulnerability_command.unique_vuln_ids(entries) {
                 [] -> #(Ok([]), reporter)
                 ids -> advisory_fetcher(ids, reporter)
               }
