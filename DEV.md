@@ -49,6 +49,23 @@ Queso and cargo-about. The release job also installs the Rust targets, Zig,
 cargo-zigbuild, and system packages. These use their own trust and verification
 mechanisms. The build is not fully hermetic.
 
+## Dependency decisions
+
+Keep direct dependencies limited to what the CLI needs:
+
+| Dependency removed | Rationale |
+|---|---|
+| `envoy` | Use the small `licence_audit/env` Erlang FFI helper for environment lookup. |
+| `gleam_regexp` | Parse GitHub repository URLs with string operations instead of a regular expression. |
+| `youid` | Format SBOM UUIDs from core-library random bytes or content hashes. |
+
+See [#29](https://github.com/tylerbutler/licence_audit/pull/29) for the
+dependency removal and [#273](https://github.com/tylerbutler/licence_audit/issues/273)
+for the test decision. Test behavior rather than the absence of source strings.
+Source-text checks reject harmless identifiers and comments and depend on file
+paths and the working directory. These decisions do not impose a CI dependency
+ban or a source identifier/comment guard.
+
 ## Build from source
 
 Source builds require Gleam 1.19.2 or newer. Older compilers can reject valid
