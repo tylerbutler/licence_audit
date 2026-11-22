@@ -517,7 +517,9 @@ fn gather_embedded_vulnerabilities(
             Error(reason) -> #(Error(error.from_osv_error(reason)), reporter)
             Ok(entries) -> {
               let id_to_components = build_id_to_components(purl_pairs, entries)
-              let #(vulnerabilities, reporter) = case vulnerability_command.unique_vuln_ids(entries) {
+              let #(vulnerabilities, reporter) = case
+                vulnerability_command.unique_vuln_ids(entries)
+              {
                 [] -> #(Ok([]), reporter)
                 ids -> advisory_fetcher(ids, reporter)
               }

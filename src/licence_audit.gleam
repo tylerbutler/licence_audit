@@ -32,9 +32,9 @@ import licence_audit/sbom_command
 import licence_audit/update as update_cmd
 import licence_audit/version
 import licence_audit/vulnerability_command.{
-  type VulnGateOutcome, type VulnOccurrence, type VulnRow,
-  BlockingKnownSeverity, BlockingUnknownSeverity, CheckComplete, CheckIncomplete,
-  GateEvaluated, GateNotEvaluated, GateUnavailable, NoBlockingAdvisories,
+  type VulnGateOutcome, type VulnOccurrence, type VulnRow, BlockingKnownSeverity,
+  BlockingUnknownSeverity, CheckComplete, CheckIncomplete, GateEvaluated,
+  GateNotEvaluated, GateUnavailable, NoBlockingAdvisories,
 }
 import tty
 
@@ -443,10 +443,11 @@ fn render_audit(
     None -> Ok(Nil)
     Some(failure) ->
       Error(#(
-          case options.format {
-            cli.Text -> diagnostic(failure)
-            cli.Json ->
-              json_result(json_report.Document(
+        case options.format {
+          cli.Text -> diagnostic(failure)
+          cli.Json ->
+            json_result(
+              json_report.Document(
                 ..empty_document(
                   case options.check {
                     True -> json_report.Check
@@ -458,9 +459,10 @@ fn render_audit(
                 licences: Some(licence_json_result(licences)),
                 exceptions: outcome.configuration.exceptions,
                 today: outcome.today,
-              ))
-          },
-          gate.reporter,
+              ),
+            )
+        },
+        gate.reporter,
       ))
   }
   let rendered = {
@@ -470,9 +472,7 @@ fn render_audit(
         cli.Json -> Ok(Nil)
         cli.Text -> result.map(gate.status, fn(_) { Nil })
       }
-      |> result.map_error(fn(failure) {
-        #(diagnostic(failure), gate.reporter)
-      }),
+      |> result.map_error(fn(failure) { #(diagnostic(failure), gate.reporter) }),
     )
     let policy_failed = licences.verdict == LicencesBlocked
     let display_rows = case options.check && policy_failed {
@@ -534,13 +534,12 @@ fn render_audit(
           outcome.today,
         )
     }
-    Ok(#(
-      result,
-      case outcome.cache_warning {
+    Ok(
+      #(result, case outcome.cache_warning {
         Some(message) -> progress.defer_warn(reporter, message)
         None -> reporter
-      },
-    ))
+      }),
+    )
   }
   case rendered {
     Ok(result) | Error(result) -> result
@@ -589,11 +588,11 @@ fn run_vulnerability_check(
                 gate,
                 render_vuln_gate(gate, palette)
                   <> exception.summary(
-                    outcome.configuration.exceptions,
-                    outcome.today,
-                    exception.NotEvaluated("licence scan disabled"),
-                    gate.coverage,
-                  ),
+                  outcome.configuration.exceptions,
+                  outcome.today,
+                  exception.NotEvaluated("licence scan disabled"),
+                  gate.coverage,
+                ),
                 "Vulnerability check completed",
               )
           }
@@ -677,7 +676,12 @@ fn render_vulns(
         vulnerability_command.BatchFailed(failure) -> {
           let result = diagnostic(failure)
           #(
-            Diagnostic(RunResult(..result.result, output: result.result.output <> summary)),
+            Diagnostic(
+              RunResult(
+                ..result.result,
+                output: result.result.output <> summary,
+              ),
+            ),
             reporter,
           )
         }
@@ -687,26 +691,37 @@ fn render_vulns(
           case list.any(failures, fn(failure) { failure.runtime_failed }) {
             True -> #(
               diagnostic(error.RuntimeException(
-                vulnerability_command.format_vuln_detail_failures_output(failures)
+                vulnerability_command.format_vuln_detail_failures_output(
+                  failures,
+                )
                 |> string.trim,
               )),
               reporter,
             )
             False ->
               case scan.status {
-                vulnerability_command.DetailsFetched(Error(failure)) ->
-                  #(diagnostic(failure), reporter)
+                vulnerability_command.DetailsFetched(Error(failure)) -> #(
+                  diagnostic(failure),
+                  reporter,
+                )
                 vulnerability_command.EmptyScan
-                | vulnerability_command.DetailsFetched(Ok(Nil)) ->
-                  #(
-                    report_result(
-                      0,
-                      format_vulns_output(scan.rows, scan.skipped_packages, scan.scopes, palette) <> summary,
-                    ),
-                    reporter,
-                  )
-                vulnerability_command.BatchFailed(failure) ->
-                  #(diagnostic(failure), reporter)
+                | vulnerability_command.DetailsFetched(Ok(Nil)) -> #(
+                  report_result(
+                    0,
+                    format_vulns_output(
+                      scan.rows,
+                      scan.skipped_packages,
+                      scan.scopes,
+                      palette,
+                    )
+                      <> summary,
+                  ),
+                  reporter,
+                )
+                vulnerability_command.BatchFailed(failure) -> #(
+                  diagnostic(failure),
+                  reporter,
+                )
               }
           }
         }
@@ -714,10 +729,7 @@ fn render_vulns(
   }
 }
 
-fn render_vuln_gate(
-  gate: VulnGateOutcome,
-  palette: color.Palette,
-) -> String {
+fn render_vuln_gate(gate: VulnGateOutcome, palette: color.Palette) -> String {
   case gate.report {
     vulnerability_command.NoGateReport -> ""
     vulnerability_command.SkippedSourcesOnly ->

@@ -436,6 +436,66 @@ class CliStreamTest(unittest.TestCase):
         self.assertEqual("\x1b" in destination, colored, destination)
         return destination
 
+    def test_short_version_outside_project_matches_long_version_without_cache(self):
+        (self.project / "gleam.toml").unlink()
+        environment = {
+            "HOME": str(self.project / "unused-home"),
+            "XDG_CACHE_HOME": str(self.project / "unused-cache"),
+            "NO_COLOR": "1",
+        }
+        canonical = self.run_cli("--version", environment=environment)
+        alias = self.run_cli("-V", environment=environment)
+        self.assertEqual(alias.returncode, 0, alias.stderr)
+        self.assertTrue(alias.stdout)
+        self.assertEqual(alias.stdout, canonical.stdout)
+        self.assertEqual(alias.stderr, "")
+        self.assertFalse((self.project / "unused-home").exists())
+        self.assertFalse((self.project / "unused-cache").exists())
+
+    def test_short_output_writes_literal_flag_shaped_paths(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for command in ("sbom", "notices"):
+            flags = ["--offline", "--reproducible"] if command == "sbom" else []
+            canonical = self.run_cli(command, "-q", "--no-cache", *flags)
+            self.assertEqual(canonical.returncode, 0, canonical.stderr)
+            for value in ("output.txt", "-V", "-v", "-h", "-o"):
+                with self.subTest(command=command, value=value):
+                    result = self.run_cli(
+                        command, "-q", "--no-cache", *flags, "-o", value,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(result.stderr, "")
+                    self.assertEqual(
+                        (self.project / value).read_text(), canonical.stdout,
+                    )
+
+    def test_new_short_alias_usage_errors_precede_io(self):
+        for arguments in (
+            ["-V", "--unknown"],
+            ["unknown-command", "-V"],
+            ["report", "-V"],
+            ["check", "-V"],
+            ["update", "-V"],
+            ["sbom", "-V"],
+            ["vulns", "-V"],
+            ["notices", "-V"],
+            ["-o", "out"],
+            ["report", "-o", "out"],
+            ["sbom", "-o"],
+            ["notices", "-o"],
+            ["sbom", "-o", "--"],
+            ["sbom", "-oPATH"],
+            ["sbom", "-o=PATH"],
+            ["sbom", "-qv"],
+            ["sbom", "-vV"],
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                self.assert_diagnostic(result)
+                self.assertNotIn("Could not read", result.stderr)
+                self.assertFalse((self.project / "out").exists())
+
     def test_help_pipe_color_modes_and_aliases_on_every_command(self):
         for command in ([], ["report"], ["check"], ["update"], ["sbom"], ["vulns"], ["notices"]):
             for flags, environment, colored in (

@@ -598,10 +598,13 @@ pub fn component_ref(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   }
 }
 
+pub fn hex_purl(name: String, version: String) -> String {
+  "pkg:hex/" <> string.lowercase(name) <> "@" <> version
+}
+
 pub fn purl_for(entry: manifest.SbomEntry) -> Result(String, error.Error) {
   case entry.provenance {
-    manifest.HexProvenance(_, _) ->
-      Ok("pkg:hex/" <> string.lowercase(entry.name) <> "@" <> entry.version)
+    manifest.HexProvenance(_, _) -> Ok(hex_purl(entry.name, entry.version))
     manifest.GitProvenance(repo, commit, path) -> {
       use directory <- result.try(
         manifest.git_subdirectory(path)

@@ -143,18 +143,12 @@ pub fn spdx_reproducible_document_and_write_use_locked_metadata_test() -> Nil {
     simplifile.read_bits("test/fixtures/sbom_metadata/hex.tar")
   let assert Ok(checksum) = source_archive.sha256_hex(archive)
   let options =
-    cli.SbomOptions(
-      ..project("spdx-document", checksum),
-      format: cli.SpdxJson,
-    )
+    cli.SbomOptions(..project("spdx-document", checksum), format: cli.SpdxJson)
   let clients =
-    notice.Clients(
-      ..no_network_clients(),
-      fetch_hex_tarball: fn(_, version) {
-        should.equal(version, "1.0.0")
-        Ok(archive)
-      },
-    )
+    notice.Clients(..no_network_clients(), fetch_hex_tarball: fn(_, version) {
+      should.equal(version, "1.0.0")
+      Ok(archive)
+    })
   let metadata_fetcher = fn(_) { panic as "Must use locked metadata" }
   let publication_fetcher = fn(_, _) { panic as "No local publications" }
   let batch_fetcher = fn(_) { panic as "SPDX does not fetch advisories" }

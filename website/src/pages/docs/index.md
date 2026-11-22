@@ -367,7 +367,7 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
-| `--version` | `BOOL` | `false` | Print the installed version |
+| `--version` | `BOOL` | `false` | Print the installed version (alias: -V) |
 <!-- cli-referencestop -->
 
 [releases]: https://github.com/tylerbutler/licence_audit/releases

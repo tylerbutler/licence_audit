@@ -3,7 +3,6 @@ import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import gleam/string
 import gleam/time/timestamp
 import licence_audit/cache
 import licence_audit/cli
@@ -87,20 +86,18 @@ pub fn run(
         #(error.from_manifest_error(failure), reporter)
       }),
     )
-    Ok(
-      scan(
-        options,
-        configuration,
-        audit_policy,
-        locked,
-        sbom_manifest,
-        prod_seed,
-        source_clients,
-        batch_fetcher,
-        detail_fetcher,
-        reporter,
-      ),
-    )
+    Ok(scan(
+      options,
+      configuration,
+      audit_policy,
+      locked,
+      sbom_manifest,
+      prod_seed,
+      source_clients,
+      batch_fetcher,
+      detail_fetcher,
+      reporter,
+    ))
   }
   case outcome {
     Error(#(failure, reporter)) -> #(Error(failure), reporter)
@@ -128,7 +125,8 @@ fn scan(
     True -> report.Audit
     False -> report.Default
   }
-  let cache_handle = cache.open(cache.mode_for(options.no_cache, options.cache_dir))
+  let cache_handle =
+    cache.open(cache.mode_for(options.no_cache, options.cache_dir))
   let fetcher =
     cache.wrap_locked(cache_handle, fn(name, version, checksum) {
       notice.hex_metadata_from_locked_source(
@@ -177,7 +175,12 @@ fn scan(
     )
   let cache_warning = cache.close(cache_handle)
   let reviewed =
-    review_licence_rows(fetched.rows, audit_policy, configuration.exceptions, today)
+    review_licence_rows(
+      fetched.rows,
+      audit_policy,
+      configuration.exceptions,
+      today,
+    )
   let skipped_rows = build_skipped_rows(active_skipped, dep_paths, scopes)
   case reviewed {
     Error(failure) ->
@@ -189,7 +192,10 @@ fn scan(
           verdict: LicencesNotEnforced,
           completeness: CheckIncomplete,
           rows: list.append(fetched.rows, skipped_rows),
-          counts: report.counts(list.append(fetched.rows, skipped_rows), report.Summary([])),
+          counts: report.counts(
+            list.append(fetched.rows, skipped_rows),
+            report.Summary([]),
+          ),
           coverage: exception.NotEvaluated("licence exception review failed"),
         ),
         vulnerabilities: vulnerability_command.not_evaluated(fetched.reporter),
@@ -222,7 +228,7 @@ fn scan(
         })
         |> list.map(fn(package) {
           #(
-            "pkg:hex/" <> string.lowercase(package.name) <> "@" <> package.version,
+            sbom.hex_purl(package.name, package.version),
             "excluded by --scope=prod",
           )
         })
@@ -240,7 +246,7 @@ fn scan(
                   case row.status {
                     report.Failed(_) ->
                       Ok(#(
-                        "pkg:hex/" <> string.lowercase(row.package) <> "@" <> row.version,
+                        sbom.hex_purl(row.package, row.version),
                         "licence metadata unavailable",
                       ))
                     _ -> Error(Nil)
@@ -282,7 +288,10 @@ fn scan(
         ),
         vulnerabilities: vulnerability_command.VulnGateOutcome(
           ..gate,
-          coverage: vulnerability_command.with_excluded_vulns(gate.coverage, excluded_vulns),
+          coverage: vulnerability_command.with_excluded_vulns(
+            gate.coverage,
+            excluded_vulns,
+          ),
         ),
         packages: packages,
         review_failure: None,
@@ -453,9 +462,7 @@ fn review_licence_rows(
   use _ <- result.try(
     exception.validate_identities(
       exceptions,
-      list.map(rows, fn(row) {
-        "pkg:hex/" <> string.lowercase(row.package) <> "@" <> row.version
-      }),
+      list.map(rows, fn(row) { sbom.hex_purl(row.package, row.version) }),
     )
     |> result.map_error(error.from_exception_error),
   )
@@ -480,7 +487,7 @@ fn review_licence_row(
       use decision <- result.try(
         exception.decide(
           exceptions,
-          "pkg:hex/" <> string.lowercase(row.package) <> "@" <> row.version,
+          sbom.hex_purl(row.package, row.version),
           finding,
           [],
           today,

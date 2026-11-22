@@ -36,22 +36,18 @@ fn options(
       root <> "/gleam.toml",
       "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\n"
         <> case production {
-          True -> "[dependencies]\ngood = \"1.0.0\"\nbad = \"1.0.0\"\n"
-          False -> "[dev-dependencies]\ngood = \"1.0.0\"\nbad = \"1.0.0\"\n"
-        },
+        True -> "[dependencies]\ngood = \"1.0.0\"\nbad = \"1.0.0\"\n"
+        False -> "[dev-dependencies]\ngood = \"1.0.0\"\nbad = \"1.0.0\"\n"
+      },
     )
   let assert Ok(good_checksum) = source_archive.sha256_hex(archives.0)
   let assert Ok(bad_checksum) = source_archive.sha256_hex(archives.1)
-  let assert Ok(_) =
-    simplifile.write(
-      root <> "/manifest.toml",
-      "packages = [
+  let assert Ok(_) = simplifile.write(root <> "/manifest.toml", "packages = [
 {name = \"good\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> good_checksum <> "\"},
 {name = \"bad\", version = \"1.0.0\", source = \"hex\", outer_checksum = \"" <> bad_checksum <> "\"}]
 [requirements]
 good = \"1.0.0\"
-bad = \"1.0.0\"\n",
-    )
+bad = \"1.0.0\"\n")
   let assert Ok(glint.Out(cli.RunAudit(options))) =
     glint.execute(
       cli.app(),
@@ -92,13 +88,16 @@ pub fn failing_tree_selection_does_not_remove_clean_packages_from_domain_counts_
     network.with_command(fn() {
       audit_command.run(
         options,
-        notice.Clients(..notice.default_clients(), fetch_hex_tarball: fn(name, _) {
-          case name {
-            "good" -> Ok(archives.0)
-            "bad" -> Ok(archives.1)
-            _ -> panic as "Unexpected package"
-          }
-        }),
+        notice.Clients(
+          ..notice.default_clients(),
+          fetch_hex_tarball: fn(name, _) {
+            case name {
+              "good" -> Ok(archives.0)
+              "bad" -> Ok(archives.1)
+              _ -> panic as "Unexpected package"
+            }
+          },
+        ),
         fn(_) { panic as "Vulnerability scan was not selected" },
         fn(_) { panic as "Vulnerability scan was not selected" },
         progress.disabled(),
@@ -110,9 +109,16 @@ pub fn failing_tree_selection_does_not_remove_clean_packages_from_domain_counts_
   should.equal(outcome.licences.counts.allowed, 1)
   should.equal(outcome.licences.counts.denied, 1)
   should.equal(outcome.licences.verdict, audit_command.LicencesBlocked)
-  should.equal(outcome.licences.completeness, vulnerability_command.CheckComplete)
-  let assert Ok(denied) = list.find(outcome.licences.rows, fn(row) { row.package == "bad" })
-  should.equal(denied.status, report.Checked(policy.DeniedLicence("GPL-3.0-only")))
+  should.equal(
+    outcome.licences.completeness,
+    vulnerability_command.CheckComplete,
+  )
+  let assert Ok(denied) =
+    list.find(outcome.licences.rows, fn(row) { row.package == "bad" })
+  should.equal(
+    denied.status,
+    report.Checked(policy.DeniedLicence("GPL-3.0-only")),
+  )
 }
 
 pub fn incomplete_combined_scan_retains_enforced_findings_and_typed_detail_failures_test() -> Nil {
@@ -122,29 +128,36 @@ pub fn incomplete_combined_scan_retains_enforced_findings_and_typed_detail_failu
     network.with_command(fn() {
       audit_command.run(
         options,
-        notice.Clients(..notice.default_clients(), fetch_hex_tarball: fn(name, _) {
-          case name {
-            "bad" -> Ok(archives.1)
-            "good" -> Error(notice.FetchNetworkFailure)
-            _ -> panic as "Unexpected package"
-          }
-        }),
+        notice.Clients(
+          ..notice.default_clients(),
+          fetch_hex_tarball: fn(name, _) {
+            case name {
+              "bad" -> Ok(archives.1)
+              "good" -> Error(notice.FetchNetworkFailure)
+              _ -> panic as "Unexpected package"
+            }
+          },
+        ),
         fn(purls) {
-          Ok(list.map(purls, fn(purl) {
-            osv.BatchEntry(purl, ["GHSA-high", "GHSA-missing"])
-          }))
+          Ok(
+            list.map(purls, fn(purl) {
+              osv.BatchEntry(purl, ["GHSA-high", "GHSA-missing"])
+            }),
+          )
         },
         fn(id) {
           case id {
             "GHSA-high" ->
-              Ok(osv.Vulnerability(
-                id: id,
-                aliases: [],
-                summary: "Blocking advisory",
-                severity: osv.High,
-                scores: [],
-                affected: [],
-              ))
+              Ok(
+                osv.Vulnerability(
+                  id: id,
+                  aliases: [],
+                  summary: "Blocking advisory",
+                  severity: osv.High,
+                  scores: [],
+                  affected: [],
+                ),
+              )
             "GHSA-missing" -> Error(osv.NotFound)
             _ -> panic as "Unexpected advisory"
           }
@@ -155,12 +168,19 @@ pub fn incomplete_combined_scan_retains_enforced_findings_and_typed_detail_failu
   let assert Ok(outcome) = result
   should.equal(outcome.review_failure, None)
   should.equal(outcome.licences.verdict, audit_command.LicencesBlocked)
-  should.equal(outcome.licences.completeness, vulnerability_command.CheckIncomplete)
+  should.equal(
+    outcome.licences.completeness,
+    vulnerability_command.CheckIncomplete,
+  )
   should.equal(outcome.licences.counts.total, 2)
   should.equal(outcome.licences.counts.denied, 1)
   should.equal(outcome.licences.counts.unknown, 1)
-  let assert Ok(denied) = list.find(outcome.licences.rows, fn(row) { row.package == "bad" })
-  should.equal(denied.status, report.Checked(policy.DeniedLicence("GPL-3.0-only")))
+  let assert Ok(denied) =
+    list.find(outcome.licences.rows, fn(row) { row.package == "bad" })
+  should.equal(
+    denied.status,
+    report.Checked(policy.DeniedLicence("GPL-3.0-only")),
+  )
   let gate = outcome.vulnerabilities
   should.equal(
     gate.status,

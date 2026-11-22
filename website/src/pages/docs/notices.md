@@ -218,7 +218,7 @@ licence_audit notices [--flags]
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--output=<PATH>` | `PATH` |  | Write notices to PATH instead of stdout |
+| `--output=<PATH>` | `PATH` |  | Write notices to PATH instead of stdout (alias: -o) |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--scope=<prod\|all>` | `prod\|all` | `prod` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
