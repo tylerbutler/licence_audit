@@ -291,7 +291,7 @@ outer and inner archives. Archives at the limits are accepted. An oversized
 download or invalid archive exits `2` when locked metadata is required.
 The limits apply to archive sizes, not total VM memory.
 
-The command reuses the shared [metadata cache](/docs/#caching). Entries from
+The command reuses the shared [metadata cache](/docs/network-and-caching#caching). Entries from
 locked archives do not expire. Use `--cache-dir=DIR` to select the application
 cache root, or `--no-cache` to fetch the metadata again.
 
