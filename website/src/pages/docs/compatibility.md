@@ -108,7 +108,7 @@ Vulnerability-only checks do not require licence policy.
 
 Existing documented commands, flags, aliases, and valid argument forms remain
 available within a major version. We preserve their meanings, defaults, and
-documented environment-variable controls.
+documented [environment-variable controls](/docs/environment).
 
 Existing valid configuration remains valid with the same meaning. This includes
 configuration discovery, CLI/config precedence, and merge behavior. We can
@@ -252,7 +252,7 @@ defaults in a patch release.
 
 For `sbom --reproducible`, reproducibility requires the same tool version,
 project files, lockfile, options, and relevant environment values, including
-`SOURCE_DATE_EPOCH`, plus matching usable publication evidence for local
+[`SOURCE_DATE_EPOCH`](/docs/environment), plus matching usable publication evidence for local
 components. Hex metadata comes from
 checksum-verified locked package archives and Git metadata comes from the
 archive at the locked commit, or their immutable cache entries. Offline runs

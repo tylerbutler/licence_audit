@@ -31,13 +31,15 @@ class CliStreamTest(unittest.TestCase):
 
     def run_cli(
         self, *arguments, environment=None, fixture=None,
-        stdout_tty=False, stderr_tty=False,
+        stdout_tty=False, stderr_tty=False, unset_environment=(),
     ):
         env = {**os.environ, "NO_COLOR": "1"}
         if environment is not None:
             for name in ("NO_COLOR", "FORCE_COLOR", "TERM", "CI", "COLORTERM"):
                 env.pop(name, None)
             env.update(environment)
+        for name in unset_environment:
+            env.pop(name, None)
         command = [str(ROOT / "licence_audit"), *arguments]
         if fixture is not None:
             command = [
@@ -182,6 +184,12 @@ class CliStreamTest(unittest.TestCase):
             ({"TERM": "xterm-256color"}, False),
             ({"COLORTERM": "truecolor"}, False),
             ({"CI": "1", "TERM": "xterm-256color"}, False),
+            ({"NO_COLOR": "", "FORCE_COLOR": ""}, True),
+            ({"NO_COLOR": "false", "FORCE_COLOR": "3"}, False),
+            ({"NO_COLOR": " ", "FORCE_COLOR": "3"}, False),
+            ({"FORCE_COLOR": "FALSE", "CI": ""}, False),
+            ({"FORCE_COLOR": "unknown", "TERM": "dumb"}, True),
+            ({"CI": ""}, False),
         ):
             for usage_error in (False, True):
                 with self.subTest(environment=environment, error=usage_error):
@@ -229,6 +237,13 @@ class CliStreamTest(unittest.TestCase):
             ({"COLORTERM": "24bit"}, True),
             ({"TERM": "xterm"}, False),
             ({"TERM": "xterm", "CI": "1"}, True),
+            ({"NO_COLOR": "", "COLORTERM": "TRUECOLOR"}, True),
+            ({"TERM": "xterm", "CI": ""}, True),
+            ({"TERM": "xterm", "CI": "false"}, True),
+            ({"TERM": "", "COLORTERM": "", "CI": ""}, True),
+            ({"TERM": "", "COLORTERM": "unknown"}, False),
+            ({"TERM": "DUMB", "CI": ""}, True),
+            ({"TERM": "dumb", "COLORTERM": "truecolor", "CI": ""}, False),
         ):
             for usage_error in (False, True):
                 with self.subTest(environment=environment, error=usage_error):
@@ -674,6 +689,98 @@ class CliStreamTest(unittest.TestCase):
             self.run_cli(
                 "sbom", "--offline", "--quiet", "--no-cache", "--output=."
             )
+        )
+
+    def test_cache_root_environment_precedence_and_selected_path_failure(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for case, environment, expected, warning in (
+            ("xdg", {"XDG_CACHE_HOME": "xdg", "HOME": "home"}, "xdg/licence_audit", False),
+            ("home", {"HOME": "home"}, "home/.cache/licence_audit", False),
+            ("empty_xdg", {"XDG_CACHE_HOME": "", "HOME": "home"}, "home/.cache/licence_audit", False),
+            ("explicit", {"XDG_CACHE_HOME": "xdg", "HOME": "home"}, "explicit", False),
+            ("blocked", {"XDG_CACHE_HOME": "blocked", "HOME": "home"}, None, True),
+        ):
+            with self.subTest(case=case):
+                case_root = self.project / case
+                case_root.mkdir()
+                env = {
+                    name: str(case_root / value) if value else ""
+                    for name, value in environment.items()
+                }
+                if case == "blocked":
+                    (case_root / "blocked").write_text("not a directory")
+                arguments = (
+                    [f"--cache-dir={case_root / 'explicit'}"]
+                    if case == "explicit" else []
+                )
+                result = self.run_cli(
+                    "check", *arguments, environment=env,
+                    unset_environment=tuple(
+                        name for name in ("XDG_CACHE_HOME", "HOME")
+                        if name not in env
+                    ),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("Unable to open licence cache" in result.stderr, warning)
+                if expected:
+                    self.assertTrue((case_root / expected / "hex-v2").is_dir())
+                if case != "xdg":
+                    self.assertFalse((case_root / "xdg").exists())
+                if case not in ("home", "empty_xdg"):
+                    self.assertFalse((case_root / "home").exists())
+
+        if os.name != "nt":
+            for environment, unset in (
+                ({}, ("XDG_CACHE_HOME", "HOME")),
+                ({"XDG_CACHE_HOME": "", "HOME": ""}, ()),
+            ):
+                with self.subTest(environment=environment):
+                    result = self.run_cli(
+                        "check", environment=environment, unset_environment=unset,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("neither XDG_CACHE_HOME nor HOME", result.stderr)
+
+    def test_source_date_epoch_controls_only_reproducible_sbom_timestamp(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        epoch_document = None
+        for value, expected in (
+            (None, "1970-01-01T00:00:00Z"),
+            ("0", "1970-01-01T00:00:00Z"),
+            ("", "1970-01-01T00:00:00Z"),
+            (" \n", "1970-01-01T00:00:00Z"),
+            ("invalid", "1970-01-01T00:00:00Z"),
+            ("1.5", "1970-01-01T00:00:00Z"),
+            ("-1", "1970-01-01T00:00:00Z"),
+            (" 1700000000\n", "2023-11-14T22:13:20Z"),
+        ):
+            with self.subTest(value=value):
+                result = self.run_cli(
+                    "sbom", "--offline", "--reproducible", "--no-cache",
+                    environment={} if value is None else {"SOURCE_DATE_EPOCH": value},
+                    unset_environment=("SOURCE_DATE_EPOCH",) if value is None else (),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+                document = json.loads(result.stdout)
+                self.assertEqual(document["metadata"]["timestamp"], expected)
+                if epoch_document is None:
+                    epoch_document = result.stdout
+                    epoch_serial = document["serialNumber"]
+                elif expected == "1970-01-01T00:00:00Z":
+                    self.assertEqual(result.stdout, epoch_document)
+                else:
+                    self.assertNotEqual(document["serialNumber"], epoch_serial)
+
+        result = self.run_cli(
+            "sbom", "--offline", "--no-cache",
+            environment={"SOURCE_DATE_EPOCH": "0"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertNotEqual(
+            json.loads(result.stdout)["metadata"]["timestamp"],
+            "1970-01-01T00:00:00Z",
         )
 
     def test_sbom_license_text_uses_only_explicit_application_root(self):

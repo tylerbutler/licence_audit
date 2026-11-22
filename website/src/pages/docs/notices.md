@@ -161,24 +161,17 @@ continues to SPDX text. These limits bound archive sizes, not total VM memory.
 ## Caching
 
 In addition to the shared locked metadata cache, `notices` keeps a cache of
-resolved licence materials. The cache prevents repeated downloads and fallback
-operations:
-
-```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3/
-```
-
-When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
-the default is `%LOCALAPPDATA%\licence_audit\Cache\notices-v3\`, as resolved
-by Erlang/OTP's user cache directory.
+resolved licence materials in `notices-v3/` below the shared application root.
+The cache prevents repeated downloads and fallback operations.
 
 Immutable content addresses identify cached materials. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
 and licence files from repositories. Pinned canonical SPDX records and indexes
 use `spdx-v1/` below the same application root. Packages that declare the same
 identifier share one SPDX record.
-Use `--cache-dir=DIR` to select the root for all these caches, taking precedence
-over `XDG_CACHE_HOME` and `HOME`. Use `--no-cache` to bypass them without deleting
+Use `--cache-dir=DIR` to select the root for all these caches. See
+[environment variables](/docs/environment#cache-selection) for discovery and
+precedence. Use `--no-cache` to bypass them without deleting
 stored entries. The command reads local path dependencies
 live and does not cache them.
 
