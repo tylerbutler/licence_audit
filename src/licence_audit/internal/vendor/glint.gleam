@@ -221,6 +221,27 @@ pub type Out(a) {
   Help(String)
 }
 
+/// Parser failures before a command runner is called.
+pub type UsageError {
+  CommandNotFound
+  UnknownFlag(name: String, input: String)
+  MissingFlagValue(name: String, input: String)
+  InvalidFlagValue(name: String, value: String, input: String)
+  UnmatchedNamedArguments(names: List(String))
+  InvalidArgumentCount(expected: ArgsCount, arguments: List(String))
+}
+
+/// Structured input and command context. `diagnostic` retains the original
+/// parser or custom constraint failure for callers that need its details.
+pub type ExecutionError {
+  ExecutionError(
+    command_path: List(String),
+    cause: UsageError,
+    diagnostic: Snag,
+    help_text: String,
+  )
+}
+
 // -- CORE: BUILDER FUNCTIONS --
 
 /// Create a new glint instance.
@@ -498,6 +519,30 @@ pub fn group_flag(
 ///
 @internal
 pub fn execute(glint: Glint(a), args: List(String)) -> Result(Out(a), String) {
+  execute_internal(glint, args, False)
+  |> result.map_error(fn(error) {
+    error.diagnostic
+    |> snag.layer("failed to run command")
+    |> snag.pretty_print
+    <> "\nSee the following help text, available via the '--help' flag.\n\n"
+    <> error.help_text
+  })
+}
+
+/// Execute without rendering errors. Unlike `execute`, surplus positional
+/// arguments are validated even when help is requested for a zero-argument command.
+pub fn execute_detailed(
+  glint: Glint(a),
+  args: List(String),
+) -> Result(Out(a), ExecutionError) {
+  execute_internal(glint, args, True)
+}
+
+fn execute_internal(
+  glint: Glint(a),
+  args: List(String),
+  validate_help_arguments: Bool,
+) -> Result(Out(a), ExecutionError) {
   // create help flag to check for
   let help_flag = flag_prefix <> help.help_flag.meta.name
 
@@ -513,7 +558,15 @@ pub fn execute(glint: Glint(a), args: List(String)) -> Result(Out(a), String) {
   let #(flags, args) = list.partition(args, string.starts_with(_, flag_prefix))
 
   // search for command and execute
-  do_execute(glint.cmd, glint.config, args, flags, help, [])
+  do_execute(
+    glint.cmd,
+    glint.config,
+    args,
+    flags,
+    help,
+    [],
+    validate_help_arguments,
+  )
 }
 
 /// Find which command to execute and run it with computed flags and args
@@ -525,7 +578,8 @@ fn do_execute(
   flags: List(String),
   help: Bool,
   command_path: List(String),
-) -> Result(Out(a), String) {
+  validate_help_arguments: Bool,
+) -> Result(Out(a), ExecutionError) {
   case args {
     // when there are no more available arguments
     // and help flag has been passed, generate help message
@@ -545,11 +599,31 @@ fn do_execute(
             ..sub_command,
             group_flags: merge(cmd.group_flags, sub_command.group_flags),
           )
-          |> do_execute(config, rest, flags, help, [arg, ..command_path])
+          |> do_execute(
+            config,
+            rest,
+            flags,
+            help,
+            [arg, ..command_path],
+            validate_help_arguments,
+          )
 
         // subcommand not found, but help flag has been passed
         // generate and return help message
-        _ if help -> Ok(Help(cmd_help(command_path, cmd, config)))
+        _ if help -> {
+          case cmd.contents, validate_help_arguments {
+            Some(InternalCommand(
+              unnamed_args: Some(EqArgs(0)),
+              named_args: [],
+              ..,
+            )),
+              True
+            ->
+              execute_root(command_path, config, cmd, args, flags)
+              |> result.map(Out)
+            _, _ -> Ok(Help(cmd_help(command_path, cmd, config)))
+          }
+        }
 
         // subcommand not found, but help flag has not been passed
         // execute the current command
@@ -580,19 +654,21 @@ fn execute_root(
   cmd: CommandNode(a),
   args: List(String),
   flag_inputs: List(String),
-) -> Result(a, String) {
+) -> Result(a, ExecutionError) {
   {
     // check if the command can actually be executed
-    use contents <- result.try(option.to_result(
-      cmd.contents,
-      snag.new("command not found"),
-    ))
+    use contents <- result.try(
+      option.to_result(cmd.contents, #(
+        CommandNotFound,
+        snag.new("command not found"),
+      )),
+    )
 
     // merge flags and parse flag inputs
     use new_flags <- result.try(list.try_fold(
       over: flag_inputs,
       from: merge(cmd.group_flags, contents.flags),
-      with: update_flags,
+      with: update_flags_detailed,
     ))
 
     // get named arguments
@@ -600,16 +676,20 @@ fn execute_root(
       let named = list.zip(contents.named_args, args)
       case list.length(named) == list.length(contents.named_args) {
         True -> Ok(dict.from_list(named))
-        False ->
-          snag.error(
-            "unmatched named arguments: "
-            <> {
-              contents.named_args
-              |> list.drop(list.length(named))
-              |> list.map(fn(s) { "'" <> s <> "'" })
-              |> string.join(", ")
-            },
-          )
+        False -> {
+          let missing = list.drop(contents.named_args, list.length(named))
+          Error(#(
+            UnmatchedNamedArguments(missing),
+            snag.new(
+              "unmatched named arguments: "
+              <> {
+                missing
+                |> list.map(fn(s) { "'" <> s <> "'" })
+                |> string.join(", ")
+              },
+            ),
+          ))
+        }
       }
     })
 
@@ -622,18 +702,22 @@ fn execute_root(
         count
         |> args_compare(list.length(args))
         |> snag.context("invalid number of arguments provided")
+        |> result.map_error(fn(error) {
+          #(InvalidArgumentCount(count, args), error)
+        })
       None -> Ok(Nil)
     })
 
     // execute the command
     contents.do(NamedArgs(named_args), args, new_flags)
   }
-  |> result.map_error(fn(err) {
-    err
-    |> snag.layer("failed to run command")
-    |> snag.pretty_print
-    <> "\nSee the following help text, available via the '--help' flag.\n\n"
-    <> cmd_help(path, cmd, config)
+  |> result.map_error(fn(error) {
+    ExecutionError(
+      command_path: list.reverse(path),
+      cause: error.0,
+      diagnostic: error.1,
+      help_text: cmd_help(path, cmd, config),
+    )
   })
 }
 
@@ -1188,6 +1272,26 @@ fn update_flags(
     Ok(data) -> update_flag_value(flags, data)
     Error(_) -> attempt_toggle_flag(flags, flag_input)
   }
+}
+
+fn update_flags_detailed(
+  flags: Flags,
+  flag_input: String,
+) -> Result(Flags, #(UsageError, Snag)) {
+  let input = string.drop_start(flag_input, string.length(flag_prefix))
+  let #(name, value) = case string.split_once(input, flag_delimiter) {
+    Ok(#(name, value)) -> #(name, Some(value))
+    Error(_) -> #(input, None)
+  }
+  update_flags(flags, flag_input)
+  |> result.map_error(fn(error) {
+    let cause = case dict.get(flags.internal, name), value {
+      Error(_), _ -> UnknownFlag(name, flag_input)
+      Ok(_), None -> MissingFlagValue(name, flag_input)
+      Ok(_), Some(value) -> InvalidFlagValue(name, value, flag_input)
+    }
+    #(cause, error)
+  })
 }
 
 fn update_flag_value(

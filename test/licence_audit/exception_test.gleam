@@ -160,6 +160,67 @@ pub fn duplicates_and_alias_overlaps_fail_test() {
   should.equal(ambiguous, first)
 }
 
+pub fn invalid_expression_exception_preserves_exact_raw_label_test() {
+  let fields =
+    "purl = \"pkg:hex/example@1.2.3\"\nfinding = \"invalid-licence-expression\"\nlicence = \" Apache 2.0 \"\nreason = \"Reviewed\"\n"
+  let assert Ok(parsed) = parse(fields)
+  let assert [waiver] = parsed.exceptions
+  should.equal(
+    waiver.finding,
+    exception.InvalidLicenceExpression(" Apache 2.0 "),
+  )
+  should.equal(
+    exception.decide([waiver], waiver.purl, waiver.finding, [], "2026-12-01"),
+    Ok(exception.Excepted(waiver)),
+  )
+  use raw <- list.each([
+    "Apache 2.0",
+    " apache 2.0 ",
+    " Apache  2.0 ",
+    "Apache-2.0",
+  ])
+  should.equal(
+    exception.validate_unique([
+      waiver,
+      exception.Exception(
+        ..waiver,
+        number: 2,
+        finding: exception.InvalidLicenceExpression(raw),
+      ),
+    ]),
+    Ok(Nil),
+  )
+  should.equal(
+    exception.decide(
+      [waiver],
+      waiver.purl,
+      exception.InvalidLicenceExpression(raw),
+      [],
+      "2026-12-01",
+    ),
+    Ok(exception.Unaccepted),
+  )
+}
+
+pub fn invalid_expression_exception_uses_existing_field_and_scope_validation_test() {
+  let fields =
+    "purl = \"pkg:hex/example@1.2.3\"\nfinding = \"invalid-licence-expression\"\nlicence = \"Apache 2.0\"\nreason = \"Reviewed\"\n"
+  use invalid <- list.each([
+    fields <> "advisory = \"CVE-2026-12345\"\n",
+    string.replace(fields, "licence = \"Apache 2.0\"", "licence = \"  \""),
+    string.replace(fields, "licence = \"Apache 2.0\"", "licence = 7"),
+    string.replace(fields, "licence = \"Apache 2.0\"\n", ""),
+    string.replace(fields, "pkg:hex/example@1.2.3", "pkg:hex/example@*"),
+    string.replace(
+      fields,
+      "pkg:hex/example@1.2.3",
+      "pkg:github/owner/repo@" <> string.repeat("a", 40),
+    ),
+    fields <> "[[tools.licence_audit.exceptions]]\n" <> fields,
+  ])
+  let assert Error(config.InvalidException(_)) = parse(invalid)
+}
+
 pub fn exact_scope_and_finding_match_test() {
   let waiver = entry(exception.DeniedLicence("GPL-3.0-only"))
   let assert Ok(exception.Excepted(_)) =

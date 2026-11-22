@@ -5,6 +5,7 @@
 
 import gleam/dict
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -195,6 +196,10 @@ fn handle_selection(
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.detail(reporter, "Awaiting selection")
+  let #(discovered, invalid) =
+    list.partition(discovered, fn(label) {
+      result.is_ok(spdx_expression.parse(label))
+    })
   let labels = merge_labels(existing, discovered)
   let title =
     "Allow which licences? ("
@@ -202,6 +207,17 @@ fn handle_selection(
     <> " total, "
     <> int.to_string(list.length(only_new(existing, discovered)))
     <> " new)"
+  let title = case invalid {
+    [] -> title
+    _ ->
+      title
+      <> "\nNot selectable (invalid SPDX expressions): "
+      <> string.join(
+        list.map(invalid, fn(label) { json.to_string(json.string(label)) }),
+        ", ",
+      )
+      <> "\nUse a reviewed invalid-licence-expression exception for the exact package/version and raw label."
+  }
   case pick(title, labels, existing.allow, existing.deny) {
     Error(picker.Cancelled) -> {
       let reporter = progress.warn(reporter, "Update cancelled")

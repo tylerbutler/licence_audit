@@ -48,6 +48,24 @@ pub fn malformed_expressions_are_rejected_test() {
   })
 }
 
+pub fn crlf_is_legal_token_whitespace_test() {
+  let expression = "DocumentRef-Project:LicenseRef-a\r\nWITH\r\nException-Z"
+  should.equal(
+    spdx_expression.parse(expression),
+    Ok(With("DocumentRef-Project:LicenseRef-a", "Exception-Z")),
+  )
+  should.equal(
+    spdx_expression.matching_tokens(expression),
+    spdx_expression.matching_tokens(
+      "DocumentRef-Project:LicenseRef-a WITH Exception-Z",
+    ),
+  )
+  should.equal(
+    spdx_expression.parse("(MIT\r\nOR\r\nApache-2.0)\r\nAND\r\nBSD-3-Clause"),
+    Ok(And(Or(Licence("MIT"), Licence("Apache-2.0")), Licence("BSD-3-Clause"))),
+  )
+}
+
 pub fn untrusted_input_limits_test() {
   let nested = fn(depth) {
     string.repeat("(", depth) <> "MIT" <> string.repeat(")", depth)
