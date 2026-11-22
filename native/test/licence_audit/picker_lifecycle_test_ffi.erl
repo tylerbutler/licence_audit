@@ -41,7 +41,9 @@ run() ->
         Result
     end,
     {Outcome, _} = licence_audit@update:run_with_picker(
-        Manifest, <<".">>, {some, Path}, true, none,
+        Manifest, <<".">>,
+        {update_options, none, {some, Path}, verbose, never, true, none,
+            none, none, false},
         licence_audit@notice:default_clients(), Picker,
         licence_audit@progress:capturing(verbose, <<"update">>)
     ),

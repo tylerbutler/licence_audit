@@ -3,6 +3,8 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import licence_audit
+import licence_audit/cli
+import licence_audit/color
 import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
@@ -343,9 +345,17 @@ pub fn missing_manifest_stops_update_before_picker_or_write_test() -> Nil {
     update.run_with_picker(
       input,
       fixture_root,
-      Some(missing_section),
-      True,
-      None,
+      cli.UpdateOptions(
+        manifest_path: None,
+        config_path: Some(missing_section),
+        verbosity: progress.Quiet,
+        color: color.Never,
+        no_cache: True,
+        cache_dir: None,
+        allow: None,
+        deny: None,
+        dry_run: False,
+      ),
       source_archive_test.metadata_clients(unused_fetcher),
       fn(_, _, _, _) { panic as "missing manifest must stop before picker" },
       progress.disabled(),
@@ -373,9 +383,17 @@ pub fn directory_inputs_preserve_update_policy_discovery_and_write_target_test()
       update.run_with_picker(
         input,
         path.dirname(manifest.resolve_path(input)),
-        None,
-        True,
-        None,
+        cli.UpdateOptions(
+          manifest_path: None,
+          config_path: None,
+          verbosity: progress.Quiet,
+          color: color.Never,
+          no_cache: True,
+          cache_dir: None,
+          allow: None,
+          deny: None,
+          dry_run: False,
+        ),
         source_archive_test.metadata_clients(unused_fetcher),
         fn(_title, _labels, allow, deny) {
           should.equal(allow, ["MIT"])
@@ -405,9 +423,17 @@ pub fn update_creates_missing_section_in_explicit_write_target_test() {
     update.run_with_picker(
       fixture_root <> "/project/manifest.toml",
       fixture_root,
-      Some(path),
-      True,
-      None,
+      cli.UpdateOptions(
+        manifest_path: None,
+        config_path: Some(path),
+        verbosity: progress.Quiet,
+        color: color.Never,
+        no_cache: True,
+        cache_dir: None,
+        allow: None,
+        deny: None,
+        dry_run: False,
+      ),
       source_archive_test.metadata_clients(metadata_fetcher),
       fn(_title, _labels, allow, deny) {
         should.equal(allow, [])

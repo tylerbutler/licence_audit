@@ -58,6 +58,19 @@ SBOM component references keep the full GitHub purl, including any `#subpath`;
 the commit query excludes that path. These query rules also apply
 to `check --checks=vulns`, `check --checks=all`, and `sbom --vulns`.
 
+## JSON output
+
+Use `licence_audit vulns --format=json` for one
+[schema-1 JSON document](/docs/json-reports) on stdout. Text remains the
+default. Rows include the package purl, advisory ID, aliases, severity,
+exception decision, and detail errors.
+
+Unavailable details use null severity and aliases, not the string `unknown`.
+A fetched advisory with no known severity uses `unknown`. Individual service
+failures retain exit `0` for this report-only command but set `complete: false`.
+Worker failures and OSV batch failures retain exit `2`. Progress and logs
+use stderr; recognized JSON failures remain structured stdout documents.
+
 ## Reviewed advisory exceptions
 
 `vulns` uses [configuration discovery](/docs/configuration#discovery) to read
@@ -138,6 +151,7 @@ licence_audit vulns [--flags]
 |------|------|---------|-------------|
 | `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
+| `--format=<text\|json>` | `text\|json` | `text` | Output format: text\|json (default text) |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |

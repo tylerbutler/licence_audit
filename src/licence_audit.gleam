@@ -19,6 +19,7 @@ import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/internal/vendor/glint
+import licence_audit/json_report
 import licence_audit/manifest
 import licence_audit/network
 import licence_audit/notice
@@ -95,27 +96,40 @@ type FetchResult {
 }
 
 pub fn main() -> Nil {
-  case run_cli(main_action) {
+  case
+    run_cli(fn() {
+      let args = arguments()
+      case run_cli(fn() { main_action(args) }) {
+        Ok(Nil) -> Nil
+        Error(runtime_error) -> {
+          let result = raw_failure(args, runtime_error)
+          print_action_result(result)
+          halt(result.result.exit_code)
+        }
+      }
+    })
+  {
     Ok(Nil) -> Nil
     Error(runtime_error) -> {
       let result = diagnostic(runtime_error)
-      io.print_error(result.result.output)
+      print_action_result(result)
       halt(result.result.exit_code)
     }
   }
 }
 
-fn main_action() -> Nil {
+fn main_action(args: List(String)) -> Nil {
   case
     cli.execute(
-      arguments(),
+      args,
       tty.detect_color_level(tty.Stdout),
       tty.detect_color_level(tty.Stderr),
     )
   {
     Error(message) -> {
-      io.println_error(message)
-      halt(2)
+      let result = raw_failure(args, error.Usage(message))
+      print_action_result(result)
+      halt(result.result.exit_code)
     }
     Ok(glint.Help(help)) -> io.println(help)
     Ok(glint.Out(action)) ->
@@ -125,9 +139,9 @@ fn main_action() -> Nil {
           case start_runtime() {
             Ok(Nil) -> handle_action(action)
             Error(startup_error) -> {
-              let result = diagnostic(startup_error)
-              let RunResult(exit_code, output) = result.result
-              io.print_error(output)
+              let result = raw_failure(args, startup_error)
+              let exit_code = result.result.exit_code
+              print_action_result(result)
               halt(exit_code)
             }
           }
@@ -143,17 +157,44 @@ fn handle_action(action: cli.CliAction) -> Nil {
       reporter_for_action(action),
       palette_for_action(action),
     )
-  let RunResult(exit_code, output) = result.result
-  case result {
-    Diagnostic(_) -> {
-      io.print_error(output)
+  let exit_code = result.result.exit_code
+  // Flush before the machine document so a logging failure cannot append one.
+  case action_format(action) {
+    cli.Json -> {
+      let _ = progress.flush(apply_http_warning(reporter))
+      print_action_result(result)
     }
-    Report(_) -> {
-      io.print(output)
+    cli.Text -> {
+      print_action_result(result)
+      let _ = progress.flush(apply_http_warning(reporter))
+      Nil
     }
   }
-  let _ = progress.flush(apply_http_warning(reporter))
   halt(exit_code)
+}
+
+fn print_action_result(result: ActionResult) -> Nil {
+  case result {
+    Diagnostic(_) -> {
+      io.print_error(result.result.output)
+    }
+    Report(_) -> {
+      io.print(result.result.output)
+    }
+  }
+}
+
+fn action_format(action: cli.CliAction) -> cli.ReportFormat {
+  case action {
+    cli.RunReport(options) -> options.format
+    cli.RunAudit(options) -> options.format
+    cli.RunVulns(options) -> options.format
+    cli.UpdateConfig(_)
+    | cli.RunSbom(_)
+    | cli.RunNotices(_)
+    | cli.ShowVersion
+    | cli.InvalidUsage(_) -> cli.Text
+  }
 }
 
 fn reporter_for_action(action: cli.CliAction) -> progress.Reporter {
@@ -237,7 +278,10 @@ fn run_configured_with_cache(
   bypass_cache bypass_cache: Bool,
 ) -> #(RunResult, List(progress.Event)) {
   let #(result, reporter) = case
-    glint.execute(cli.app(), cli.normalize_args(args))
+    case cli.recognized_json_command(args) {
+      Some(_) -> cli.execute(args, tty.NoColor, tty.NoColor)
+      None -> glint.execute(cli.app(), cli.normalize_args(args))
+    }
   {
     Ok(glint.Help(help)) -> #(report_result(0, help <> "\n"), reporter)
     Ok(glint.Out(action)) -> {
@@ -247,7 +291,7 @@ fn run_configured_with_cache(
       }
       execute_action(action, clients, reporter, color.for_enabled(False))
     }
-    Error(message) -> #(Diagnostic(RunResult(2, message <> "\n")), reporter)
+    Error(message) -> #(raw_failure(args, error.Usage(message)), reporter)
   }
   #(result.result, progress.events(reporter))
 }
@@ -276,25 +320,16 @@ fn execute_action(
             vuln_severity: None,
             vuln_block_unknown: None,
             scope: options.scope,
+            format: options.format,
           ),
-          clients.osv_batch_fetcher,
-          clients.osv_detail_fetcher,
-          clients.notice_clients,
+          clients,
           reporter,
           palette,
         )
       cli.RunAudit(options) ->
-        run_options_with_clients(
-          options,
-          clients.osv_batch_fetcher,
-          clients.osv_detail_fetcher,
-          clients.notice_clients,
-          reporter,
-          palette,
-        )
+        run_options_with_clients(options, clients, reporter, palette)
       cli.UpdateConfig(options) -> {
-        let #(result, reporter) =
-          run_update_options(options, clients.notice_clients, reporter)
+        let #(result, reporter) = run_update_options(options, clients, reporter)
         let run_result = RunResult(result.exit_code, result.output)
         #(
           case result {
@@ -311,13 +346,7 @@ fn execute_action(
       cli.RunSbom(options) -> run_sbom_options(options, clients, reporter)
       cli.RunVulns(options) -> {
         let #(result, reporter) =
-          run_vulns_options(
-            options,
-            clients.osv_batch_fetcher,
-            clients.osv_detail_fetcher,
-            reporter,
-            palette,
-          )
+          run_vulns_options(options, clients, reporter, palette)
         #(result, reporter)
       }
       cli.RunNotices(options) ->
@@ -334,9 +363,9 @@ fn run_sbom_options(
   clients: Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
-  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
   let manifest_path = manifest.resolve_path(manifest_path)
-  let project_root = project_root_for_manifest(manifest_path)
+  let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Generating SBOM")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
@@ -382,9 +411,9 @@ fn run_notices_options(
   clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
-  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
   let manifest_path = manifest.resolve_path(manifest_path)
-  let project_root = project_root_for_manifest(manifest_path)
+  let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Generating licence notices")
   let reporter = progress.detail(reporter, "Loading package manifest")
 
@@ -449,14 +478,11 @@ fn run_selected_notices(
   clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
-  let #(metadata_cache_mode, source_cache_mode) = case
-    options.no_cache || selected == []
-  {
-    True -> #(cache.Disabled, notice_cache.Disabled)
-    False -> #(
-      cache.Enabled(path: options.cache_dir),
-      notice_cache.Enabled(path: options.cache_dir),
-    )
+  let no_cache = options.no_cache || selected == []
+  let metadata_cache_mode = cache.mode_for(no_cache, options.cache_dir)
+  let source_cache_mode = case no_cache {
+    True -> notice_cache.Disabled
+    False -> notice_cache.Enabled(path: options.cache_dir)
   }
   let metadata_cache = cache.open(metadata_cache_mode)
   let source_cache = notice_cache.open(source_cache_mode)
@@ -712,9 +738,7 @@ fn notice_metadata_for_entry(
       })
     }
     manifest.PathProvenance(path) -> #(
-      case
-        read_path_gleam_toml_metadata(resolve_project_path(project_root, path))
-      {
+      case read_path_gleam_toml_metadata(path.resolve(project_root, path)) {
         Ok(metadata) -> Ok(metadata)
         Error(_) -> Ok(hex.licences_only([]))
       },
@@ -760,18 +784,10 @@ fn package_for_source_read(
     notice.PathPackage(path) ->
       notice.NoticePackage(
         ..package,
-        source: notice.PathPackage(resolve_project_path(project_root, path)),
+        source: notice.PathPackage(path.resolve(project_root, path)),
       )
     notice.HexPackage(_) | notice.GitPackage(_, _, _, _) -> package
   }
-}
-
-fn resolve_project_path(project_root: String, path: String) -> String {
-  path.resolve(project_root, path)
-}
-
-fn project_root_for_manifest(manifest_path: String) -> String {
-  path.dirname(manifest_path)
 }
 
 fn write_notice_output(
@@ -813,10 +829,7 @@ fn run_sbom_for_manifest(
   clients: Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
-  let cache_mode = case options.no_cache {
-    True -> cache.Disabled
-    False -> cache.Enabled(path: options.cache_dir)
-  }
+  let cache_mode = cache.mode_for(options.no_cache, options.cache_dir)
   let #(now, _) =
     timestamp.system_time() |> timestamp.to_unix_seconds_and_nanoseconds
   let #(publications, warning) =
@@ -845,10 +858,10 @@ fn run_sbom_for_manifest(
       {
         True ->
           fetch_reproducible_package_metadata(
+            options,
             sbom_manifest,
             cache_handle,
-            clients.notice_clients,
-            options.offline,
+            clients,
             reporter,
           )
         False -> {
@@ -879,8 +892,7 @@ fn run_sbom_for_manifest(
               gather_embedded_vulnerabilities(
                 sbom_manifest,
                 publications,
-                clients.osv_batch_fetcher,
-                clients.osv_detail_fetcher,
+                clients,
                 reporter,
               )
           }
@@ -896,7 +908,7 @@ fn run_sbom_for_manifest(
                 dict.merge(package_metadata, local_metadata),
                 publications,
                 vulnerabilities,
-                clients.notice_clients,
+                clients,
                 reporter,
               )
           }
@@ -907,10 +919,10 @@ fn run_sbom_for_manifest(
 }
 
 fn fetch_reproducible_package_metadata(
+  options: cli.SbomOptions,
   manifest_value: manifest.SbomManifest,
   cache_handle: cache.Cache,
-  clients: notice.Clients,
-  offline: Bool,
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(
   Result(dict.Dict(String, hex.PackageMetadata), error.Error),
@@ -936,13 +948,14 @@ fn fetch_reproducible_package_metadata(
               )
             let #(metadata, warning) =
               cache.fetch_immutable(cache_handle, key, fn() {
-                case offline {
+                case options.offline {
                   True ->
                     Error(error.SbomMetadataFailed(
                       entry.name,
                       "offline: required locked metadata is not cached or caching is disabled",
                     ))
-                  False -> metadata_from_locked_source(entry, clients)
+                  False ->
+                    metadata_from_locked_source(entry, clients.notice_clients)
                 }
               })
             #(result.map(metadata, Some), warning, captured)
@@ -1085,7 +1098,7 @@ fn git_metadata_from_locked_source(
       "locked Git archive gleam.toml is not valid UTF-8",
     )),
   )
-  gleam_toml.package_metadata(text, strip_git_suffix(repo_url))
+  gleam_toml.package_metadata(text, gleam_toml.strip_git_suffix(repo_url))
   |> result.replace_error(error.SbomMetadataFailed(
     entry.name,
     "locked Git archive has an invalid gleam.toml",
@@ -1102,7 +1115,7 @@ fn render_sbom(
   package_metadata: dict.Dict(String, hex.PackageMetadata),
   publications: dict.Dict(String, hex.Publication),
   vulnerabilities: List(sbom.EmbeddedVulnerability),
-  source_clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
   // Reproducible metadata comes from locked source archives. The serial number
@@ -1125,7 +1138,7 @@ fn render_sbom(
           options,
           root,
           package_metadata,
-          source_clients,
+          clients,
           reporter,
         )
       let rendered =
@@ -1157,7 +1170,7 @@ fn gather_sbom_license_texts(
   options: cli.SbomOptions,
   root: sbom.RootComponent,
   metadata: dict.Dict(String, hex.PackageMetadata),
-  clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(Result(dict.Dict(String, String), error.Error), progress.Reporter) {
   use <- bool.guard(when: !options.license_text, return: #(
@@ -1197,7 +1210,7 @@ fn gather_sbom_license_texts(
             text_cache,
             "SBOM",
             spdx.LicenseRequirement(id),
-            clients,
+            clients.notice_clients,
           )
       })
       #(
@@ -1224,8 +1237,7 @@ fn gather_sbom_license_texts(
 fn gather_embedded_vulnerabilities(
   sbom_manifest: manifest.SbomManifest,
   publications: dict.Dict(String, hex.Publication),
-  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(Result(List(sbom.EmbeddedVulnerability), error.Error), progress.Reporter) {
   let purl_pairs =
@@ -1251,7 +1263,7 @@ fn gather_embedded_vulnerabilities(
                 <> int.to_string(list.length(purls))
                 <> " packages",
             )
-          case batch_fetcher(purls) {
+          case clients.osv_batch_fetcher(purls) {
             Error(osv_error) -> #(
               Error(error.from_osv_error(osv_error)),
               reporter,
@@ -1262,7 +1274,11 @@ fn gather_embedded_vulnerabilities(
               // SBOM embedding tolerates detail failures the same way the plain
               // `vulns` report does; selected vulnerability gates block on them.
               let #(vulns, detail_failures, reporter) =
-                fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+                fetch_vulnerabilities(
+                  unique_ids,
+                  clients.osv_detail_fetcher,
+                  reporter,
+                )
               case
                 list.any(detail_failures, fn(failure) { failure.runtime_failed })
               {
@@ -1426,7 +1442,7 @@ fn enrich_git_entry_metadata(
   metadata_acc: dict.Dict(String, hex.PackageMetadata),
   reporter: progress.Reporter,
 ) -> #(dict.Dict(String, hex.PackageMetadata), progress.Reporter) {
-  let repo_url = strip_git_suffix(repo)
+  let repo_url = gleam_toml.strip_git_suffix(repo)
   let path = project_root <> "/build/packages/" <> entry.name <> "/gleam.toml"
   case read_gleam_toml_metadata(path, repo_url) {
     Ok(metadata) -> #(dict.insert(metadata_acc, entry.name, metadata), reporter)
@@ -1462,10 +1478,6 @@ fn read_gleam_toml_metadata(
     simplifile.read(from: path) |> result.replace_error(Nil),
   )
   gleam_toml.package_metadata(contents, repo_url)
-}
-
-fn strip_git_suffix(url: String) -> String {
-  gleam_toml.strip_git_suffix(url)
 }
 
 fn read_root_component(
@@ -1589,27 +1601,19 @@ fn write_sbom_output(
 
 fn run_options_with_clients(
   options: cli.Options,
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  source_clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
   use <- bool.lazy_guard(
     when: options.check && options.checks == cli.Vulnerabilities,
     return: fn() {
-      run_vulnerability_check(
-        options,
-        osv_batch_fetcher,
-        osv_detail_fetcher,
-        reporter,
-        palette,
-      )
+      run_vulnerability_check(options, clients, reporter, palette)
     },
   )
-  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
   let manifest_path = manifest.resolve_path(manifest_path)
-  let project_root = project_root_for_manifest(manifest_path)
+  let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Starting licence audit")
   let reporter = progress.detail(reporter, "Loading licence policy")
 
@@ -1632,9 +1636,7 @@ fn run_options_with_clients(
         sbom_manifest,
         prod_seed,
         scopes,
-        osv_batch_fetcher,
-        osv_detail_fetcher,
-        source_clients,
+        clients,
         reporter,
         palette,
       )
@@ -1663,20 +1665,20 @@ fn prepare_audit(
   use config_policy <- result.try(
     load_policy(options, project_root)
     |> result.map_error(fn(e) {
-      #(diagnostic(error.from_config_error(e)), reporter)
+      #(options_failure(options, error.from_config_error(e)), reporter)
     }),
   )
   use audit_policy <- result.try(
     policy.from_config(config_policy, check_mode: options.check)
     |> result.map_error(fn(e) {
-      #(diagnostic(error.from_policy_error(e)), reporter)
+      #(options_failure(options, error.from_policy_error(e)), reporter)
     }),
   )
   let reporter = progress.detail(reporter, "Loading package manifest")
   use locked <- result.try(
     manifest.load(manifest_path)
     |> result.map_error(fn(e) {
-      #(diagnostic(error.from_manifest_error(e)), reporter)
+      #(options_failure(options, error.from_manifest_error(e)), reporter)
     }),
   )
   use sbom_manifest <- result.try(
@@ -1686,13 +1688,15 @@ fn prepare_audit(
         manifest.load_vulns(manifest_path)
         |> result.map(Some)
         |> result.map_error(fn(e) {
-          #(diagnostic(error.from_manifest_error(e)), reporter)
+          #(options_failure(options, error.from_manifest_error(e)), reporter)
         })
     },
   )
   use prod_seed <- result.try(
     resolve_prod_seed(project_root, locked.direct_names)
-    |> result.map_error(fn(scope_error) { #(diagnostic(scope_error), reporter) }),
+    |> result.map_error(fn(scope_error) {
+      #(options_failure(options, scope_error), reporter)
+    }),
   )
   let scopes = manifest.dep_scopes(locked, prod_seed)
   Ok(#(
@@ -1716,9 +1720,7 @@ fn audit_locked(
   sbom_manifest: Option(manifest.SbomManifest),
   prod_seed: List(String),
   scopes: dict.Dict(String, manifest.Scope),
-  osv_batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  osv_detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
-  source_clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
@@ -1729,10 +1731,7 @@ fn audit_locked(
     True -> report.Audit
     False -> report.Default
   }
-  let cache_mode = case options.no_cache {
-    True -> cache.Disabled
-    False -> cache.Enabled(path: options.cache_dir)
-  }
+  let cache_mode = cache.mode_for(options.no_cache, options.cache_dir)
   let cache_handle = cache.open(cache_mode)
   let cached_fetcher =
     cache.wrap_locked(cache_handle, fn(name, version, checksum) {
@@ -1740,7 +1739,7 @@ fn audit_locked(
         name,
         version,
         checksum,
-        source_clients.fetch_hex_tarball,
+        clients.notice_clients.fetch_hex_tarball,
       )
     })
   let dep_paths = case options.scope {
@@ -1790,7 +1789,38 @@ fn audit_locked(
         today,
       )
       |> result.map_error(fn(review_error) {
-        #(diagnostic(review_error), result.reporter)
+        let failure = case options.format {
+          cli.Text -> diagnostic(review_error)
+          cli.Json ->
+            json_result(
+              json_report.Document(
+                ..empty_document(
+                  case options.check {
+                    True -> json_report.Check
+                    False -> json_report.Report
+                  },
+                  checks_requested(options.checks),
+                  review_error,
+                ),
+                licences: Some(
+                  licence_json_result(LicenceGateOutcome(
+                    rows: list.append(
+                      result.rows,
+                      build_skipped_rows(active_skipped, dep_paths, scopes),
+                    ),
+                    verdict: LicencesNotEnforced,
+                    completeness: CheckIncomplete,
+                    coverage: exception.NotEvaluated(
+                      "licence exception review failed",
+                    ),
+                  )),
+                ),
+                exceptions: config_policy.exceptions,
+                today: today,
+              ),
+            )
+        }
+        #(failure, result.reporter)
       }),
     )
     let policy_failed =
@@ -1821,40 +1851,38 @@ fn audit_locked(
     let vuln_outcome = case options.check && options.checks == cli.AllChecks {
       False ->
         VulnGateOutcome(
+          status: Ok(GateNotEvaluated),
+          scan_started: False,
           report_text: "",
-          gate_failed: False,
-          unknown_failed: False,
-          incomplete: False,
-          config_error: None,
+          queries: [],
+          occurrences: [],
+          details: [],
+          detail_failures: [],
+          unsupported_packages: [],
           coverage: exception.NotEvaluated("vulnerability scan disabled"),
           reporter: result.reporter,
         )
-      True -> {
-        let threshold =
-          resolve_vuln_threshold(
-            options.vuln_severity,
-            config_policy.vuln_severity,
-          )
-        let block_unknown = config_policy.vuln_block_unknown
+      True ->
         run_vuln_check_for_audit(
           active_sbom_entries,
-          threshold,
-          block_unknown,
-          osv_batch_fetcher,
-          osv_detail_fetcher,
+          options,
+          config_policy,
+          clients,
           result.reporter,
           palette,
-          config_policy.exceptions,
           today,
         )
-      }
     }
 
-    use _ <- result.try(case vuln_outcome.config_error {
-      Some(review_error) ->
-        Error(#(diagnostic(review_error), vuln_outcome.reporter))
-      None -> Ok(Nil)
-    })
+    use _ <- result.try(
+      case options.format {
+        cli.Json -> Ok(Nil)
+        cli.Text -> result.map(vuln_outcome.status, fn(_) { Nil })
+      }
+      |> result.map_error(fn(review_error) {
+        #(diagnostic(review_error), vuln_outcome.reporter)
+      }),
+    )
     let excluded_licences =
       locked.packages
       |> list.filter(fn(pkg) {
@@ -1922,25 +1950,50 @@ fn audit_locked(
       <> case
         options.check
         && !result.fetch_failed
-        && !vuln_outcome.incomplete
+        && case vuln_outcome.status {
+          Ok(GateNotEvaluated) | Ok(GateEvaluated(_, CheckComplete)) -> True
+          Ok(GateUnavailable(_))
+          | Ok(GateEvaluated(_, CheckIncomplete))
+          | Error(_) -> False
+        }
         && !policy_failed
       {
         True -> "Licence check passed.\n"
         False -> ""
       }
 
-    let #(run_result, reporter) =
-      finalize_audit(
-        options.check,
-        result.fetch_failed,
-        vuln_outcome.incomplete,
-        policy_failed,
-        vuln_outcome.gate_failed,
-        vuln_outcome.unknown_failed,
-        output,
-        vuln_outcome.reporter,
-        "Licence audit completed",
+    let licence_outcome =
+      LicenceGateOutcome(
+        verdict: case options.check, policy_failed {
+          False, _ -> LicencesNotEnforced
+          True, False -> LicencesPassed
+          True, True -> LicencesBlocked
+        },
+        completeness: case result.fetch_failed {
+          True -> CheckIncomplete
+          False -> CheckComplete
+        },
+        rows: all_rows,
+        coverage: licence_coverage,
       )
+    let #(run_result, reporter) = case options.format {
+      cli.Text ->
+        finalize_audit(
+          licence_outcome,
+          VulnGateOutcome(..vuln_outcome, coverage: vuln_coverage),
+          output,
+          "Licence audit completed",
+        )
+      cli.Json ->
+        finalize_json_audit(
+          options,
+          Some(licence_outcome),
+          VulnGateOutcome(..vuln_outcome, coverage: vuln_coverage),
+          active_sbom_entries,
+          config_policy,
+          today,
+        )
+    }
 
     let reporter = case cache_warning {
       Some(message) -> progress.defer_warn(reporter, message)
@@ -1954,50 +2007,70 @@ fn audit_locked(
 }
 
 /// Compute the audit's exit code, output suffix, and deferred log message
-/// from the gathered failure flags, in priority order.
+/// from the independent findings and completeness states, in priority order.
 fn finalize_audit(
-  check: Bool,
-  fetch_failed: Bool,
-  vuln_incomplete: Bool,
-  policy_failed: Bool,
-  vuln_failed: Bool,
-  vuln_unknown_failed: Bool,
+  licences: LicenceGateOutcome,
+  vulnerabilities: VulnGateOutcome,
   output: String,
-  reporter: progress.Reporter,
   completion_message: String,
 ) -> #(ActionResult, progress.Reporter) {
-  use <- bool.guard(when: fetch_failed, return: #(
-    report_result(2, output),
-    progress.defer_error(
-      reporter,
-      "Licence audit failed: package metadata could not be fetched",
-    ),
-  ))
-  use <- bool.guard(when: vuln_incomplete, return: #(
-    report_result(2, output),
-    reporter,
-  ))
-  use <- bool.guard(when: check && policy_failed, return: #(
-    report_result(1, output <> error.message(error.AuditFailed) <> "\n"),
-    reporter,
-  ))
-  use <- bool.guard(when: vuln_failed, return: #(
-    report_result(
-      1,
-      output
-        <> case vuln_unknown_failed {
-        True ->
-          "Vulnerability check failed: one or more advisories met the severity threshold or the unknown-severity blocking rule.\n"
-        False ->
-          "Vulnerability check failed: one or more advisories at or above threshold severity.\n"
-      },
-    ),
-    reporter,
-  ))
-  #(
-    report_result(0, output),
-    progress.defer_success(reporter, completion_message),
-  )
+  let reporter = vulnerabilities.reporter
+  let outcome = {
+    use status <- result.try(
+      vulnerabilities.status
+      |> result.map_error(fn(review_error) {
+        #(diagnostic(review_error), reporter)
+      }),
+    )
+    use <- bool.guard(
+      when: licences.completeness == CheckIncomplete,
+      return: Error(#(
+        report_result(2, output),
+        progress.defer_error(
+          reporter,
+          "Licence audit failed: package metadata could not be fetched",
+        ),
+      )),
+    )
+    use verdict <- result.try(case status {
+      GateUnavailable(_) | GateEvaluated(_, CheckIncomplete) ->
+        Error(#(report_result(2, output), reporter))
+      GateNotEvaluated -> Ok(NoBlockingAdvisories)
+      GateEvaluated(verdict, CheckComplete) -> Ok(verdict)
+    })
+    use <- bool.guard(
+      when: licences.verdict == LicencesBlocked,
+      return: Error(#(
+        report_result(1, output <> error.message(error.AuditFailed) <> "\n"),
+        reporter,
+      )),
+    )
+    Ok(case verdict {
+      BlockingKnownSeverity -> #(
+        report_result(
+          1,
+          output
+            <> "Vulnerability check failed: one or more advisories at or above threshold severity.\n",
+        ),
+        reporter,
+      )
+      BlockingUnknownSeverity -> #(
+        report_result(
+          1,
+          output
+            <> "Vulnerability check failed: one or more advisories met the severity threshold or the unknown-severity blocking rule.\n",
+        ),
+        reporter,
+      )
+      NoBlockingAdvisories -> #(
+        report_result(0, output),
+        progress.defer_success(reporter, completion_message),
+      )
+    })
+  }
+  case outcome {
+    Ok(outcome) | Error(outcome) -> outcome
+  }
 }
 
 fn fetch_packages(
@@ -2243,10 +2316,406 @@ fn diagnostic(audit_error: error.Error) -> ActionResult {
   ))
 }
 
-fn option_value(value: option.Option(String), default: String) -> String {
-  case value {
-    Some(value) -> value
-    None -> default
+fn json_result(document: json_report.Document) -> ActionResult {
+  report_result(
+    error.exit_code(document.outcome),
+    json_report.to_string(document) <> "\n",
+  )
+}
+
+fn checks_requested(checks: cli.Checks) -> List(json_report.CheckKind) {
+  case checks {
+    cli.Licences -> [json_report.Licences]
+    cli.Vulnerabilities -> [json_report.Vulnerabilities]
+    cli.AllChecks -> [json_report.Licences, json_report.Vulnerabilities]
+  }
+}
+
+fn empty_document(
+  command: json_report.Command,
+  checks: List(json_report.CheckKind),
+  failure: error.Error,
+) -> json_report.Document {
+  json_report.Document(
+    command: command,
+    checks_requested: checks,
+    licences: None,
+    vulnerabilities: None,
+    exceptions: [],
+    today: "",
+    gate_verdict: case command {
+      json_report.Check -> json_report.Undetermined
+      json_report.Report | json_report.Vulns -> json_report.NotEnforced
+    },
+    complete: False,
+    outcome: failure,
+  )
+}
+
+fn raw_failure(args: List(String), failure: error.Error) -> ActionResult {
+  case cli.recognized_json_command(args) {
+    None ->
+      case failure {
+        error.Usage(message) -> Diagnostic(RunResult(2, message <> "\n"))
+        _ -> diagnostic(failure)
+      }
+    Some(command) -> {
+      let command = case command {
+        "check" -> json_report.Check
+        "vulns" -> json_report.Vulns
+        _ -> json_report.Report
+      }
+      let checks = case cli.recognized_checks(args) {
+        None -> []
+        Some(checks) -> checks_requested(checks)
+      }
+      json_result(empty_document(command, checks, failure))
+    }
+  }
+}
+
+fn options_failure(options: cli.Options, failure: error.Error) -> ActionResult {
+  case options.format {
+    cli.Text -> diagnostic(failure)
+    cli.Json ->
+      json_result(empty_document(
+        case options.check {
+          True -> json_report.Check
+          False -> json_report.Report
+        },
+        checks_requested(options.checks),
+        failure,
+      ))
+  }
+}
+
+fn vulns_failure(
+  options: cli.VulnsOptions,
+  failure: error.Error,
+) -> ActionResult {
+  case options.format {
+    cli.Text -> diagnostic(failure)
+    cli.Json ->
+      json_result(empty_document(
+        json_report.Vulns,
+        [json_report.Vulnerabilities],
+        failure,
+      ))
+  }
+}
+
+fn licence_json_result(
+  outcome: LicenceGateOutcome,
+) -> json_report.LicenceResult {
+  let skipped =
+    outcome.rows
+    |> list.filter_map(fn(row) {
+      case row.status {
+        report.Skipped(source) ->
+          Ok(json_report.SkippedSource(row.package, source))
+        report.NotChecked
+        | report.Checked(_)
+        | report.Reviewed(_)
+        | report.Failed(_) -> Error(Nil)
+      }
+    })
+  json_report.LicenceResult(
+    rows: outcome.rows,
+    counts: report.counts(outcome.rows, report.Summary([])),
+    skipped_sources: skipped,
+    coverage: outcome.coverage,
+    complete: outcome.completeness == CheckComplete,
+  )
+}
+
+fn skipped_vulnerability_sources(
+  packages: List(manifest.SbomEntry),
+  skipped_names: List(String),
+) -> List(json_report.SkippedSource) {
+  packages
+  |> list.filter(fn(package) { list.contains(skipped_names, package.name) })
+  |> list.map(fn(package) {
+    let source = case package.provenance {
+      manifest.HexProvenance(..) -> "hex"
+      manifest.GitProvenance(..) -> "git"
+      manifest.PathProvenance(..) -> "path"
+      manifest.UnknownProvenance(source) -> source
+    }
+    json_report.SkippedSource(package.name, source)
+  })
+}
+
+fn vulnerability_gate_json(
+  gate: VulnGateOutcome,
+  packages: List(manifest.SbomEntry),
+) -> Result(json_report.VulnerabilityResult, error.Error) {
+  use rows <- result.try(
+    list.try_map(gate.occurrences, fn(occurrence) {
+      use purl <- result.try(sbom.purl_for(occurrence.package))
+      Ok(json_report.VulnerabilityRow(
+        package: occurrence.package.name,
+        version: occurrence.package.version,
+        purl: purl,
+        result: json_report.Available(
+          occurrence.vulnerability,
+          occurrence.decision,
+          occurrence.blocking,
+        ),
+      ))
+    }),
+  )
+  use remaining <- result.try(
+    list.try_map(gate.queries, fn(query) {
+      use purl <- result.try(sbom.purl_for(query.0))
+      list.try_map(query.1, fn(id) {
+        case list.find(gate.detail_failures, fn(failure) { failure.id == id }) {
+          Ok(failure) ->
+            Ok(
+              Some(json_report.VulnerabilityRow(
+                package: query.0.name,
+                version: query.0.version,
+                purl: purl,
+                result: json_report.Unavailable(id, failure.failure),
+              )),
+            )
+          Error(_) ->
+            case gate.status {
+              Ok(_) -> Ok(None)
+              Error(failure) -> {
+                use advisory <- result.try(
+                  list.key_find(gate.details, id)
+                  |> result.replace_error(error.Decode(
+                    "Missing fetched advisory " <> id,
+                  )),
+                )
+                Ok(
+                  Some(json_report.VulnerabilityRow(
+                    package: query.0.name,
+                    version: query.0.version,
+                    purl: purl,
+                    result: json_report.Unreviewed(
+                      osv.for_package(advisory, purl),
+                      failure,
+                    ),
+                  )),
+                )
+              }
+            }
+        }
+      })
+    }),
+  )
+  Ok(
+    json_report.VulnerabilityResult(
+      rows: list.append(
+        rows,
+        remaining
+          |> list.flatten
+          |> list.filter_map(fn(row) { option.to_result(row, Nil) }),
+      ),
+      queried_packages: list.length(gate.queries),
+      skipped_sources: skipped_vulnerability_sources(
+        packages,
+        gate.unsupported_packages,
+      ),
+      coverage: gate.coverage,
+      complete: case gate.status {
+        Ok(GateEvaluated(_, CheckComplete)) -> True
+        Ok(GateEvaluated(_, CheckIncomplete))
+        | Ok(GateUnavailable(_))
+        | Ok(GateNotEvaluated)
+        | Error(_) -> False
+      },
+    ),
+  )
+}
+
+fn gate_failure(
+  licences: Option(LicenceGateOutcome),
+  gate: VulnGateOutcome,
+) -> error.Error {
+  case gate.status {
+    Error(failure) | Ok(GateUnavailable(failure)) -> failure
+    Ok(GateNotEvaluated) | Ok(GateEvaluated(_, _)) ->
+      case licences {
+        Some(LicenceGateOutcome(completeness: CheckIncomplete, ..)) ->
+          error.Hex("Package licence metadata unavailable")
+        None | Some(LicenceGateOutcome(completeness: CheckComplete, ..)) ->
+          case gate.detail_failures {
+            [failure, ..] -> failure.failure
+            [] ->
+              case json_gate_verdict(licences, gate) {
+                json_report.Failed -> error.AuditFailed
+                json_report.Undetermined ->
+                  error.Osv("Vulnerability check incomplete")
+                json_report.NotEnforced | json_report.Passed -> error.Success
+              }
+          }
+      }
+  }
+}
+
+fn json_gate_verdict(
+  licences: Option(LicenceGateOutcome),
+  gate: VulnGateOutcome,
+) -> json_report.GateVerdict {
+  let licence_failed = case licences {
+    Some(outcome) -> outcome.verdict == LicencesBlocked
+    None -> False
+  }
+  case licence_failed, gate.status {
+    True, _ -> json_report.Failed
+    False, Ok(GateEvaluated(BlockingKnownSeverity, _))
+    | False, Ok(GateEvaluated(BlockingUnknownSeverity, _))
+    -> json_report.Failed
+    False, Error(_)
+    | False, Ok(GateUnavailable(_))
+    | False, Ok(GateEvaluated(NoBlockingAdvisories, CheckIncomplete))
+    -> json_report.Undetermined
+    False, Ok(GateNotEvaluated)
+    | False, Ok(GateEvaluated(NoBlockingAdvisories, CheckComplete))
+    ->
+      case licences {
+        Some(outcome) if outcome.completeness == CheckIncomplete ->
+          json_report.Undetermined
+        Some(outcome) if outcome.verdict == LicencesPassed -> json_report.Passed
+        Some(_) | None ->
+          case gate.status {
+            Ok(GateNotEvaluated) -> json_report.NotEnforced
+            Ok(GateEvaluated(_, _)) -> json_report.Passed
+            Ok(GateUnavailable(_)) | Error(_) -> json_report.Undetermined
+          }
+      }
+  }
+}
+
+fn finalize_json_audit(
+  options: cli.Options,
+  licences: Option(LicenceGateOutcome),
+  gate: VulnGateOutcome,
+  packages: List(manifest.SbomEntry),
+  configuration: config.Policy,
+  today: String,
+) -> #(ActionResult, progress.Reporter) {
+  let document =
+    json_report.Document(
+      ..empty_document(
+        case options.check {
+          True -> json_report.Check
+          False -> json_report.Report
+        },
+        checks_requested(options.checks),
+        gate_failure(licences, gate),
+      ),
+      licences: option.map(licences, licence_json_result),
+      exceptions: configuration.exceptions,
+      today: today,
+      gate_verdict: case options.check {
+        True -> json_gate_verdict(licences, gate)
+        False -> json_report.NotEnforced
+      },
+    )
+  let document = case gate.scan_started {
+    False -> document
+    True ->
+      case vulnerability_gate_json(gate, packages) {
+        Ok(vulnerabilities) ->
+          json_report.Document(
+            ..document,
+            vulnerabilities: Some(vulnerabilities),
+          )
+        Error(failure) -> json_report.Document(..document, outcome: failure)
+      }
+  }
+  let complete =
+    case document.licences {
+      None -> True
+      Some(result) -> result.complete
+    }
+    && case document.vulnerabilities {
+      None -> gate.status == Ok(GateNotEvaluated)
+      Some(result) -> result.complete
+    }
+  let reporter = case error.exit_code(document.outcome) {
+    0 -> progress.defer_success(gate.reporter, "Check completed")
+    1 -> gate.reporter
+    _ -> progress.defer_error(gate.reporter, error.message(document.outcome))
+  }
+  #(json_result(json_report.Document(..document, complete: complete)), reporter)
+}
+
+fn json_vulns_report(
+  rows: List(VulnRow),
+  packages: List(manifest.SbomEntry),
+  skipped: List(String),
+  queried_packages: Int,
+  coverage: exception.Coverage,
+  configuration: config.Policy,
+  today: String,
+  complete: Bool,
+  failure: error.Error,
+) -> ActionResult {
+  let document =
+    json_report.Document(
+      ..empty_document(
+        json_report.Vulns,
+        [json_report.Vulnerabilities],
+        failure,
+      ),
+      exceptions: configuration.exceptions,
+      today: today,
+      complete: complete,
+    )
+  let encoded_rows =
+    list.try_map(rows, fn(row) {
+      use purl <- result.try(sbom.purl_for(row.package))
+      Ok(
+        list.index_map(row.vulnerabilities, fn(advisory, index) {
+          let result = case
+            list.find(row.failures, fn(failure) { failure.id == advisory.id })
+          {
+            Ok(failure) -> json_report.Unavailable(advisory.id, failure.failure)
+            Error(_) ->
+              case list.first(list.drop(row.decisions, index)) {
+                Ok(decision) -> json_report.Available(advisory, decision, None)
+                Error(_) ->
+                  json_report.Unreviewed(
+                    osv.for_package(advisory, purl),
+                    case failure {
+                      error.Success ->
+                        error.Decode("Advisory exception decision unavailable")
+                      _ -> failure
+                    },
+                  )
+              }
+          }
+          json_report.VulnerabilityRow(
+            package: row.package.name,
+            version: row.package.version,
+            purl: purl,
+            result: result,
+          )
+        }),
+      )
+    })
+  case encoded_rows {
+    Error(failure) ->
+      json_result(
+        json_report.Document(..document, complete: False, outcome: failure),
+      )
+    Ok(rows) ->
+      json_result(
+        json_report.Document(
+          ..document,
+          vulnerabilities: Some(json_report.VulnerabilityResult(
+            rows: list.flatten(rows),
+            queried_packages: queried_packages,
+            skipped_sources: skipped_vulnerability_sources(packages, skipped),
+            coverage: coverage,
+            complete: complete,
+          )),
+        ),
+      )
   }
 }
 
@@ -2256,19 +2725,17 @@ fn halt(code: Int) -> Nil
 
 fn run_update_options(
   options: cli.UpdateOptions,
-  source_clients: notice.Clients,
+  clients: Clients,
   reporter: progress.Reporter,
 ) -> #(update_cmd.UpdateResult, progress.Reporter) {
-  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
   let manifest_path = manifest.resolve_path(manifest_path)
-  let project_root = project_root_for_manifest(manifest_path)
+  let project_root = path.dirname(manifest_path)
   update_cmd.run(
     manifest_path,
     project_root,
-    options.config_path,
-    options.no_cache,
-    options.cache_dir,
-    source_clients,
+    options,
+    clients.notice_clients,
     reporter,
   )
 }
@@ -2277,33 +2744,38 @@ fn run_update_options(
 
 fn run_vulnerability_check(
   options: cli.Options,
-  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
-  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
   let manifest_path = manifest.resolve_path(manifest_path)
-  let project_root = project_root_for_manifest(manifest_path)
+  let project_root = path.dirname(manifest_path)
   let today = exception.utc_date(timestamp.system_time())
   let reporter = progress.phase(reporter, "Checking for vulnerabilities")
   let outcome = {
     use configuration <- result.try(
       load_policy(options, project_root)
       |> result.map_error(fn(config_error) {
-        #(diagnostic(error.from_config_error(config_error)), reporter)
+        #(
+          options_failure(options, error.from_config_error(config_error)),
+          reporter,
+        )
       }),
     )
     use locked <- result.try(
       manifest.load_vulns(manifest_path)
       |> result.map_error(fn(manifest_error) {
-        #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
+        #(
+          options_failure(options, error.from_manifest_error(manifest_error)),
+          reporter,
+        )
       }),
     )
     use prod_seed <- result.try(
       resolve_prod_seed(project_root, locked.root_requirements)
       |> result.map_error(fn(scope_error) {
-        #(diagnostic(scope_error), reporter)
+        #(options_failure(options, scope_error), reporter)
       }),
     )
     let scopes = manifest.sbom_scopes(locked, prod_seed)
@@ -2311,7 +2783,7 @@ fn run_vulnerability_check(
     use _ <- result.try(
       validate_exception_identities(configuration.exceptions, all_pairs)
       |> result.map_error(fn(review_error) {
-        #(diagnostic(review_error), reporter)
+        #(options_failure(options, review_error), reporter)
       }),
     )
     let active =
@@ -2329,22 +2801,22 @@ fn run_vulnerability_check(
     let gate =
       run_vuln_check_for_audit(
         active,
-        resolve_vuln_threshold(
-          options.vuln_severity,
-          configuration.vuln_severity,
-        ),
-        configuration.vuln_block_unknown,
-        batch_fetcher,
-        detail_fetcher,
+        options,
+        configuration,
+        clients,
         reporter,
         palette,
-        configuration.exceptions,
         today,
       )
-    use _ <- result.try(case gate.config_error {
-      Some(review_error) -> Error(#(diagnostic(review_error), gate.reporter))
-      None -> Ok(Nil)
-    })
+    use _ <- result.try(
+      case options.format {
+        cli.Json -> Ok(Nil)
+        cli.Text -> result.map(gate.status, fn(_) { Nil })
+      }
+      |> result.map_error(fn(review_error) {
+        #(diagnostic(review_error), gate.reporter)
+      }),
+    )
     let output =
       gate.report_text
       <> exception.summary(
@@ -2353,17 +2825,27 @@ fn run_vulnerability_check(
         exception.NotEvaluated("licence scan disabled"),
         with_excluded_vulns(gate.coverage, excluded),
       )
-    Ok(finalize_audit(
-      True,
-      False,
-      gate.incomplete,
-      False,
-      gate.gate_failed,
-      gate.unknown_failed,
-      output,
-      gate.reporter,
-      "Vulnerability check completed",
-    ))
+    let gate =
+      VulnGateOutcome(
+        ..gate,
+        coverage: with_excluded_vulns(gate.coverage, excluded),
+      )
+    Ok(case options.format {
+      cli.Json ->
+        finalize_json_audit(options, None, gate, active, configuration, today)
+      cli.Text ->
+        finalize_audit(
+          LicenceGateOutcome(
+            verdict: LicencesNotEnforced,
+            completeness: CheckComplete,
+            rows: [],
+            coverage: exception.NotEvaluated("licence scan disabled"),
+          ),
+          gate,
+          output,
+          "Vulnerability check completed",
+        )
+    })
   }
   case outcome {
     Ok(outcome) | Error(outcome) -> outcome
@@ -2372,14 +2854,13 @@ fn run_vulnerability_check(
 
 fn run_vulns_options(
   options: cli.VulnsOptions,
-  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
-  let manifest_path = option_value(options.manifest_path, "manifest.toml")
+  let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
   let manifest_path = manifest.resolve_path(manifest_path)
-  let project_root = project_root_for_manifest(manifest_path)
+  let project_root = path.dirname(manifest_path)
   let today = exception.utc_date(timestamp.system_time())
   let outcome = {
     use config_policy <- result.try(
@@ -2394,7 +2875,10 @@ fn run_vulns_options(
         check: False,
       ))
       |> result.map_error(fn(config_error) {
-        #(diagnostic(error.from_config_error(config_error)), reporter)
+        #(
+          vulns_failure(options, error.from_config_error(config_error)),
+          reporter,
+        )
       }),
     )
     let reporter = progress.phase(reporter, "Checking for vulnerabilities")
@@ -2403,13 +2887,16 @@ fn run_vulns_options(
     use sbom_manifest <- result.try(
       manifest.load_vulns(manifest_path)
       |> result.map_error(fn(manifest_error) {
-        #(diagnostic(error.from_manifest_error(manifest_error)), reporter)
+        #(
+          vulns_failure(options, error.from_manifest_error(manifest_error)),
+          reporter,
+        )
       }),
     )
     use prod_seed <- result.try(
       resolve_prod_seed(project_root, sbom_manifest.root_requirements)
       |> result.map_error(fn(scope_error) {
-        #(diagnostic(scope_error), reporter)
+        #(vulns_failure(options, scope_error), reporter)
       }),
     )
     let scopes = manifest.sbom_scopes(sbom_manifest, prod_seed)
@@ -2435,7 +2922,7 @@ fn run_vulns_options(
     use _ <- result.try(
       validate_exception_identities(config_policy.exceptions, all_purl_pairs)
       |> result.map_error(fn(review_error) {
-        #(diagnostic(review_error), reporter)
+        #(vulns_failure(options, review_error), reporter)
       }),
     )
     Ok(case purls {
@@ -2448,7 +2935,24 @@ fn run_vulns_options(
             exception.NotEvaluated("licence scan disabled"),
             exception.Evaluated([], excluded),
           )
-        #(report_result(0, output), reporter)
+        #(
+          case options.format {
+            cli.Text -> report_result(0, output)
+            cli.Json ->
+              json_vulns_report(
+                [],
+                active_entries,
+                purl_errors,
+                0,
+                exception.Evaluated([], excluded),
+                config_policy,
+                today,
+                True,
+                error.Success,
+              )
+          },
+          reporter,
+        )
       }
       _ ->
         query_and_report_vulns(
@@ -2456,13 +2960,14 @@ fn run_vulns_options(
           purl_pairs,
           purl_errors,
           scopes,
-          batch_fetcher,
-          detail_fetcher,
+          clients,
           reporter,
           palette,
-          config_policy.exceptions,
+          config_policy,
           today,
           excluded,
+          options.format,
+          active_entries,
         )
     })
   }
@@ -2478,13 +2983,14 @@ fn query_and_report_vulns(
   purl_pairs: List(PurlPair),
   purl_errors: List(String),
   scopes: dict.Dict(String, manifest.Scope),
-  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
-  exceptions: List(exception.Exception),
+  configuration: config.Policy,
   today: String,
   excluded: List(#(String, String)),
+  format: cli.ReportFormat,
+  packages: List(manifest.SbomEntry),
 ) -> #(ActionResult, progress.Reporter) {
   let reporter =
     progress.detail(
@@ -2493,8 +2999,30 @@ fn query_and_report_vulns(
         <> int.to_string(list.length(purls))
         <> " packages",
     )
-  case batch_fetcher(purls) {
+  case clients.osv_batch_fetcher(purls) {
     Error(osv_error) -> {
+      let coverage =
+        with_excluded_vulns(
+          unavailable_vulns(purl_pairs, "OSV request failed"),
+          excluded,
+        )
+      use <- bool.lazy_guard(when: format == cli.Json, return: fn() {
+        let failure = error.from_osv_error(osv_error)
+        #(
+          json_vulns_report(
+            [],
+            packages,
+            purl_errors,
+            0,
+            coverage,
+            configuration,
+            today,
+            False,
+            failure,
+          ),
+          progress.defer_error(reporter, error.message(failure)),
+        )
+      })
       let failure = diagnostic(error.from_osv_error(osv_error))
       #(
         Diagnostic(
@@ -2502,13 +3030,10 @@ fn query_and_report_vulns(
             ..failure.result,
             output: failure.result.output
               <> exception.summary(
-                exceptions,
+                configuration.exceptions,
                 today,
                 exception.NotEvaluated("licence scan disabled"),
-                with_excluded_vulns(
-                  unavailable_vulns(purl_pairs, "OSV request failed"),
-                  excluded,
-                ),
+                coverage,
               ),
           ),
         ),
@@ -2518,7 +3043,46 @@ fn query_and_report_vulns(
     Ok(entries) -> {
       let with_packages = merge_entries_with_packages(entries, purl_pairs)
       let #(rows, reporter) =
-        fetch_vuln_details(with_packages, detail_fetcher, reporter)
+        fetch_vuln_details(with_packages, clients.osv_detail_fetcher, reporter)
+      use <- bool.lazy_guard(when: format == cli.Json, return: fn() {
+        let runtime_failure =
+          list.find(
+            rows |> list.flat_map(fn(row) { row.failures }),
+            fn(failure) { failure.runtime_failed },
+          )
+        let reviewed = review_vuln_rows(rows, configuration.exceptions, today)
+        let #(rows, failure) = case reviewed {
+          Error(failure) -> #(rows, failure)
+          Ok(reviewed) -> #(reviewed, case runtime_failure {
+            Ok(failure) -> failure.failure
+            Error(_) -> error.Success
+          })
+        }
+        let complete =
+          failure == error.Success
+          && list.all(rows, fn(row) { row.failures == [] })
+        let coverage = case reviewed {
+          Error(_) -> exception.NotEvaluated("advisory exception review failed")
+          Ok(_) -> with_excluded_vulns(vuln_row_coverage(rows), excluded)
+        }
+        #(
+          json_vulns_report(
+            rows,
+            packages,
+            purl_errors,
+            list.length(purls),
+            coverage,
+            configuration,
+            today,
+            complete,
+            failure,
+          ),
+          case failure {
+            error.Success -> reporter
+            _ -> progress.defer_error(reporter, error.message(failure))
+          },
+        )
+      })
       use <- bool.lazy_guard(
         when: list.any(rows, fn(row) {
           list.any(row.failures, fn(failure) { failure.runtime_failed })
@@ -2535,13 +3099,13 @@ fn query_and_report_vulns(
           )
         },
       )
-      case review_vuln_rows(rows, exceptions, today) {
+      case review_vuln_rows(rows, configuration.exceptions, today) {
         Error(review_error) -> #(diagnostic(review_error), reporter)
         Ok(rows) -> {
           let output =
             format_vulns_output(rows, purl_errors, scopes, palette)
             <> exception.summary(
-              exceptions,
+              configuration.exceptions,
               today,
               exception.NotEvaluated("licence scan disabled"),
               with_excluded_vulns(vuln_row_coverage(rows), excluded),
@@ -2587,6 +3151,7 @@ type VulnOccurrence {
     package: manifest.SbomEntry,
     vulnerability: osv.Vulnerability,
     decision: exception.Decision,
+    blocking: Option(Bool),
   )
 }
 
@@ -2594,17 +3159,57 @@ type VulnOccurrence {
 /// Reports tolerate service errors with a placeholder and warning. Incomplete
 /// workers fail the command; gates also fail when service errors hide severity.
 type DetailFailure {
-  DetailFailure(id: String, reason: String, runtime_failed: Bool)
+  DetailFailure(
+    id: String,
+    reason: String,
+    runtime_failed: Bool,
+    failure: error.Error,
+  )
 }
 
-/// Result of running a selected vulnerability gate.
+type CheckCompleteness {
+  CheckComplete
+  CheckIncomplete
+}
+
+type LicenceVerdict {
+  LicencesNotEnforced
+  LicencesPassed
+  LicencesBlocked
+}
+
+type LicenceGateOutcome {
+  LicenceGateOutcome(
+    verdict: LicenceVerdict,
+    completeness: CheckCompleteness,
+    rows: List(report.Row),
+    coverage: exception.Coverage,
+  )
+}
+
+type VulnVerdict {
+  NoBlockingAdvisories
+  BlockingKnownSeverity
+  BlockingUnknownSeverity
+}
+
+type VulnGateStatus {
+  GateNotEvaluated
+  GateUnavailable(error.Error)
+  GateEvaluated(verdict: VulnVerdict, completeness: CheckCompleteness)
+}
+
+/// Findings and coverage are retained independently of the final exit status.
 type VulnGateOutcome {
   VulnGateOutcome(
+    status: Result(VulnGateStatus, error.Error),
+    scan_started: Bool,
     report_text: String,
-    gate_failed: Bool,
-    unknown_failed: Bool,
-    incomplete: Bool,
-    config_error: Option(error.Error),
+    queries: List(VulnPair),
+    occurrences: List(VulnOccurrence),
+    details: List(#(String, osv.Vulnerability)),
+    detail_failures: List(DetailFailure),
+    unsupported_packages: List(String),
     coverage: exception.Coverage,
     reporter: progress.Reporter,
   )
@@ -2652,7 +3257,7 @@ fn fetch_vuln_details(
       }
     })
   let #(vulns, failures, reporter) =
-    fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
+    fetch_vulnerabilities(unique_ids, detail_fetcher, reporter)
   let details_by_id = dict.from_list(list.zip(unique_ids, vulns))
   let failures_by_id =
     dict.from_list(list.map(failures, fn(failure) { #(failure.id, failure) }))
@@ -2673,23 +3278,23 @@ fn fetch_vulnerabilities(
   ids: List(String),
   detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
   reporter: progress.Reporter,
-  acc: List(osv.Vulnerability),
 ) -> #(List(osv.Vulnerability), List(DetailFailure), progress.Reporter) {
   let outcomes = network.fetch(ids, fn(id) { id }, detail_fetcher)
   let #(vulns, failures, reporter) =
-    list.fold(list.zip(ids, outcomes), #(acc, [], reporter), fn(acc, pair) {
+    list.fold(list.zip(ids, outcomes), #([], [], reporter), fn(acc, pair) {
       let #(vulns, failures, reporter) = acc
       let #(id, outcome) = pair
       let outcome = case outcome {
         Ok(fetched) ->
           result.map_error(fetched, fn(err) {
-            #(error.message(error.from_osv_error(err)), False)
+            #(error.from_osv_error(err), False)
           })
-        Error(reason) -> Error(#(reason, True))
+        Error(reason) -> Error(#(error.RuntimeException(reason), True))
       }
       case outcome {
         Ok(vuln) -> #([vuln, ..vulns], failures, reporter)
-        Error(#(reason, runtime_failed)) -> {
+        Error(#(failure_error, runtime_failed)) -> {
+          let reason = error.message(failure_error)
           let reporter =
             progress.defer_warn(
               reporter,
@@ -2700,6 +3305,7 @@ fn fetch_vulnerabilities(
               id: id,
               reason: reason,
               runtime_failed: runtime_failed,
+              failure: failure_error,
             )
           #(
             [placeholder_vulnerability(id), ..vulns],
@@ -2838,13 +3444,11 @@ fn resolve_vuln_threshold(
 
 fn run_vuln_check_for_audit(
   packages: List(manifest.SbomEntry),
-  threshold: osv.Severity,
-  block_unknown: Bool,
-  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  options: cli.Options,
+  configuration: config.Policy,
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
-  exceptions: List(exception.Exception),
   today: String,
 ) -> VulnGateOutcome {
   let #(purl_pairs, unsupported_packages) =
@@ -2853,14 +3457,17 @@ fn run_vuln_check_for_audit(
     )
   let purls = list.map(purl_pairs, fn(pair) { pair.1 })
 
-  case validate_exception_identities(exceptions, purl_pairs) {
+  case validate_exception_identities(configuration.exceptions, purl_pairs) {
     Error(review_error) ->
       VulnGateOutcome(
+        status: Error(review_error),
+        scan_started: False,
         report_text: "",
-        gate_failed: False,
-        unknown_failed: False,
-        incomplete: False,
-        config_error: Some(review_error),
+        queries: [],
+        occurrences: [],
+        details: [],
+        detail_failures: [],
+        unsupported_packages: unsupported_packages,
         coverage: exception.NotEvaluated("ambiguous package identity"),
         reporter: reporter,
       )
@@ -2868,11 +3475,14 @@ fn run_vuln_check_for_audit(
       case purls {
         [] ->
           VulnGateOutcome(
+            status: Ok(GateEvaluated(NoBlockingAdvisories, CheckComplete)),
+            scan_started: True,
             report_text: format_unsupported_sources(unsupported_packages),
-            gate_failed: False,
-            unknown_failed: False,
-            incomplete: False,
-            config_error: None,
+            queries: [],
+            occurrences: [],
+            details: [],
+            detail_failures: [],
+            unsupported_packages: unsupported_packages,
             coverage: exception.Evaluated([], []),
             reporter: reporter,
           )
@@ -2881,13 +3491,11 @@ fn run_vuln_check_for_audit(
             purls,
             purl_pairs,
             unsupported_packages,
-            threshold,
-            block_unknown,
-            batch_fetcher,
-            detail_fetcher,
+            options,
+            configuration,
+            clients,
             reporter,
             palette,
-            exceptions,
             today,
           )
       }
@@ -2900,13 +3508,11 @@ fn query_vuln_gate(
   purls: List(String),
   purl_pairs: List(PurlPair),
   unsupported_packages: List(String),
-  threshold: osv.Severity,
-  block_unknown: Bool,
-  batch_fetcher: fn(List(String)) -> Result(List(osv.BatchEntry), osv.Error),
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  options: cli.Options,
+  configuration: config.Policy,
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
-  exceptions: List(exception.Exception),
   today: String,
 ) -> VulnGateOutcome {
   let reporter =
@@ -2916,7 +3522,7 @@ fn query_vuln_gate(
         <> int.to_string(list.length(purls))
         <> " packages",
     )
-  case batch_fetcher(purls) {
+  case clients.osv_batch_fetcher(purls) {
     Error(osv_error) -> {
       let reporter =
         progress.defer_error(
@@ -2925,11 +3531,14 @@ fn query_vuln_gate(
             <> error.message(error.from_osv_error(osv_error)),
         )
       VulnGateOutcome(
+        status: Ok(GateUnavailable(error.from_osv_error(osv_error))),
+        scan_started: True,
         report_text: format_unsupported_sources(unsupported_packages),
-        gate_failed: False,
-        unknown_failed: False,
-        incomplete: True,
-        config_error: None,
+        queries: [],
+        occurrences: [],
+        details: [],
+        detail_failures: [],
+        unsupported_packages: unsupported_packages,
         coverage: unavailable_vulns(purl_pairs, "OSV request failed"),
         reporter: reporter,
       )
@@ -2939,12 +3548,11 @@ fn query_vuln_gate(
         entries,
         purl_pairs,
         unsupported_packages,
-        threshold,
-        block_unknown,
-        detail_fetcher,
+        options,
+        configuration,
+        clients,
         reporter,
         palette,
-        exceptions,
         today,
       )
   }
@@ -2959,90 +3567,136 @@ fn evaluate_vuln_gate(
   entries: List(osv.BatchEntry),
   purl_pairs: List(PurlPair),
   unsupported_packages: List(String),
-  threshold: osv.Severity,
-  block_unknown: Bool,
-  detail_fetcher: fn(String) -> Result(osv.Vulnerability, osv.Error),
+  options: cli.Options,
+  configuration: config.Policy,
+  clients: Clients,
   reporter: progress.Reporter,
   palette: color.Palette,
-  exceptions: List(exception.Exception),
   today: String,
 ) -> VulnGateOutcome {
+  let threshold =
+    resolve_vuln_threshold(options.vuln_severity, configuration.vuln_severity)
+  let block_unknown = configuration.vuln_block_unknown
   let unique_ids = unique_vuln_ids(entries)
   let #(vulns, detail_failures, reporter) =
-    fetch_vulnerabilities(unique_ids, detail_fetcher, reporter, [])
-  use <- bool.lazy_guard(when: detail_failures != [], return: fn() {
-    let reporter =
+    fetch_vulnerabilities(unique_ids, clients.osv_detail_fetcher, reporter)
+  let reporter = case detail_failures {
+    [] -> reporter
+    [_, ..] ->
       progress.defer_error(
         reporter,
         format_vuln_detail_failures_output(detail_failures)
           |> string.trim,
       )
-    VulnGateOutcome(
-      report_text: format_unsupported_sources(unsupported_packages),
-      gate_failed: False,
-      unknown_failed: False,
-      incomplete: True,
-      config_error: None,
-      coverage: unavailable_vulns(
-        purl_pairs,
-        "OSV advisory details unavailable",
-      ),
-      reporter: reporter,
-    )
-  })
+  }
+  // Failed lookups remain incomplete, but do not discard available findings.
+  let available_entries =
+    list.map(entries, fn(entry) {
+      osv.BatchEntry(
+        ..entry,
+        vuln_ids: list.filter(entry.vuln_ids, fn(id) {
+          !list.any(detail_failures, fn(failure) { failure.id == id })
+        }),
+      )
+    })
   case
     review_vuln_occurrences(
-      entries,
+      available_entries,
       purl_pairs,
       list.zip(unique_ids, vulns),
-      exceptions,
+      configuration.exceptions,
       today,
     )
   {
     Error(review_error) ->
       VulnGateOutcome(
+        status: Error(review_error),
+        scan_started: True,
         report_text: "",
-        gate_failed: False,
-        unknown_failed: False,
-        incomplete: False,
-        config_error: Some(review_error),
+        queries: merge_entries_with_packages(entries, purl_pairs),
+        occurrences: [],
+        details: list.zip(unique_ids, vulns),
+        detail_failures: detail_failures,
+        unsupported_packages: unsupported_packages,
         coverage: exception.NotEvaluated("ambiguous advisory exceptions"),
         reporter: reporter,
       )
     Ok(occurrences) -> {
-      let triggering =
-        occurrences
-        |> list.filter(fn(occurrence) {
-          !exception.accepted(occurrence.decision)
-          && advisory_blocks(
-            occurrence.vulnerability.severity,
-            threshold,
-            block_unknown,
+      let occurrences =
+        list.map(occurrences, fn(occurrence) {
+          VulnOccurrence(
+            ..occurrence,
+            blocking: Some(
+              !exception.accepted(occurrence.decision)
+              && advisory_blocks(
+                occurrence.vulnerability.severity,
+                threshold,
+                block_unknown,
+              ),
+            ),
           )
         })
+      let triggering =
+        occurrences
+        |> list.filter(fn(occurrence) { occurrence.blocking == Some(True) })
         |> list.map(fn(occurrence) { occurrence.vulnerability })
         |> list.unique
-      let unknown_failed =
-        list.any(triggering, fn(vuln) { vuln.severity == osv.UnknownSeverity })
-      let report_text =
-        format_vuln_gate_output(
-          occurrences,
-          triggering,
-          threshold,
-          block_unknown,
-          exceptions != [],
-          unsupported_packages,
-          palette,
-        )
+      let verdict = case triggering {
+        [] -> NoBlockingAdvisories
+        [_, ..] ->
+          case
+            list.any(triggering, fn(vuln) {
+              vuln.severity == osv.UnknownSeverity
+            })
+          {
+            True -> BlockingUnknownSeverity
+            False -> BlockingKnownSeverity
+          }
+      }
+      let report_text = case occurrences == [] && detail_failures != [] {
+        True -> format_unsupported_sources(unsupported_packages)
+        False ->
+          format_vuln_gate_output(
+            occurrences,
+            triggering,
+            threshold,
+            block_unknown,
+            configuration.exceptions != [],
+            unsupported_packages,
+            palette,
+          )
+      }
+      let unavailable =
+        purl_pairs
+        |> list.zip(entries)
+        |> list.filter_map(fn(pair) {
+          let #(package, entry) = pair
+          case
+            list.any(entry.vuln_ids, fn(id) {
+              list.any(detail_failures, fn(failure) { failure.id == id })
+            })
+          {
+            True -> Ok(#(package.1, "OSV advisory details unavailable"))
+            False -> Error(Nil)
+          }
+        })
       VulnGateOutcome(
+        status: Ok(
+          GateEvaluated(verdict, case detail_failures {
+            [] -> CheckComplete
+            [_, ..] -> CheckIncomplete
+          }),
+        ),
+        scan_started: True,
         report_text: report_text,
-        gate_failed: triggering != [],
-        unknown_failed: unknown_failed,
-        incomplete: False,
-        config_error: None,
+        queries: merge_entries_with_packages(entries, purl_pairs),
+        occurrences: occurrences,
+        details: list.zip(unique_ids, vulns),
+        detail_failures: detail_failures,
+        unsupported_packages: unsupported_packages,
         coverage: exception.Evaluated(
           occurrences |> list.map(fn(o) { o.decision }) |> exception.matched,
-          [],
+          unavailable,
         ),
         reporter: reporter,
       )
@@ -3155,7 +3809,12 @@ fn review_vuln_occurrences(
           )
           |> result.map_error(error.from_exception_error),
         )
-        Ok(VulnOccurrence(package:, vulnerability: vuln, decision:))
+        Ok(VulnOccurrence(
+          package:,
+          vulnerability: vuln,
+          decision:,
+          blocking: None,
+        ))
       })
     }),
   )
