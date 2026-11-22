@@ -5,6 +5,7 @@
 
 import gleam/dict
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -14,6 +15,7 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/network
 import licence_audit/notice
 import licence_audit/path
 import licence_audit/picker
@@ -195,6 +197,10 @@ fn handle_selection(
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   let reporter = progress.detail(reporter, "Awaiting selection")
+  let #(discovered, invalid) =
+    list.partition(discovered, fn(label) {
+      result.is_ok(spdx_expression.parse(label))
+    })
   let labels = merge_labels(existing, discovered)
   let title =
     "Allow which licences? ("
@@ -202,6 +208,17 @@ fn handle_selection(
     <> " total, "
     <> int.to_string(list.length(only_new(existing, discovered)))
     <> " new)"
+  let title = case invalid {
+    [] -> title
+    _ ->
+      title
+      <> "\nNot selectable (invalid SPDX expressions): "
+      <> string.join(
+        list.map(invalid, fn(label) { json.to_string(json.string(label)) }),
+        ", ",
+      )
+      <> "\nUse a reviewed invalid-licence-expression exception for the exact package/version and raw label."
+  }
   case pick(title, labels, existing.allow, existing.deny) {
     Error(picker.Cancelled) -> {
       let reporter = progress.warn(reporter, "Update cancelled")
@@ -295,36 +312,47 @@ fn discover_licences(
   collected: List(String),
   failed: Bool,
 ) -> #(List(String), Bool, progress.Reporter) {
-  case packages {
-    [] -> #(list.unique(collected), failed, reporter)
-    [pkg, ..rest] -> {
-      let #(result, reporter) = fetcher(pkg, reporter)
-      case result {
-        Error(fetch_error) -> {
-          let reporter =
-            progress.fail(
-              reporter,
-              "Failed to fetch package metadata for "
-                <> pkg.name
-                <> "@"
-                <> pkg.version
-                <> ": "
-                <> notice.describe_error(fetch_error),
-            )
-          discover_licences(rest, fetcher, reporter, collected, True)
-        }
-        Ok(metadata) -> {
-          discover_licences(
-            rest,
-            fetcher,
-            reporter,
-            list.append(collected, metadata.licences),
-            failed,
+  let outcomes =
+    network.fetch(
+      packages,
+      fn(package) { package.name <> "@" <> package.version },
+      fn(package) { fetcher(package, progress.fork(reporter)) },
+    )
+  let #(collected, failed, reporter) =
+    list.fold(
+      list.zip(packages, outcomes),
+      #(collected, failed, reporter),
+      fn(acc, pair) {
+        let #(collected, failed, reporter) = acc
+        let #(pkg, outcome) = pair
+        let #(fetched, reporter) = case outcome {
+          Ok(#(fetched, captured)) -> #(
+            result.map_error(fetched, notice.describe_error),
+            progress.merge(reporter, captured),
           )
+          Error(reason) -> #(Error(reason), reporter)
         }
-      }
-    }
-  }
+        case fetched {
+          Error(reason) -> {
+            let reporter =
+              progress.fail(
+                reporter,
+                "Failed to fetch package metadata for "
+                  <> pkg.name
+                  <> "@"
+                  <> pkg.version
+                  <> ": "
+                  <> reason,
+              )
+            #(collected, True, reporter)
+          }
+          Ok(metadata) -> {
+            #(list.append(collected, metadata.licences), failed, reporter)
+          }
+        }
+      },
+    )
+  #(list.unique(collected), failed, reporter)
 }
 
 fn load_existing_policy(

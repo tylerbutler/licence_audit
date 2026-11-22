@@ -81,8 +81,8 @@ pub fn command_help_to_string(help: Command, config: Config) -> String {
 
   [
     config.description |> option.unwrap(""),
-    command,
     command_description,
+    command,
     command_help_to_usage_string(help, config),
     flags_help_to_string(help.flags, config),
     subcommands_help_to_string(help.subcommands, config),
@@ -217,7 +217,7 @@ fn flag_help_to_string(help: Flag, config: Config) -> String {
   config.flag_prefix
   <> help.meta.name
   <> case help.type_ {
-    "" -> ""
+    "" | "BOOL" -> ""
     _ -> config.flag_delimiter <> "<" <> help.type_ <> ">"
   }
 }
@@ -241,12 +241,28 @@ fn subcommands_help_to_string(help: List(Metadata), config: Config) -> String {
   }
 
   let content =
-    to_spaced_indented_string(
-      help,
-      fn(help) { #(help.name, help.description) },
-      longest_subcommand_length,
-      config,
-    )
+    help
+    |> list.map(fn(command) {
+      let description =
+        command.description
+        |> string.split("\n")
+        |> string.join(" ")
+        |> string.trim
+      let summary = case string.split_once(description, ". ") {
+        Ok(#(sentence, _)) -> sentence <> "."
+        Error(_) -> description
+      }
+      "\n"
+      <> string.repeat(" ", config.indent_width)
+      <> string.pad_end(
+        command.name,
+        longest_subcommand_length + config.column_gap,
+        " ",
+      )
+      <> summary
+    })
+    |> list.sort(string.compare)
+    |> string.join("")
 
   heading <> content
 }

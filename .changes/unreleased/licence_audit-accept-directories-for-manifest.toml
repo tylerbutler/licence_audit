@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Accept directories for `--manifest` with the same project-root and configuration discovery as a manifest file. Missing manifest errors name the attempted file and directory and suggest `gleam deps download` or `--manifest=PATH`."

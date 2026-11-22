@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/string
@@ -113,10 +114,12 @@ pub type CliAction {
 pub fn app() -> glint.Glint(CliAction) {
   glint.new()
   |> glint.with_name("licence_audit")
-  |> glint.global_help(
-    "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.",
-  )
   |> glint.add(at: [], do: root_command())
+  |> glint.path_help(
+    at: [],
+    put: "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.\n\n\n"
+      <> report_help,
+  )
   |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
@@ -131,18 +134,177 @@ pub fn execute(
   stderr_color_level: tty.ColorLevel,
 ) -> Result(glint.Out(CliAction), String) {
   let args = normalize_args(args)
-  // Glint returns help before validating flags whenever --help is present.
-  let level = case list.contains(args, "--help") {
-    True -> stdout_color_level
-    False -> stderr_color_level
-  }
-  let palette =
-    color.resolve_with_color_level(help_color_mode(args, color.Auto), level)
+  let mode = help_color_mode(args, color.Auto)
+  let palette = color.resolve_with_color_level(mode, stdout_color_level)
+  let error_palette = color.resolve_with_color_level(mode, stderr_color_level)
   let app = case palette.enabled {
     True -> app() |> glint.pretty_help(glint.default_pretty_help())
     False -> app()
   }
-  glint.execute(app, args)
+  case glint.execute_detailed(app, args) {
+    Error(error) -> Error(parser_error_message(error, error_palette))
+    Ok(glint.Out(InvalidUsage(message))) ->
+      Error(usage_message(
+        escape_input(message),
+        command_path(args),
+        "",
+        error_palette,
+      ))
+    Ok(output) -> Ok(output)
+  }
+}
+
+fn command_path(args: List(String)) -> List(String) {
+  let positionals =
+    list.filter(args, fn(arg) { !string.starts_with(arg, "--") })
+  case positionals {
+    [name, ..] -> {
+      case list.contains(command_names(), name) {
+        True -> [name]
+        False -> []
+      }
+    }
+    [] -> []
+  }
+}
+
+fn command_names() -> List(String) {
+  glint.document(app()).subcommands
+  |> list.map(fn(command) { command.meta.name })
+  |> list.sort(string.compare)
+}
+
+fn parser_error_message(
+  error: glint.ExecutionError,
+  palette: color.Palette,
+) -> String {
+  let #(message, hint) = case error.cause {
+    glint.UnknownFlag("", "--") -> #("the '--' separator is not supported", "")
+    glint.UnknownFlag("", input) -> #(
+      "unknown flag " <> escape_input(input),
+      "",
+    )
+    glint.UnknownFlag(name, _) -> #(
+      "unknown flag --" <> escape_input(name),
+      migration_hint(name),
+    )
+    glint.MissingFlagValue(name, _) -> #(
+      "--" <> escape_input(name) <> " requires a value",
+      "",
+    )
+    glint.InvalidFlagValue(name, value, _) -> #(
+      invalid_value_message(name, value),
+      "",
+    )
+    glint.InvalidArgumentCount(_, [argument, ..]) -> {
+      case error.command_path, string.starts_with(argument, "-") {
+        _, True -> #("unknown flag " <> escape_input(argument), "")
+        [], False -> {
+          let suggestion = case argument {
+            "help" -> "; use --help"
+            "version" -> "; use --version"
+            _ -> ""
+          }
+          #(
+            "unknown command '" <> escape_input(argument) <> "'" <> suggestion,
+            "Commands: " <> string.join(command_names(), ", "),
+          )
+        }
+        [_, ..], False -> #(
+          "unexpected argument '" <> escape_input(argument) <> "'",
+          "",
+        )
+      }
+    }
+    glint.InvalidArgumentCount(_, []) -> #("missing required arguments", "")
+    glint.UnmatchedNamedArguments(names) -> #(
+      "missing required arguments: " <> escape_input(string.join(names, ", ")),
+      "",
+    )
+    glint.CommandNotFound -> #("a command is required", "")
+  }
+  usage_message(message, error.command_path, hint, palette)
+}
+
+fn usage_message(
+  message: String,
+  path: List(String),
+  hint: String,
+  palette: color.Palette,
+) -> String {
+  let command = string.join(["licence_audit", ..path], " ")
+  color.red(palette, "Error:")
+  <> " "
+  <> message
+  <> case hint {
+    "" -> ""
+    _ -> "\n" <> hint
+  }
+  <> "\nRun '"
+  <> command
+  <> " --help' for usage."
+}
+
+fn migration_hint(name: String) -> String {
+  case name {
+    "allow" | "deny" ->
+      "Put the lists in [tools.licence_audit] and select the file with --config."
+    "prod-only" -> "Use --scope=prod."
+    "include-dev" -> "Use --scope=all."
+    "cache-path" -> "Use --cache-dir with the application cache root."
+    _ -> ""
+  }
+}
+
+const scope_values = ["prod", "all"]
+
+const check_values = ["licences", "licenses", "vulns", "all"]
+
+const severity_values = ["low", "medium", "high", "critical"]
+
+fn invalid_value_message(name: String, value: String) -> String {
+  let expected = case name {
+    "scope" -> scope_values
+    "checks" -> check_values
+    "vuln-severity" -> severity_values
+    _ -> ["true", "false"]
+  }
+  "invalid value '"
+  <> escape_input(value)
+  <> "' for --"
+  <> escape_input(name)
+  <> " (expected "
+  <> string.join(expected, " or ")
+  <> ")"
+}
+
+fn escape_input(value: String) -> String {
+  value
+  |> string.replace("\\", "\\\\")
+  |> string.replace("'", "\\'")
+  |> escape_controls
+}
+
+fn escape_controls(value: String) -> String {
+  value
+  |> string.to_utf_codepoints
+  |> list.map(fn(point) {
+    let code = string.utf_codepoint_to_int(point)
+    case code {
+      10 -> "\\n"
+      13 -> "\\r"
+      9 -> "\\t"
+      code
+        if code < 32
+        || code >= 127
+        && code <= 159
+        || code == 8232
+        || code == 8233
+      -> "\\u{" <> int.to_base16(code) <> "}"
+      _ -> string.from_utf_codepoints([point])
+    }
+  })
+  |> string.concat
 }
 
 fn help_color_mode(args: List(String), mode: color.Mode) -> color.Mode {
@@ -230,43 +392,100 @@ fn root_command() -> glint.Command(CliAction) {
 const check_help =
   "Enforce selected checks: licences (default), vulns, or all. Licence checks require a licence policy. Vulnerability-only checks do not evaluate licence policy or fetch licence metadata."
 
-fn report_command(
-  show_version: fn(glint.Flags) -> Bool,
-) -> glint.Command(CliAction) {
-  use <- glint.command_help(
-    "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.",
+const report_help =
+  "Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy."
+
+type CommonFlags {
+  CommonFlags(
+    manifest_path: Option(String),
+    quiet: Bool,
+    verbose: Bool,
+    color_value: String,
   )
-  use <- glint.unnamed_args(glint.EqArgs(0))
-  use config <- glint.optional_flag(config_flag())
+}
+
+type ConfigFlags {
+  ConfigFlags(config_path: Option(String), ignore_config: Bool)
+}
+
+type CacheFlags {
+  CacheFlags(no_cache: Bool, cache_dir: Option(String))
+}
+
+fn common_flags(
+  next: fn(fn(glint.Flags) -> CommonFlags) -> glint.Command(a),
+) -> glint.Command(a) {
   use manifest <- glint.optional_flag(manifest_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
   use quiet <- glint.flag(quiet_flag())
   use verbose <- glint.flag(verbose_flag())
   use color_flag <- glint.flag(color_flag())
+  next(fn(flags) {
+    let assert Ok(manifest_path) = manifest(flags)
+    let assert Ok(quiet) = quiet(flags)
+    let assert Ok(verbose) = verbose(flags)
+    let assert Ok(color_value) = color_flag(flags)
+    CommonFlags(manifest_path:, quiet:, verbose:, color_value:)
+  })
+}
+
+fn config_flags(
+  next: fn(fn(glint.Flags) -> ConfigFlags) -> glint.Command(a),
+) -> glint.Command(a) {
+  use config <- glint.optional_flag(config_flag())
+  use ignore_config <- glint.flag(ignore_config_flag())
+  next(fn(flags) {
+    let assert Ok(config_path) = config(flags)
+    let assert Ok(ignore_config) = ignore_config(flags)
+    ConfigFlags(config_path:, ignore_config:)
+  })
+}
+
+fn cache_flags(
+  next: fn(fn(glint.Flags) -> CacheFlags) -> glint.Command(a),
+) -> glint.Command(a) {
   use no_cache <- glint.flag(no_cache_flag())
   use cache_dir <- glint.optional_flag(cache_dir_flag())
+  next(fn(flags) {
+    let assert Ok(no_cache) = no_cache(flags)
+    let assert Ok(cache_dir) = cache_dir(flags)
+    CacheFlags(no_cache:, cache_dir:)
+  })
+}
+
+fn licence_flags(
+  next: fn(
+    fn(glint.Flags) -> #(CommonFlags, ConfigFlags, CacheFlags, DependencyScope),
+  ) -> glint.Command(a),
+) -> glint.Command(a) {
+  use config <- config_flags()
+  use common <- common_flags()
+  use cache <- cache_flags()
   use scope <- glint.flag(scope_flag("all"))
+  next(fn(flags) {
+    let assert Ok(scope) = scope(flags)
+    #(common(flags), config(flags), cache(flags), scope_from_string(scope))
+  })
+}
+
+fn report_command(
+  show_version: fn(glint.Flags) -> Bool,
+) -> glint.Command(CliAction) {
+  use <- glint.command_help(report_help)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use licence <- licence_flags()
   use _, _, flags <- glint.command()
 
-  let assert Ok(config_path) = config(flags)
-  let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(ignore_config) = ignore_config(flags)
-  let assert Ok(quiet) = quiet(flags)
-  let assert Ok(verbose) = verbose(flags)
-  let assert Ok(color_value) = color_flag(flags)
-  let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_dir_value) = cache_dir(flags)
-  let assert Ok(scope_value) = scope(flags)
+  let #(common, config, cache, scope) = licence(flags)
   use <- validate_conflicts(
-    config_path,
-    ignore_config,
-    cache_dir_value,
-    no_cache,
+    config.config_path,
+    config.ignore_config,
+    cache.cache_dir,
+    cache.no_cache,
   )
   case
     show_version(flags),
-    verbosity(quiet, verbose),
-    color.mode_from_string(color_value)
+    verbosity(common.quiet, common.verbose),
+    color.mode_from_string(common.color_value)
   {
     True, _, _ -> ShowVersion
     False, Error(verbosity_error), _ ->
@@ -275,14 +494,14 @@ fn report_command(
       InvalidUsage(color.mode_error_message(color_error))
     False, Ok(verbosity), Ok(color_mode) ->
       RunReport(ReportOptions(
-        manifest_path: manifest_path,
-        config_path: config_path,
-        ignore_config: ignore_config,
+        manifest_path: common.manifest_path,
+        config_path: config.config_path,
+        ignore_config: config.ignore_config,
         verbosity: verbosity,
         color: color_mode,
-        no_cache: no_cache,
-        cache_dir: cache_dir_value,
-        scope: scope_from_string(scope_value),
+        no_cache: cache.no_cache,
+        cache_dir: cache.cache_dir,
+        scope: scope,
       ))
   }
 }
@@ -290,29 +509,13 @@ fn report_command(
 fn check_command() -> glint.Command(CliAction) {
   use <- glint.command_help(check_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use config <- glint.optional_flag(config_flag())
-  use manifest <- glint.optional_flag(manifest_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
-  use quiet <- glint.flag(quiet_flag())
-  use verbose <- glint.flag(verbose_flag())
-  use color_flag <- glint.flag(color_flag())
-  use no_cache <- glint.flag(no_cache_flag())
-  use cache_dir <- glint.optional_flag(cache_dir_flag())
-  use scope <- glint.flag(scope_flag("all"))
+  use licence <- licence_flags()
   use checks <- glint.flag(checks_flag())
   use vuln_severity <- glint.optional_flag(vuln_severity_flag())
   use vuln_block_unknown <- glint.optional_flag(vuln_block_unknown_flag())
   use _, _, flags <- glint.command()
 
-  let assert Ok(config_path) = config(flags)
-  let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(ignore_config) = ignore_config(flags)
-  let assert Ok(quiet) = quiet(flags)
-  let assert Ok(verbose) = verbose(flags)
-  let assert Ok(color_value) = color_flag(flags)
-  let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_dir_value) = cache_dir(flags)
-  let assert Ok(scope_value) = scope(flags)
+  let #(common, config, cache, scope) = licence(flags)
   let assert Ok(checks_value) = checks(flags)
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
   let assert Ok(vuln_block_unknown_value) = vuln_block_unknown(flags)
@@ -323,14 +526,14 @@ fn check_command() -> glint.Command(CliAction) {
   }
 
   use <- validate_conflicts(
-    config_path,
-    ignore_config,
-    cache_dir_value,
-    no_cache,
+    config.config_path,
+    config.ignore_config,
+    cache.cache_dir,
+    cache.no_cache,
   )
   case
-    verbosity(quiet, verbose),
-    color.mode_from_string(color_value),
+    verbosity(common.quiet, common.verbose),
+    color.mode_from_string(common.color_value),
     checks_value == Licences
     && {
       option.is_some(vuln_severity_value)
@@ -347,29 +550,31 @@ fn check_command() -> glint.Command(CliAction) {
       )
     Ok(verbosity), Ok(color_mode), False ->
       RunAudit(Options(
-        manifest_path: manifest_path,
-        config_path: config_path,
-        ignore_config: ignore_config,
+        manifest_path: common.manifest_path,
+        config_path: config.config_path,
+        ignore_config: config.ignore_config,
         check: True,
         verbosity: verbosity,
         color: color_mode,
-        no_cache: no_cache,
-        cache_dir: cache_dir_value,
+        no_cache: cache.no_cache,
+        cache_dir: cache.cache_dir,
         checks: checks_value,
         vuln_severity: vuln_severity_value,
         vuln_block_unknown: vuln_block_unknown_value,
-        scope: scope_from_string(scope_value),
+        scope: scope,
       ))
   }
 }
 
 fn config_flag() -> glint.Flag(String) {
   glint.string_flag("config")
+  |> glint.flag_value_name("PATH")
   |> glint.flag_help("Read configuration from PATH")
 }
 
 fn manifest_flag() -> glint.Flag(String) {
   glint.string_flag("manifest")
+  |> glint.flag_value_name("PATH")
   |> glint.flag_help("Read manifest from PATH")
 }
 
@@ -393,6 +598,7 @@ fn verbose_flag() -> glint.Flag(Bool) {
 
 fn color_flag() -> glint.Flag(String) {
   glint.string_flag("color")
+  |> glint.flag_value_name("auto|always|never")
   |> glint.flag_default("auto")
   |> glint.flag_help(
     "Colorize output: auto|always|never (default auto; alias: --colour)",
@@ -413,8 +619,9 @@ fn version_flag() -> glint.Flag(Bool) {
 
 fn scope_flag(default: String) -> glint.Flag(String) {
   glint.string_flag("scope")
+  |> glint.flag_value_name("prod|all")
   |> glint.flag_default(default)
-  |> glint.flag_constraint(constraint.one_of(["prod", "all"]))
+  |> glint.flag_constraint(constraint.one_of(scope_values))
   |> glint.flag_help(
     "Dependency scope: prod|all (production only or all dependencies)",
   )
@@ -429,6 +636,7 @@ fn scope_from_string(value: String) -> DependencyScope {
 
 fn cache_dir_flag() -> glint.Flag(String) {
   glint.string_flag("cache-dir")
+  |> glint.flag_value_name("DIR")
   |> glint.flag_help(
     "Use DIR as the application cache root for all cache families",
   )
@@ -436,10 +644,9 @@ fn cache_dir_flag() -> glint.Flag(String) {
 
 fn checks_flag() -> glint.Flag(String) {
   glint.string_flag("checks")
+  |> glint.flag_value_name("licences|vulns|all")
   |> glint.flag_default("licences")
-  |> glint.flag_constraint(
-    constraint.one_of(["licences", "licenses", "vulns", "all"]),
-  )
+  |> glint.flag_constraint(constraint.one_of(check_values))
   |> glint.flag_help(
     "Select checks: licences|vulns|all (default licences); licences and all require a licence policy",
   )
@@ -447,9 +654,8 @@ fn checks_flag() -> glint.Flag(String) {
 
 fn vuln_severity_flag() -> glint.Flag(String) {
   glint.string_flag("vuln-severity")
-  |> glint.flag_constraint(
-    constraint.one_of(["low", "medium", "high", "critical"]),
-  )
+  |> glint.flag_value_name("low|medium|high|critical")
+  |> glint.flag_constraint(constraint.one_of(severity_values))
   |> glint.flag_help(
     "Minimum blocking vulnerability severity: low|medium|high|critical (overrides config; default high; requires --checks=vulns or --checks=all)",
   )
@@ -508,40 +714,36 @@ fn update_command() -> glint.Command(CliAction) {
   )
   use <- glint.unnamed_args(glint.EqArgs(0))
   use config <- glint.optional_flag(config_flag())
-  use manifest <- glint.optional_flag(manifest_flag())
-  use quiet <- glint.flag(quiet_flag())
-  use verbose <- glint.flag(verbose_flag())
-  use color_flag <- glint.flag(color_flag())
-  use no_cache <- glint.flag(no_cache_flag())
-  use cache_dir <- glint.optional_flag(cache_dir_flag())
+  use common <- common_flags()
+  use cache <- cache_flags()
   use _, _, flags <- glint.command()
 
   let assert Ok(config_path) = config(flags)
-  let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(quiet) = quiet(flags)
-  let assert Ok(verbose) = verbose(flags)
-  let assert Ok(color_value) = color_flag(flags)
-  let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_dir_value) = cache_dir(flags)
-  use <- validate_conflicts(config_path, False, cache_dir_value, no_cache)
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
+  let common = common(flags)
+  let cache = cache(flags)
+  use <- validate_conflicts(config_path, False, cache.cache_dir, cache.no_cache)
+  case
+    verbosity(common.quiet, common.verbose),
+    color.mode_from_string(common.color_value)
+  {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
     _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       UpdateConfig(UpdateOptions(
-        manifest_path: manifest_path,
+        manifest_path: common.manifest_path,
         config_path: config_path,
         verbosity: verbosity,
         color: color_mode,
-        no_cache: no_cache,
-        cache_dir: cache_dir_value,
+        no_cache: cache.no_cache,
+        cache_dir: cache.cache_dir,
       ))
   }
 }
 
 fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
+  |> glint.flag_value_name("PATH")
   |> glint.flag_help(help <> " (alias: -o)")
 }
 
@@ -575,12 +777,8 @@ const sbom_help =
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use manifest <- glint.optional_flag(manifest_flag())
-  use quiet <- glint.flag(quiet_flag())
-  use verbose <- glint.flag(verbose_flag())
-  use color_flag <- glint.flag(color_flag())
-  use no_cache <- glint.flag(no_cache_flag())
-  use cache_dir <- glint.optional_flag(cache_dir_flag())
+  use common <- common_flags()
+  use cache <- cache_flags()
   use output <- glint.optional_flag(output_flag(
     "Write SBOM to PATH instead of stdout",
   ))
@@ -596,24 +794,20 @@ fn sbom_command() -> glint.Command(CliAction) {
   )
   use _, _, flags <- glint.command()
 
-  let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(quiet) = quiet(flags)
-  let assert Ok(verbose) = verbose(flags)
-  let assert Ok(color_value) = color_flag(flags)
-  let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_dir_value) = cache_dir(flags)
+  let common = common(flags)
+  let cache = cache(flags)
   let assert Ok(output_value) = output(flags)
   let assert Ok(offline_value) = offline(flags)
   let assert Ok(reproducible_value) = reproducible(flags)
   let assert Ok(with_vulns_value) = with_vulns(flags)
   let assert Ok(license_text_value) = license_text(flags)
 
-  use <- validate_conflicts(option.None, False, cache_dir_value, no_cache)
+  use <- validate_conflicts(option.None, False, cache.cache_dir, cache.no_cache)
   case
-    verbosity(quiet, verbose),
+    verbosity(common.quiet, common.verbose),
     offline_value && with_vulns_value,
     reproducible_value && with_vulns_value,
-    color.mode_from_string(color_value)
+    color.mode_from_string(common.color_value)
   {
     Error(verbosity_error), _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
@@ -629,11 +823,11 @@ fn sbom_command() -> glint.Command(CliAction) {
       InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), False, False, Ok(color_mode) ->
       RunSbom(SbomOptions(
-        manifest_path: manifest_path,
+        manifest_path: common.manifest_path,
         verbosity: verbosity,
         color: color_mode,
-        no_cache: no_cache,
-        cache_dir: cache_dir_value,
+        no_cache: cache.no_cache,
+        cache_dir: cache.cache_dir,
         output: output_value,
         offline: offline_value,
         reproducible: reproducible_value,
@@ -649,52 +843,45 @@ const notices_help =
 fn notices_command() -> glint.Command(CliAction) {
   use <- glint.command_help(notices_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use manifest <- glint.optional_flag(manifest_flag())
-  use config <- glint.optional_flag(config_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
-  use quiet <- glint.flag(quiet_flag())
-  use verbose <- glint.flag(verbose_flag())
-  use color_flag <- glint.flag(color_flag())
+  use common <- common_flags()
+  use config <- config_flags()
   use output <- glint.optional_flag(output_flag(
     "Write notices to PATH instead of stdout",
   ))
   use scope <- glint.flag(scope_flag("prod"))
-  use no_cache <- glint.flag(no_cache_flag())
-  use cache_dir <- glint.optional_flag(cache_dir_flag())
+  use cache <- cache_flags()
   use _, _, flags <- glint.command()
 
-  let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(config_path) = config(flags)
-  let assert Ok(ignore_config) = ignore_config(flags)
-  let assert Ok(quiet) = quiet(flags)
-  let assert Ok(verbose) = verbose(flags)
-  let assert Ok(color_value) = color_flag(flags)
+  let common = common(flags)
+  let config = config(flags)
   let assert Ok(output_value) = output(flags)
   let assert Ok(scope_value) = scope(flags)
-  let assert Ok(no_cache) = no_cache(flags)
-  let assert Ok(cache_dir_value) = cache_dir(flags)
+  let cache = cache(flags)
 
   use <- validate_conflicts(
-    config_path,
-    ignore_config,
-    cache_dir_value,
-    no_cache,
+    config.config_path,
+    config.ignore_config,
+    cache.cache_dir,
+    cache.no_cache,
   )
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
+  case
+    verbosity(common.quiet, common.verbose),
+    color.mode_from_string(common.color_value)
+  {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
     _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunNotices(NoticesOptions(
-        manifest_path: manifest_path,
-        config_path: config_path,
-        ignore_config: ignore_config,
+        manifest_path: common.manifest_path,
+        config_path: config.config_path,
+        ignore_config: config.ignore_config,
         verbosity: verbosity,
         color: color_mode,
         output: output_value,
         scope: scope_from_string(scope_value),
-        no_cache: no_cache,
-        cache_dir: cache_dir_value,
+        no_cache: cache.no_cache,
+        cache_dir: cache.cache_dir,
       ))
   }
 }
@@ -705,33 +892,33 @@ const vulns_help =
 fn vulns_command() -> glint.Command(CliAction) {
   use <- glint.command_help(vulns_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use manifest <- glint.optional_flag(manifest_flag())
-  use config <- glint.optional_flag(config_flag())
-  use ignore_config <- glint.flag(ignore_config_flag())
-  use quiet <- glint.flag(quiet_flag())
-  use verbose <- glint.flag(verbose_flag())
-  use color_flag <- glint.flag(color_flag())
+  use common <- common_flags()
+  use config <- config_flags()
   use scope <- glint.flag(scope_flag("all"))
   use _, _, flags <- glint.command()
 
-  let assert Ok(manifest_path) = manifest(flags)
-  let assert Ok(config_path) = config(flags)
-  let assert Ok(ignore_config) = ignore_config(flags)
-  let assert Ok(quiet) = quiet(flags)
-  let assert Ok(verbose) = verbose(flags)
-  let assert Ok(color_value) = color_flag(flags)
+  let common = common(flags)
+  let config = config(flags)
   let assert Ok(scope_value) = scope(flags)
 
-  use <- validate_conflicts(config_path, ignore_config, option.None, False)
-  case verbosity(quiet, verbose), color.mode_from_string(color_value) {
+  use <- validate_conflicts(
+    config.config_path,
+    config.ignore_config,
+    option.None,
+    False,
+  )
+  case
+    verbosity(common.quiet, common.verbose),
+    color.mode_from_string(common.color_value)
+  {
     Error(verbosity_error), _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
     _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
     Ok(verbosity), Ok(color_mode) ->
       RunVulns(VulnsOptions(
-        manifest_path: manifest_path,
-        config_path: config_path,
-        ignore_config: ignore_config,
+        manifest_path: common.manifest_path,
+        config_path: config.config_path,
+        ignore_config: config.ignore_config,
         verbosity: verbosity,
         color: color_mode,
         scope: scope_from_string(scope_value),

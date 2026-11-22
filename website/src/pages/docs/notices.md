@@ -161,24 +161,17 @@ continues to SPDX text. These limits bound archive sizes, not total VM memory.
 ## Caching
 
 In addition to the shared locked metadata cache, `notices` keeps a cache of
-resolved licence materials. The cache prevents repeated downloads and fallback
-operations:
-
-```
-${XDG_CACHE_HOME:-$HOME/.cache}/licence_audit/notices-v3/
-```
-
-When neither `XDG_CACHE_HOME` nor `HOME` has a nonempty value on Windows,
-the default is `%LOCALAPPDATA%\licence_audit\Cache\notices-v3\`, as resolved
-by Erlang/OTP's user cache directory.
+resolved licence materials in `notices-v3/` below the shared application root.
+The cache prevents repeated downloads and fallback operations.
 
 Immutable content addresses identify cached materials. The cache contains extracted
 source materials, final package materials, repository tag-to-commit results,
 and licence files from repositories. Pinned canonical SPDX records and indexes
 use `spdx-v1/` below the same application root. Packages that declare the same
 identifier share one SPDX record.
-Use `--cache-dir=DIR` to select the root for all these caches, taking precedence
-over `XDG_CACHE_HOME` and `HOME`. Use `--no-cache` to bypass them without deleting
+Use `--cache-dir=DIR` to select the root for all these caches. See
+[environment variables](/docs/environment#cache-selection) for discovery and
+precedence. Use `--no-cache` to bypass them without deleting
 stored entries. The command reads local path dependencies
 live and does not cache them.
 
@@ -219,14 +212,14 @@ licence_audit notices [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
-| `--output` | `STRING` |  | Write notices to PATH instead of stdout (alias: -o) |
+| `--output=<PATH>` | `PATH` |  | Write notices to PATH instead of stdout (alias: -o) |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `prod` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `prod` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 <!-- cli-referencestop -->

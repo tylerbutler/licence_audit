@@ -31,6 +31,15 @@ selection and the [write target](/docs/configuration#update-write-target).
 6. It writes the result to the selected target. Existing comments, formatting,
    and edits to unrelated settings stay intact.
 
+For labels that fail SPDX expression parsing, `update` shows the raw text
+above the picker with an explanation. It excludes these labels from selectable
+allow and deny entries, including the bulk-selection keys. To accept a reviewed
+invalid label, add an
+[`invalid-licence-expression` exception](/docs/check#invalid-upstream-licence-labels)
+for the exact package/version and raw text. The command does not convert informal
+labels such as `Apache 2.0` into SPDX identifiers. Valid expressions with CRLF
+token whitespace remain selectable.
+
 Use `--config=PATH` to select an alternate target:
 
 ```sh
@@ -118,10 +127,10 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

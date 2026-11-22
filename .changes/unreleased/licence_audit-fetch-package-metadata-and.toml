@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Changed"
+body = "Fetch package metadata and OSV advisory details with four workers while preserving report and warning order. Share connection fallback, host cutoffs, and rate-limit deadlines across each command; report interrupted or unconfirmed HTTP work as incomplete with exit code `2`."

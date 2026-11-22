@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Show package totals in `report` and `check`, a passing licence verdict, and a unique package finding list after failed licence checks."
