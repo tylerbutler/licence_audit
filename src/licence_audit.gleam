@@ -1741,13 +1741,19 @@ fn audit_locked(
       False -> all_rows
     }
     let skipped_names = list.map(active_skipped, fn(pkg) { pkg.name })
+    let summary = report.Summary(skipped_names: skipped_names)
     let licence_output =
-      report.format(
+      report.format_with_counts(
         display_rows,
-        report.Summary(skipped_names: skipped_names),
+        summary,
+        report.counts(all_rows, summary),
         mode,
         palette,
       )
+      <> case options.check {
+        True -> report.format_findings(all_rows, palette)
+        False -> ""
+      }
 
     // Vulnerability gate: combined checks also retain the licence findings.
     // Threshold resolution: CLI flag > config key > "high".
@@ -1852,6 +1858,15 @@ fn audit_locked(
         licence_coverage,
         vuln_coverage,
       )
+      <> case
+        options.check
+        && !result.fetch_failed
+        && !vuln_outcome.incomplete
+        && !policy_failed
+      {
+        True -> "Licence check passed.\n"
+        False -> ""
+      }
 
     let #(run_result, reporter) =
       finalize_audit(

@@ -188,6 +188,12 @@ pub fn matching_licence_exception_overrides_deny_without_changing_evidence_test(
   assert string.contains(result.output, "Policy exceptions:")
   assert !string.contains(result.output, "unused #1")
   assert string.contains(result.output, "local_dep")
+  assert string.contains(
+    result.output,
+    "4 packages: 1 allowed, 0 denied, 0 unknown, 1 excepted, 2 skipped",
+  )
+  assert string.ends_with(result.output, "Licence check passed.\n")
+  assert !string.contains(result.output, "Packages with findings:")
   let preview = run(root, ["report"], licences, batch, detail)
   should.equal(preview.exit_code, 0)
   assert string.contains(preview.output, "excepted #1")
@@ -265,6 +271,15 @@ pub fn accepted_licence_cannot_hide_a_second_finding_or_tree_test() {
   assert string.contains(result.output, "denied: GPL-3.0-only [excepted #1")
   assert string.contains(result.output, "unknown: Apache-2.0")
   assert string.contains(result.output, "second")
+  assert string.contains(
+    result.output,
+    "4 packages: 0 allowed, 1 denied, 1 unknown, 0 excepted, 2 skipped",
+  )
+  let assert [_, footer] =
+    string.split(result.output, "Packages with findings:\n")
+  let assert [packages, _] = string.split(footer, "Policy exceptions:")
+  should.equal(list.length(string.split(packages, "first")), 2)
+  should.equal(list.length(string.split(packages, "second")), 2)
   let fetch = fn(name) {
     Ok(
       hex.licences_only(case name {
@@ -415,6 +430,11 @@ pub fn missing_metadata_exception_never_accepts_fetch_errors_test() {
     "not evaluated: licence metadata unavailable",
   )
   assert !string.contains(result.output, "excepted #1")
+  assert string.contains(
+    result.output,
+    "4 packages: 1 allowed, 0 denied, 1 unknown, 0 excepted, 2 skipped",
+  )
+  assert !string.contains(result.output, "Licence check passed.")
 }
 
 pub fn advisory_alias_accepts_only_one_package_occurrence_test() {
@@ -463,6 +483,9 @@ pub fn vulnerability_only_scoped_exceptions_do_not_evaluate_licences_test() {
     "not evaluated: licence scan disabled",
   )
   assert !string.contains(accepted.output, "Dependency licence audit failed")
+  assert !string.contains(accepted.output, "Licence check passed.")
+  assert !string.contains(accepted.output, "packages:")
+  assert !string.contains(accepted.output, "Packages with findings:")
   let scoped =
     run(root, ["check", "--checks=vulns"], no_licences, batch, detail)
   should.equal(scoped.exit_code, 1)
@@ -663,6 +686,7 @@ pub fn failed_osv_evidence_is_never_excepted_test() {
     )
   should.equal(result.exit_code, 2)
   assert string.contains(result.output, "not evaluated: OSV request failed")
+  assert !string.contains(result.output, "Licence check passed.")
   let failed = fn(_) { Error(osv.InvalidJson("Invalid response")) }
   let result =
     run(root, ["check", "--checks=all"], clean_licences, first_batch, failed)

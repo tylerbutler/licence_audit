@@ -41,6 +41,32 @@ to select `auto`, `always`, or `never`. Reports use stdout; input and
 configuration diagnostics use stderr. Missing or invalid manifest/config
 files and incomplete required metadata return `2`.
 
+## Totals
+
+Read the totals below the dependency tree:
+
+```text
+34 packages: 30 allowed, 0 denied, 4 unknown, 0 excepted, 0 skipped
+```
+
+The totals count each locked package name once within the selected scope.
+Licence declarations, findings, and paths do not add to the package count.
+The categories sum to the total:
+
+| Category | Meaning |
+|---|---|
+| `allowed` | The package passes the selected licence policy without an exception. |
+| `denied` | The package has an unaccepted deny finding. |
+| `unknown` | The package has another unaccepted finding, unavailable metadata, or no policy evaluation. |
+| `excepted` | Active exceptions accept all findings needed for the package to pass. |
+| `skipped` | The package uses a non-Hex source and receives no licence audit. |
+
+An unaccepted deny takes priority over other findings. An accepted deny with
+another unaccepted finding counts as `unknown`, not `excepted`.
+Without a licence policy, Hex packages count as `unknown`.
+Failed metadata requests also count as `unknown` and keep exit code `2`.
+The skipped summary still lists the non-Hex package names.
+
 ## Default and named reports
 
 The named command is optional. These commands use the same options and

@@ -1,5 +1,9 @@
+import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleeunit/should
 import licence_audit/color
+import licence_audit/exception
 import licence_audit/manifest
 import licence_audit/policy
 import licence_audit/report
@@ -7,6 +11,171 @@ import licence_audit/report
 const off = color.Palette(enabled: False)
 
 const on = color.Palette(enabled: True)
+
+fn row(name: String, status: report.Status) -> report.Row {
+  report.Row(
+    package: name,
+    version: "1.0.0",
+    licences: ["GPL-3.0-only", "Apache-2.0"],
+    status: status,
+    scope: manifest.Prod,
+    path: [name],
+  )
+}
+
+fn review(expires: Option(String)) -> exception.Exception {
+  exception.Exception(
+    number: 1,
+    purl: "pkg:hex/reviewed@1.0.0",
+    finding: exception.DeniedLicence("GPL-3.0-only"),
+    reason: "Reviewed use",
+    expires: expires,
+  )
+}
+
+pub fn counts_partition_unique_packages_and_unaccepted_findings_test() {
+  let accepted = exception.Excepted(review(None))
+  let rows = [
+    row("allowed", report.Checked(policy.Allowed)),
+    report.Row(
+      ..row("allowed", report.Checked(policy.Allowed)),
+      scope: manifest.Dev,
+    ),
+    row(
+      "denied",
+      report.Checked(
+        policy.audit(policy.Policy(allow: ["MIT"], deny: ["GPL-3.0-only"]), [
+          "Apache-2.0",
+          "GPL-3.0-only",
+          "MIT",
+        ]),
+      ),
+    ),
+    row("unknown", report.Checked(policy.UnallowedLicence("Apache-2.0"))),
+    row("empty", report.Checked(policy.NoLicencesDeclared)),
+    row("invalid", report.Checked(policy.InvalidLicenceExpression("MIT AND"))),
+    row(
+      "reviewed",
+      report.Reviewed([
+        #(exception.DeniedLicence("GPL-3.0-only"), accepted),
+      ]),
+    ),
+    row(
+      "partial_review",
+      report.Reviewed([
+        #(exception.DeniedLicence("GPL-3.0-only"), accepted),
+        #(exception.UnallowedLicence("Apache-2.0"), exception.Unaccepted),
+      ]),
+    ),
+    row(
+      "expired",
+      report.Reviewed([
+        #(
+          exception.DeniedLicence("GPL-3.0-only"),
+          exception.Expired(review(Some("2000-01-01"))),
+        ),
+        #(exception.UnallowedLicence("Apache-2.0"), exception.Unaccepted),
+      ]),
+    ),
+    row("unavailable", report.Failed("metadata unavailable")),
+    row("unchecked", report.NotChecked),
+    row("git_dep", report.Skipped("git")),
+  ]
+  let summary =
+    report.Summary(skipped_names: ["git_dep", "git_dep", "local_dep"])
+  let counts = report.counts(rows, summary)
+  should.equal(
+    counts,
+    report.Counts(
+      total: 12,
+      allowed: 1,
+      denied: 2,
+      unknown: 6,
+      excepted: 1,
+      skipped: 2,
+    ),
+  )
+  let output = report.format_with_counts([], summary, counts, report.Audit, off)
+  assert string.contains(
+    output,
+    "12 packages: 1 allowed, 2 denied, 6 unknown, 1 excepted, 2 skipped",
+  )
+  assert string.contains(
+    output,
+    "Skipped non-Hex packages: 2 (git_dep, local_dep)",
+  )
+}
+
+pub fn empty_and_unchecked_reports_do_not_claim_allowance_test() {
+  let empty = report.format([], report.Summary([]), report.Default, off)
+  assert string.contains(
+    empty,
+    "0 packages: 0 allowed, 0 denied, 0 unknown, 0 excepted, 0 skipped",
+  )
+  let unchecked =
+    report.format(
+      [row("unchecked", report.NotChecked)],
+      report.Summary([]),
+      report.Default,
+      off,
+    )
+  assert string.contains(
+    unchecked,
+    "1 packages: 0 allowed, 0 denied, 1 unknown, 0 excepted, 0 skipped",
+  )
+}
+
+pub fn findings_footer_reuses_rows_once_and_excludes_accepted_packages_test() {
+  let denied =
+    row("denied_pkg", report.Checked(policy.DeniedLicence("GPL-3.0-only")))
+  let partial =
+    row(
+      "partial_pkg",
+      report.Reviewed([
+        #(
+          exception.DeniedLicence("GPL-3.0-only"),
+          exception.Excepted(review(None)),
+        ),
+        #(exception.UnallowedLicence("Apache-2.0"), exception.Unaccepted),
+      ]),
+    )
+  let rows = [
+    denied,
+    report.Row(..denied, path: ["another_root", "denied_pkg"]),
+    partial,
+    row(
+      "accepted_pkg",
+      report.Reviewed([
+        #(
+          exception.DeniedLicence("GPL-3.0-only"),
+          exception.Excepted(review(None)),
+        ),
+      ]),
+    ),
+    row("allowed_pkg", report.Checked(policy.Allowed)),
+    row("skipped_pkg", report.Skipped("git")),
+    report.Row(
+      ..row("missing_pkg", report.Failed("metadata unavailable")),
+      licences: [],
+    ),
+  ]
+  use palette <- list.each([off, on])
+  let output = report.format_findings(rows, palette)
+  assert string.starts_with(output, "Packages with findings:\n")
+  should.equal(count_substrings(output, "denied_pkg"), 1)
+  should.equal(count_substrings(output, "partial_pkg"), 1)
+  should.equal(count_substrings(output, "missing_pkg"), 1)
+  assert string.contains(output, "1.0.0")
+  assert string.contains(output, "Apache-2.0, GPL-3.0-only")
+  assert string.contains(output, "denied: GPL-3.0-only")
+  assert string.contains(output, "unknown: Apache-2.0")
+  assert string.contains(output, "Reviewed use")
+  assert string.contains(output, "error: metadata unavailable")
+  assert !string.contains(output, "accepted_pkg")
+  assert !string.contains(output, "allowed_pkg")
+  assert !string.contains(output, "skipped_pkg")
+  should.equal(string.contains(output, "\u{001b}["), palette.enabled)
+}
 
 pub fn audit_report_includes_status_column_test() {
   let output =
