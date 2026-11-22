@@ -183,8 +183,8 @@ pub fn source_download_preserves_tls_peer_verification_test() {
   with_untrusted_tls(fn(url) {
     let reason = case fetch(url, 2000, 64) {
       Error(archive_download.NetworkFailure(error.ConnectionError(reason)))
-      | Error(archive_download.NetworkFailure(error.ConnectionDown(reason))) ->
-        reason
+      | Error(archive_download.NetworkFailure(error.ConnectionDown(reason)))
+      | Error(archive_download.TlsFailure(reason)) -> reason
       _ -> panic as "expected TLS connection failure"
     }
     assert string.contains(string.lowercase(reason), "unknownca")
@@ -272,7 +272,8 @@ pub fn ipv4_dns_failure_is_not_silenced_or_hidden_by_archive_probe_test() {
   let assert Ok(archive_request) = request.to("https://archive.invalid/pkg")
   let archive_request = request.set_body(archive_request, <<>>)
   let failure = probe_failure(Nxdomain, httpc_adaptive.Ipv4)
-  let assert archive_download.NetworkFailure(error.ConnectionDown(_)) = failure
+  let assert archive_download.ConnectionFailure(httpc_adaptive.DnsFailure, _) =
+    failure
   should.equal(
     archive_download.fetch_with(archive_request, 5000, 64, fn(_, _, family, _) {
       Error(probe_failure(Nxdomain, family))

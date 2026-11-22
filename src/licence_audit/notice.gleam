@@ -18,6 +18,7 @@ import licence_audit/gleam_toml
 import licence_audit/hex
 import licence_audit/httpc_adaptive
 import licence_audit/manifest
+import licence_audit/network
 import licence_audit/repository
 import licence_audit/source_archive
 import licence_audit/spdx
@@ -187,25 +188,36 @@ pub fn packages_from_entries(
   metadata_for: fn(manifest.SbomEntry) ->
     #(Result(hex.PackageMetadata, Error), Option(String)),
 ) -> #(Result(List(NoticePackage), Error), Option(String)) {
-  let #(packages, warning) =
-    list.fold(entries, #(Ok([]), None), fn(acc, entry) {
-      use packages <- cache_dir.try_with_warning(acc)
+  let outcomes =
+    network.fetch(entries, fn(entry) { entry.name }, fn(entry) {
       use source <- cache_dir.try_with_warning(#(package_source(entry), None))
       use metadata <- cache_dir.try_with_warning(metadata_for(entry))
       #(
-        Ok([
-          NoticePackage(
-            name: entry.name,
-            version: entry.version,
-            declared_licences: metadata.licences,
-            repo_links: repo_link_urls(metadata.links),
-            source: source,
-            scope: scope_for(scopes, entry.name),
-          ),
-          ..packages
-        ]),
+        Ok(NoticePackage(
+          name: entry.name,
+          version: entry.version,
+          declared_licences: metadata.licences,
+          repo_links: repo_link_urls(metadata.links),
+          source: source,
+          scope: scope_for(scopes, entry.name),
+        )),
         None,
       )
+    })
+  let #(packages, warning) =
+    list.fold(list.zip(entries, outcomes), #(Ok([]), None), fn(acc, pair) {
+      let #(entry, outcome) = pair
+      let #(packages, warning) = acc
+      let #(fetched, fetch_warning) = case outcome {
+        Ok(fetched) -> fetched
+        Error(reason) -> #(Error(MetadataFailed(entry.name, reason)), None)
+      }
+      let packages = {
+        use packages <- result.try(packages)
+        use package <- result.try(fetched)
+        Ok([package, ..packages])
+      }
+      #(packages, option.or(warning, fetch_warning))
     })
   #(result.map(packages, list.reverse), warning)
 }
@@ -1035,8 +1047,10 @@ pub fn fetch_tarball(
   |> result.map_error(fn(error) {
     case error {
       archive_download.Timeout -> FetchTimeout
-      archive_download.NetworkFailure(_) | archive_download.NoIpv6Address ->
-        FetchNetworkFailure
+      archive_download.NetworkFailure(_)
+      | archive_download.NoIpv6Address
+      | archive_download.ConnectionFailure(_, _)
+      | archive_download.TlsFailure(_) -> FetchNetworkFailure
       archive_download.UnexpectedResponse(status) ->
         FetchUnexpectedResponse(status)
       archive_download.DownloadTooLarge(limit) -> FetchDownloadTooLarge(limit)

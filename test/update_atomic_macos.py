@@ -57,8 +57,9 @@ with tempfile.TemporaryDirectory(prefix="update-acl-", dir=root) as directory:
         Manifest = unicode:characters_to_binary(os:getenv("POLICY_TEST_MANIFEST")),
         Picker = fun(_, _, _, _) -> {ok, {selection, [<<"MIT">>], []}} end,
         {{update_diagnostic, 2, Message}, _} = licence_audit@update:run_with_picker(
-            Manifest, <<".">>, {some, Path},
-            true, none, licence_audit@notice:default_clients(), Picker,
+            Manifest, <<".">>,
+            {update_options, none, {some, Path}, verbose, never, true, none},
+            licence_audit@notice:default_clients(), Picker,
             licence_audit@progress:capturing(verbose, <<"update">>)
         ),
         nomatch =/= binary:match(Message, <<"Failed to write">>) orelse error(Message),

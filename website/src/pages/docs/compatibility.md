@@ -191,6 +191,16 @@ Optional enrichment has separate completion rules:
   exits `2`; `--offline` and `--no-cache` do not waive these requirements.
   Root metadata, supported sources, and artifact generation/writes remain required.
 
+The CLI fetches independent package metadata and advisory details with four
+workers and preserves input order in results and warnings. You cannot change
+the worker count with a CLI flag. Workers share the command's bounded IPv6
+probe, IPv4 fallback, host cutoff, and service rate-limit deadlines.
+
+Optional enrichment tolerates reported service failures, as described above.
+A worker crash, cancellation, or unconfirmed HTTP teardown exits `2`,
+including in `vulns` and default SBOM mode. The CLI reports the affected input
+as incomplete rather than treating a missing worker result as optional data.
+
 These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.
 Scripts that relied on those codes must use `2` for operational failure.
