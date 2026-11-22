@@ -756,7 +756,7 @@ class CliStreamTest(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 result = self.run_cli(
-                    "sbom", "--offline", "--reproducible", "--no-cache",
+                    "sbom", "--offline", "--reproducible", "--no-cache", "--quiet",
                     environment={} if value is None else {"SOURCE_DATE_EPOCH": value},
                     unset_environment=("SOURCE_DATE_EPOCH",) if value is None else (),
                 )
@@ -773,7 +773,7 @@ class CliStreamTest(unittest.TestCase):
                     self.assertNotEqual(document["serialNumber"], epoch_serial)
 
         result = self.run_cli(
-            "sbom", "--offline", "--no-cache",
+            "sbom", "--offline", "--no-cache", "--quiet",
             environment={"SOURCE_DATE_EPOCH": "0"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
