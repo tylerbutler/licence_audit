@@ -253,3 +253,56 @@ pub fn small_notices_document_test() -> Nil {
   )
   birdie.snap(document, "small notices document")
 }
+
+fn help_output(command: List(String)) -> String {
+  let #(result, events) =
+    licence_audit.run_configured(
+      list.append(command, ["--help"]),
+      licence_audit.Clients(
+        ..clients(),
+        notice_clients: source_archive_test.metadata_clients(fn(_) {
+          panic as "help must not fetch locked source metadata"
+        }),
+      ),
+      progress.disabled(),
+    )
+  should.equal(result.exit_code, 0)
+  should.equal(events, [])
+  assert !string.contains(result.output, "\u{001b}[")
+  result.output
+}
+
+pub fn root_help_test() -> Nil {
+  help_output([])
+  |> birdie.snap("root help")
+}
+
+pub fn report_help_test() -> Nil {
+  help_output(["report"])
+  |> birdie.snap("report help")
+}
+
+pub fn check_help_test() -> Nil {
+  help_output(["check"])
+  |> birdie.snap("check help")
+}
+
+pub fn update_help_test() -> Nil {
+  help_output(["update"])
+  |> birdie.snap("update help")
+}
+
+pub fn sbom_help_test() -> Nil {
+  help_output(["sbom"])
+  |> birdie.snap("sbom help")
+}
+
+pub fn vulns_help_test() -> Nil {
+  help_output(["vulns"])
+  |> birdie.snap("vulns help")
+}
+
+pub fn notices_help_test() -> Nil {
+  help_output(["notices"])
+  |> birdie.snap("notices help")
+}

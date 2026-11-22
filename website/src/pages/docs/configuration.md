@@ -9,16 +9,26 @@ description: Select the project configuration and understand explicit policy fil
 `licence_audit` uses the directory that contains the selected manifest as the
 project root. Without `--manifest`, it reads `manifest.toml` in your current
 directory. With `--manifest=PATH`, it reads that path and uses its directory.
+With `--manifest=DIR`, it reads `DIR/manifest.toml` and uses `DIR` as the
+project root. Both forms use the same configuration and dependency paths.
 Relative manifest and configuration paths start from your current directory.
 
 The default configuration file is `gleam.toml` beside that manifest:
-`dirname(--manifest)/gleam.toml`. The command does not search parent directories
+`<project root>/gleam.toml`. The command does not search parent directories
 or fall back to your current directory's `gleam.toml`.
 
 ```sh
 # Read apps/server/manifest.toml and apps/server/gleam.toml
 licence_audit check --manifest=apps/server/manifest.toml
+# Equivalent directory form
+licence_audit check --manifest=apps/server
 ```
+
+If the manifest is missing, the error names its directory and suggests running
+`gleam deps download` or selecting another manifest with `--manifest=PATH`.
+Run `gleam deps download` in the project root to create the manifest.
+The command does not search parent directories for a manifest.
+Unreadable files and invalid manifest contents remain separate errors.
 
 These commands use the same project-root rule, but read different settings:
 
