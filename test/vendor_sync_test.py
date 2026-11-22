@@ -11,7 +11,7 @@ class VendorSyncTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         (self.root / "gleam.toml").write_text(
             '[dependencies]\ngleam_stdlib = ">= 1.0.0 and < 2.0.0"\n'
             '[dev_dependencies]\nglugify = ">= 3.0.0 and < 4.0.0"\n'
@@ -222,3 +222,18 @@ class VendorSyncTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlinks"):
             vendor_sync.sync(self.root, check=False)
         self.assertEqual(outside.read_text(), "Do not change\n")
+
+    def test_rejects_symlinked_output_directory(self):
+        directory = self.root / "src" / vendor_sync.NAMESPACE
+        directory.parent.mkdir(parents=True)
+        outside = self.root / "unrelated"
+        outside.mkdir()
+        source = outside / "glint.gleam"
+        source.write_text("Do not change\n")
+        directory.symlink_to(outside, target_is_directory=True)
+        for check in (True, False):
+            with self.subTest(check=check):
+                with self.assertRaisesRegex(ValueError, "symlinks"):
+                    vendor_sync.sync(self.root, check=check)
+                self.assertEqual(source.read_text(), "Do not change\n")
+                self.assertEqual(list(outside.iterdir()), [source])
