@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Warn when a stale cache entry cannot be replaced, while keeping the fresh fetched result for the current command."

@@ -197,16 +197,7 @@ pub fn insert_at(
       case replace_file(temporary, destination) {
         Ok(Nil) -> Ok(Nil)
         Error(ReplacementUncertain(reason)) -> Error(WriteFailed(key, reason))
-        Error(ReplacementFailed(reason)) ->
-          // On Windows, a rename that loses a race with another writer can
-          // fail. The other writer's entry is an equally valid cache value.
-          case simplifile.is_file(destination) {
-            Ok(True) -> {
-              let _ = simplifile.delete(temporary)
-              Ok(Nil)
-            }
-            Ok(False) | Error(_) -> fail(reason)
-          }
+        Error(ReplacementFailed(reason)) -> fail(reason)
       }
   }
 }

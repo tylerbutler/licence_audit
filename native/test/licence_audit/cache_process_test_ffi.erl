@@ -1,9 +1,42 @@
 -module(cache_process_test_ffi).
 -export([
     concurrent_writes/5, worker/0,
+    with_locked_entry/2,
+    failed_stale_replacement_keeps_live_result_test_/0,
     separate_vms_keep_distinct_successful_writes_test_/0,
     same_key_writers_leave_one_complete_value_test_/0
 ]).
+
+failed_stale_replacement_keeps_live_result_test_() ->
+    case os:type() of
+        {unix, darwin} ->
+            fun licence_audit@cache_test:failed_stale_replacement_keeps_live_result/0;
+        _ -> []
+    end.
+
+with_locked_entry(Path, Run) ->
+    %% Finder's locked flag blocks replacement but still allows reading the entry.
+    set_entry_flag(Path, "uchg"),
+    try Run()
+    after set_entry_flag(Path, "nouchg")
+    end.
+
+set_entry_flag(Path, Flag) ->
+    Port = open_port({spawn_executable, "/usr/bin/chflags"}, [
+        exit_status, use_stdio, stderr_to_stdout, binary,
+        {args, [Flag, binary_to_list(Path)]}
+    ]),
+    wait_entry_flag(Port).
+
+wait_entry_flag(Port) ->
+    receive
+        {Port, {data, _}} -> wait_entry_flag(Port);
+        {Port, {exit_status, 0}} -> ok;
+        {Port, {exit_status, Status}} -> error({chflags_failed, Status})
+    after 5000 ->
+        close_port(Port),
+        error(chflags_timeout)
+    end.
 
 separate_vms_keep_distinct_successful_writes_test_() ->
     race_test(fun licence_audit@cache_test:separate_vms_keep_distinct_successful_writes/0).

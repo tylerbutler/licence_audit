@@ -28,6 +28,9 @@ fn concurrent_writes(
   second_value: String,
 ) -> Result(Nil, ConcurrentWriteError)
 
+@external(erlang, "cache_process_test_ffi", "with_locked_entry")
+fn with_locked_entry(path: String, run: fn() -> Nil) -> Nil
+
 fn fresh_path(name: String) -> String {
   let _ = simplifile.create_directory_all(tmp_dir)
   let path = tmp_dir <> "/" <> name
@@ -700,4 +703,55 @@ pub fn failed_write_over_existing_entry_returns_error_test() {
   }
   let assert Ok(Nil) = simplifile.set_permissions_octal(path, 0o755)
   should.equal(cache_dir.lookup(store, "key"), Ok("old"))
+}
+
+// The native EUnit wrapper runs this regression only on macOS.
+pub fn failed_stale_replacement_keeps_live_result() -> Nil {
+  let path = fresh_path("locked_stale_entry")
+  let key = "example@1.0.0"
+  let directory = path <> "/hex-v2"
+  let assert Ok(store) = cache_dir.open_table(Some(path), "hex-v2", "test")
+  let stale =
+    cache_dir.Entry(
+      hex.encode_cache_entry(metadata_with_publisher("stale")),
+      Some(now_seconds() - 604_860),
+    )
+  let assert Ok(Nil) =
+    cache_dir.insert_at(store, key, stale.value, stale.cached_at)
+  let handle = cache.open(cache.Enabled(Some(path)))
+  let fresh = metadata_with_publisher("fresh")
+  use <- with_locked_entry(cache_support.entry_path(directory, key))
+  let assert Error(error) =
+    cache_dir.insert_at(
+      store,
+      key,
+      hex.encode_cache_entry(fresh),
+      Some(now_seconds()),
+    )
+  should.be_true(string.starts_with(
+    cache_dir.describe_error(error),
+    "write " <> key <> ":",
+  ))
+  let #(result, rep) =
+    cache.wrap(handle, fn(_) { Ok(fresh) })(pkg("example", "1.0.0"), reporter())
+  should.equal(result, Ok(fresh))
+  should.be_true(any_contains(
+    warning_messages(rep),
+    "Failed to access licence cache: write " <> key <> ":",
+  ))
+  should.be_false(any_contains(detail_messages(rep), "Cached licence metadata"))
+  let assert #(Ok(quiet), Some(warning)) =
+    cache.fetch_cached_quiet(handle, "example", "1.0.0", fn(_) { Ok(fresh) })
+  should.equal(quiet, fresh)
+  should.be_true(string.starts_with(
+    warning,
+    "Failed to access licence cache: write " <> key <> ":",
+  ))
+  should.equal(cache_dir.lookup_entry(store, key), Ok(stale))
+  should.equal(
+    simplifile.read_directory(directory),
+    Ok([entry_name(directory, key)]),
+  )
+  let assert None = cache.close(handle)
+  Nil
 }
