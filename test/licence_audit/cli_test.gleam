@@ -62,6 +62,13 @@ fn help_text(args: List(String)) -> String {
   help
 }
 
+fn unwrapped_help_text(args: List(String)) -> String {
+  help_text(args)
+  |> string.split("\n")
+  |> list.map(string.trim)
+  |> string.join(" ")
+}
+
 fn usage_error(args: List(String)) -> String {
   let assert Error(message) = cli.execute(args, tty.NoColor, tty.NoColor)
   message
@@ -245,6 +252,101 @@ pub fn color_before_separator_still_controls_usage_help_test() {
 pub fn version_option_returns_version_action_test() {
   let assert Ok(glint.Out(cli.ShowVersion)) =
     glint.execute(cli.app(), ["--version"])
+}
+
+pub fn short_version_option_is_distinct_from_verbose_test() -> Nil {
+  let assert Ok(glint.Out(cli.ShowVersion)) =
+    cli.execute(["-V"], tty.NoColor, tty.NoColor)
+  should.equal(parse_options(["-v"]).verbosity, progress.Verbose)
+}
+
+pub fn new_short_aliases_are_listed_in_command_help_test() -> Nil {
+  assert string.contains(unwrapped_help_text(["--help"]), "alias: -V")
+  use command <- list.each(["sbom", "notices"])
+  let help = unwrapped_help_text([command, "--help"])
+  assert string.contains(help, "--output")
+  assert string.contains(help, "alias: -o")
+}
+
+pub fn short_version_preserves_root_only_and_usage_validation_test() -> Nil {
+  use args <- list.each([["--unknown"], ["unknown-command"], ..commands])
+  let canonical =
+    cli.execute(list.append(args, ["--version"]), tty.NoColor, tty.NoColor)
+  let assert Error(_) = canonical
+  should.equal(
+    cli.execute(list.append(args, ["-V"]), tty.NoColor, tty.NoColor),
+    canonical,
+  )
+}
+
+pub fn short_output_preserves_paths_and_following_flags_test() -> Nil {
+  use command <- list.each(["sbom", "notices"])
+  use value <- list.each([
+    "output.txt",
+    "",
+    "path=with=equals",
+    "-V",
+    "-v",
+    "-h",
+    "-o",
+    "--colour=always",
+    "--license-text",
+  ])
+  let args = [command, "-o", value, "-v"]
+  should.equal(cli.normalize_args(args), [
+    command,
+    "--output=" <> value,
+    "--verbose",
+  ])
+  let assert Ok(glint.Out(action)) = cli.execute(args, tty.NoColor, tty.NoColor)
+  let #(output, verbosity) = case action {
+    cli.RunSbom(options) -> #(options.output, options.verbosity)
+    cli.RunNotices(options) -> #(options.output, options.verbosity)
+    cli.RunReport(_)
+    | cli.RunAudit(_)
+    | cli.UpdateConfig(_)
+    | cli.RunVulns(_)
+    | cli.ShowVersion
+    | cli.InvalidUsage(_) -> panic as "expected output command"
+  }
+  should.equal(output, Some(value))
+  should.equal(verbosity, progress.Verbose)
+}
+
+pub fn short_output_preserves_missing_value_and_command_errors_test() -> Nil {
+  use #(args, canonical) <- list.each([
+    #(["sbom", "-o"], ["sbom", "--output"]),
+    #(["notices", "-o"], ["notices", "--output"]),
+    #(["sbom", "-o", "--"], ["sbom", "--output", "--"]),
+    #(["notices", "-o", "--"], ["notices", "--output", "--"]),
+    #(["-o", "out"], ["--output=out"]),
+    #(["report", "-o", "out"], ["report", "--output=out"]),
+    #(["check", "-o", "out"], ["check", "--output=out"]),
+    #(["update", "-o", "out"], ["update", "--output=out"]),
+    #(["vulns", "-o", "out"], ["vulns", "--output=out"]),
+  ])
+  let expected = cli.execute(canonical, tty.NoColor, tty.NoColor)
+  let assert Error(_) = expected
+  should.equal(cli.execute(args, tty.NoColor, tty.NoColor), expected)
+}
+
+pub fn new_aliases_remain_literal_values_of_existing_path_flags_test() -> Nil {
+  use #(command, names) <- list.each(optional_path_flags)
+  use name <- list.each(names)
+  use value <- list.each(["-V", "-o"])
+  let args = list.append(command, ["--" <> name, value])
+  let canonical = list.append(command, ["--" <> name <> "=" <> value])
+  should.equal(cli.normalize_args(args), canonical)
+  let expected = cli.execute(canonical, tty.NoColor, tty.NoColor)
+  let assert Ok(glint.Out(_)) = expected
+  should.equal(cli.execute(args, tty.NoColor, tty.NoColor), expected)
+}
+
+pub fn joined_output_and_short_flag_clusters_remain_unsupported_test() -> Nil {
+  use flag <- list.each(["-oPATH", "-o=PATH", "-qv", "-vV"])
+  let args = ["sbom", flag]
+  should.equal(cli.normalize_args(args), args)
+  let assert Error(_) = cli.execute(args, tty.NoColor, tty.NoColor)
 }
 
 pub fn check_subcommand_enables_check_mode_test() {

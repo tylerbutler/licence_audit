@@ -444,6 +444,8 @@ fn normalize_alias(arg: String) -> String {
     "-h" -> "--help"
     "-q" -> "--quiet"
     "-v" -> "--verbose"
+    "-V" -> "--version"
+    "-o" -> "--output"
     "--colour" -> "--color"
     "--license-text" -> "--licence-text"
     other -> {
@@ -732,7 +734,7 @@ fn no_cache_flag() -> glint.Flag(Bool) {
 fn version_flag() -> glint.Flag(Bool) {
   glint.bool_flag("version")
   |> glint.flag_default(False)
-  |> glint.flag_help("Print the installed version")
+  |> glint.flag_help("Print the installed version (alias: -V)")
 }
 
 fn scope_flag(default: String) -> glint.Flag(String) {
@@ -909,7 +911,7 @@ fn parse_update_list(
 fn output_flag(help: String) -> glint.Flag(String) {
   glint.string_flag("output")
   |> glint.flag_value_name("PATH")
-  |> glint.flag_help(help)
+  |> glint.flag_help(help <> " (alias: -o)")
 }
 
 fn offline_flag() -> glint.Flag(Bool) {

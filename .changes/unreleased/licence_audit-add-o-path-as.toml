@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Add `-o PATH` as an alias for `--output` on `sbom` and `notices`, and root `-V` as an alias for `--version`. Lowercase `-v` remains verbose output."
