@@ -79,6 +79,66 @@ pub fn short_help_option_returns_glint_help_test() {
   assert string.contains(help, "USAGE:")
 }
 
+pub fn help_value_forms_match_each_command_declaration_test() -> Nil {
+  let tree = glint.document(cli.app())
+  use command <- list.each([tree, ..tree.subcommands])
+  let args = case command.meta.name {
+    "licence_audit" -> ["--help"]
+    name -> [name, "--help"]
+  }
+  let help = help_text(args)
+  assert !string.contains(help, "<BOOL>")
+  assert !string.contains(help, "<STRING>")
+  use flag <- list.each(command.flags)
+  let value_name = case flag.meta.name {
+    "config" | "manifest" | "output" -> "PATH"
+    "cache-dir" -> "DIR"
+    "color" -> "auto|always|never"
+    "scope" -> "prod|all"
+    "checks" -> "licences|vulns|all"
+    "vuln-severity" -> "low|medium|high|critical"
+    _ -> "BOOL"
+  }
+  should.equal(flag.type_, value_name)
+  let name = "--" <> flag.meta.name
+  case value_name {
+    "BOOL" -> {
+      assert !string.contains(help, name <> "=")
+    }
+    value -> {
+      assert string.contains(help, name <> "=<" <> value <> ">")
+    }
+  }
+}
+
+pub fn root_lists_one_sentence_per_command_and_keeps_long_help_test() -> Nil {
+  let tree = glint.document(cli.app())
+  let root = help_text(["--help"])
+  let assert Ok(#(_, subcommands)) = string.split_once(root, "SUBCOMMANDS:")
+  let lines =
+    subcommands
+    |> string.split("\n")
+    |> list.filter(fn(line) { string.trim(line) != "" })
+  should.equal(list.length(lines), list.length(tree.subcommands))
+  use command <- list.each(tree.subcommands)
+  let summary = case string.split_once(command.meta.description, ". ") {
+    Ok(#(sentence, _)) -> sentence <> "."
+    Error(_) -> command.meta.description
+  }
+  assert list.any(lines, fn(line) {
+    string.starts_with(string.trim(line), command.meta.name <> " ")
+    && string.ends_with(line, summary)
+  })
+  let help = help_text([command.meta.name, "--help"])
+  let normalized = help |> string.split("\n") |> string.join(" ")
+  assert string.starts_with(normalized, summary)
+  assert !string.contains(help, "Report locked dependency licences by default")
+  assert string.contains(help, "Command: " <> command.meta.name)
+  let description =
+    command.meta.description |> string.split("\n") |> string.join(" ")
+  assert string.contains(normalized, description)
+}
+
 pub fn help_and_usage_colors_follow_destination_levels_test() {
   use #(args, help) <- list.each([
     #(["--help"], True),

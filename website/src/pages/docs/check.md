@@ -392,16 +392,16 @@ licence_audit check [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--checks` | `STRING` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--checks=<licences\|vulns\|all>` | `licences\|vulns\|all` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (true or false overrides config; default false; requires --checks=vulns or --checks=all) |
-| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
+| `--vuln-severity=<low\|medium\|high\|critical>` | `low\|medium\|high\|critical` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
 <!-- cli-referencestop -->

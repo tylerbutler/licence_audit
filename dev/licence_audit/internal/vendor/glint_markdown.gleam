@@ -475,10 +475,14 @@ fn render_flags(flags: List(Flag)) -> String {
 }
 
 fn render_flag_row(flag: Flag) -> String {
-  let name = "`--" <> flag.meta.name <> "`"
+  let value = case flag.type_ {
+    "" | "BOOL" -> ""
+    value_name -> "=<" <> escape_table_cell(value_name) <> ">"
+  }
+  let name = "`--" <> flag.meta.name <> value <> "`"
   let type_ = case flag.type_ {
     "" -> ""
-    flag_type -> "`" <> flag_type <> "`"
+    flag_type -> "`" <> escape_table_cell(flag_type) <> "`"
   }
   let default = case flag.default {
     None -> ""

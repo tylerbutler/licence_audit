@@ -283,6 +283,22 @@ class CliStreamTest(unittest.TestCase):
             )
             self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", colored), plain)
 
+    def test_help_value_forms_and_command_introductions(self):
+        root = self.assert_help_stream(self.run_cli("--help"), False, False)
+        self.assertTrue(root.startswith("Report locked dependency licences by default"))
+        lines = root.split("SUBCOMMANDS:", 1)[1].strip().splitlines()
+        self.assertEqual(len(lines), 6)
+        for command in ("report", "check", "update", "sbom", "vulns", "notices"):
+            result = self.run_cli(command, "--help")
+            help_text = self.assert_help_stream(result, False, False)
+            self.assertNotIn("Report locked dependency licences by default", help_text)
+            self.assertIn(f"Command: {command}", help_text)
+            self.assertIn("--manifest=<PATH>", help_text)
+            self.assertIn("--color=<auto|always|never>", help_text)
+            self.assertNotIn("<BOOL>", help_text)
+            self.assertNotIn("<STRING>", help_text)
+            self.assertNotIn("--quiet=", help_text)
+
     def test_default_report_matches_named_report_with_root_options(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
         (self.project / "locked.toml").write_text("packages = []\n")
