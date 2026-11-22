@@ -399,6 +399,30 @@ fn empty_policy() -> config.Policy {
   )
 }
 
+/// Replace supplied lists, preserve omitted lists and all other policy fields.
+/// Validate the existing policy before applying edits; update cannot repair it.
+pub fn proposed_policy(
+  existing: config.Policy,
+  allow: Option(List(String)),
+  deny: Option(List(String)),
+) -> Result(config.Policy, config.Error) {
+  use existing <- result.try(config.validate(existing))
+  config.Policy(
+    ..existing,
+    allow: option.unwrap(allow, existing.allow),
+    deny: option.unwrap(deny, existing.deny),
+  )
+  |> config.validate
+}
+
+/// Report declarations in neither list, not enforcement findings from check.
+pub fn uncovered_licences(
+  proposed: config.Policy,
+  discovered: List(String),
+) -> List(String) {
+  only_new(proposed, discovered)
+}
+
 fn merge_labels(
   existing: config.Policy,
   discovered: List(String),

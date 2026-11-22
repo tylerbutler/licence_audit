@@ -80,6 +80,89 @@ fn selected_pick(_title, _labels, _allow, _deny) {
   Ok(picker.Selection(allow: ["MIT"], deny: ["BSD-3-Clause"]))
 }
 
+pub fn proposed_policy_replaces_or_clears_only_supplied_lists_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse(
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\nvuln_severity = \"critical\"\nvuln_block_unknown = true\n"
+      <> "[[tools.licence_audit.exceptions]]\npurl = \"pkg:hex/lib_b@2.0.0\"\nfinding = \"invalid-licence-expression\"\nlicence = \"Apache 2.0\"\nreason = \"Reviewed upstream label\"\n",
+    )
+  use #(allow, deny, expected_allow, expected_deny) <- list.each([
+    #(None, None, existing.allow, existing.deny),
+    #(Some(["ISC"]), None, ["ISC"], existing.deny),
+    #(None, Some(["BSD-3-Clause"]), existing.allow, ["BSD-3-Clause"]),
+    #(Some([]), None, [], existing.deny),
+    #(None, Some([]), existing.allow, []),
+    #(Some([]), Some([]), [], []),
+  ])
+  should.equal(
+    update.proposed_policy(existing, allow, deny),
+    Ok(config.Policy(..existing, allow: expected_allow, deny: expected_deny)),
+  )
+}
+
+pub fn proposed_policy_rejects_invalid_lists_and_does_not_repair_existing_policy_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse("[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  use invalid <- list.each(["", " ", "Apache 2.0", "MIT OR"])
+  should.equal(
+    update.proposed_policy(existing, Some([invalid]), None),
+    Error(config.InvalidLicenceIdentifier("allow", invalid)),
+  )
+  should.equal(
+    update.proposed_policy(existing, None, Some([invalid])),
+    Error(config.InvalidLicenceIdentifier("deny", invalid)),
+  )
+  should.equal(
+    update.proposed_policy(
+      config.Policy(..existing, allow: [invalid]),
+      Some(["ISC"]),
+      None,
+    ),
+    Error(config.InvalidLicenceIdentifier("allow", invalid)),
+  )
+  should.equal(
+    update.proposed_policy(
+      config.Policy(..existing, deny: [invalid]),
+      None,
+      Some([]),
+    ),
+    Error(config.InvalidLicenceIdentifier("deny", invalid)),
+  )
+}
+
+pub fn proposed_policy_keeps_full_configuration_validation_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse("[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  should.equal(
+    update.proposed_policy(
+      config.Policy(..existing, vuln_severity: Some("urgent")),
+      Some([]),
+      Some([]),
+    ),
+    Error(config.InvalidField("vuln_severity", "low|medium|high|critical")),
+  )
+}
+
+pub fn uncovered_licences_use_list_membership_not_check_enforcement_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse(
+      "[tools.licence_audit]\nallow = [\"mit\", \"MIT OR Apache-2.0\", \"LicenseRef-Custom\", \"DocumentRef-A:LicenseRef-X\"]\ndeny = [\"BSD-3-Clause\"]\n",
+    )
+  let assert Ok(proposed) = update.proposed_policy(existing, None, None)
+  let discovered = [
+    "MIT", "MIT\tOR\tApache-2.0", "LicenseRef-Custom",
+    "DocumentRef-A:LicenseRef-X", "bsd-3-clause", "ISC", "ISC",
+    "LicenseRef-custom", "DocumentRef-a:LicenseRef-X", "Apache 2.0",
+  ]
+  should.equal(update.uncovered_licences(proposed, discovered), [
+    "Apache 2.0", "DocumentRef-a:LicenseRef-X", "ISC", "LicenseRef-custom",
+  ])
+  let assert Ok(cleared) = update.proposed_policy(existing, Some([]), Some([]))
+  should.equal(update.uncovered_licences(cleared, ["MIT", "ISC"]), [
+    "ISC", "MIT",
+  ])
+}
+
 pub fn user_cancel_exits_130_without_writing_file_test() {
   let path = fresh_path("cancel")
 
