@@ -210,9 +210,7 @@ class CliStreamTest(unittest.TestCase):
         ):
             with self.subTest(arguments=arguments):
                 result = self.run_cli(*arguments)
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertEqual(result.stdout, "")
-                self.assertIn("USAGE:", result.stderr)
+                self.assert_diagnostic(result)
                 self.assertNotIn("Could not read", result.stderr)
                 self.assertFalse((self.project / "out").exists())
 
