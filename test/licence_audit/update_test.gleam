@@ -38,6 +38,9 @@ fn options(config_path: Option(String)) -> cli.UpdateOptions {
     color: color.Never,
     no_cache: True,
     cache_dir: None,
+    allow: None,
+    deny: None,
+    dry_run: False,
   )
 }
 
@@ -91,6 +94,317 @@ fn selecting_pick(title, labels, allow, deny) {
 
 fn selected_pick(_title, _labels, _allow, _deny) {
   Ok(picker.Selection(allow: ["MIT"], deny: ["BSD-3-Clause"]))
+}
+
+pub fn proposed_policy_replaces_or_clears_only_supplied_lists_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse(
+      "[tools.licence_audit]\nallow = [\"MIT\"]\ndeny = [\"GPL-3.0-only\"]\nvuln_severity = \"critical\"\nvuln_block_unknown = true\n"
+      <> "[[tools.licence_audit.exceptions]]\npurl = \"pkg:hex/lib_b@2.0.0\"\nfinding = \"invalid-licence-expression\"\nlicence = \"Apache 2.0\"\nreason = \"Reviewed upstream label\"\n",
+    )
+  use #(allow, deny, expected_allow, expected_deny) <- list.each([
+    #(None, None, existing.allow, existing.deny),
+    #(Some(["ISC"]), None, ["ISC"], existing.deny),
+    #(None, Some(["BSD-3-Clause"]), existing.allow, ["BSD-3-Clause"]),
+    #(Some([]), None, [], existing.deny),
+    #(None, Some([]), existing.allow, []),
+    #(Some([]), Some([]), [], []),
+  ])
+  should.equal(
+    update.proposed_policy(existing, allow, deny),
+    Ok(config.Policy(..existing, allow: expected_allow, deny: expected_deny)),
+  )
+}
+
+pub fn proposed_policy_rejects_invalid_lists_and_does_not_repair_existing_policy_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse("[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  use invalid <- list.each(["", " ", "Apache 2.0", "MIT OR"])
+  should.equal(
+    update.proposed_policy(existing, Some([invalid]), None),
+    Error(config.InvalidLicenceIdentifier("allow", invalid)),
+  )
+  should.equal(
+    update.proposed_policy(existing, None, Some([invalid])),
+    Error(config.InvalidLicenceIdentifier("deny", invalid)),
+  )
+  should.equal(
+    update.proposed_policy(
+      config.Policy(..existing, allow: [invalid]),
+      Some(["ISC"]),
+      None,
+    ),
+    Error(config.InvalidLicenceIdentifier("allow", invalid)),
+  )
+  should.equal(
+    update.proposed_policy(
+      config.Policy(..existing, deny: [invalid]),
+      None,
+      Some([]),
+    ),
+    Error(config.InvalidLicenceIdentifier("deny", invalid)),
+  )
+}
+
+pub fn proposed_policy_keeps_full_configuration_validation_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse("[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  should.equal(
+    update.proposed_policy(
+      config.Policy(..existing, vuln_severity: Some("urgent")),
+      Some([]),
+      Some([]),
+    ),
+    Error(config.InvalidField("vuln_severity", "low|medium|high|critical")),
+  )
+}
+
+pub fn uncovered_licences_use_list_membership_not_check_enforcement_test() -> Nil {
+  let assert Ok(existing) =
+    config.parse(
+      "[tools.licence_audit]\nallow = [\"mit\", \"MIT OR Apache-2.0\", \"LicenseRef-Custom\", \"DocumentRef-A:LicenseRef-X\"]\ndeny = [\"BSD-3-Clause\"]\n",
+    )
+  let assert Ok(proposed) = update.proposed_policy(existing, None, None)
+  let discovered = [
+    "MIT", "MIT\tOR\tApache-2.0", "LicenseRef-Custom",
+    "DocumentRef-A:LicenseRef-X", "bsd-3-clause", "ISC", "ISC",
+    "LicenseRef-custom", "DocumentRef-a:LicenseRef-X", "Apache 2.0",
+  ]
+  should.equal(update.uncovered_licences(proposed, discovered), [
+    "Apache 2.0", "DocumentRef-a:LicenseRef-X", "ISC", "LicenseRef-custom",
+  ])
+  let assert Ok(cleared) = update.proposed_policy(existing, Some([]), Some([]))
+  should.equal(update.uncovered_licences(cleared, ["MIT", "ISC"]), [
+    "ISC", "MIT",
+  ])
+}
+
+pub fn headless_update_replaces_preserves_and_clears_without_terminal_test() -> Nil {
+  let original =
+    "# Project settings\nname = \"keep_me\"\n[tools.licence_audit]\nallow = [\"MIT\"] # keep allow note\ndeny = [\"GPL-3.0-only\"]\nvuln_severity = \"critical\"\nvuln_block_unknown = true\n"
+    <> "[[tools.licence_audit.exceptions]]\npurl = \"pkg:hex/lib_b@2.0.0\"\nfinding = \"invalid-licence-expression\"\nlicence = \"Apache 2.0\"\nreason = \"Reviewed upstream label\" # keep review\n[tools.other]\nenabled = true\n"
+  let assert Ok(existing) = config.parse(original)
+  use #(allow, deny) <- list.each([
+    #(Some(["ISC"]), None),
+    #(None, Some(["BSD-3-Clause"])),
+    #(Some([]), None),
+    #(None, Some([])),
+    #(Some([]), Some([])),
+    #(Some(["MIT", "Apache-2.0"]), Some(["BSD-3-Clause"])),
+  ])
+  use dry_run <- list.each([False, True])
+  let path = fresh_path("headless_policy")
+  let assert Ok(_) = simplifile.write(path, original)
+  set_private_mode(path)
+  let original_metadata = metadata(path)
+  let assert Ok(proposed) = update.proposed_policy(existing, allow, deny)
+  let #(result, _) =
+    update.run_with_terminal_check(
+      manifest_path,
+      ".",
+      cli.UpdateOptions(
+        ..options(Some(path)),
+        allow: allow,
+        deny: deny,
+        dry_run: dry_run,
+      ),
+      successful_fetcher(),
+      reporter(),
+      stdin_is_tty: fn() { panic as "headless update must not inspect stdin" },
+      stdout_is_tty: fn() { panic as "headless update must not inspect stdout" },
+    )
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "Discovered licences:")
+  assert string.contains(result.output, "Uncovered licences (in neither list):")
+  assert string.contains(result.output, "Proposed policy edit:")
+  let assert Ok(#(_, preview)) =
+    string.split_once(result.output, "Proposed policy edit:\n")
+  let assert Ok(preview) =
+    config.parse(
+      preview |> string.split("\n") |> list.take(3) |> string.join("\n"),
+    )
+  should.equal(preview.allow, proposed.allow)
+  should.equal(preview.deny, proposed.deny)
+  let assert Ok(contents) = simplifile.read(path)
+  case dry_run {
+    True -> {
+      should.equal(contents, original)
+      assert string.contains(result.output, "Dry run: no policy file written.")
+      assert !string.contains(result.output, "Wrote ")
+    }
+    False -> {
+      should.equal(config.parse(contents), Ok(proposed))
+      assert string.contains(contents, "# Project settings\nname = \"keep_me\"")
+      assert string.contains(contents, "# keep allow note")
+      assert string.contains(contents, "# keep review")
+      assert string.contains(contents, "[tools.other]\nenabled = true")
+      assert string.contains(result.output, "Wrote " <> path)
+    }
+  }
+  should.equal(metadata(path), original_metadata)
+  should.equal(temporary_files(path), [])
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn dry_run_alone_preserves_existing_or_missing_default_policy_test() -> Nil {
+  let path = fresh_path("gleam")
+  use contents <- list.each([None, Some("# Keep project\nname = \"keep_me\"\n")])
+  case contents {
+    None -> Nil
+    Some(contents) -> simplifile.write(path, contents) |> should.be_ok
+  }
+  let #(result, _) =
+    update.run_with_terminal_check(
+      manifest_path,
+      tmp_dir,
+      cli.UpdateOptions(..options(None), dry_run: True),
+      successful_fetcher(),
+      reporter(),
+      stdin_is_tty: fn() { False },
+      stdout_is_tty: fn() { False },
+    )
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "allow = []\ndeny = []")
+  assert string.contains(result.output, "Dry run:")
+  should.equal(temporary_files(path), [])
+  case contents {
+    None -> should.equal(simplifile.read(path), Error(simplifile.Enoent))
+    Some(contents) -> {
+      should.equal(simplifile.read(path), Ok(contents))
+      simplifile.delete(path) |> should.be_ok
+    }
+  }
+}
+
+pub fn headless_invalid_configuration_or_lists_stop_before_discovery_test() -> Nil {
+  use #(original, allow) <- list.each([
+    #("name = [\n", ["MIT"]),
+    #("[tools.licence_audit]\nallow = [\"Apache 2.0\"]\n", ["MIT"]),
+    #("[tools.licence_audit]\nexceptions = false\n", ["MIT"]),
+    #("[tools.licence_audit]\nunknown = true\n", ["MIT"]),
+    #("[tools.licence_audit]\nallow = [\"MIT\"]\n", [""]),
+  ])
+  use dry_run <- list.each([False, True])
+  let path = fresh_path("headless_invalid")
+  let assert Ok(_) = simplifile.write(path, original)
+  let calls = process.new_subject()
+  let clients =
+    notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
+      process.send(calls, Nil)
+      Error(notice.FetchNetworkFailure)
+    })
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      cli.UpdateOptions(
+        ..options(Some(path)),
+        allow: Some(allow),
+        dry_run: dry_run,
+      ),
+      clients,
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  should.equal(process.receive(calls, 0), Error(Nil))
+  should.equal(simplifile.read(path), Ok(original))
+  should.equal(temporary_files(path), [])
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn headless_discovery_failure_does_not_write_or_preview_success_test() -> Nil {
+  let original = "[tools.licence_audit]\nallow = [\"MIT\"]\n"
+  use dry_run <- list.each([False, True])
+  let path = fresh_path("headless_fetch_failure")
+  let assert Ok(_) = simplifile.write(path, original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      cli.UpdateOptions(
+        ..options(Some(path)),
+        allow: Some([]),
+        dry_run: dry_run,
+      ),
+      failing_fetcher(),
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "failed to fetch metadata")
+  assert !string.contains(result.output, "Proposed policy edit:")
+  should.equal(simplifile.read(path), Ok(original))
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn headless_revalidates_concurrent_policy_and_preserves_unrelated_edits_test() -> Nil {
+  use #(newer, expected_exit) <- list.each([
+    #("[tools.licence_audit]\nallow = [\"ISC\"]\n", 2),
+    #("[tools.licence_audit]\nexceptions = false\n", 2),
+    #(
+      "# Concurrent edit\nname = \"new_name\"\n[tools.licence_audit]\nallow = [\"MIT\"]\nvuln_block_unknown = true\n",
+      0,
+    ),
+  ])
+  use dry_run <- list.each([False, True])
+  let path = fresh_path("headless_concurrent")
+  let assert Ok(_) =
+    simplifile.write(path, "[tools.licence_audit]\nallow = [\"MIT\"]\n")
+  let clients =
+    notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(name, version) {
+      case name {
+        "app_a" -> simplifile.write(path, newer) |> should.be_ok
+        _ -> Nil
+      }
+      successful_fetcher().fetch_hex_tarball(name, version)
+    })
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      cli.UpdateOptions(
+        ..options(Some(path)),
+        allow: Some(["MIT", "ISC"]),
+        dry_run: dry_run,
+      ),
+      clients,
+      should_not_pick,
+      reporter(),
+    )
+  should.equal(result.exit_code, expected_exit)
+  case expected_exit, dry_run {
+    0, False -> {
+      let assert Ok(contents) = simplifile.read(path)
+      assert string.contains(contents, "# Concurrent edit\nname = \"new_name\"")
+      let assert Ok(saved) = config.parse(contents)
+      should.equal(saved.allow, ["MIT", "ISC"])
+      should.equal(saved.vuln_block_unknown, True)
+    }
+    _, _ -> should.equal(simplifile.read(path), Ok(newer))
+  }
+  should.equal(temporary_files(path), [])
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn invalid_picker_selection_is_rejected_before_write_test() -> Nil {
+  let path = fresh_path("invalid_selection")
+  let original = "[tools.licence_audit]\nallow = [\"MIT\"]\n"
+  let assert Ok(_) = simplifile.write(path, original)
+  let #(result, _) =
+    update.run_with_picker(
+      manifest_path,
+      ".",
+      options(Some(path)),
+      successful_fetcher(),
+      fn(_, _, _, _) { Ok(picker.Selection(["Apache 2.0"], [])) },
+      reporter(),
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "valid SPDX expressions")
+  should.equal(simplifile.read(path), Ok(original))
+  should.equal(temporary_files(path), [])
+  simplifile.delete(path) |> should.be_ok
 }
 
 pub fn user_cancel_exits_130_without_writing_file_test() {
@@ -773,6 +1087,40 @@ pub fn invalid_locked_labels_are_explained_but_never_selectable_test() {
       should.equal(#(name, version), #("app_a", "1.0.0"))
       Ok(bytes)
     })
+  list.each([True, False], fn(dry_run) {
+    let #(result, _) =
+      update.run_with_picker(
+        manifest,
+        ".",
+        cli.UpdateOptions(
+          ..options(Some(path)),
+          allow: Some(["MIT"]),
+          dry_run: dry_run,
+        ),
+        clients,
+        should_not_pick,
+        reporter(),
+      )
+    should.equal(result.exit_code, 0)
+    assert string.contains(
+      result.output,
+      "Not selectable (invalid SPDX expressions):",
+    )
+    assert string.contains(result.output, "\"Apache 2.0\"")
+    assert string.contains(result.output, "exact package/version and raw label")
+    let assert Ok(#(_, preview)) =
+      string.split_once(result.output, "Proposed policy edit:\n")
+    assert !string.contains(preview, "Apache 2.0")
+    case dry_run {
+      True -> should.equal(simplifile.read(path), Error(simplifile.Enoent))
+      False -> {
+        let assert Ok(saved) = simplifile.read(path)
+        let assert Ok(policy) = config.parse(saved)
+        should.equal(policy.allow, ["MIT"])
+        simplifile.delete(path) |> should.be_ok
+      }
+    }
+  })
   use cancelled <- list.each([False, True])
   let #(result, _) =
     update.run_with_picker(

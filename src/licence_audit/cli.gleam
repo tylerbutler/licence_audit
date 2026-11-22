@@ -1,8 +1,11 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option}
+import gleam/result
 import gleam/string
 import licence_audit/color
+import licence_audit/config
+import licence_audit/error
 import licence_audit/internal/vendor/glint
 import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
@@ -19,6 +22,11 @@ pub type Checks {
   AllChecks
 }
 
+pub type ReportFormat {
+  Text
+  Json
+}
+
 pub type ReportOptions {
   ReportOptions(
     manifest_path: Option(String),
@@ -29,6 +37,7 @@ pub type ReportOptions {
     no_cache: Bool,
     cache_dir: Option(String),
     scope: DependencyScope,
+    format: ReportFormat,
   )
 }
 
@@ -46,6 +55,7 @@ pub type Options {
     vuln_severity: Option(String),
     vuln_block_unknown: Option(Bool),
     scope: DependencyScope,
+    format: ReportFormat,
   )
 }
 
@@ -57,7 +67,15 @@ pub type UpdateOptions {
     color: color.Mode,
     no_cache: Bool,
     cache_dir: Option(String),
+    allow: Option(List(String)),
+    deny: Option(List(String)),
+    dry_run: Bool,
   )
+}
+
+pub type SbomFormat {
+  CyclonedxJson
+  SpdxJson
 }
 
 pub type SbomOptions {
@@ -71,6 +89,7 @@ pub type SbomOptions {
     offline: Bool,
     reproducible: Bool,
     with_vulns: Bool,
+    format: SbomFormat,
     license_text: Bool,
   )
 }
@@ -83,6 +102,7 @@ pub type VulnsOptions {
     verbosity: progress.Verbosity,
     color: color.Mode,
     scope: DependencyScope,
+    format: ReportFormat,
   )
 }
 
@@ -120,7 +140,7 @@ pub fn app() -> glint.Glint(CliAction) {
     put: "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.\n\n\n"
       <> report_help,
   )
-  |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
+  |> glint.add(at: ["report"], do: named_report_command())
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
   |> glint.add(at: ["sbom"], do: sbom_command())
@@ -262,11 +282,14 @@ const check_values = ["licences", "licenses", "vulns", "all"]
 
 const severity_values = ["low", "medium", "high", "critical"]
 
+const format_values = ["text", "json"]
+
 fn invalid_value_message(name: String, value: String) -> String {
   let expected = case name {
     "scope" -> scope_values
     "checks" -> check_values
     "vuln-severity" -> severity_values
+    "format" -> format_values
     _ -> ["true", "false"]
   }
   "invalid value '"
@@ -332,6 +355,66 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   normalize_values(args, value_flags, [])
 }
 
+/// Recognize the selected JSON format even when another argument is invalid.
+/// Callers must retain normal help output when execution returns Glint help.
+pub fn recognized_json_command(args: List(String)) -> Option(String) {
+  let args = args |> normalize_args |> before_separator
+  case command_path(args), selected_format(args, option.None) {
+    [command], option.Some("json")
+      if command == "report" || command == "check" || command == "vulns"
+    -> option.Some(command)
+    _, _ -> option.None
+  }
+}
+
+/// Preserve valid check selection when JSON usage fails before action parsing.
+pub fn recognized_checks(args: List(String)) -> Option(Checks) {
+  let args = args |> normalize_args |> before_separator
+  case command_path(args) {
+    ["report"] -> option.Some(Licences)
+    ["vulns"] -> option.Some(Vulnerabilities)
+    ["check"] -> selected_checks(args, option.Some(Licences))
+    _ -> option.None
+  }
+}
+
+fn selected_checks(
+  args: List(String),
+  selected: Option(Checks),
+) -> Option(Checks) {
+  case args {
+    [] -> selected
+    ["--checks=" <> value, ..rest] ->
+      selected_checks(rest, case value {
+        "licences" | "licenses" -> option.Some(Licences)
+        "vulns" -> option.Some(Vulnerabilities)
+        "all" -> option.Some(AllChecks)
+        _ -> option.None
+      })
+    ["--checks", ..rest] -> selected_checks(rest, option.None)
+    [_, ..rest] -> selected_checks(rest, selected)
+  }
+}
+
+fn before_separator(args: List(String)) -> List(String) {
+  case args {
+    [] | ["--", ..] -> []
+    [arg, ..rest] -> [arg, ..before_separator(rest)]
+  }
+}
+
+fn selected_format(
+  args: List(String),
+  selected: Option(String),
+) -> Option(String) {
+  case args {
+    [] -> selected
+    ["--format=" <> value, ..rest] -> selected_format(rest, option.Some(value))
+    ["--format", ..rest] -> selected_format(rest, option.None)
+    [_, ..rest] -> selected_format(rest, selected)
+  }
+}
+
 fn normalize_values(
   args: List(String),
   value_flags: List(String),
@@ -381,10 +464,13 @@ fn normalize_alias(arg: String) -> String {
 
 fn root_command() -> glint.Command(CliAction) {
   use show_version <- glint.flag(version_flag())
-  report_command(fn(flags) {
-    let assert Ok(value) = show_version(flags)
-    value
-  })
+  report_command(
+    fn(flags) {
+      let assert Ok(value) = show_version(flags)
+      value
+    },
+    fn(_) { Text },
+  )
 }
 
 const check_help =
@@ -467,6 +553,7 @@ fn licence_flags(
 
 fn report_command(
   show_version: fn(glint.Flags) -> Bool,
+  format: fn(glint.Flags) -> ReportFormat,
 ) -> glint.Command(CliAction) {
   use <- glint.command_help(report_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
@@ -500,7 +587,38 @@ fn report_command(
         no_cache: cache.no_cache,
         cache_dir: cache.cache_dir,
         scope: scope,
+        format: format(flags),
       ))
+  }
+}
+
+fn named_report_command() -> glint.Command(CliAction) {
+  use format <- report_format_flags()
+  report_command(fn(_) { False }, format)
+}
+
+fn report_format_flags(
+  next: fn(fn(glint.Flags) -> ReportFormat) -> glint.Command(a),
+) -> glint.Command(a) {
+  use format <- glint.flag(
+    glint.string_flag("format")
+    |> glint.flag_value_name("text|json")
+    |> glint.flag_default("text")
+    |> glint.flag_constraint(constraint.one_of(format_values))
+    |> glint.flag_help("Output format: text|json (default text)"),
+  )
+  next(fn(flags) {
+    let assert Ok(value) = format(flags)
+    let assert Ok(format) = report_format_from_string(value)
+    format
+  })
+}
+
+fn report_format_from_string(value: String) -> Result(ReportFormat, Nil) {
+  case value {
+    "text" -> Ok(Text)
+    "json" -> Ok(Json)
+    _ -> Error(Nil)
   }
 }
 
@@ -508,6 +626,7 @@ fn check_command() -> glint.Command(CliAction) {
   use <- glint.command_help(check_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use licence <- licence_flags()
+  use format <- report_format_flags()
   use checks <- glint.flag(checks_flag())
   use vuln_severity <- glint.optional_flag(vuln_severity_flag())
   use vuln_block_unknown <- glint.optional_flag(vuln_block_unknown_flag())
@@ -560,6 +679,7 @@ fn check_command() -> glint.Command(CliAction) {
         vuln_severity: vuln_severity_value,
         vuln_block_unknown: vuln_block_unknown_value,
         scope: scope,
+        format: format(flags),
       ))
   }
 }
@@ -708,26 +828,43 @@ fn validate_conflicts(
 
 fn update_command() -> glint.Command(CliAction) {
   use <- glint.command_help(
-    "Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.",
+    "Review discovered licences and update [tools.licence_audit]. Use --allow or --deny for non-interactive edits, or --dry-run to preview without writing. With none of these flags, use the interactive picker.",
   )
   use <- glint.unnamed_args(glint.EqArgs(0))
   use config <- glint.optional_flag(config_flag())
   use common <- common_flags()
   use cache <- cache_flags()
+  use allow <- glint.optional_flag(update_list_flag("allow"))
+  use deny <- glint.optional_flag(update_list_flag("deny"))
+  use dry_run <- glint.flag(
+    glint.bool_flag("dry-run")
+    |> glint.flag_default(False)
+    |> glint.flag_help(
+      "Print discovered licences and the proposed policy edit without writing; no terminal required",
+    ),
+  )
   use _, _, flags <- glint.command()
 
   let assert Ok(config_path) = config(flags)
+  let assert Ok(allow_value) = allow(flags)
+  let assert Ok(deny_value) = deny(flags)
+  let assert Ok(dry_run) = dry_run(flags)
   let common = common(flags)
   let cache = cache(flags)
   use <- validate_conflicts(config_path, False, cache.cache_dir, cache.no_cache)
   case
     verbosity(common.quiet, common.verbose),
-    color.mode_from_string(common.color_value)
+    color.mode_from_string(common.color_value),
+    parse_update_list("allow", allow_value),
+    parse_update_list("deny", deny_value)
   {
-    Error(verbosity_error), _ ->
+    Error(verbosity_error), _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), Ok(color_mode) ->
+    _, Error(color_error), _, _ ->
+      InvalidUsage(color.mode_error_message(color_error))
+    _, _, Error(config_error), _ | _, _, _, Error(config_error) ->
+      InvalidUsage(error.message(error.from_config_error(config_error)))
+    Ok(verbosity), Ok(color_mode), Ok(allow), Ok(deny) ->
       UpdateConfig(UpdateOptions(
         manifest_path: common.manifest_path,
         config_path: config_path,
@@ -735,7 +872,37 @@ fn update_command() -> glint.Command(CliAction) {
         color: color_mode,
         no_cache: cache.no_cache,
         cache_dir: cache.cache_dir,
+        allow: allow,
+        deny: deny,
+        dry_run: dry_run,
       ))
+  }
+}
+
+fn update_list_flag(name: String) -> glint.Flag(String) {
+  glint.string_flag(name)
+  |> glint.flag_value_name("SPDX,...")
+  |> glint.flag_help(
+    "Replace the "
+    <> name
+    <> " list with comma-separated SPDX expressions; an empty value clears it, omission preserves it",
+  )
+}
+
+fn parse_update_list(
+  field: String,
+  value: Option(String),
+) -> Result(Option(List(String)), config.Error) {
+  case value {
+    option.None -> Ok(option.None)
+    option.Some(value) -> {
+      let licences = case value {
+        "" -> []
+        _ -> string.split(value, ",") |> list.map(string.trim)
+      }
+      config.validate_licence_list(field, licences)
+      |> result.map(option.Some)
+    }
   }
 }
 
@@ -770,7 +937,7 @@ fn sbom_vulns_flag() -> glint.Flag(Bool) {
 }
 
 const sbom_help =
-  "Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies with their CycloneDX scope. JSON output stays plain in every color mode."
+  "Generate a CycloneDX 1.6 or SPDX 2.3 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies; CycloneDX records their scope. JSON output stays plain in every color mode."
 
 fn sbom_command() -> glint.Command(CliAction) {
   use <- glint.command_help(sbom_help)
@@ -783,11 +950,17 @@ fn sbom_command() -> glint.Command(CliAction) {
   use offline <- glint.flag(offline_flag())
   use reproducible <- glint.flag(reproducible_flag())
   use with_vulns <- glint.flag(sbom_vulns_flag())
+  use format <- glint.flag(
+    glint.string_flag("format")
+    |> glint.flag_value_name("cyclonedx-json|spdx-json")
+    |> glint.flag_default("cyclonedx-json")
+    |> glint.flag_help("Output format: cyclonedx-json or spdx-json"),
+  )
   use license_text <- glint.flag(
     glint.bool_flag("licence-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache; alias: --license-text)",
+      "Embed canonical SPDX text (alias: --license-text); CycloneDX only, offline requires usable pinned text in the cache",
     ),
   )
   use _, _, flags <- glint.command()
@@ -798,6 +971,7 @@ fn sbom_command() -> glint.Command(CliAction) {
   let assert Ok(offline_value) = offline(flags)
   let assert Ok(reproducible_value) = reproducible(flags)
   let assert Ok(with_vulns_value) = with_vulns(flags)
+  let assert Ok(format_value) = format(flags)
   let assert Ok(license_text_value) = license_text(flags)
 
   use <- validate_conflicts(option.None, False, cache.cache_dir, cache.no_cache)
@@ -805,33 +979,50 @@ fn sbom_command() -> glint.Command(CliAction) {
     verbosity(common.quiet, common.verbose),
     offline_value && with_vulns_value,
     reproducible_value && with_vulns_value,
+    format_value,
     color.mode_from_string(common.color_value)
   {
-    Error(verbosity_error), _, _, _ ->
+    Error(verbosity_error), _, _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, True, _, _ ->
+    _, True, _, _, _ ->
       InvalidUsage(
         "--vulns requires network access and cannot be combined with --offline",
       )
-    _, _, True, _ ->
+    _, _, True, _, _ ->
       InvalidUsage(
         "--vulns uses mutable advisory data and cannot be combined with --reproducible",
       )
-    _, _, _, Error(color_error) ->
+    _, _, _, "spdx-json", _ if with_vulns_value ->
+      InvalidUsage("--vulns is supported only with --format cyclonedx-json")
+    _, _, _, "spdx-json", _ if license_text_value ->
+      InvalidUsage(
+        "--license-text is supported only with --format cyclonedx-json",
+      )
+    _, _, _, _, Error(color_error) ->
       InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), False, False, Ok(color_mode) ->
-      RunSbom(SbomOptions(
-        manifest_path: common.manifest_path,
-        verbosity: verbosity,
-        color: color_mode,
-        no_cache: cache.no_cache,
-        cache_dir: cache.cache_dir,
-        output: output_value,
-        offline: offline_value,
-        reproducible: reproducible_value,
-        with_vulns: with_vulns_value,
-        license_text: license_text_value,
-      ))
+    Ok(verbosity), False, False, "cyclonedx-json", Ok(color_mode)
+    | Ok(verbosity), False, False, "spdx-json", Ok(color_mode)
+    ->
+      RunSbom(
+        SbomOptions(
+          manifest_path: common.manifest_path,
+          verbosity: verbosity,
+          color: color_mode,
+          no_cache: cache.no_cache,
+          cache_dir: cache.cache_dir,
+          output: output_value,
+          offline: offline_value,
+          reproducible: reproducible_value,
+          with_vulns: with_vulns_value,
+          license_text: license_text_value,
+          format: case format_value {
+            "spdx-json" -> SpdxJson
+            _ -> CyclonedxJson
+          },
+        ),
+      )
+    _, _, _, _, _ ->
+      InvalidUsage("--format must be cyclonedx-json or spdx-json")
   }
 }
 
@@ -893,6 +1084,7 @@ fn vulns_command() -> glint.Command(CliAction) {
   use common <- common_flags()
   use config <- config_flags()
   use scope <- glint.flag(scope_flag("all"))
+  use format <- report_format_flags()
   use _, _, flags <- glint.command()
 
   let common = common(flags)
@@ -920,6 +1112,7 @@ fn vulns_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         scope: scope_from_string(scope_value),
+        format: format(flags),
       ))
   }
 }

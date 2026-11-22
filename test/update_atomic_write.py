@@ -32,7 +32,7 @@ end,
 licence_audit@update:run_with_picker(
     <<"build/tmp/update_sigxfsz/manifest.toml">>, <<".">>,
     {update_options, none, {some, <<"build/tmp/update_sigxfsz/gleam.toml">>},
-        verbose, never, true, none},
+        verbose, never, true, none, none, none, false},
     Clients, Picker, licence_audit@progress:capturing(verbose, <<"update">>)
 ),
 halt().

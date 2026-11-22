@@ -161,6 +161,20 @@ licence totals, findings list, or licence verdict.
 Reports and verdicts use stdout. Progress and deferred operational errors
 use stderr. `--quiet` suppresses progress, not the report or verdict.
 
+## JSON output
+
+Use `licence_audit check --checks=all --format=json` for one
+[schema-1 JSON document](/docs/json-reports) on stdout. Text remains the
+default. JSON includes both selected checks, full in-scope counts, exception
+coverage, and the gate verdict. `--checks=vulns` still performs no licence
+enforcement or licence metadata requests.
+
+Check the exit code and `complete` field independently of the verdict.
+Known blocking findings can coexist with `gate_verdict: "failed"`,
+`complete: false`, and exit `2` when other evidence is unavailable.
+Recognized JSON usage and configuration errors also produce one document;
+checks that did not start have null results. Progress and logs use stderr.
+
 ## Production-only gates
 
 Use `--scope=prod` when your gate should consider only production dependencies.
@@ -396,6 +410,7 @@ licence_audit check [--flags]
 | `--checks=<licences\|vulns\|all>` | `licences\|vulns\|all` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
 | `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
+| `--format=<text\|json>` | `text\|json` | `text` | Output format: text\|json (default text) |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

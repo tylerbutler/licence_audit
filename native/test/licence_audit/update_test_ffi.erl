@@ -88,7 +88,8 @@ windows_worker() ->
             end,
             {{update_result, 0, _}, _} = licence_audit@update:run_with_picker(
                 <<"test/fixtures/update_manifest.toml">>, <<".">>,
-                {update_options, none, {some, Path}, verbose, never, true, none},
+                {update_options, none, {some, Path}, verbose, never, true, none,
+                    none, none, false},
                 Clients, Picker,
                 licence_audit@progress:capturing(verbose, <<"update">>)
             );
