@@ -57,6 +57,8 @@ pub type Error {
   MissingPackages
   InvalidPackageField(package: String, field: String, expected: String)
   FileReadError(String)
+  InvalidProductionConfiguration(path: String)
+  ProductionConfigurationReadFailed(path: String, reason: simplifile.FileError)
 }
 
 pub type Provenance {
@@ -255,6 +257,28 @@ pub fn git_source_identity(
   "git:" <> repo <> "@" <> commit <> directory
 }
 
+pub fn immutable_metadata_key(entry: SbomEntry) -> Result(String, Nil) {
+  case entry.provenance {
+    HexProvenance(checksum, _) ->
+      Ok(
+        entry.name
+        <> "@"
+        <> entry.version
+        <> "@hex:"
+        <> string.uppercase(checksum),
+      )
+    GitProvenance(repo, commit, path) ->
+      Ok(
+        entry.name
+        <> "@"
+        <> entry.version
+        <> "@"
+        <> git_source_identity(repo, commit, path),
+      )
+    PathProvenance(_) | UnknownProvenance(_) -> Error(Nil)
+  }
+}
+
 type RawPackage {
   RawPackage(
     name: String,
@@ -388,6 +412,21 @@ pub fn prod_direct_names(gleam_toml: String) -> Result(List(String), Nil) {
     Error(toml.TableLookupMissing) -> Ok([])
     Error(toml.TableLookupNotTable) -> Error(Nil)
     Ok(_) -> toml.table_keys(document, ["dependencies"])
+  }
+}
+
+/// Use all direct dependencies only when the project's gleam.toml is missing.
+pub fn resolve_prod_seed(
+  project_root: String,
+  all_direct: List(String),
+) -> Result(List(String), Error) {
+  let path = project_root <> "/gleam.toml"
+  case simplifile.read(from: path) {
+    Ok(contents) ->
+      prod_direct_names(contents)
+      |> result.replace_error(InvalidProductionConfiguration(path))
+    Error(simplifile.Enoent) -> Ok(all_direct)
+    Error(reason) -> Error(ProductionConfigurationReadFailed(path, reason))
   }
 }
 
