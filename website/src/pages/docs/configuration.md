@@ -9,16 +9,26 @@ description: Select the project configuration and understand explicit policy fil
 `licence_audit` uses the directory that contains the selected manifest as the
 project root. Without `--manifest`, it reads `manifest.toml` in your current
 directory. With `--manifest=PATH`, it reads that path and uses its directory.
+With `--manifest=DIR`, it reads `DIR/manifest.toml` and uses `DIR` as the
+project root. Both forms use the same configuration and dependency paths.
 Relative manifest and configuration paths start from your current directory.
 
 The default configuration file is `gleam.toml` beside that manifest:
-`dirname(--manifest)/gleam.toml`. The command does not search parent directories
+`<project root>/gleam.toml`. The command does not search parent directories
 or fall back to your current directory's `gleam.toml`.
 
 ```sh
 # Read apps/server/manifest.toml and apps/server/gleam.toml
 licence_audit check --manifest=apps/server/manifest.toml
+# Equivalent directory form
+licence_audit check --manifest=apps/server
 ```
+
+If the manifest is missing, the error names its directory and suggests running
+`gleam deps download` or selecting another manifest with `--manifest=PATH`.
+Run `gleam deps download` in the project root to create the manifest.
+The command does not search parent directories for a manifest.
+Unreadable files and invalid manifest contents remain separate errors.
 
 These commands use the same project-root rule, but read different settings:
 
@@ -26,7 +36,7 @@ These commands use the same project-root rule, but read different settings:
 |---|---|
 | Bare invocation or `report` | Read `[tools.licence_audit]` for a policy preview. |
 | `check` | Read `[tools.licence_audit]` and enforce the policy. |
-| `update` | Read the existing policy to preselect entries, then write the selected policy. |
+| `update` | Read the existing policy, then select, replace, or preview its lists. |
 | `vulns` | Read policy exceptions for the advisory report; do not enforce licence rules. |
 | `notices` | Read `[tools.licence_audit.notices]` dependency filters; do not enforce licence rules. |
 | `sbom` | Read project metadata for the root component; do not read or enforce licence policy. |
@@ -82,7 +92,8 @@ the manifest. `sbom` does not accept `--config`; it uses that project's metadata
 
 Reports and checks read `allow` and `deny` from the selected TOML file.
 Use `--config=policies/release.toml` to select an alternate policy.
-Edit the TOML file or use the interactive `update` command to change the lists.
+Edit the TOML file, use the `update` picker, or supply `update --allow=...`
+and `--deny=...` to change the lists.
 See [policy rules](/docs/check) for how the lists affect findings.
 
 On read-only commands that accept `--ignore-config`, this option bypasses tool
@@ -114,15 +125,33 @@ leaves the file intact. The picker preselects valid allow and deny entries; you
 can clear or change them. The command preserves unrelated settings, comments,
 exceptions, and permissions with an atomic replacement.
 
+For non-interactive edits, a supplied `--allow` or `--deny` replaces that list;
+an omitted flag preserves it. `--allow=` or `--deny=` clears the respective
+list. Empty entries inside a non-empty comma-separated list remain invalid.
+All entries must pass the same SPDX validation as configuration files.
+The command preserves exception entries and vulnerability settings.
+
 ```sh
 # Create or update the policy in an alternate target.
 licence_audit update --config=policies/server.toml
+# Replace allow in that target and keep its deny list.
+licence_audit update --config=policies/server.toml --allow=MIT,Apache-2.0
+# Preview clearing deny without changing the file.
+licence_audit update --config=policies/server.toml --deny= --dry-run
 ```
+
+Explicit edits and dry-run do not require a terminal. Dry-run validates and
+prints the proposed edit without changing or creating the target file.
+`update` reports discovered licences in neither list, but these licences do
+not prevent a successful write or cause a failed exit. Use `check` to enforce
+the saved policy. See [the update guide](/docs/update#non-interactive-edits)
+for the output and failure rules.
 
 ## Update migration
 
 Remove `--ignore-config`, including `=true` and `=false`, from `update` commands.
 `update` has no alias for this flag. To start a new selection, clear the
-preselected entries in the picker. To initialize an existing target without a
+preselected entries in the picker, or supply `--allow=` and `--deny=` to clear
+both lists without a terminal. To initialize an existing target without a
 policy section, use `update --config=PATH`; no bypass flag is needed.
 Read-only commands keep `--ignore-config`.

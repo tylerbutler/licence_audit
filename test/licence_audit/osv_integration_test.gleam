@@ -175,7 +175,7 @@ pub fn later_chunk_pagination_failure_is_incomplete_with_exit_two_test() {
 
 pub fn exhausted_host_operations_fail_incomplete_and_reset_for_next_command_test() {
   let packages =
-    list.repeat(Nil, 4)
+    list.repeat(Nil, 3)
     |> list.index_map(fn(_, index) {
       hex_package("package" <> int.to_string(index + 1), "1.0.0")
     })
@@ -185,7 +185,7 @@ pub fn exhausted_host_operations_fail_incomplete_and_reset_for_next_command_test
   let successes =
     list.repeat(
       Ok(response.Response(200, [], "{\"meta\":{\"licenses\":[\"MIT\"]}}")),
-      4,
+      3,
     )
   network_retry_test.with_script(list.append(timeouts, successes), fn() {
     let clients =
@@ -203,7 +203,7 @@ pub fn exhausted_host_operations_fail_incomplete_and_reset_for_next_command_test
     assert string.contains(failed.output, "network failure")
     should.equal(list.length(network_retry_test.requests()), 6)
     should.equal(run(root, ["report"], clients).exit_code, 0)
-    should.equal(list.length(network_retry_test.requests()), 10)
+    should.equal(list.length(network_retry_test.requests()), 9)
   })
 }
 

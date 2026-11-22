@@ -24,6 +24,13 @@ pub type Mode {
   Disabled
 }
 
+pub fn mode_for(no_cache: Bool, cache_path: Option(String)) -> Mode {
+  case no_cache {
+    True -> Disabled
+    False -> Enabled(path: cache_path)
+  }
+}
+
 /// Opaque cache handle. Holds a store when caching is enabled and available.
 pub opaque type Cache {
   Cache(table: Option(cache_dir.Store), warning: Option(String))

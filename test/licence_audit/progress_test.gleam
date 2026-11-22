@@ -4,6 +4,28 @@ import licence_audit/color
 import licence_audit/progress
 import tty
 
+pub fn worker_merge_distinguishes_identical_immediate_and_deferred_warnings_test() {
+  let parent = progress.capturing(progress.Verbose, "report")
+  let captured =
+    progress.fork(parent)
+    |> progress.defer_warn("same warning")
+    |> progress.detail("between warnings")
+    |> progress.warn("same warning")
+  let merged = progress.merge(parent, captured)
+  should.equal(merged.pending, [
+    progress.Event(progress.Warning, "same warning"),
+    progress.Event(progress.Detail, "between warnings"),
+  ])
+  should.equal(merged.deferred, [
+    progress.Event(progress.Warning, "same warning"),
+  ])
+  should.equal(progress.events(merged), [
+    progress.Event(progress.Warning, "same warning"),
+    progress.Event(progress.Detail, "between warnings"),
+    progress.Event(progress.Warning, "same warning"),
+  ])
+}
+
 pub fn stderr_color_enabled_rejects_no_color_test() {
   should.equal(progress.stderr_color_enabled(color.Auto, tty.NoColor), False)
 }

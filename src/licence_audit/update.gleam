@@ -1,7 +1,6 @@
 //// Workflow for the `update` subcommand: discover licences from the locked
-//// manifest, present an interactive picker preselected with the current
-//// policy, then write the result back to `gleam.toml` under
-//// `[tools.licence_audit]`.
+//// manifest, review the current policy interactively or apply explicit edits,
+//// then preview or write `[tools.licence_audit]` in the selected TOML file.
 
 import gleam/dict
 import gleam/int
@@ -11,10 +10,12 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import licence_audit/cache
+import licence_audit/cli
 import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/network
 import licence_audit/notice
 import licence_audit/path
 import licence_audit/picker
@@ -32,18 +33,14 @@ pub type UpdateResult {
 pub fn run(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   run_with_terminal_check(
     manifest_path,
     project_root,
-    config_path,
-    no_cache,
-    cache_root,
+    options,
     source_clients,
     reporter,
     stdin_is_tty: fn() { tty.is_tty(tty.Stdin) },
@@ -51,32 +48,46 @@ pub fn run(
   )
 }
 
-/// Check the real picker path before policy, manifest, or metadata discovery.
+/// Check the interactive picker path before policy or metadata discovery.
 pub fn run_with_terminal_check(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   reporter: progress.Reporter,
   stdin_is_tty stdin_is_tty: fn() -> Bool,
   stdout_is_tty stdout_is_tty: fn() -> Bool,
 ) -> #(UpdateResult, progress.Reporter) {
-  case stdin_is_tty(), stdout_is_tty() {
-    True, True ->
+  case headless(options) {
+    True ->
       run_with_picker(
         manifest_path,
         project_root,
-        config_path,
-        no_cache,
-        cache_root,
+        options,
         source_clients,
         picker.pick,
         reporter,
       )
-    _, _ -> #(not_interactive(), reporter)
+    False ->
+      case stdin_is_tty(), stdout_is_tty() {
+        True, True ->
+          run_with_picker(
+            manifest_path,
+            project_root,
+            options,
+            source_clients,
+            picker.pick,
+            reporter,
+          )
+        _, _ -> #(not_interactive(), reporter)
+      }
   }
+}
+
+fn headless(options: cli.UpdateOptions) -> Bool {
+  option.is_some(options.allow)
+  || option.is_some(options.deny)
+  || options.dry_run
 }
 
 fn not_interactive() -> UpdateResult {
@@ -86,14 +97,11 @@ fn not_interactive() -> UpdateResult {
   )
 }
 
-/// Run the update workflow with an injected picker, allowing tests to drive the
-/// interactive selection step headlessly.
+/// Run with an injected picker. Explicit edits and dry-run skip the picker.
 pub fn run_with_picker(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   pick: fn(String, List(String), List(String), List(String)) ->
     Result(picker.Selection, picker.PickerError),
@@ -102,8 +110,12 @@ pub fn run_with_picker(
   let reporter = progress.phase(reporter, "Starting licence policy update")
 
   let outcome = {
-    use existing <- result.try(
-      load_existing_policy(config_path, project_root)
+    use #(existing, proposed) <- result.try(
+      load_existing_policy(options.config_path, project_root)
+      |> result.try(fn(existing) {
+        proposed_policy(existing, options.allow, options.deny)
+        |> result.map(fn(proposed) { #(existing, proposed) })
+      })
       |> result.map_error(fn(config_error) {
         #(
           UpdateDiagnostic(
@@ -134,10 +146,7 @@ pub fn run_with_picker(
     let reporter =
       progress.package_count(reporter, list.length(locked.packages))
 
-    let cache_mode = case no_cache {
-      True -> cache.Disabled
-      False -> cache.Enabled(path: cache_root)
-    }
+    let cache_mode = cache.mode_for(options.no_cache, options.cache_dir)
     let cache_handle = cache.open(cache_mode)
     let cached_fetcher =
       cache.wrap_locked(cache_handle, fn(name, version, checksum) {
@@ -167,15 +176,29 @@ pub fn run_with_picker(
         )
       }
       False ->
-        handle_selection(
-          existing,
-          discovered,
-          config_path,
-          project_root,
-          cache_warning,
-          pick,
-          reporter,
-        )
+        case headless(options) {
+          True ->
+            write_selection(
+              existing,
+              proposed.allow,
+              proposed.deny,
+              options,
+              project_root,
+              cache_warning,
+              Some(discovered),
+              reporter,
+            )
+          False ->
+            handle_selection(
+              existing,
+              discovered,
+              options,
+              project_root,
+              cache_warning,
+              pick,
+              reporter,
+            )
+        }
     })
   }
   case outcome {
@@ -188,7 +211,7 @@ pub fn run_with_picker(
 fn handle_selection(
   existing: config.Policy,
   discovered: List(String),
-  config_path: Option(String),
+  options: cli.UpdateOptions,
   project_root: String,
   cache_warning: Option(String),
   pick: fn(String, List(String), List(String), List(String)) ->
@@ -207,17 +230,7 @@ fn handle_selection(
     <> " total, "
     <> int.to_string(list.length(only_new(existing, discovered)))
     <> " new)"
-  let title = case invalid {
-    [] -> title
-    _ ->
-      title
-      <> "\nNot selectable (invalid SPDX expressions): "
-      <> string.join(
-        list.map(invalid, fn(label) { json.to_string(json.string(label)) }),
-        ", ",
-      )
-      <> "\nUse a reviewed invalid-licence-expression exception for the exact package/version and raw label."
-  }
+  let title = title <> invalid_label_message(invalid)
   case pick(title, labels, existing.allow, existing.deny) {
     Error(picker.Cancelled) -> {
       let reporter = progress.warn(reporter, "Update cancelled")
@@ -244,27 +257,29 @@ fn handle_selection(
         existing,
         allow,
         deny,
-        config_path,
+        options,
         project_root,
         cache_warning,
+        None,
         reporter,
       )
     }
   }
 }
 
-/// Write the chosen policy to disk and report success or failure.
+/// Validate the edit, then preview or write it and report the outcome.
 fn write_selection(
   activation: config.Policy,
   allow: List(String),
   deny: List(String),
-  config_path: Option(String),
+  options: cli.UpdateOptions,
   project_root: String,
   cache_warning: Option(String),
+  discovered: Option(List(String)),
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
-  let target = resolve_output_path(config_path, project_root)
-  case write_policy(target, activation, allow, deny) {
+  let target = resolve_output_path(options.config_path, project_root)
+  case write_policy(target, activation, allow, deny, options.dry_run) {
     Error(error) -> {
       let message = write_error_message(error)
       let exit_code = case error {
@@ -285,20 +300,31 @@ fn write_selection(
       )
     }
     Ok(_) -> {
-      let reporter = progress.success(reporter, "Wrote " <> target)
-      let reporter = case allow {
-        [] ->
+      let reporter = case options.dry_run {
+        True -> progress.success(reporter, "Policy preview ready")
+        False -> progress.success(reporter, "Wrote " <> target)
+      }
+      let reporter = case allow, options.dry_run {
+        [], False ->
           progress.warn(
             reporter,
             "The saved policy has an empty allow list. Add allow rules before running check --checks=licences or check --checks=all.",
           )
-        _ -> reporter
+        _, _ -> reporter
       }
       let reporter = warn_cache(reporter, cache_warning)
-      #(
-        UpdateResult(exit_code: 0, output: summary(target, allow, deny)),
-        reporter,
-      )
+      let proposed = config.Policy(..activation, allow: allow, deny: deny)
+      let output = case discovered {
+        None -> ""
+        Some(labels) -> proposal_summary(proposed, labels)
+      }
+      let output =
+        output
+        <> case options.dry_run {
+          True -> "Dry run: no policy file written.\n"
+          False -> summary(target, allow, deny)
+        }
+      #(UpdateResult(exit_code: 0, output: output), reporter)
     }
   }
 }
@@ -311,36 +337,47 @@ fn discover_licences(
   collected: List(String),
   failed: Bool,
 ) -> #(List(String), Bool, progress.Reporter) {
-  case packages {
-    [] -> #(list.unique(collected), failed, reporter)
-    [pkg, ..rest] -> {
-      let #(result, reporter) = fetcher(pkg, reporter)
-      case result {
-        Error(fetch_error) -> {
-          let reporter =
-            progress.fail(
-              reporter,
-              "Failed to fetch package metadata for "
-                <> pkg.name
-                <> "@"
-                <> pkg.version
-                <> ": "
-                <> notice.describe_error(fetch_error),
-            )
-          discover_licences(rest, fetcher, reporter, collected, True)
-        }
-        Ok(metadata) -> {
-          discover_licences(
-            rest,
-            fetcher,
-            reporter,
-            list.append(collected, metadata.licences),
-            failed,
+  let outcomes =
+    network.fetch(
+      packages,
+      fn(package) { package.name <> "@" <> package.version },
+      fn(package) { fetcher(package, progress.fork(reporter)) },
+    )
+  let #(collected, failed, reporter) =
+    list.fold(
+      list.zip(packages, outcomes),
+      #(collected, failed, reporter),
+      fn(acc, pair) {
+        let #(collected, failed, reporter) = acc
+        let #(pkg, outcome) = pair
+        let #(fetched, reporter) = case outcome {
+          Ok(#(fetched, captured)) -> #(
+            result.map_error(fetched, notice.describe_error),
+            progress.merge(reporter, captured),
           )
+          Error(reason) -> #(Error(reason), reporter)
         }
-      }
-    }
-  }
+        case fetched {
+          Error(reason) -> {
+            let reporter =
+              progress.fail(
+                reporter,
+                "Failed to fetch package metadata for "
+                  <> pkg.name
+                  <> "@"
+                  <> pkg.version
+                  <> ": "
+                  <> reason,
+              )
+            #(collected, True, reporter)
+          }
+          Ok(metadata) -> {
+            #(list.append(collected, metadata.licences), failed, reporter)
+          }
+        }
+      },
+    )
+  #(list.unique(collected), failed, reporter)
 }
 
 fn load_existing_policy(
@@ -474,7 +511,7 @@ fn write_error_message(error: WriteError) -> String {
     PolicyChanged(path) ->
       "Policy conflict: allow or deny rules in "
       <> path
-      <> " changed during selection; rerun update."
+      <> " changed during update; rerun update."
     FileReadFailed(path, reason) ->
       "Failed to read " <> path <> ": " <> simplifile.describe_error(reason)
     FileWriteFailed(path) -> "Failed to write " <> path
@@ -486,6 +523,7 @@ fn write_policy(
   activation: config.Policy,
   allow: List(String),
   deny: List(String),
+  dry_run: Bool,
 ) -> Result(Nil, WriteError) {
   use existing <- result.try(case simplifile.read(from: path) {
     Ok(contents) -> Ok(contents)
@@ -501,19 +539,68 @@ fn write_policy(
       False -> Error(PolicyChanged(path))
     },
   )
+  use _ <- result.try(
+    proposed_policy(current, Some(allow), Some(deny))
+    |> result.map_error(InvalidPolicy),
+  )
   let section = ["tools", "licence_audit"]
   case toml.set_string_array(existing, section, "allow", allow) {
     Error(e) -> Error(TomlEditFailed(e))
     Ok(after_allow) ->
       case toml.set_string_array(after_allow, section, "deny", deny) {
         Error(e) -> Error(TomlEditFailed(e))
-        Ok(after_both) ->
-          case atomic_write(path, after_both) {
-            Ok(_) -> Ok(Nil)
-            Error(_) -> Error(FileWriteFailed(path))
+        Ok(after_both) -> {
+          use _ <- result.try(
+            config.parse(after_both) |> result.map_error(InvalidPolicy),
+          )
+          case dry_run {
+            True -> Ok(Nil)
+            False ->
+              case atomic_write(path, after_both) {
+                Ok(_) -> Ok(Nil)
+                Error(_) -> Error(FileWriteFailed(path))
+              }
           }
+        }
       }
   }
+}
+
+fn invalid_label_message(invalid: List(String)) -> String {
+  case invalid {
+    [] -> ""
+    _ ->
+      "\nNot selectable (invalid SPDX expressions): "
+      <> string.join(
+        list.map(invalid, fn(label) { json.to_string(json.string(label)) }),
+        ", ",
+      )
+      <> "\nUse a reviewed invalid-licence-expression exception for the exact package/version and raw label."
+  }
+}
+
+fn proposal_summary(
+  proposed: config.Policy,
+  discovered: List(String),
+) -> String {
+  let discovered = discovered |> list.unique |> list.sort(string.compare)
+  let invalid =
+    list.filter(discovered, fn(label) {
+      result.is_error(spdx_expression.parse(label))
+    })
+  "Discovered licences: "
+  <> json.to_string(json.array(discovered, json.string))
+  <> invalid_label_message(invalid)
+  <> "\nUncovered licences (in neither list): "
+  <> json.to_string(json.array(
+    uncovered_licences(proposed, discovered),
+    json.string,
+  ))
+  <> "\nProposed policy edit:\n[tools.licence_audit]\nallow = "
+  <> json.to_string(json.array(proposed.allow, json.string))
+  <> "\ndeny = "
+  <> json.to_string(json.array(proposed.deny, json.string))
+  <> "\n"
 }
 
 @external(erlang, "policy_file_ffi", "write")

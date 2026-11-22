@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tomllib
 import unittest
 import uuid
 
@@ -491,6 +492,104 @@ class CliStreamTest(unittest.TestCase):
                 self.assert_diagnostic(result)
                 self.assertIn("interactive terminal", result.stderr)
                 self.assertEqual(path.read_bytes() if path.exists() else None, original)
+
+    def test_headless_update_replaces_and_clears_only_supplied_lists(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        path = self.project / "gleam.toml"
+        original = (
+            '# Keep project\nname = "stream_fixture"\n'
+            '[tools.licence_audit]\nallow = ["MIT"] # keep rule note\n'
+            'deny = ["GPL-3.0-only"]\nvuln_severity = "critical"\n'
+            'vuln_block_unknown = true\n'
+            '[[tools.licence_audit.exceptions]]\npurl = "pkg:hex/example@1.0.0"\n'
+            'finding = "invalid-licence-expression"\nlicence = "Apache 2.0"\n'
+            'reason = "Reviewed upstream label" # keep review\n'
+            '[tools.other]\nenabled = true\n'
+        )
+        existing = tomllib.loads(original)["tools"]["licence_audit"]
+        for flags, allow, deny in (
+            (["--allow=ISC"], ["ISC"], ["GPL-3.0-only"]),
+            (["--deny=BSD-3-Clause"], ["MIT"], ["BSD-3-Clause"]),
+            (["--allow="], [], ["GPL-3.0-only"]),
+            (["--deny="], ["MIT"], []),
+            (["--allow=", "--deny="], [], []),
+        ):
+            with self.subTest(flags=flags):
+                path.write_text(original)
+                result = self.run_cli(
+                    "update", "--quiet", "--no-cache", "--manifest=.", *flags,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+                self.assertIn("Discovered licences: []", result.stdout)
+                self.assertIn("Proposed policy edit:", result.stdout)
+                self.assertIn("Wrote ", result.stdout)
+                saved = path.read_text()
+                policy = tomllib.loads(saved)["tools"]["licence_audit"]
+                self.assertEqual(policy, {**existing, "allow": allow, "deny": deny})
+                for comment in ("# Keep project", "# keep rule note", "# keep review"):
+                    self.assertIn(comment, saved)
+                self.assertTrue(tomllib.loads(saved)["tools"]["other"]["enabled"])
+                self.assertFalse(list(self.project.glob("*.licence-audit-*.tmp")))
+
+    def test_update_dry_run_without_terminal_never_changes_or_creates_policy(self):
+        (self.project / "manifest.toml").write_text("packages = []\n")
+        for target in ("gleam.toml", "missing.toml"):
+            path = self.project / target
+            original = path.read_bytes() if path.exists() else None
+            for flags in ([], ["--allow=", "--deny=ISC"]):
+                with self.subTest(target=target, flags=flags):
+                    result = self.run_cli(
+                        "update", "--quiet", "--no-cache", "--dry-run",
+                        f"--config={target}", *flags,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    self.assertIn("Proposed policy edit:", result.stdout)
+                    self.assertIn("Dry run: no policy file written.", result.stdout)
+                    self.assertNotIn("Wrote ", result.stdout)
+                    self.assertEqual(
+                        path.read_bytes() if path.exists() else None, original,
+                    )
+                    self.assertFalse(list(self.project.glob("*.licence-audit-*.tmp")))
+
+    def test_headless_update_failures_leave_policy_intact(self):
+        manifest = self.project / "manifest.toml"
+        path = self.project / "gleam.toml"
+        for original, flags, has_manifest in (
+            ('name = [\n', ["--allow=MIT"], True),
+            ('[tools.licence_audit]\nallow = ["Apache 2.0"]\n', ["--allow=MIT"], True),
+            ('[tools.licence_audit]\nexceptions = false\n', ["--allow=MIT"], True),
+            ('[tools.licence_audit]\nallow = ["MIT"]\n', ["--allow=MIT,,ISC"], True),
+            ('[tools.licence_audit]\nallow = ["MIT"]\n', ["--allow=ISC"], False),
+            ('[tools.licence_audit]\nallow = ["MIT"]\n', ["--allow=ISC", "--config=gleam.toml/nested"], True),
+        ):
+            for preview in ([], ["--dry-run"]):
+                with self.subTest(original=original, flags=flags, preview=preview):
+                    path.write_text(original)
+                    if has_manifest:
+                        manifest.write_text("packages = []\n")
+                    elif manifest.exists():
+                        manifest.unlink()
+                    result = self.run_cli(
+                        "update", "--quiet", "--no-cache", *flags, *preview,
+                    )
+                    self.assert_diagnostic(result)
+                    if not has_manifest:
+                        self.assertIn("manifest.toml not found in", result.stderr)
+                        self.assertIn("gleam deps download", result.stderr)
+                    self.assertEqual(path.read_text(), original)
+                    self.assertFalse(list(self.project.glob("*.licence-audit-*.tmp")))
+        manifest.write_text("packages = []\n")
+        before = path.read_bytes()
+        result = self.run_cli(
+            "update", "--quiet", "--no-cache", "--allow=ISC",
+            "--config=missing-parent/policy.toml",
+        )
+        self.assert_diagnostic(result)
+        self.assertIn("Failed to write", result.stderr)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse((self.project / "missing-parent").exists())
 
     def test_vulnerability_flags_require_scan_before_reading_manifest(self):
         for flags in (
