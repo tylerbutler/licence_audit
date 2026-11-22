@@ -8,6 +8,7 @@ import licence_audit/notice
 import licence_audit/picker
 import licence_audit/policy
 import licence_audit/progress
+import licence_audit/source_archive
 import licence_audit/source_archive_test
 import licence_audit/update
 import simplifile
@@ -737,6 +738,12 @@ purl = \"pkg:hex/lib_c@3.0.0\"
 finding = \"advisory\"
 advisory = \"CVE-2026-12345\"
 reason = \"Reviewed affected code\"
+
+[[tools.licence_audit.exceptions]]
+purl = \"pkg:hex/lib_b@2.0.0\"
+finding = \"invalid-licence-expression\"
+licence = \"Apache 2.0\"
+reason = \"Reviewed raw upstream label\"
 "
   let assert Ok(_) =
     simplifile.write(
@@ -771,6 +778,77 @@ reason = \"Reviewed affected code\"
     config.parse("[tools.licence_audit]\n" <> exceptions)
   should.equal(parsed.exceptions, original.exceptions)
   let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn invalid_locked_labels_are_explained_but_never_selectable_test() {
+  let path = fresh_path("invalid_labels")
+  let manifest = fresh_path("invalid_labels_manifest")
+  let bytes =
+    source_archive_test.metadata_archive([
+      "Apache 2.0",
+      "MIT",
+      "DocumentRef-Project:LicenseRef-a\r\nWITH\r\nException-Z",
+    ])
+  let assert Ok(checksum) = source_archive.sha256_hex(bytes)
+  let assert Ok(_) =
+    simplifile.write(
+      manifest,
+      "packages = [{ name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [], outer_checksum = \""
+        <> checksum
+        <> "\" }]\n[requirements]\napp_a = \"1.0.0\"\n",
+    )
+  let clients =
+    notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(name, version) {
+      should.equal(#(name, version), #("app_a", "1.0.0"))
+      Ok(bytes)
+    })
+  use cancelled <- list.each([False, True])
+  let #(result, _) =
+    update.run_with_picker(
+      manifest,
+      ".",
+      Some(path),
+      True,
+      None,
+      clients,
+      fn(title, labels, allow, deny) {
+        assert string.contains(title, "(2 total, 2 new)")
+        assert string.contains(
+          title,
+          "Not selectable (invalid SPDX expressions): \"Apache 2.0\"",
+        )
+        assert string.contains(title, "exact package/version and raw label")
+        should.equal(labels, [
+          "DocumentRef-Project:LicenseRef-a\r\nWITH\r\nException-Z",
+          "MIT",
+        ])
+        let selection =
+          picker.new_state(title, labels, allow, deny)
+          |> picker.handle_picker_key(picker.AllowAll)
+          |> picker.state_selection
+        assert !list.contains(selection.allow, "Apache 2.0")
+        case cancelled {
+          True -> Error(picker.Cancelled)
+          False -> Ok(selection)
+        }
+      },
+      reporter(),
+    )
+  case cancelled {
+    False -> {
+      should.equal(result.exit_code, 0)
+      let assert Ok(contents) = simplifile.read(path)
+      let assert Ok(saved) = config.parse(contents)
+      should.equal(list.length(saved.allow), 2)
+      assert !list.contains(saved.allow, "Apache 2.0")
+      simplifile.delete(path) |> should.be_ok
+    }
+    True -> {
+      should.equal(result.exit_code, 130)
+      should.equal(simplifile.read(path), Error(simplifile.Enoent))
+      simplifile.delete(manifest) |> should.be_ok
+    }
+  }
 }
 
 pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test() {
