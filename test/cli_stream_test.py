@@ -125,6 +125,279 @@ class CliStreamTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("Error:", result.stderr)
 
+    def json_document(self, result, status):
+        self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+        self.assertNotIn("\x1b", result.stdout)
+        document = json.loads(result.stdout)
+        self.assertEqual(document["schema_version"], 1)
+        self.assertEqual(document["exit_code"], status)
+        return document
+
+    def json_fetch_fixture(self, mode):
+        (self.project / "manifest.toml").write_text(
+            'packages = [{ name = "example", version = "1.0.0", '
+            'build_tools = ["gleam"], requirements = [], '
+            f'otp_app = "example", source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}]\n'
+            '[requirements]\nexample = ">= 1.0.0"\n'
+        )
+        if mode == "metadata_failure":
+            manifest = self.project / "manifest.toml"
+            manifest.write_text(manifest.read_text().replace(
+                "packages = [", 'packages = [{ name = "unavailable", version = "1.0.0", '
+                'build_tools = ["gleam"], requirements = [], otp_app = "unavailable", '
+                f'source = "hex", outer_checksum = "{HEX_CHECKSUM}" }}, '
+            ))
+        evaluation = """
+            {ok, Archive} = file:read_file(os:getenv("STREAM_ARCHIVE_PATH")),
+            Mode = os:getenv("STREAM_OSV_MODE"),
+            Batch = case Mode of
+                "batch_failure" -> {error, {network_failure, <<"fixture batch failure">>}};
+                "empty" -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>, []}]};
+                "unknown" -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>, [<<"GHSA-unknown">>]}]};
+                "unavailable" -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>, [<<"GHSA-missing">>]}]};
+                _ -> {ok, [{batch_entry, <<"pkg:hex/example@1.0.0">>,
+                    [<<"GHSA-high">>, <<"GHSA-missing">>]}]}
+            end,
+            Modules = ['licence_audit@notice', 'licence_audit@osv'],
+            lists:foreach(fun(Module) ->
+                {ok, {Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                    beam_lib:chunks(code:which(Module), [abstract_code]),
+                Replaced = lists:map(fun
+                    ({function, Line, fetch_hex_tarball_from_hex, 2, _}) ->
+                        {function, Line, fetch_hex_tarball_from_hex, 2, [
+                            {clause, Line, [erl_parse:abstract(<<"unavailable">>), {var, Line, '_'}], [],
+                                [erl_parse:abstract({error, {network_failure, <<"fixture metadata failure">>}})]},
+                            {clause, Line, [{var, Line, '_'}, {var, Line, '_'}], [],
+                                [erl_parse:abstract({ok, Archive})]}]};
+                    ({function, Line, query_batch_from_osv, 1, _}) ->
+                        {function, Line, query_batch_from_osv, 1, [
+                            {clause, Line, [{var, Line, '_'}], [],
+                                [erl_parse:abstract(Batch)]}]};
+                    ({function, Line, fetch_vulnerability_from_osv, 1, _}) ->
+                        Failure = case Mode of
+                            "worker_failure" ->
+                                {call, Line, {remote, Line,
+                                    {atom, Line, erlang}, {atom, Line, error}},
+                                    [{atom, Line, fixture_worker_failure}]};
+                            _ -> erl_parse:abstract(
+                                {error, {network_failure, <<"fixture details failure">>}})
+                        end,
+                        {function, Line, fetch_vulnerability_from_osv, 1, [
+                            {clause, Line, [erl_parse:abstract(<<"GHSA-unknown">>)], [],
+                                [erl_parse:abstract({ok, {vulnerability, <<"GHSA-unknown">>,
+                                    [], <<"Unknown advisory">>, unknown_severity, [], []}})]},
+                            {clause, Line, [erl_parse:abstract(<<"GHSA-high">>)], [],
+                                [erl_parse:abstract({ok, {vulnerability, <<"GHSA-high">>,
+                                    [<<"CVE-2026-1234">>], <<"Fixture advisory">>,
+                                    high, [], []}})]},
+                            {clause, Line, [{var, Line, '_'}], [], [Failure]}]};
+                    (Form) -> Form
+                end, Forms),
+                {ok, Module, Binary} = compile:forms(Replaced, [binary]),
+                ok = file:write_file(filename:join(os:getenv("STREAM_FIXTURE_EBIN"),
+                    atom_to_list(Module) ++ ".beam"), Binary)
+            end, Modules),
+            halt(0).
+        """
+        return self.compile_fixture(evaluation, {
+            "STREAM_ARCHIVE_PATH": str(HEX_ARCHIVE), "STREAM_OSV_MODE": mode,
+        })
+
+    def test_json_usage_configuration_and_input_errors_are_stdout_documents(self):
+        for arguments, code in (
+            (["report", "--format=json", "--unknown"], "usage"),
+            (["check", "--format", "json", "--checks=all", "--scope=dev"], "usage"),
+            (["vulns", "--format=json", "--manifest=missing.toml"], "input"),
+            (["check", "--format=json", "--ignore-config"], "missing_policy"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                document = self.json_document(result, 2)
+                self.assertFalse(document["complete"])
+                self.assertIsNone(document["licences"])
+                self.assertIsNone(document["vulnerabilities"])
+                self.assertEqual(document["errors"][0]["code"], code)
+                self.assertEqual(document["summary"]["checks_run"], [])
+
+    def test_json_help_stays_text_and_root_has_no_format_flag(self):
+        for command in ("report", "check", "vulns"):
+            result = self.run_cli(command, "--format=json", "--help")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("USAGE:", result.stdout)
+            self.assertEqual(result.stderr, "")
+        self.assert_diagnostic(self.run_cli("--format=json"))
+        self.assertNotIn("--format", self.run_cli("--help").stdout)
+
+    def test_json_invalid_config_precedes_missing_input(self):
+        (self.project / "gleam.toml").write_text(
+            'name = "stream_fixture"\n[tools.licence_audit]\nallow = "invalid"\n'
+        )
+        for command in (["report"], ["check", "--checks=all"], ["vulns"]):
+            result = self.run_cli(*command, "--format=json", "--manifest=missing.toml")
+            document = self.json_document(result, 2)
+            self.assertEqual(document["errors"][0]["code"], "config")
+            self.assertEqual(document["summary"]["checks_run"], [])
+            self.assertIsNone(document["licences"])
+            self.assertIsNone(document["vulnerabilities"])
+
+    def test_json_partial_metadata_preserves_rows_and_failed_gate(self):
+        fixture = self.json_fetch_fixture("metadata_failure")
+        for command in ("report", "check"):
+            result = self.run_cli(command, "--format=json", "--no-cache", fixture=fixture)
+            document = self.json_document(result, 2)
+            self.assertFalse(document["complete"])
+            self.assertFalse(document["licences"]["complete"])
+            rows = {row["package"]: row for row in document["licences"]["rows"]}
+            self.assertEqual(rows["example"]["licences"], ["Apache-2.0"])
+            self.assertEqual(rows["unavailable"]["status"], "failed")
+            self.assertEqual(rows["unavailable"]["error"]["code"], "metadata_unavailable")
+            self.assertEqual(document["summary"]["counts"]["licences"]["total"], 2)
+            self.assertEqual(document["summary"]["gate_verdict"],
+                             "failed" if command == "check" else "not_enforced")
+            self.assertIn("fixture metadata failure", result.stderr)
+
+    def test_json_unknown_unavailable_and_batch_failure_have_distinct_results(self):
+        for mode in ("unknown", "unavailable", "batch_failure"):
+            fixture = self.json_fetch_fixture(mode)
+            result = self.run_cli(
+                "check", "--checks=vulns", "--format=json", "--vuln-block-unknown",
+                fixture=fixture,
+            )
+            document = self.json_document(result, 1 if mode == "unknown" else 2)
+            self.assertIsNone(document["licences"])
+            self.assertEqual(document["summary"]["checks_run"], ["vulns"])
+            self.assertEqual(document["complete"], mode == "unknown")
+            if mode == "batch_failure":
+                self.assertEqual(document["vulnerabilities"]["rows"], [])
+                self.assertEqual(document["errors"][0]["code"], "osv")
+            else:
+                row = document["vulnerabilities"]["rows"][0]
+                self.assertEqual(row["purl"], "pkg:hex/example@1.0.0")
+                self.assertEqual(row["severity"], "unknown" if mode == "unknown" else None)
+                self.assertEqual(row["blocking"], True if mode == "unknown" else None)
+            self.assertEqual(document["summary"]["gate_verdict"],
+                             "failed" if mode == "unknown" else "undetermined")
+
+    def test_json_success_and_text_defaults_keep_their_stream_contracts(self):
+        fixture = self.json_fetch_fixture("empty")
+        (self.project / "gleam.toml").write_text(
+            'name = "stream_fixture"\nversion = "1.0.0"\n'
+            '[tools.licence_audit]\nallow = ["Apache-2.0"]\n'
+        )
+        for command, checks in (
+            (["report"], ["licences"]),
+            (["check"], ["licences"]),
+            (["check", "--checks=all"], ["licences", "vulns"]),
+            (["check", "--checks=vulns"], ["vulns"]),
+            (["vulns"], ["vulns"]),
+        ):
+            with self.subTest(command=command):
+                flags = [] if command[0] == "vulns" else ["--no-cache"]
+                result = self.run_cli(
+                    *command, *flags, "--format=json", "--color=always",
+                    fixture=fixture,
+                )
+                document = self.json_document(result, 0)
+                self.assertTrue(document["complete"])
+                self.assertEqual(document["summary"]["checks_run"], checks)
+                self.assertEqual(document["errors"], [])
+                if checks == ["vulns"]:
+                    self.assertIsNone(document["licences"])
+        expected = self.run_cli("report", "--no-cache", fixture=fixture)
+        for command in ([], ["report"], ["report", "--format=text"]):
+            result = self.run_cli(*command, "--no-cache", fixture=fixture)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, expected.stdout)
+
+    def test_json_partial_findings_and_operational_failures_coexist(self):
+        fixture = self.json_fetch_fixture("partial")
+        for command, status in (
+            (["check", "--checks=all", "--no-cache"], 2),
+            (["check", "--checks=vulns"], 2),
+            (["vulns"], 0),
+        ):
+            for quiet in (False, True):
+                with self.subTest(command=command, quiet=quiet):
+                    result = self.run_cli(
+                        *command, "--format=json", *(["--quiet"] if quiet else []),
+                        fixture=fixture,
+                    )
+                    document = self.json_document(result, status)
+                    self.assertFalse(document["complete"])
+                    rows = {row["advisory_id"]: row for row in document["vulnerabilities"]["rows"]}
+                    self.assertEqual(rows["GHSA-high"]["severity"], "high")
+                    self.assertEqual(rows["GHSA-high"]["aliases"], ["CVE-2026-1234"])
+                    for field in ("severity", "aliases", "blocking", "exception_decision"):
+                        self.assertIsNone(rows["GHSA-missing"][field])
+                    self.assertEqual(rows["GHSA-missing"]["error"]["code"], "osv")
+                    if command[0] == "check":
+                        self.assertEqual(document["summary"]["gate_verdict"], "failed")
+                        self.assertTrue(rows["GHSA-high"]["blocking"])
+                        self.assertIn("fixture details failure", result.stderr)
+                    else:
+                        self.assertEqual(document["summary"]["gate_verdict"], "not_enforced")
+                        self.assertIsNone(rows["GHSA-high"]["blocking"])
+
+    def test_json_worker_failures_keep_available_advisories(self):
+        fixture = self.json_fetch_fixture("worker_failure")
+        result = self.run_cli("vulns", "--format=json", fixture=fixture)
+        document = self.json_document(result, 2)
+        self.assertFalse(document["complete"])
+        self.assertEqual(document["errors"][0]["code"], "runtime_exception")
+        rows = {row["advisory_id"]: row for row in document["vulnerabilities"]["rows"]}
+        self.assertEqual(rows["GHSA-high"]["severity"], "high")
+        self.assertIsNone(rows["GHSA-missing"]["severity"])
+        self.assertEqual(rows["GHSA-missing"]["error"]["code"], "runtime_exception")
+
+    def test_json_startup_failures_use_stdout_instead_of_text_diagnostics(self):
+        evaluation = """
+            Module = runtime_ffi,
+            {ok, {Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                beam_lib:chunks(code:which(Module), [abstract_code]),
+            Replaced = lists:map(fun
+                ({function, Line, start, 0, _}) ->
+                    {function, Line, start, 0, [{clause, Line, [], [],
+                        [erl_parse:abstract({error, {runtime_startup,
+                            <<"fixture startup failure">>}})]}]};
+                (Form) -> Form
+            end, Forms),
+            {ok, Module, Binary} = compile:forms(Replaced, [binary, nowarn_unused_function]),
+            ok = file:write_file(filename:join(os:getenv("STREAM_FIXTURE_EBIN"),
+                atom_to_list(Module) ++ ".beam"), Binary),
+            halt(0).
+        """
+        fixture = self.compile_fixture(evaluation, {})
+        result = self.run_cli("check", "--checks=all", "--format=json", fixture=fixture)
+        document = self.json_document(result, 2)
+        self.assertEqual(document["errors"][0]["code"], "runtime_startup")
+        self.assertEqual(document["summary"]["checks_requested"], ["licences", "vulns"])
+        self.assertEqual(document["summary"]["checks_run"], [])
+
+    def test_json_unexpected_runtime_failure_uses_captured_arguments(self):
+        evaluation = """
+            Module = 'licence_audit@cli',
+            {ok, {Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} =
+                beam_lib:chunks(code:which(Module), [abstract_code]),
+            Replaced = lists:map(fun
+                ({function, Line, execute, 3, _}) ->
+                    {function, Line, execute, 3, [{clause, Line,
+                        [{var, Line, '_'}, {var, Line, '_'}, {var, Line, '_'}], [],
+                        [{call, Line, {remote, Line, {atom, Line, erlang},
+                            {atom, Line, error}}, [{atom, Line, fixture_cli_failure}]}]}]};
+                (Form) -> Form
+            end, Forms),
+            {ok, Module, Binary} = compile:forms(Replaced, [binary, nowarn_unused_function]),
+            ok = file:write_file(filename:join(os:getenv("STREAM_FIXTURE_EBIN"),
+                atom_to_list(Module) ++ ".beam"), Binary),
+            halt(0).
+        """
+        fixture = self.compile_fixture(evaluation, {})
+        result = self.run_cli("report", "--format=json", fixture=fixture)
+        document = self.json_document(result, 2)
+        self.assertEqual(document["errors"][0]["code"], "runtime_exception")
+        self.assertIsNone(document["licences"])
+        self.assertEqual(document["summary"]["checks_requested"], ["licences"])
+
     def test_help_outside_project_does_not_open_cache(self):
         (self.project / "gleam.toml").unlink()
         cache = self.project / "unused-cache"

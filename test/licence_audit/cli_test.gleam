@@ -37,6 +37,7 @@ fn parse_options(args: List(String)) -> cli.Options {
         vuln_severity: None,
         vuln_block_unknown: None,
         scope: options.scope,
+        format: options.format,
       )
     _ -> panic as "expected report or check options"
   }
@@ -97,6 +98,7 @@ pub fn help_value_forms_match_each_command_declaration_test() -> Nil {
     "scope" -> "prod|all"
     "checks" -> "licences|vulns|all"
     "vuln-severity" -> "low|medium|high|critical"
+    "format" -> "text|json"
     _ -> "BOOL"
   }
   should.equal(flag.type_, value_name)
@@ -1564,4 +1566,174 @@ pub fn invalid_arguments_escape_control_text_without_extra_lines_test() {
   assert string.contains(message, "\\n")
   assert string.contains(message, "\\'")
   assert string.contains(message, "\\\\")
+}
+
+fn parsed_report_format(args: List(String)) -> cli.ReportFormat {
+  let assert Ok(glint.Out(action)) = cli.execute(args, tty.NoColor, tty.NoColor)
+  case action {
+    cli.RunReport(options) -> options.format
+    cli.RunAudit(options) -> options.format
+    cli.RunVulns(options) -> options.format
+    cli.UpdateConfig(_)
+    | cli.RunSbom(_)
+    | cli.RunNotices(_)
+    | cli.ShowVersion
+    | cli.InvalidUsage(_) -> panic as "expected a formatted report command"
+  }
+}
+
+pub fn named_report_formats_accept_separated_and_equals_values_test() -> Nil {
+  use command <- list.each(["report", "check", "vulns"])
+  should.equal(parsed_report_format([command]), cli.Text)
+  use entry <- list.each([#("text", cli.Text), #("json", cli.Json)])
+  use flags <- list.each([
+    ["--format=" <> entry.0],
+    ["--format", entry.0],
+  ])
+  use args <- list.each([
+    [command, ..flags],
+    list.append(flags, [command]),
+  ])
+  should.equal(parsed_report_format(args), entry.1)
+  should.equal(cli.recognized_json_command(args), case entry.1 {
+    cli.Text -> None
+    cli.Json -> Some(command)
+  })
+}
+
+pub fn report_format_does_not_change_other_options_or_check_selection_test() -> Nil {
+  use selection <- list.each(["licences", "licenses", "vulns", "all"])
+  let flags = [
+    "check",
+    "--checks=" <> selection,
+    "--scope=prod",
+    "--manifest=locked.toml",
+    "--no-cache",
+    "-q",
+    "--colour=never",
+  ]
+  let original = parse_options(flags)
+  should.equal(
+    parse_options(list.append(flags, ["--format=json"])),
+    cli.Options(..original, format: cli.Json),
+  )
+}
+
+pub fn root_and_other_commands_do_not_accept_report_format_test() -> Nil {
+  should.equal(parsed_report_format([]), cli.Text)
+  use command <- list.each([[], ["sbom"], ["notices"], ["update"]])
+  let help = help_text(list.append(command, ["--help"]))
+  assert !string.contains(help, "--format")
+  use flags <- list.each([
+    ["--format=json"],
+    ["--format", "json"],
+    ["--format=text"],
+    ["--format", "text"],
+  ])
+  let args = list.append(command, flags)
+  assert string.contains(usage_error(args), "unknown flag --format")
+  should.equal(cli.recognized_json_command(args), None)
+}
+
+pub fn named_report_format_help_and_invalid_values_test() -> Nil {
+  use command <- list.each(["report", "check", "vulns"])
+  let help = help_text([command, "--help"])
+  assert string.contains(help, "--format=<text|json>")
+  should.equal(help_text([command, "--format=json", "--help"]), help)
+  assert string.contains(
+    usage_error([command, "--format"]),
+    "--format requires a value",
+  )
+  use value <- list.each(["", "JSON", "xml", "true", "-h", "--help"])
+  use flags <- list.each([
+    ["--format=" <> value],
+    ["--format", value],
+  ])
+  let args = [command, ..flags]
+  let message = usage_error(args)
+  assert string.contains(message, "expected text or json")
+  should.equal(cli.recognized_json_command(args), None)
+}
+
+pub fn json_recognition_survives_independent_usage_errors_test() -> Nil {
+  use command <- list.each(["report", "check", "vulns"])
+  use invalid <- list.each([
+    ["--unknown"],
+    ["extra"],
+    ["--scope=dev"],
+    ["--manifest"],
+    ["--quiet", "--verbose"],
+    ["--config=policy.toml", "--ignore-config"],
+  ])
+  let args = [command, "--format=json", ..invalid]
+  let assert Error(_) = cli.execute(args, tty.NoColor, tty.NoColor)
+  should.equal(cli.recognized_json_command(args), Some(command))
+  let args = list.append([command, ..invalid], ["--format=json"])
+  // A separated value flag consumes its next token, even if it resembles a flag.
+  case invalid {
+    ["--manifest"] -> should.equal(cli.recognized_json_command(args), None)
+    _ -> should.equal(cli.recognized_json_command(args), Some(command))
+  }
+}
+
+pub fn json_recognition_respects_option_values_and_first_command_test() -> Nil {
+  use args <- list.each([
+    ["report", "--manifest", "--format=json"],
+    ["check", "--config=--format=json"],
+    ["vulns", "--manifest=report", "--format=text"],
+    ["--manifest", "report", "--format=json"],
+    ["--format=json"],
+    ["bogus", "report", "--format=json"],
+    ["update", "report", "--format=json"],
+    ["report", "--format=json", "--format=xml"],
+    ["report", "--format=json", "--format"],
+    ["report", "--format=json", "--format=text"],
+  ])
+  should.equal(cli.recognized_json_command(args), None)
+  use args <- list.each([
+    ["--manifest", "report", "check", "--format=json"],
+    ["report", "--format=text", "--format=json"],
+    ["report", "--format", "text", "--format", "json"],
+  ])
+  assert option.is_some(cli.recognized_json_command(args))
+}
+
+pub fn json_recognition_does_not_read_unsupported_separator_suffix_test() -> Nil {
+  should.equal(
+    cli.recognized_json_command(["report", "--", "--format=json"]),
+    None,
+  )
+  should.equal(
+    cli.recognized_json_command(["--", "report", "--format=json"]),
+    None,
+  )
+  should.equal(
+    cli.recognized_json_command([
+      "report", "--format=json", "--", "--format=text",
+    ]),
+    Some("report"),
+  )
+}
+
+pub fn json_usage_recognition_preserves_valid_selected_checks_test() -> Nil {
+  use entry <- list.each([
+    #(["report", "--format=json", "--unknown"], Some(cli.Licences)),
+    #(["vulns", "--format=json", "--unknown"], Some(cli.Vulnerabilities)),
+    #(["check", "--format=json", "--unknown"], Some(cli.Licences)),
+    #(
+      ["check", "--checks", "all", "--format=json", "--unknown"],
+      Some(cli.AllChecks),
+    ),
+    #(
+      ["check", "--checks=vulns", "--format=json", "--unknown"],
+      Some(cli.Vulnerabilities),
+    ),
+    #(["check", "--checks=bogus", "--format=json"], None),
+    #(["check", "--format=json", "--checks"], None),
+    #(
+      ["check", "--config", "--checks=all", "--format=json"],
+      Some(cli.Licences),
+    ),
+  ])
+  should.equal(cli.recognized_checks(entry.0), entry.1)
 }
