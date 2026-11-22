@@ -1,8 +1,11 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option}
+import gleam/result
 import gleam/string
 import licence_audit/color
+import licence_audit/config
+import licence_audit/error
 import licence_audit/internal/vendor/glint
 import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
@@ -64,6 +67,9 @@ pub type UpdateOptions {
     color: color.Mode,
     no_cache: Bool,
     cache_dir: Option(String),
+    allow: Option(List(String)),
+    deny: Option(List(String)),
+    dry_run: Bool,
   )
 }
 
@@ -816,26 +822,43 @@ fn validate_conflicts(
 
 fn update_command() -> glint.Command(CliAction) {
   use <- glint.command_help(
-    "Interactively review discovered licences and write an updated [tools.licence_audit] policy to gleam.toml.",
+    "Review discovered licences and update [tools.licence_audit]. Use --allow or --deny for non-interactive edits, or --dry-run to preview without writing. With none of these flags, use the interactive picker.",
   )
   use <- glint.unnamed_args(glint.EqArgs(0))
   use config <- glint.optional_flag(config_flag())
   use common <- common_flags()
   use cache <- cache_flags()
+  use allow <- glint.optional_flag(update_list_flag("allow"))
+  use deny <- glint.optional_flag(update_list_flag("deny"))
+  use dry_run <- glint.flag(
+    glint.bool_flag("dry-run")
+    |> glint.flag_default(False)
+    |> glint.flag_help(
+      "Print discovered licences and the proposed policy edit without writing; no terminal required",
+    ),
+  )
   use _, _, flags <- glint.command()
 
   let assert Ok(config_path) = config(flags)
+  let assert Ok(allow_value) = allow(flags)
+  let assert Ok(deny_value) = deny(flags)
+  let assert Ok(dry_run) = dry_run(flags)
   let common = common(flags)
   let cache = cache(flags)
   use <- validate_conflicts(config_path, False, cache.cache_dir, cache.no_cache)
   case
     verbosity(common.quiet, common.verbose),
-    color.mode_from_string(common.color_value)
+    color.mode_from_string(common.color_value),
+    parse_update_list("allow", allow_value),
+    parse_update_list("deny", deny_value)
   {
-    Error(verbosity_error), _ ->
+    Error(verbosity_error), _, _, _ ->
       InvalidUsage(verbosity_error_message(verbosity_error))
-    _, Error(color_error) -> InvalidUsage(color.mode_error_message(color_error))
-    Ok(verbosity), Ok(color_mode) ->
+    _, Error(color_error), _, _ ->
+      InvalidUsage(color.mode_error_message(color_error))
+    _, _, Error(config_error), _ | _, _, _, Error(config_error) ->
+      InvalidUsage(error.message(error.from_config_error(config_error)))
+    Ok(verbosity), Ok(color_mode), Ok(allow), Ok(deny) ->
       UpdateConfig(UpdateOptions(
         manifest_path: common.manifest_path,
         config_path: config_path,
@@ -843,7 +866,37 @@ fn update_command() -> glint.Command(CliAction) {
         color: color_mode,
         no_cache: cache.no_cache,
         cache_dir: cache.cache_dir,
+        allow: allow,
+        deny: deny,
+        dry_run: dry_run,
       ))
+  }
+}
+
+fn update_list_flag(name: String) -> glint.Flag(String) {
+  glint.string_flag(name)
+  |> glint.flag_value_name("SPDX,...")
+  |> glint.flag_help(
+    "Replace the "
+    <> name
+    <> " list with comma-separated SPDX expressions; an empty value clears it, omission preserves it",
+  )
+}
+
+fn parse_update_list(
+  field: String,
+  value: Option(String),
+) -> Result(Option(List(String)), config.Error) {
+  case value {
+    option.None -> Ok(option.None)
+    option.Some(value) -> {
+      let licences = case value {
+        "" -> []
+        _ -> string.split(value, ",") |> list.map(string.trim)
+      }
+      config.validate_licence_list(field, licences)
+      |> result.map(option.Some)
+    }
   }
 }
 
