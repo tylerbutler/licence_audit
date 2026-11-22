@@ -14,6 +14,8 @@ on:
         type: string
         default: ""
 
+permissions: {}
+
 concurrency:
   group: trellis-release
   cancel-in-progress: false

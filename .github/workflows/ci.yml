@@ -19,6 +19,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref == 'release/pending' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.head_ref == 'release/pending' }}
