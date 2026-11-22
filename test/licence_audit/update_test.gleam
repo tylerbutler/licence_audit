@@ -767,6 +767,12 @@ pub fn update_handles_commented_arrays_implicit_parents_and_inline_tables_test()
 @external(erlang, "update_test_ffi", "partial_write")
 fn partial_write(path: String, interrupt: Bool) -> Result(Nil, Nil)
 
+@external(erlang, "update_test_ffi", "replace_and_recreate_temporary")
+fn replace_and_recreate_temporary(path: String) -> Result(Nil, Nil)
+
+@external(erlang, "update_test_ffi", "failed_replacement")
+fn failed_replacement(path: String) -> Result(Nil, Nil)
+
 @external(erlang, "update_test_ffi", "set_private_mode")
 fn set_private_mode(path: String) -> Nil
 
@@ -828,6 +834,32 @@ pub fn update_preserves_original_after_partial_write_failure_or_interruption_tes
     should.equal(temporary_files(path), [])
   })
   let assert Ok(_) = simplifile.delete(path)
+}
+
+pub fn update_leaves_recreated_temporary_path_after_successful_replacement_test() -> Nil {
+  let path = fresh_path("recreated_temporary")
+  let assert Ok(_) = simplifile.write(path, "original")
+  should.equal(replace_and_recreate_temporary(path), Ok(Nil))
+  should.equal(simplifile.read(path), Ok("complete replacement"))
+  let assert [temporary] = temporary_files(path)
+  should.equal(
+    simplifile.read(temporary),
+    Ok("another writer's temporary file"),
+  )
+  simplifile.delete(temporary) |> should.be_ok
+  simplifile.delete(path) |> should.be_ok
+}
+
+pub fn update_cleans_temporary_after_failed_replacement_test() -> Nil {
+  let path = fresh_path("failed_replacement")
+  let assert Ok(_) = simplifile.write(path, "original")
+  set_private_mode(path)
+  let original_metadata = metadata(path)
+  should.equal(failed_replacement(path), Ok(Nil))
+  should.equal(simplifile.read(path), Ok("original"))
+  should.equal(metadata(path), original_metadata)
+  should.equal(temporary_files(path), [])
+  simplifile.delete(path) |> should.be_ok
 }
 
 pub fn update_rejects_invalid_exceptions_before_picker_or_write_test() {
