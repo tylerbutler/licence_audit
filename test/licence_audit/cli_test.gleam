@@ -1090,6 +1090,74 @@ pub fn all_commands_reject_conflicting_aliases_and_invalid_colors_test() {
     glint.execute(cli.app(), cli.normalize_args(list.append(command, flags)))
 }
 
+pub fn shared_flag_readers_preserve_validation_precedence_test() -> Nil {
+  list.each([[], ..commands], fn(command) {
+    let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+      glint.execute(
+        cli.app(),
+        list.append(command, ["--quiet", "--verbose", "--color=rainbow"]),
+      )
+    should.equal(message, "--quiet and --verbose cannot be used together")
+  })
+
+  use #(flags, expected) <- list.each([
+    #(
+      [
+        "--config=policy.toml",
+        "--ignore-config",
+        "--cache-dir=cache",
+        "--no-cache",
+      ],
+      "--config and --ignore-config cannot be used together",
+    ),
+    #(
+      ["--cache-dir=cache", "--no-cache"],
+      "--no-cache and --cache-dir cannot be used together",
+    ),
+  ])
+  use command <- list.each([[], ["report"], ["check"], ["notices"]])
+  let args =
+    list.append(list.append(command, flags), [
+      "--quiet",
+      "--verbose",
+      "--color=rainbow",
+    ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), args)
+  should.equal(message, expected)
+}
+
+pub fn shared_flag_readers_preserve_version_and_sbom_error_order_test() -> Nil {
+  let assert Ok(glint.Out(cli.ShowVersion)) =
+    glint.execute(cli.app(), [
+      "--version",
+      "--quiet",
+      "--verbose",
+      "--color=rainbow",
+    ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), [
+      "--version",
+      "--cache-dir=cache",
+      "--no-cache",
+    ])
+  should.equal(message, "--no-cache and --cache-dir cannot be used together")
+
+  use #(flags, expected) <- list.each([
+    #(
+      ["--offline", "--reproducible"],
+      "--vulns requires network access and cannot be combined with --offline",
+    ),
+    #(
+      ["--reproducible"],
+      "--vulns uses mutable advisory data and cannot be combined with --reproducible",
+    ),
+  ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), ["sbom", "--vulns", "--color=rainbow", ..flags])
+  should.equal(message, expected)
+}
+
 pub fn command_specific_flag_matrix_test() {
   use entry <- list.each([
     #("--config=custom.toml", [True, True, True, False, True, True]),

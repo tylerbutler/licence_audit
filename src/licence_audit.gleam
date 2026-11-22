@@ -1712,7 +1712,6 @@ fn audit_locked(
       active_packages,
       cached_fetcher,
       audit_policy,
-      evaluate_policy,
       dep_paths,
       scopes,
       reporter,
@@ -1944,7 +1943,6 @@ fn fetch_packages(
   fetcher: fn(manifest.Package, progress.Reporter) ->
     #(Result(hex.PackageMetadata, notice.Error), progress.Reporter),
   audit_policy: policy.Policy,
-  check_mode: Bool,
   paths: dict.Dict(String, List(String)),
   scopes: dict.Dict(String, manifest.Scope),
   reporter: progress.Reporter,
@@ -1981,7 +1979,6 @@ fn fetch_packages(
             rest,
             fetcher,
             audit_policy,
-            check_mode,
             paths,
             scopes,
             reporter,
@@ -2000,12 +1997,11 @@ fn fetch_packages(
           )
         }
         Ok(metadata) -> {
-          let status = status_for(check_mode, audit_policy, metadata.licences)
+          let status = status_for(audit_policy, metadata.licences)
           fetch_packages(
             rest,
             fetcher,
             audit_policy,
-            check_mode,
             paths,
             scopes,
             reporter,
@@ -2028,13 +2024,12 @@ fn fetch_packages(
   }
 }
 
-/// Audit status for a package in `check` mode, or `NotChecked` otherwise.
+/// Classify package licences when a policy is configured.
 fn status_for(
-  check_mode: Bool,
   audit_policy: policy.Policy,
   licences: List(String),
 ) -> report.Status {
-  case check_mode {
+  case policy.has_rules(audit_policy) {
     True -> report.Checked(policy.audit(audit_policy, licences))
     False -> report.NotChecked
   }
