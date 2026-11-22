@@ -1281,9 +1281,22 @@ class CliStreamTest(unittest.TestCase):
             ]
             if command:
                 cases.append((["extra"], "unexpected argument 'extra'", ""))
+            if command == ["update"]:
+                for name in ("allow", "deny"):
+                    cases.extend([
+                        ([f"--{name}"], f"--{name} requires a value", ""),
+                        (
+                            [f"--{name}=Apache 2.0"],
+                            f"Invalid config field {name} entry `Apache 2.0`: "
+                            "Allow and deny entries must be valid SPDX expressions",
+                            "",
+                        ),
+                    ])
+                cases.append((["--dev-only"], "unknown flag --dev-only", ""))
             cases.extend(
                 ([f"--{name}{suffix}"], f"unknown flag --{name}", hint)
                 for name, hint in removed
+                if command != ["update"] or name not in ("allow", "deny")
                 for suffix in ("", "=", "=true", "=false", "=MIT", "=path=with=equals")
             )
             for flags, cause, hint in cases:
