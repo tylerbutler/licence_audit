@@ -162,12 +162,11 @@ glint:
 # Check formatting and run the linter
 lint: format-check glint
 
-# Remove build artifacts
+# Remove build artifacts and the local Hex cache; preserve dist/.
 clean:
     rm -rf build
     rm -rf priv
     rm -f licence_audit
-    rm -rf dist
     rm -rf .hex-cache
 
 # === CHANGELOG ===
