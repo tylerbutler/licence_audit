@@ -419,6 +419,47 @@ pub fn dep_scopes_classifies_prod_wins_test() {
   should.equal(dict.get(scopes, "test_helper"), Ok(manifest.Dev))
 }
 
+pub fn production_paths_ignore_shorter_development_paths_test() {
+  let assert Ok(locked) = manifest.parse(audit_fixture(scope_fixture))
+  let paths = manifest.dep_paths_from(locked, ["app_a"])
+  should.equal(dict.get(paths, "app_a"), Ok(["app_a"]))
+  should.equal(dict.get(paths, "lib_b"), Ok(["app_a", "lib_b"]))
+  should.equal(dict.get(paths, "shared"), Ok(["app_a", "lib_b", "shared"]))
+  should.equal(dict.get(paths, "test_helper"), Error(Nil))
+  should.equal(
+    dict.get(manifest.dep_paths(locked), "shared"),
+    Ok(["test_helper", "shared"]),
+  )
+  should.equal(manifest.dep_paths_from(locked, []), dict.new())
+}
+
+pub fn production_paths_keep_non_hex_and_transitive_direct_dependencies_test() {
+  let input =
+    "packages = [
+  { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
+  { name = \"lib_b\", version = \"2.0.0\", source = \"path\", requirements = [\"test_helper\"] },
+  { name = \"test_helper\", version = \"1.0.0\", source = \"hex\", requirements = [\"shared\"] },
+  { name = \"shared\", version = \"3.0.0\", source = \"hex\", requirements = [] },
+]
+
+[requirements]
+app_a = \"1.0.0\"
+test_helper = \"1.0.0\"
+"
+  let assert Ok(locked) = manifest.parse(audit_fixture(input))
+  let paths = manifest.dep_paths_from(locked, ["app_a", "missing"])
+  should.equal(dict.get(paths, "lib_b"), Ok(["app_a", "lib_b"]))
+  should.equal(
+    dict.get(paths, "shared"),
+    Ok(["app_a", "lib_b", "test_helper", "shared"]),
+  )
+  should.equal(dict.get(paths, "missing"), Error(Nil))
+  should.equal(
+    dict.get(manifest.dep_paths(locked), "shared"),
+    Ok(["test_helper", "shared"]),
+  )
+}
+
 pub fn dep_scopes_all_prod_fallback_test() {
   let assert Ok(locked) = manifest.parse(audit_fixture(scope_fixture))
   let scopes = manifest.dep_scopes(locked, locked.direct_names)

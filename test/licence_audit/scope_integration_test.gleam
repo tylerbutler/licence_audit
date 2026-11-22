@@ -23,11 +23,6 @@ fn archive() -> BitArray {
 }
 
 fn write_project(name: String, project: String, mixed: Bool) -> String {
-  let root = "build/tmp/scope-185-" <> name
-  let assert Ok(_) = simplifile.create_directory_all(root)
-  let assert Ok(_) =
-    simplifile.write(root <> "/gleam.toml", project_header <> project)
-  let assert Ok(checksum) = source_archive.sha256_hex(archive())
   let packages = [
     #("dev_dep", ["dev_leaf", "shared"]),
     #("dev_leaf", []),
@@ -37,6 +32,24 @@ fn write_project(name: String, project: String, mixed: Bool) -> String {
     False -> packages
     True -> [#("prod_dep", ["shared"]), ..packages]
   }
+  let direct_names = case mixed {
+    False -> ["dev_dep"]
+    True -> ["dev_dep", "prod_dep"]
+  }
+  write_graph_project(name, project, packages, direct_names)
+}
+
+fn write_graph_project(
+  name: String,
+  project: String,
+  packages: List(#(String, List(String))),
+  direct_names: List(String),
+) -> String {
+  let root = "build/tmp/scope-185-" <> name
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(_) =
+    simplifile.write(root <> "/gleam.toml", project_header <> project)
+  let assert Ok(checksum) = source_archive.sha256_hex(archive())
   let entries =
     list.map(packages, fn(package) {
       "{ name = \""
@@ -50,17 +63,16 @@ fn write_project(name: String, project: String, mixed: Bool) -> String {
       )
       <> "] }"
     })
-  let requirements = case mixed {
-    False -> ""
-    True -> "prod_dep = \"1.0.0\"\n"
-  }
+  let requirements =
+    list.map(direct_names, fn(name) { name <> " = \"1.0.0\"\n" })
+    |> string.concat
   let manifest_path = root <> "/manifest.toml"
   let assert Ok(_) =
     simplifile.write(
       manifest_path,
       "packages = ["
         <> string.join(entries, ",")
-        <> "]\n[requirements]\ndev_dep = \"1.0.0\"\n"
+        <> "]\n[requirements]\n"
         <> requirements,
     )
   manifest_path
@@ -320,6 +332,78 @@ pub fn mixed_project_keeps_shared_transitive_production_dependencies_test() {
     #("prod_dep", "required"),
     #("shared", "required"),
   ])
+  cleanup(manifest_path)
+}
+
+pub fn production_reports_keep_full_chain_when_development_path_is_shorter_test() {
+  let manifest_path =
+    write_graph_project(
+      "shorter-dev-path",
+      "[dependencies]\napp = \"1.0.0\"\n[dev-dependencies]\ndevtool = \"1.0.0\"\n",
+      [
+        #("app", ["middle"]),
+        #("middle", ["shared"]),
+        #("shared", []),
+        #("devtool", ["shared"]),
+      ],
+      ["app", "devtool"],
+    )
+  let clients = selected_clients(["app", "middle", "shared"])
+  list.each(
+    [
+      #(["--ignore-config"], 0, "?"),
+      #(["report", "--ignore-config"], 0, "?"),
+      #(["check", test_policy.flag(["Apache-2.0"], [])], 0, "✓"),
+      #(["check", test_policy.flag(["MIT"], [])], 1, "?"),
+      #(["check", test_policy.flag(["MIT"], ["Apache-2.0"])], 1, "✗"),
+      #(
+        [
+          "check",
+          test_policy.flag(["Apache-2.0"], []),
+          "--checks=all",
+        ],
+        1,
+        "✓",
+      ),
+    ],
+    fn(command) {
+      let result =
+        run(manifest_path, list.append(command.0, ["--scope=prod"]), clients)
+      should.equal(result.exit_code, command.1)
+      let rows =
+        result.output
+        |> string.split("\n")
+        |> list.filter(fn(line) {
+          string.contains(line, "1.0.0") && string.contains(line, "Apache-2.0")
+        })
+        |> list.map(fn(line) {
+          let assert [name, ..] = string.split(line, "  1.0.0")
+          string.trim_end(name)
+        })
+      should.equal(rows, [
+        command.2 <> " app",
+        "└─ " <> command.2 <> " middle",
+        "   └─ " <> command.2 <> " shared",
+      ])
+      assert !string.contains(result.output, "devtool")
+    },
+  )
+  let all_clients = selected_clients(["app", "middle", "shared", "devtool"])
+  let all = run(manifest_path, ["report", "--ignore-config"], all_clients)
+  should.equal(
+    run(
+      manifest_path,
+      ["report", "--ignore-config", "--scope=all"],
+      all_clients,
+    ),
+    all,
+  )
+  should.equal(all.exit_code, 0)
+  assert string.contains(all.output, "└─ ? middle")
+  assert !string.contains(all.output, "└─ ? shared")
+  assert string.contains(all.output, "\n? shared")
+  assert string.contains(all.output, "DEVELOPMENT DEPENDENCIES")
+  assert string.contains(all.output, "? devtool")
   cleanup(manifest_path)
 }
 
