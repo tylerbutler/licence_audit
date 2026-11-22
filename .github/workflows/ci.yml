@@ -248,6 +248,9 @@ jobs:
       - name: Validate SBOM (schema)
         run: just --no-deps sbom-validate
 
+      - name: Validate SPDX SBOM (schema and semantics)
+        run: just sbom-spdx-validate
+
   native-http:
     runs-on: ubuntu-latest
     name: Native HTTP

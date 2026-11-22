@@ -107,7 +107,12 @@ pub fn help_value_forms_match_each_command_declaration_test() -> Nil {
     "checks" -> "licences|vulns|all"
     "vuln-severity" -> "low|medium|high|critical"
     "allow" | "deny" -> "SPDX,..."
-    "format" -> "text|json"
+    "format" -> {
+      case command.meta.name {
+        "sbom" -> "cyclonedx-json|spdx-json"
+        _ -> "text|json"
+      }
+    }
     _ -> "BOOL"
   }
   should.equal(flag.type_, value_name)
@@ -1169,7 +1174,33 @@ pub fn sbom_subcommand_parses_defaults_test() {
   should.equal(options.offline, False)
   should.equal(options.no_cache, False)
   should.equal(options.reproducible, False)
+  should.equal(options.format, cli.CyclonedxJson)
   should.equal(options.license_text, False)
+}
+
+pub fn sbom_subcommand_parses_spdx_format_test() {
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(cli.app(), ["sbom", "--format=spdx-json", "--offline"])
+  should.equal(options.format, cli.SpdxJson)
+  should.equal(options.offline, True)
+}
+
+pub fn sbom_subcommand_rejects_unknown_format_test() {
+  use value <- list.each(["spdx", "json", "text"])
+  use flags <- list.each([
+    ["--format=" <> value],
+    ["--format", value],
+  ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), cli.normalize_args(["sbom", ..flags]))
+  assert string.contains(message, "cyclonedx-json or spdx-json")
+  should.equal(cli.recognized_json_command(["sbom", ..flags]), None)
+}
+
+pub fn sbom_subcommand_rejects_spdx_vulnerabilities_test() {
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), ["sbom", "--format=spdx-json", "--vulns"])
+  assert string.contains(message, "--vulns is supported only")
 }
 
 pub fn sbom_licence_text_spellings_preserve_boolean_values_test() {
@@ -1233,7 +1264,11 @@ pub fn sbom_licence_text_alias_does_not_rewrite_flag_values_test() {
 }
 
 pub fn sbom_licence_text_help_lists_primary_and_supported_alias_test() {
-  let help = help_text(["sbom", "--help"])
+  let help =
+    help_text(["sbom", "--help"])
+    |> string.split("\n")
+    |> list.map(string.trim)
+    |> string.join(" ")
   assert string.contains(help, "--licence-text")
   assert string.contains(help, "alias: --license-text")
 }
@@ -1259,6 +1294,58 @@ pub fn sbom_licence_text_spellings_allow_reproducible_and_offline_test() {
     )
   should.equal(options.license_text, False)
   should.equal(options.offline, True)
+}
+
+pub fn sbom_license_text_format_interactions_test() {
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    glint.execute(
+      cli.app(),
+      cli.normalize_args([
+        "sbom",
+        "--format=cyclonedx-json",
+        "--license-text",
+        "--reproducible",
+      ]),
+    )
+  should.equal(options.format, cli.CyclonedxJson)
+  should.equal(options.license_text, True)
+  list.each([[], ["--reproducible"]], fn(extra_args) {
+    let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+      glint.execute(
+        cli.app(),
+        cli.normalize_args([
+          "sbom",
+          "--format=spdx-json",
+          "--license-text",
+          ..extra_args
+        ]),
+      )
+    assert string.contains(message, "--license-text is supported only")
+    assert string.contains(message, "cyclonedx-json")
+  })
+}
+
+pub fn spdx_format_keeps_disabled_boolean_aliases_and_cache_options_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    cli.execute(
+      [
+        "sbom",
+        "--format",
+        "spdx-json",
+        spelling <> "=false",
+        "--vulns=false",
+        "--offline",
+        "--reproducible",
+        "--cache-dir=spdx-cache",
+      ],
+      tty.NoColor,
+      tty.NoColor,
+    )
+  should.equal(options.format, cli.SpdxJson)
+  should.equal(options.license_text, False)
+  should.equal(options.with_vulns, False)
+  should.equal(options.cache_dir, Some("spdx-cache"))
 }
 
 pub fn sbom_subcommand_parses_reproducible_flag_test() {
@@ -1813,7 +1900,7 @@ pub fn report_format_does_not_change_other_options_or_check_selection_test() -> 
 
 pub fn root_and_other_commands_do_not_accept_report_format_test() -> Nil {
   should.equal(parsed_report_format([]), cli.Text)
-  use command <- list.each([[], ["sbom"], ["notices"], ["update"]])
+  use command <- list.each([[], ["notices"], ["update"]])
   let help = help_text(list.append(command, ["--help"]))
   assert !string.contains(help, "--format")
   use flags <- list.each([
