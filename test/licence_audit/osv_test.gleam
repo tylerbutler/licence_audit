@@ -2,6 +2,7 @@ import gleam/http.{Post}
 import gleam/http/request
 import gleam/http/response.{Response}
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/result
 import gleam/string
@@ -9,12 +10,153 @@ import gleam/uri
 import gleeunit/should
 import licence_audit/error
 import licence_audit/httpc_adaptive
+import licence_audit/network_retry_test
 import licence_audit/osv
 import simplifile
 
 fn read_fixture(name: String) -> String {
   let assert Ok(contents) = simplifile.read(from: "test/fixtures/" <> name)
   contents
+}
+
+fn sent_purls(req: request.Request(String)) -> List(String) {
+  let decoder = {
+    use queries <- decode.field(
+      "queries",
+      decode.list({
+        use package <- decode.field("package", {
+          use purl <- decode.field("purl", decode.string)
+          decode.success(purl)
+        })
+        decode.success(package)
+      }),
+    )
+    decode.success(queries)
+  }
+  let assert Ok(purls) = json.parse(req.body, decoder)
+  purls
+}
+
+fn chunk_purls(count: Int) -> List(String) {
+  list.repeat(Nil, count)
+  |> list.index_map(fn(_, index) {
+    "pkg:hex/package" <> int.to_string(index + 1) <> "@1.0.0"
+  })
+}
+
+pub fn initial_batches_are_at_most_1000_and_keep_order_and_duplicates_test() {
+  use count <- list.each([999, 1000, 1001])
+  let purls =
+    list.append(list.take(chunk_purls(count), count - 1), [
+      "pkg:hex/package1@1.0.0",
+    ])
+  network_retry_test.with_script([], fn() {
+    let result =
+      osv.query_batch(purls, fn(req) {
+        network_retry_test.record_request(req)
+        let sent = sent_purls(req)
+        assert list.length(sent) <= 1000
+        Ok(Response(
+          200,
+          [],
+          json.to_string(
+            json.object([
+              #(
+                "results",
+                json.array(sent, fn(purl) {
+                  json.object([
+                    #(
+                      "vulns",
+                      json.array([purl], fn(id) {
+                        json.object([#("id", json.string(id))])
+                      }),
+                    ),
+                  ])
+                }),
+              ),
+            ]),
+          ),
+        ))
+      })
+    should.equal(
+      result,
+      Ok(list.map(purls, fn(purl) { osv.BatchEntry(purl, [purl]) })),
+    )
+    should.equal(
+      network_retry_test.requests()
+        |> list.map(fn(req) { list.length(sent_purls(req)) }),
+      case count {
+        1001 -> [1000, 1]
+        _ -> [count]
+      },
+    )
+  })
+}
+
+pub fn pagination_after_later_chunk_error_never_returns_partial_results_test() {
+  network_retry_test.with_script([], fn() {
+    let result =
+      osv.query_batch(chunk_purls(1001), fn(req) {
+        network_retry_test.record_request(req)
+        let sent = sent_purls(req)
+        case string.contains(req.body, "page_token") {
+          True -> Ok(Response(503, [], "unavailable"))
+          False ->
+            Ok(Response(
+              200,
+              [],
+              json.to_string(
+                json.object([
+                  #(
+                    "results",
+                    json.array(sent, fn(purl) {
+                      case purl {
+                        "pkg:hex/package1001@1.0.0" ->
+                          json.object([
+                            #("next_page_token", json.string("late")),
+                          ])
+                        _ -> json.object([])
+                      }
+                    }),
+                  ),
+                ]),
+              ),
+            ))
+        }
+      })
+    should.equal(result, Error(osv.UnexpectedResponse(503)))
+    should.equal(
+      network_retry_test.requests()
+        |> list.map(fn(req) { list.length(sent_purls(req)) }),
+      [1000, 1, 1],
+    )
+  })
+}
+
+pub fn later_chunk_cardinality_mismatch_is_an_error_test() {
+  network_retry_test.with_script([], fn() {
+    let result =
+      osv.query_batch(chunk_purls(1001), fn(req) {
+        network_retry_test.record_request(req)
+        let sent = sent_purls(req)
+        let results = case list.length(sent) {
+          1 -> []
+          _ -> list.map(sent, fn(_) { json.object([]) })
+        }
+        Ok(Response(
+          200,
+          [],
+          json.to_string(
+            json.object([
+              #("results", json.preprocessed_array(results)),
+            ]),
+          ),
+        ))
+      })
+    let assert Error(osv.InvalidResponse(message)) = result
+    assert string.contains(message, "length (0)")
+    should.equal(list.length(network_retry_test.requests()), 2)
+  })
 }
 
 pub fn encode_batch_body_emits_querybatch_shape_test() {
@@ -653,3 +795,5 @@ pub fn osv_transport_failures_keep_request_and_actual_reason_test() -> Nil {
     Error(failure),
   )
 }
+
+import gleam/dynamic/decode

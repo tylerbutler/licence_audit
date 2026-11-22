@@ -1,8 +1,11 @@
 import gleam/dict
 import gleam/dynamic/decode
+import gleam/http/request
+import gleam/http/response.{Response}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -10,7 +13,9 @@ import licence_audit/cache
 import licence_audit/cache_dir
 import licence_audit/error
 import licence_audit/hex
+import licence_audit/httpc_adaptive
 import licence_audit/manifest
+import licence_audit/network_retry_test
 import licence_audit/notice
 import licence_audit/osv
 import licence_audit/progress
@@ -272,6 +277,121 @@ fn run(
     clients,
     progress.disabled(),
   ).0
+}
+
+fn retrying_publication_clients() -> licence_audit.Clients {
+  licence_audit.Clients(
+    ..online_clients(hex.Published),
+    publication_fetcher: fn(name, version) {
+      hex.fetch_publication(name, version, fn(req) {
+        network_retry_test.send(req, 1)
+        |> result.map_error(hex.from_http_error(req, _))
+      })
+    },
+  )
+}
+
+pub fn required_publication_rate_limit_then_success_completes_cli_test() {
+  let root = project("retry-publication")
+  network_retry_test.with_script(
+    [
+      Ok(Response(429, [#("retry-after", "1")], "")),
+      Ok(Response(
+        200,
+        [],
+        "{\"version\":\"1.0.0\",\"package_url\":\"https://hex.pm/api/packages/local_dep\"}",
+      )),
+    ],
+    fn() {
+      should.equal(
+        run(
+          root,
+          ["--reproducible", "--no-cache"],
+          retrying_publication_clients(),
+        ).exit_code,
+        0,
+      )
+      should.equal(list.length(network_retry_test.requests()), 2)
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn expired_publication_evidence_never_hides_exhaustion_or_wait_budget_failure_test() {
+  let root = project("retry-expired-publication")
+  let assert Ok(table) =
+    cache_dir.open_table(Some(root <> "/cache"), "publication-v1", "test")
+  let assert Ok(_) =
+    cache_dir.insert_at(
+      table,
+      "unpublished:local_dep@1.0.0",
+      "unpublished",
+      Some(1),
+    )
+  list.each(
+    [
+      #(
+        [
+          Error(httpc_adaptive.ResponseTimeout),
+          Error(httpc_adaptive.ResponseTimeout),
+        ],
+        "timed out",
+      ),
+      #([Ok(Response(429, [#("retry-after", "31")], ""))], "retry deadline"),
+    ],
+    fn(sample) {
+      let #(responses, diagnostic) = sample
+      network_retry_test.with_script(responses, fn() {
+        let result =
+          run(root, ["--reproducible"], retrying_publication_clients())
+        should.equal(result.exit_code, 2)
+        assert string.contains(result.output, diagnostic)
+        should.equal(
+          list.length(network_retry_test.requests()),
+          list.length(responses),
+        )
+      })
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn required_publication_cutoff_is_incomplete_instead_of_stale_success_test() {
+  let root = project("retry-cutoff-publication")
+  let assert Ok(table) =
+    cache_dir.open_table(Some(root <> "/cache"), "publication-v1", "test")
+  let assert Ok(_) =
+    cache_dir.insert_at(
+      table,
+      "unpublished:local_dep@1.0.0",
+      "unpublished",
+      Some(1),
+    )
+  network_retry_test.with_script(
+    list.repeat(Error(httpc_adaptive.ResponseTimeout), 3),
+    fn() {
+      let clients =
+        licence_audit.Clients(
+          ..retrying_publication_clients(),
+          publication_fetcher: fn(name, version) {
+            let assert Ok(req) =
+              request.to("https://hex.pm/api/packages/example")
+            list.each([1, 2, 3], fn(_) {
+              should.equal(
+                network_retry_test.send(req, 0),
+                Error(httpc_adaptive.ResponseTimeout),
+              )
+            })
+            retrying_publication_clients().publication_fetcher(name, version)
+          },
+        )
+      let result = run(root, ["--reproducible"], clients)
+      should.equal(result.exit_code, 2)
+      assert string.contains(result.output, "coverage is incomplete")
+      should.equal(list.length(network_retry_test.requests()), 3)
+    },
+  )
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn git_package_paths_are_not_filesystem_paths_in_mixed_workspaces_test() {
@@ -578,6 +698,143 @@ pub fn reproducible_online_and_offline_use_the_same_required_evidence_test() {
     simplifile.write(root <> "/local_dep/source.gleam", "// changed source\n")
   should.equal(run(root, ["--offline", ..flags], no_network_clients()), online)
   let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn local_repository_links_preserve_publication_identity_and_source_test() -> Nil {
+  list.each([hex.Published, hex.Unpublished], fn(status) {
+    let root = project("repository-links")
+    let file = root <> "/local_dep/gleam.toml"
+    let assert Ok(contents) = simplifile.read(file)
+    let contents =
+      string.replace(
+        contents,
+        "[dependencies]",
+        "links = [{ title = \"Docs\", href = \"https://example.com/docs\" }]\n[dependencies]",
+      )
+    let assert Ok(_) = simplifile.write(file, contents)
+    let clients =
+      licence_audit.Clients(..online_clients(status), fetcher: fn(_) {
+        Error(hex.NetworkFailure("optional metadata unavailable"))
+      })
+    let baseline = run(root, ["--no-cache"], clients)
+    should.equal(baseline.exit_code, 0)
+    let original = local_component(baseline.output)
+    should.equal(original.purl, case status {
+      hex.Published -> Some("pkg:hex/local_dep@1.0.0")
+      hex.Unpublished -> None
+    })
+    let graph =
+      decode.at(
+        ["dependencies"],
+        decode.list({
+          use ref <- decode.field("ref", decode.string)
+          use children <- decode.field("dependsOn", decode.list(decode.string))
+          decode.success(#(ref, children))
+        }),
+      )
+    let assert Ok(original_graph) = json.parse(baseline.output, graph)
+    list.each(
+      [
+        #("github", "example", "https://github.com/example/widget"),
+        #(
+          "gitlab",
+          "group/subgroup",
+          "https://gitlab.com/group/subgroup/widget",
+        ),
+        #("bitbucket", "example", "https://bitbucket.com/example/widget"),
+        #("sourcehut", "example", "https://git.sr.ht/~example/widget"),
+      ],
+      fn(provider) {
+        let assert Ok(_) =
+          simplifile.write(
+            file,
+            contents
+              <> "\n[repository]\ntype = \""
+              <> provider.0
+              <> "\"\nuser = \""
+              <> provider.1
+              <> "\"\nrepo = \"widget\"\npath = \"packages/local_dep\"\n",
+          )
+        let result = run(root, ["--no-cache"], clients)
+        should.equal(result.exit_code, 0)
+        let component = local_component(result.output)
+        should.equal(component.urls, [
+          "https://example.com/docs",
+          provider.2,
+        ])
+        should.equal(LocalComponent(..component, urls: original.urls), original)
+        should.equal(json.parse(result.output, graph), Ok(original_graph))
+        let assert Ok(references) =
+          json.parse(
+            result.output,
+            decode.at(
+              ["components"],
+              decode.list({
+                use name <- decode.field("name", decode.string)
+                use references <- decode.optional_field(
+                  "externalReferences",
+                  [],
+                  decode.list({
+                    use url <- decode.field("url", decode.string)
+                    use kind <- decode.field("type", decode.string)
+                    use comment <- decode.field("comment", decode.string)
+                    decode.success(#(url, kind, comment))
+                  }),
+                )
+                decode.success(#(name, references))
+              }),
+            ),
+          )
+        assert list.contains(
+          references,
+          #("local_dep", [
+            #("https://example.com/docs", "documentation", "Docs"),
+            #(provider.2, "vcs", "Repository"),
+          ]),
+        )
+      },
+    )
+    let assert Ok(_) = simplifile.delete(root)
+  })
+}
+
+pub fn invalid_local_repository_metadata_fails_before_network_test() -> Nil {
+  let root = project("invalid-repository")
+  let file = root <> "/local_dep/gleam.toml"
+  let assert Ok(contents) = simplifile.read(file)
+  let output = root <> "/previous.json"
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  list.each(["github", "gitlab", "bitbucket", "sourcehut"], fn(provider) {
+    list.each(
+      [
+        "repo = \"widget\"",
+        "user = \"example\"\nrepo = 1",
+        "user = \"invalid user\"\nrepo = \"widget\"",
+      ],
+      fn(fields) {
+        let assert Ok(_) =
+          simplifile.write(
+            file,
+            contents
+              <> "\n[repository]\ntype = \""
+              <> provider
+              <> "\"\n"
+              <> fields
+              <> "\n",
+          )
+        let result =
+          run(root, ["--no-cache", "--output=" <> output], no_network_clients())
+        should.equal(result.exit_code, 2)
+        assert string.contains(
+          result.output,
+          "invalid description, licences, links, or repository",
+        )
+        should.equal(simplifile.read(output), Ok("previous output"))
+      },
+    )
+  })
+  let assert Ok(_) = simplifile.delete(root)
+  Nil
 }
 
 pub fn expired_unpublished_evidence_can_add_a_purl_without_changing_local_identity_test() {
