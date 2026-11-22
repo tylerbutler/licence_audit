@@ -5,6 +5,7 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
 import licence_audit/policy
+import simplifile
 
 pub type Error {
   Success
@@ -145,6 +146,19 @@ pub fn from_manifest_error(error: manifest.Error) -> Error {
         <> expected,
       )
     manifest.FileReadError(path) -> Input("Could not read " <> path)
+    manifest.InvalidProductionConfiguration(path) ->
+      Config(
+        "Invalid production dependency configuration in "
+        <> path
+        <> ": expected valid TOML with a dependencies table when present",
+      )
+    manifest.ProductionConfigurationReadFailed(path, reason) ->
+      Input(
+        "Could not read production dependency configuration from "
+        <> path
+        <> ": "
+        <> simplifile.describe_error(reason),
+      )
     manifest.ManifestNotFound(directory, filename) ->
       Input(
         filename

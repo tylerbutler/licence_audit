@@ -461,6 +461,56 @@ pub fn git_cache_identity_includes_original_subdirectory_test() {
   assert string.contains(protocol, "\"packages/beryl_protocol\"")
 }
 
+pub fn immutable_metadata_keys_separate_locked_sources_test() {
+  let entry =
+    manifest.SbomEntry(
+      "dep",
+      "1.0.0",
+      [],
+      manifest.HexProvenance(string.repeat("a", 64), option.None),
+    )
+  let assert Ok(key) = manifest.immutable_metadata_key(entry)
+  should.equal(
+    manifest.immutable_metadata_key(
+      manifest.SbomEntry(
+        ..entry,
+        provenance: manifest.HexProvenance(string.repeat("A", 64), option.None),
+      ),
+    ),
+    Ok(key),
+  )
+  let assert Ok(next_version_key) =
+    manifest.immutable_metadata_key(
+      manifest.SbomEntry(..entry, version: "2.0.0"),
+    )
+  assert next_version_key != key
+  let git =
+    manifest.SbomEntry(
+      ..entry,
+      provenance: manifest.GitProvenance("repo", "commit", option.None),
+    )
+  let assert Ok(git_key) = manifest.immutable_metadata_key(git)
+  assert git_key != key
+  let assert Ok(subdirectory_key) =
+    manifest.immutable_metadata_key(
+      manifest.SbomEntry(
+        ..git,
+        provenance: manifest.GitProvenance(
+          "repo",
+          "commit",
+          option.Some("packages/dep"),
+        ),
+      ),
+    )
+  assert subdirectory_key != git_key
+  should.equal(
+    manifest.immutable_metadata_key(
+      manifest.SbomEntry(..entry, provenance: manifest.PathProvenance("local")),
+    ),
+    Error(Nil),
+  )
+}
+
 const scope_fixture =
   "packages = [
   { name = \"app_a\", version = \"1.0.0\", source = \"hex\", requirements = [\"lib_b\"] },
@@ -494,6 +544,47 @@ pub fn prod_direct_names_non_table_is_error_test() {
 
 pub fn prod_direct_names_malformed_is_error_test() {
   should.equal(manifest.prod_direct_names("packages = ["), Error(Nil))
+}
+
+pub fn production_seed_loads_names_and_falls_back_only_for_missing_file_test() {
+  let root = "build/manifest-production-seed-test"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  let assert Ok(_) =
+    simplifile.write(
+      "[dependencies]\napp_a = \"1.0.0\"\n[dev-dependencies]\ntest_helper = \"1.0.0\"",
+      to: root <> "/gleam.toml",
+    )
+  should.equal(manifest.resolve_prod_seed(root, ["test_helper"]), Ok(["app_a"]))
+  let assert Ok(_) =
+    simplifile.write("name = \"app\"", to: root <> "/gleam.toml")
+  should.equal(manifest.resolve_prod_seed(root, ["test_helper"]), Ok([]))
+  let assert Ok(_) = simplifile.delete(root <> "/gleam.toml")
+  should.equal(
+    manifest.resolve_prod_seed(root, ["app_a", "test_helper"]),
+    Ok(["app_a", "test_helper"]),
+  )
+  let assert Ok(_) = simplifile.delete(root)
+}
+
+pub fn production_seed_rejects_invalid_and_unreadable_files_test() {
+  let root = "build/manifest-production-seed-error-test"
+  let path = root <> "/gleam.toml"
+  let assert Ok(_) = simplifile.create_directory_all(root)
+  list.each(["dependencies = []", "packages = ["], fn(contents) {
+    let assert Ok(_) = simplifile.write(contents, to: path)
+    should.equal(
+      manifest.resolve_prod_seed(root, ["app_a"]),
+      Error(manifest.InvalidProductionConfiguration(path)),
+    )
+  })
+  let assert Ok(_) = simplifile.delete(path)
+  let assert Ok(_) = simplifile.create_directory_all(path)
+  let assert Error(reason) = simplifile.read(path)
+  should.equal(
+    manifest.resolve_prod_seed(root, ["app_a"]),
+    Error(manifest.ProductionConfigurationReadFailed(path, reason)),
+  )
+  let assert Ok(_) = simplifile.delete(root)
 }
 
 pub fn dep_scopes_classifies_prod_wins_test() {

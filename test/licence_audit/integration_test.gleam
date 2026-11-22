@@ -3725,6 +3725,69 @@ pub fn sbom_subcommand_with_vulns_embeds_vulnerabilities_test() {
   assert string.contains(output, "pkg:hex/gleam_stdlib@1.0.0")
 }
 
+pub fn sbom_advisory_service_failure_keeps_placeholder_and_warning_test() -> Nil {
+  let #(result, events) =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+      ],
+      licence_audit.Clients(
+        ..test_clients(sbom_fetcher),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(_) { Error(osv.NotFound) },
+      ),
+      progress.capturing(progress.Normal, "sbom"),
+    )
+  should.equal(result.exit_code, 0)
+  assert string.contains(result.output, "\"id\": \"CVE-2024-0001\"")
+  assert string.contains(
+    result.output,
+    "\"description\": \"(details unavailable)\"",
+  )
+  assert list.contains(
+    events,
+    progress.Event(
+      progress.Warning,
+      "Failed to fetch OSV details for CVE-2024-0001: OSV resource not found",
+    ),
+  )
+}
+
+pub fn sbom_advisory_runtime_failure_preserves_output_file_test() -> Nil {
+  let output = "build/tmp/sbom-advisory-runtime-failure.json"
+  let assert Ok(_) = simplifile.create_directory_all("build/tmp")
+  let assert Ok(_) = simplifile.write("previous output", to: output)
+  let result =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--vulns",
+        "--manifest=test/fixtures/manifest_github_git.toml",
+        "--output=" <> output,
+      ],
+      licence_audit.Clients(
+        ..test_clients(sbom_fetcher),
+        osv_batch_fetcher: one_vuln_batch,
+        osv_detail_fetcher: fn(_) { panic as "Advisory worker failed" },
+      ),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.starts_with(
+    result.output,
+    "Error: Unexpected Erlang exception:",
+  )
+  assert string.contains(
+    result.output,
+    "Vulnerability check incomplete: failed to fetch OSV advisory details for 1 advisory/advisories.",
+  )
+  assert string.contains(result.output, "CVE-2024-0001")
+  assert !string.contains(result.output, "\"bomFormat\"")
+  should.equal(simplifile.read(output), Ok("previous output"))
+}
+
 pub fn sbom_subcommand_vulns_conflicts_with_offline_test() {
   let result =
     licence_audit.run_configured(

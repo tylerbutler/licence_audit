@@ -6,6 +6,7 @@ import licence_audit/hex
 import licence_audit/manifest
 import licence_audit/osv
 import licence_audit/policy
+import simplifile
 
 pub fn success_report_maps_to_exit_zero_test() {
   should.equal(error.exit_code(error.Success), 0)
@@ -124,6 +125,32 @@ pub fn manifest_errors_map_to_app_errors_test() {
     error.from_manifest_error(manifest.FileReadError("manifest.toml")),
     error.Input("Could not read manifest.toml"),
   )
+}
+
+pub fn production_seed_errors_preserve_diagnostic_class_and_text_test() {
+  let path = "project/gleam.toml"
+  let invalid =
+    error.from_manifest_error(manifest.InvalidProductionConfiguration(path))
+  should.equal(
+    invalid,
+    error.Config(
+      "Invalid production dependency configuration in project/gleam.toml: expected valid TOML with a dependencies table when present",
+    ),
+  )
+  let unreadable =
+    error.from_manifest_error(manifest.ProductionConfigurationReadFailed(
+      path,
+      simplifile.Eacces,
+    ))
+  should.equal(
+    unreadable,
+    error.Input(
+      "Could not read production dependency configuration from project/gleam.toml: "
+      <> simplifile.describe_error(simplifile.Eacces),
+    ),
+  )
+  should.equal(error.exit_code(invalid), 2)
+  should.equal(error.exit_code(unreadable), 2)
 }
 
 pub fn missing_manifest_diagnostic_has_directory_remedies_and_exit_two_test() -> Nil {
