@@ -604,9 +604,17 @@ pub fn check_vulnerability_flags_require_enabled_scan_test() {
     ["--vuln-block-unknown=false"],
     ["--vuln-severity=high", "--vuln-block-unknown"],
   ])
-  use scan <- list.each([[], ["--checks=licences"]])
+  use scan <- list.each([
+    [],
+    ["--checks=licences"],
+    ["--checks=licenses"],
+    ["--checks", "licenses"],
+  ])
   let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-    glint.execute(cli.app(), list.append(["check", ..scan], flags))
+    glint.execute(
+      cli.app(),
+      cli.normalize_args(list.append(["check", ..scan], flags)),
+    )
   assert string.contains(message, "require --checks=vulns or --checks=all")
 }
 
@@ -1162,6 +1170,7 @@ pub fn check_selection_accepts_only_supported_values_test() {
   list.each(
     [
       #("licences", cli.Licences),
+      #("licenses", cli.Licences),
       #("vulns", cli.Vulnerabilities),
       #("all", cli.AllChecks),
     ],
@@ -1176,15 +1185,45 @@ pub fn check_selection_accepts_only_supported_values_test() {
   )
   use value <- list.each([
     "",
-    "licenses",
+    "license",
     "none",
     "true",
     "ALL",
     "licences,vulns",
+    "licenses,vulns",
   ])
-  let message = usage_error(["check", "--checks=" <> value])
+  use flags <- list.each([["--checks=" <> value], ["--checks", value]])
+  let message = usage_error(["check", ..flags])
   assert string.contains(message, "checks")
   assert string.contains(message, "must be one of")
+}
+
+pub fn check_licenses_alias_matches_canonical_action_test() -> Nil {
+  let expected =
+    cli.execute(
+      ["check", "--checks=licences", "--manifest=licenses"],
+      tty.NoColor,
+      tty.NoColor,
+    )
+  let assert Ok(glint.Out(cli.RunAudit(options))) = expected
+  should.equal(options.checks, cli.Licences)
+  should.equal(options.manifest_path, Some("licenses"))
+  use flags <- list.each([["--checks=licenses"], ["--checks", "licenses"]])
+  should.equal(
+    cli.execute(
+      ["check", "--manifest", "licenses", ..flags],
+      tty.NoColor,
+      tty.NoColor,
+    ),
+    expected,
+  )
+}
+
+pub fn check_help_keeps_canonical_selector_spelling_test() -> Nil {
+  let help = help_text(["check", "--help"])
+  assert string.contains(help, "licences|vulns|all")
+  assert !string.contains(help, "licenses")
+  should.equal(help_text(["check", "--checks=licenses", "--help"]), help)
 }
 
 pub fn removed_check_vulns_flag_and_help_test() {
