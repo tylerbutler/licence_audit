@@ -1,0 +1,38 @@
+---
+version: 2.0.2
+title: vulns help
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: vulns_help_test
+---
+Report known vulnerabilities for locked dependencies using the OSV.dev database.
+Does not evaluate licence policy. Includes dev dependencies unless --scope=prod
+is set. Queries OSV directly and uses no on-disk cache.
+
+Command: vulns
+
+USAGE:
+    licence_audit vulns [ --color=<auto|always|never> --config=<PATH>
+        --format=<text|json> --ignore-config --manifest=<PATH> --quiet
+        --scope=<prod|all> --verbose ]
+
+FLAGS:
+    --color=<auto|always|never>  Colorize output: auto|always|never (default
+                                 auto; alias: --colour)
+
+    --config=<PATH>              Read configuration from PATH
+
+    --format=<text|json>         Output format: text|json (default text)
+
+    --help                       Print help information
+
+    --ignore-config              Ignore configuration files
+
+    --manifest=<PATH>            Read manifest from PATH
+
+    --quiet                      Suppress progress output (alias: -q)
+
+    --scope=<prod|all>           Dependency scope: prod|all (production only or
+                                 all dependencies)
+
+    --verbose                    Show detailed progress output (alias: -v)
+

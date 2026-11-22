@@ -1,0 +1,48 @@
+---
+version: 2.0.2
+title: update help
+file: ./test/licence_audit/output_snapshot_test.gleam
+test_name: update_help_test
+---
+Review discovered licences and update [tools.licence_audit]. Use --allow or
+--deny for non-interactive edits, or --dry-run to preview without writing. With
+none of these flags, use the interactive picker.
+
+Command: update
+
+USAGE:
+    licence_audit update [ --allow=<SPDX,...> --cache-dir=<DIR>
+        --color=<auto|always|never> --config=<PATH> --deny=<SPDX,...> --dry-run
+        --manifest=<PATH> --no-cache --quiet --verbose ]
+
+FLAGS:
+    --allow=<SPDX,...>           Replace the allow list with comma-separated
+                                 SPDX expressions; an empty value clears it,
+                                 omission preserves it
+
+    --cache-dir=<DIR>            Use DIR as the application cache root for all
+                                 cache families
+
+    --color=<auto|always|never>  Colorize output: auto|always|never (default
+                                 auto; alias: --colour)
+
+    --config=<PATH>              Read configuration from PATH
+
+    --deny=<SPDX,...>            Replace the deny list with comma-separated SPDX
+                                 expressions; an empty value clears it, omission
+                                 preserves it
+
+    --dry-run                    Print discovered licences and the proposed
+                                 policy edit without writing; no terminal
+                                 required
+
+    --help                       Print help information
+
+    --manifest=<PATH>            Read manifest from PATH
+
+    --no-cache                   Bypass the on-disk caches
+
+    --quiet                      Suppress progress output (alias: -q)
+
+    --verbose                    Show detailed progress output (alias: -v)
+

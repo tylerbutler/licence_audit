@@ -320,7 +320,7 @@ licence_audit sbom [--flags]
 | `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Prohibit network access; use local files and usable cached evidence. Required metadata, publication verification, and requested SPDX text must remain available |
-| `--output=<PATH>` | `PATH` |  | Write SBOM to PATH instead of stdout |
+| `--output=<PATH>` | `PATH` |  | Write SBOM to PATH instead of stdout (alias: -o) |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--reproducible` | `BOOL` | `false` | Reproducible output from locked metadata, current local metadata, and publication evidence; serialNumber is a content hash and timestamp comes from SOURCE_DATE_EPOCH (default 1970-01-01T00:00:00Z) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
