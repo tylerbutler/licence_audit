@@ -261,8 +261,11 @@ just format-check   # gleam format --check src test dev
 just glint          # gleam run -m glinter (linter; fails only on error-level rules)
 just lint           # format-check + glint
 just ci             # full validation (vendoring + formatting + lint + tests + builds + docs + SBOM)
-just clean          # remove build artifacts
+just clean          # remove build artifacts and the local Hex cache; preserve dist/
 ```
+
+`just clean` leaves `dist/` unchanged, including the tracked `dist/sbom.json`
+and any local changes to it.
 
 Run `just` with no arguments to see the full recipe list. The local `just ci`
 recipe and GitHub Actions both validate the SBOM after checking the committed
