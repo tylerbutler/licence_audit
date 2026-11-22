@@ -70,7 +70,8 @@ locked graph and each component's production or development scope.
 
 `licence_audit report` is an explicit form of the default licence report.
 Bare invocation and root scan flags remain supported, except for the removed
-policy flags below. Both forms use the same report options and behavior.
+policy flags below. Both forms use the same text report behavior. Only the named report accepts
+`--format text|json`.
 There is no `audit` alias. Root `--help`, `-h`, and `--version` still work
 without reading project files or making network calls.
 
@@ -158,7 +159,7 @@ root, remove `--no-cache`; to bypass storage, remove `--cache-dir`.
 Explicit `--ignore-config=false` and `--no-cache=false` do not conflict with
 their path flags.
 
-Usage errors start with `Error:` and write at most three lines to stderr.
+In text mode, usage errors start with `Error:` and write at most three lines to stderr.
 They name the cause and point to the relevant command's `--help`; they do not
 print the full help text. stdout stays empty and the exit code stays `2`.
 Unknown commands list `check`, `notices`, `report`, `sbom`, `update`, and
@@ -247,11 +248,15 @@ and improve metadata. We do not promise a fixed JSON layout, field order, or
 identical bytes across tool releases. A new default CycloneDX version requires
 a major release; a minor release can offer another version through opt-in.
 
-Audit/check and vulnerability reports do not currently have a supported JSON
-format. If we add one, we will give its schema an explicit version. Within a
-schema version, we will preserve existing field names, types, meanings, and
-required fields. Consumers must tolerate additional fields. We will document
-any extensible value sets before adding values to them.
+Named `report`, `check`, and `vulns` commands support `--format=json` with
+[report schema 1](/docs/json-reports). Text remains the default.
+JSON commands write one document to stdout, including recognized usage and
+operational failures. Progress and logs use stderr. Available findings remain
+in incomplete results; the exit-code categories do not change.
+
+Within a report schema version, we preserve existing field names, types,
+nullability, meanings, and required fields. Consumers must ignore additional
+fields. We document any extensible value sets before adding values to them.
 
 An incompatible report schema requires a new schema version. Within a major
 CLI version, we will preserve the old schema and default, and make the new

@@ -22,6 +22,11 @@ pub type Checks {
   AllChecks
 }
 
+pub type ReportFormat {
+  Text
+  Json
+}
+
 pub type ReportOptions {
   ReportOptions(
     manifest_path: Option(String),
@@ -32,6 +37,7 @@ pub type ReportOptions {
     no_cache: Bool,
     cache_dir: Option(String),
     scope: DependencyScope,
+    format: ReportFormat,
   )
 }
 
@@ -49,6 +55,7 @@ pub type Options {
     vuln_severity: Option(String),
     vuln_block_unknown: Option(Bool),
     scope: DependencyScope,
+    format: ReportFormat,
   )
 }
 
@@ -89,6 +96,7 @@ pub type VulnsOptions {
     verbosity: progress.Verbosity,
     color: color.Mode,
     scope: DependencyScope,
+    format: ReportFormat,
   )
 }
 
@@ -126,7 +134,7 @@ pub fn app() -> glint.Glint(CliAction) {
     put: "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.\n\n\n"
       <> report_help,
   )
-  |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
+  |> glint.add(at: ["report"], do: named_report_command())
   |> glint.add(at: ["check"], do: check_command())
   |> glint.add(at: ["update"], do: update_command())
   |> glint.add(at: ["sbom"], do: sbom_command())
@@ -268,11 +276,14 @@ const check_values = ["licences", "licenses", "vulns", "all"]
 
 const severity_values = ["low", "medium", "high", "critical"]
 
+const format_values = ["text", "json"]
+
 fn invalid_value_message(name: String, value: String) -> String {
   let expected = case name {
     "scope" -> scope_values
     "checks" -> check_values
     "vuln-severity" -> severity_values
+    "format" -> format_values
     _ -> ["true", "false"]
   }
   "invalid value '"
@@ -338,6 +349,66 @@ pub fn normalize_args(args: List(String)) -> List(String) {
   normalize_values(args, value_flags, [])
 }
 
+/// Recognize the selected JSON format even when another argument is invalid.
+/// Callers must retain normal help output when execution returns Glint help.
+pub fn recognized_json_command(args: List(String)) -> Option(String) {
+  let args = args |> normalize_args |> before_separator
+  case command_path(args), selected_format(args, option.None) {
+    [command], option.Some("json")
+      if command == "report" || command == "check" || command == "vulns"
+    -> option.Some(command)
+    _, _ -> option.None
+  }
+}
+
+/// Preserve valid check selection when JSON usage fails before action parsing.
+pub fn recognized_checks(args: List(String)) -> Option(Checks) {
+  let args = args |> normalize_args |> before_separator
+  case command_path(args) {
+    ["report"] -> option.Some(Licences)
+    ["vulns"] -> option.Some(Vulnerabilities)
+    ["check"] -> selected_checks(args, option.Some(Licences))
+    _ -> option.None
+  }
+}
+
+fn selected_checks(
+  args: List(String),
+  selected: Option(Checks),
+) -> Option(Checks) {
+  case args {
+    [] -> selected
+    ["--checks=" <> value, ..rest] ->
+      selected_checks(rest, case value {
+        "licences" | "licenses" -> option.Some(Licences)
+        "vulns" -> option.Some(Vulnerabilities)
+        "all" -> option.Some(AllChecks)
+        _ -> option.None
+      })
+    ["--checks", ..rest] -> selected_checks(rest, option.None)
+    [_, ..rest] -> selected_checks(rest, selected)
+  }
+}
+
+fn before_separator(args: List(String)) -> List(String) {
+  case args {
+    [] | ["--", ..] -> []
+    [arg, ..rest] -> [arg, ..before_separator(rest)]
+  }
+}
+
+fn selected_format(
+  args: List(String),
+  selected: Option(String),
+) -> Option(String) {
+  case args {
+    [] -> selected
+    ["--format=" <> value, ..rest] -> selected_format(rest, option.Some(value))
+    ["--format", ..rest] -> selected_format(rest, option.None)
+    [_, ..rest] -> selected_format(rest, selected)
+  }
+}
+
 fn normalize_values(
   args: List(String),
   value_flags: List(String),
@@ -387,10 +458,13 @@ fn normalize_alias(arg: String) -> String {
 
 fn root_command() -> glint.Command(CliAction) {
   use show_version <- glint.flag(version_flag())
-  report_command(fn(flags) {
-    let assert Ok(value) = show_version(flags)
-    value
-  })
+  report_command(
+    fn(flags) {
+      let assert Ok(value) = show_version(flags)
+      value
+    },
+    fn(_) { Text },
+  )
 }
 
 const check_help =
@@ -473,6 +547,7 @@ fn licence_flags(
 
 fn report_command(
   show_version: fn(glint.Flags) -> Bool,
+  format: fn(glint.Flags) -> ReportFormat,
 ) -> glint.Command(CliAction) {
   use <- glint.command_help(report_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
@@ -506,7 +581,38 @@ fn report_command(
         no_cache: cache.no_cache,
         cache_dir: cache.cache_dir,
         scope: scope,
+        format: format(flags),
       ))
+  }
+}
+
+fn named_report_command() -> glint.Command(CliAction) {
+  use format <- report_format_flags()
+  report_command(fn(_) { False }, format)
+}
+
+fn report_format_flags(
+  next: fn(fn(glint.Flags) -> ReportFormat) -> glint.Command(a),
+) -> glint.Command(a) {
+  use format <- glint.flag(
+    glint.string_flag("format")
+    |> glint.flag_value_name("text|json")
+    |> glint.flag_default("text")
+    |> glint.flag_constraint(constraint.one_of(format_values))
+    |> glint.flag_help("Output format: text|json (default text)"),
+  )
+  next(fn(flags) {
+    let assert Ok(value) = format(flags)
+    let assert Ok(format) = report_format_from_string(value)
+    format
+  })
+}
+
+fn report_format_from_string(value: String) -> Result(ReportFormat, Nil) {
+  case value {
+    "text" -> Ok(Text)
+    "json" -> Ok(Json)
+    _ -> Error(Nil)
   }
 }
 
@@ -514,6 +620,7 @@ fn check_command() -> glint.Command(CliAction) {
   use <- glint.command_help(check_help)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use licence <- licence_flags()
+  use format <- report_format_flags()
   use checks <- glint.flag(checks_flag())
   use vuln_severity <- glint.optional_flag(vuln_severity_flag())
   use vuln_block_unknown <- glint.optional_flag(vuln_block_unknown_flag())
@@ -566,6 +673,7 @@ fn check_command() -> glint.Command(CliAction) {
         vuln_severity: vuln_severity_value,
         vuln_block_unknown: vuln_block_unknown_value,
         scope: scope,
+        format: format(flags),
       ))
   }
 }
@@ -946,6 +1054,7 @@ fn vulns_command() -> glint.Command(CliAction) {
   use common <- common_flags()
   use config <- config_flags()
   use scope <- glint.flag(scope_flag("all"))
+  use format <- report_format_flags()
   use _, _, flags <- glint.command()
 
   let common = common(flags)
@@ -973,6 +1082,7 @@ fn vulns_command() -> glint.Command(CliAction) {
         verbosity: verbosity,
         color: color_mode,
         scope: scope_from_string(scope_value),
+        format: format(flags),
       ))
   }
 }
