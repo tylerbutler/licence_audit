@@ -60,6 +60,13 @@ fn help_text(args: List(String)) -> String {
   help
 }
 
+fn unwrapped_help_text(args: List(String)) -> String {
+  help_text(args)
+  |> string.split("\n")
+  |> list.map(string.trim)
+  |> string.join(" ")
+}
+
 fn usage_error(args: List(String)) -> String {
   let assert Error(message) = glint.execute(cli.app(), cli.normalize_args(args))
   message
@@ -176,9 +183,9 @@ pub fn short_version_option_is_distinct_from_verbose_test() -> Nil {
 }
 
 pub fn new_short_aliases_are_listed_in_command_help_test() -> Nil {
-  assert string.contains(help_text(["--help"]), "alias: -V")
+  assert string.contains(unwrapped_help_text(["--help"]), "alias: -V")
   use command <- list.each(["sbom", "notices"])
-  let help = help_text([command, "--help"])
+  let help = unwrapped_help_text([command, "--help"])
   assert string.contains(help, "--output")
   assert string.contains(help, "alias: -o")
 }
