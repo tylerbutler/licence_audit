@@ -66,6 +66,51 @@ Source-text checks reject harmless identifiers and comments and depend on file
 paths and the working directory. These decisions do not impose a CI dependency
 ban or a source identifier/comment guard.
 
+### Bounded network fetches
+
+The CLI uses weft 0.4.6 for finite fetch passes with four workers. Workers
+collect results and progress events; the caller merges them in input order.
+Do not add a concurrency flag or give each worker separate host policy state.
+The command owns the shared IPv6 probe, fallback, exhausted-operation cutoff,
+and service cooldown deadlines. OSV keeps its existing batch and pagination
+rules; the CLI fetches unique advisory details in bounded passes.
+
+Each worker has a managed HTTP guardian. A command guardian also owns HTTP
+outside those passes, such as OSV batches and pinned SPDX lookups. Guardians
+register Gun through its startup event before DNS or connection setup. They
+monitor opener helpers, sockets, and connections and join them before reporting
+drain. A TLS TCP callback records the temporary supervisor, receiver, and sender
+before socket transfer; its network operations delegate unchanged to
+`gen_tcp`/`inet`. Adapters register teardown before closing Gun. Guardians do not
+stop shared SSL supervisors. An unexpected TLS scope shape or an interrupted
+startup without a captured scope must fail rather than claim a drain proof.
+If TLS startup has begun but its scope is not yet captured, cancellation and
+adapter close wait for scope capture or setup completion before stopping Gun.
+The capture callback rejects cancelled work before socket transfer or handshake.
+Cancellation stops the opener helper and shuts down the captured TLS
+supervisor. A monitored cleanup helper forces that local scope to stop if
+shutdown exceeds its budget. Guardians join the actor and socket monitor
+signals; a failed cleanup remains an incomplete outcome.
+A worker crash, cancellation, or missing drain proof must remain an
+incomplete result, with the affected input and exit code `2`.
+
+Plain notices, SPDX, and tag metadata now use the existing Gun sender with
+`retry=0`, instead of OTP `httpc`. OTP can schedule internal `503` retries
+after caller cancellation. This change keeps status codes, response bodies,
+redirect handling, TLS verification, and absolute deadlines; it adds no
+logical retries. Archive opens use Gluegun's option preparation, host
+normalization, and typed error semantics, then attach the same ownership hooks
+before `gun:open`. Their stream flow control, byte limits, and source/retry
+policy stay unchanged.
+
+Exercise the real plain metadata and archive paths when changing ownership.
+Pool-only tests cannot prove that HTTP senders, opener helpers, or sockets
+have stopped. Include stalled TLS setup, caller death, error-body and redirect
+attempt counts, shared host admission, and ordered deferred warnings.
+The CA-loader regression injects a preparation error without changing the VM's
+shared CA cache. Real transport tests must still cover TLS verification and
+setup cancellation.
+
 ## Build from source
 
 Source builds require Gleam 1.19.2 or newer. Older compilers can reject valid

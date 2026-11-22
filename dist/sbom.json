@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:05b0659c-712a-8c05-aeb1-e234470f4285",
+  "serialNumber": "urn:uuid:19b58b87-713e-8e52-9557-2e80eae608de",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -705,6 +705,57 @@
         },
         {
           "url": "https://github.com/gleam-lang/json",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:hex/gleam_otp@1.3.0",
+      "type": "library",
+      "name": "gleam_otp",
+      "purl": "pkg:hex/gleam_otp@1.3.0",
+      "version": "1.3.0",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/gleam_otp"
+        ]
+      },
+      "description": "Fault tolerant multi-core programs with OTP, the BEAM actor framework.",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "de4ca6850842f0266ee95317a25dd6a0a0f20cdfab7c0adc2e63251d7c3c72ec"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/gleam_otp-1.3.0.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://gleam.run/",
+          "type": "website",
+          "comment": "Website"
+        },
+        {
+          "url": "https://github.com/sponsors/lpil",
+          "type": "other",
+          "comment": "Sponsor"
+        },
+        {
+          "url": "https://github.com/gleam-lang/otp",
           "type": "vcs",
           "comment": "Repository"
         }
@@ -1628,6 +1679,47 @@
       ]
     },
     {
+      "bom-ref": "pkg:hex/weft@0.4.6",
+      "type": "library",
+      "name": "weft",
+      "purl": "pkg:hex/weft@0.4.6",
+      "version": "0.4.6",
+      "scope": "required",
+      "supplier": {
+        "name": "Hex",
+        "url": [
+          "https://hex.pm/packages/weft"
+        ]
+      },
+      "description": "Owned, bounded structured concurrency and the missing OTP behaviours, typed for Gleam.",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "836e64b55cc6c0527f6aec70ae1c412c5b60f641824919f38ba229fa3524552d"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "url": "https://repo.hex.pm/tarballs/weft-0.4.6.tar",
+          "type": "distribution",
+          "comment": "Hex package tarball"
+        },
+        {
+          "url": "https://github.com/Roasbeef/weft",
+          "type": "vcs",
+          "comment": "Repository"
+        }
+      ]
+    },
+    {
       "bom-ref": "pkg:hex/william@1.0.1",
       "type": "library",
       "name": "william",
@@ -1713,6 +1805,7 @@
         "pkg:hex/spruce@2.0.1",
         "pkg:hex/tomlet@1.5.0",
         "pkg:hex/tty@1.2.0",
+        "pkg:hex/weft@0.4.6",
         "pkg:hex/william@1.0.1"
       ]
     },
@@ -1798,6 +1891,13 @@
     {
       "ref": "pkg:hex/gleam_json@3.1.0",
       "dependsOn": [
+        "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:hex/gleam_otp@1.3.0",
+      "dependsOn": [
+        "pkg:hex/gleam_erlang@1.3.0",
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
     },
@@ -1929,6 +2029,14 @@
     {
       "ref": "pkg:hex/tty@1.2.0",
       "dependsOn": [
+        "pkg:hex/gleam_stdlib@1.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:hex/weft@0.4.6",
+      "dependsOn": [
+        "pkg:hex/gleam_erlang@1.3.0",
+        "pkg:hex/gleam_otp@1.3.0",
         "pkg:hex/gleam_stdlib@1.0.5"
       ]
     },

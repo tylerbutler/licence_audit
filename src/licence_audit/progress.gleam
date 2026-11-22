@@ -53,6 +53,7 @@ pub type Reporter {
     emit: Bool,
     events: List(Event),
     deferred: List(Event),
+    pending: List(Event),
     command: String,
     color: color.Mode,
   )
@@ -69,6 +70,7 @@ pub fn enabled(
     emit: True,
     events: [],
     deferred: [],
+    pending: [],
     command: command,
     color: color,
   )
@@ -81,6 +83,7 @@ pub fn capturing(verbosity: Verbosity, command: String) -> Reporter {
     emit: False,
     events: [],
     deferred: [],
+    pending: [],
     command: command,
     color: color.Auto,
   )
@@ -93,6 +96,7 @@ pub fn disabled() -> Reporter {
     emit: False,
     events: [],
     deferred: [],
+    pending: [],
     command: "",
     color: color.Never,
   )
@@ -100,6 +104,27 @@ pub fn disabled() -> Reporter {
 
 pub fn events(reporter: Reporter) -> List(Event) {
   list.reverse(reporter.events)
+}
+
+/// Workers collect their own events; only the caller writes to stderr.
+pub fn fork(reporter: Reporter) -> Reporter {
+  Reporter(..reporter, emit: False, events: [], deferred: [], pending: [])
+}
+
+pub fn merge(reporter: Reporter, captured: Reporter) -> Reporter {
+  case reporter.emit {
+    True -> list.each(list.reverse(captured.pending), emit_event(reporter, _))
+    False -> Nil
+  }
+  Reporter(
+    ..reporter,
+    events: list.append(captured.events, reporter.events),
+    deferred: list.append(captured.deferred, reporter.deferred),
+    pending: case reporter.emit {
+      True -> reporter.pending
+      False -> list.append(captured.pending, reporter.pending)
+    },
+  )
 }
 
 pub fn stderr_color_enabled(mode: color.Mode, level: tty.ColorLevel) -> Bool {
@@ -266,7 +291,15 @@ fn log(
 }
 
 fn record(reporter: Reporter, kind: EventKind, message: String) -> Reporter {
-  Reporter(..reporter, events: [Event(kind, message), ..reporter.events])
+  let event = Event(kind, message)
+  Reporter(
+    ..reporter,
+    events: [event, ..reporter.events],
+    pending: case reporter.emit {
+      True -> reporter.pending
+      False -> [event, ..reporter.pending]
+    },
+  )
 }
 
 /// Record a success event and queue its log emission until `flush` is called.
@@ -305,7 +338,14 @@ pub fn flush(reporter: Reporter) -> Reporter {
 }
 
 fn queue(reporter: Reporter, kind: EventKind, message: String) -> Reporter {
-  Reporter(..reporter, deferred: [Event(kind, message), ..reporter.deferred])
+  Reporter(
+    ..reporter,
+    deferred: [Event(kind, message), ..reporter.deferred],
+    pending: case reporter.emit, reporter.pending {
+      False, [_, ..rest] -> rest
+      True, _ | False, [] -> reporter.pending
+    },
+  )
 }
 
 fn emit(
