@@ -158,6 +158,19 @@ root, remove `--no-cache`; to bypass storage, remove `--cache-dir`.
 Explicit `--ignore-config=false` and `--no-cache=false` do not conflict with
 their path flags.
 
+Usage errors start with `Error:` and write at most three lines to stderr.
+They name the cause and point to the relevant command's `--help`; they do not
+print the full help text. stdout stays empty and the exit code stays `2`.
+Unknown commands list `check`, `notices`, `report`, `sbom`, `update`, and
+`vulns`. `help` and `version` are not commands; use `--help` and `--version`.
+An unknown command remains an error when followed by `--help`.
+
+Removed `--allow` and `--deny` flags point to `[tools.licence_audit]` and
+`--config`. Removed `--prod-only` and `--include-dev` flags point to
+`--scope=prod` and `--scope=all`. Removed `--cache-path` points to
+`--cache-dir` with the application cache root. These hints also apply to
+`=value` forms; the removed flags remain rejected.
+
 ### Completion and output
 
 Optional enrichment has separate completion rules:
@@ -177,6 +190,16 @@ Optional enrichment has separate completion rules:
   Missing required metadata, verification, or requested pinned SPDX text
   exits `2`; `--offline` and `--no-cache` do not waive these requirements.
   Root metadata, supported sources, and artifact generation/writes remain required.
+
+The CLI fetches independent package metadata and advisory details with four
+workers and preserves input order in results and warnings. You cannot change
+the worker count with a CLI flag. Workers share the command's bounded IPv6
+probe, IPv4 fallback, host cutoff, and service rate-limit deadlines.
+
+Optional enrichment tolerates reported service failures, as described above.
+A worker crash, cancellation, or unconfirmed HTTP teardown exits `2`,
+including in `vulns` and default SBOM mode. The CLI reports the affected input
+as incomplete rather than treating a missing worker result as optional data.
 
 These exit-code corrections precede the 1.0 contract: incomplete licence
 reports previously exited `0`, and `update` edit/write failures exited `1`.

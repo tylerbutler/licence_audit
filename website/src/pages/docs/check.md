@@ -140,6 +140,27 @@ Required evidence includes a valid `outer_checksum` and the locked archive's
 metadata cannot fall back to API licences. Create a checksum-bearing lockfile
 with `gleam deps download`.
 
+## Report output
+
+Licence-only and combined checks print [package totals](/docs/report#totals)
+on stdout. Totals include all packages in the selected scope, including
+passing trees that a failed check omits from the display.
+
+A completed, passing licence gate prints `Licence check passed.`.
+A failed licence gate repeats each package with an unaccepted finding once
+under `Packages with findings:`, after the tree and before the failure
+verdict. Each row includes its name, version, declared licences, and reason.
+The list also includes packages whose required metadata failed.
+
+Incomplete checks keep exit code `2` and omit the pass verdict, including
+combined checks with failed OSV requests. A completed combined check can
+pass the licence gate and fail the vulnerability gate; its vulnerability
+verdict and exit code still indicate failure. `--checks=vulns` prints no
+licence totals, findings list, or licence verdict.
+
+Reports and verdicts use stdout. Progress and deferred operational errors
+use stderr. `--quiet` suppresses progress, not the report or verdict.
+
 ## Production-only gates
 
 Use `--scope=prod` when your gate should consider only production dependencies.
@@ -371,16 +392,16 @@ licence_audit check [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--checks` | `STRING` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--checks=<licences\|vulns\|all>` | `licences\|vulns\|all` | `licences` | Select checks: licences\|vulns\|all (default licences); licences and all require a licence policy |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--vuln-block-unknown` | `BOOL` |  | Fail on advisories whose severity is unknown (true or false overrides config; default false; requires --checks=vulns or --checks=all) |
-| `--vuln-severity` | `STRING` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
+| `--vuln-severity=<low\|medium\|high\|critical>` | `low\|medium\|high\|critical` |  | Minimum blocking vulnerability severity: low\|medium\|high\|critical (overrides config; default high; requires --checks=vulns or --checks=all) |
 <!-- cli-referencestop -->

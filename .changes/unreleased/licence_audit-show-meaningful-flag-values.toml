@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Show meaningful flag values and one-line command summaries in CLI help; keep command descriptions and Boolean value parsing."

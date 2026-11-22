@@ -61,7 +61,7 @@ fn help_text(args: List(String)) -> String {
 }
 
 fn usage_error(args: List(String)) -> String {
-  let assert Error(message) = glint.execute(cli.app(), cli.normalize_args(args))
+  let assert Error(message) = cli.execute(args, tty.NoColor, tty.NoColor)
   message
 }
 
@@ -79,6 +79,66 @@ pub fn short_help_option_returns_glint_help_test() {
   assert string.contains(help, "USAGE:")
 }
 
+pub fn help_value_forms_match_each_command_declaration_test() -> Nil {
+  let tree = glint.document(cli.app())
+  use command <- list.each([tree, ..tree.subcommands])
+  let args = case command.meta.name {
+    "licence_audit" -> ["--help"]
+    name -> [name, "--help"]
+  }
+  let help = help_text(args)
+  assert !string.contains(help, "<BOOL>")
+  assert !string.contains(help, "<STRING>")
+  use flag <- list.each(command.flags)
+  let value_name = case flag.meta.name {
+    "config" | "manifest" | "output" -> "PATH"
+    "cache-dir" -> "DIR"
+    "color" -> "auto|always|never"
+    "scope" -> "prod|all"
+    "checks" -> "licences|vulns|all"
+    "vuln-severity" -> "low|medium|high|critical"
+    _ -> "BOOL"
+  }
+  should.equal(flag.type_, value_name)
+  let name = "--" <> flag.meta.name
+  case value_name {
+    "BOOL" -> {
+      assert !string.contains(help, name <> "=")
+    }
+    value -> {
+      assert string.contains(help, name <> "=<" <> value <> ">")
+    }
+  }
+}
+
+pub fn root_lists_one_sentence_per_command_and_keeps_long_help_test() -> Nil {
+  let tree = glint.document(cli.app())
+  let root = help_text(["--help"])
+  let assert Ok(#(_, subcommands)) = string.split_once(root, "SUBCOMMANDS:")
+  let lines =
+    subcommands
+    |> string.split("\n")
+    |> list.filter(fn(line) { string.trim(line) != "" })
+  should.equal(list.length(lines), list.length(tree.subcommands))
+  use command <- list.each(tree.subcommands)
+  let summary = case string.split_once(command.meta.description, ". ") {
+    Ok(#(sentence, _)) -> sentence <> "."
+    Error(_) -> command.meta.description
+  }
+  assert list.any(lines, fn(line) {
+    string.starts_with(string.trim(line), command.meta.name <> " ")
+    && string.ends_with(line, summary)
+  })
+  let help = help_text([command.meta.name, "--help"])
+  let normalized = help |> string.split("\n") |> string.join(" ")
+  assert string.starts_with(normalized, summary)
+  assert !string.contains(help, "Report locked dependency licences by default")
+  assert string.contains(help, "Command: " <> command.meta.name)
+  let description =
+    command.meta.description |> string.split("\n") |> string.join(" ")
+  assert string.contains(normalized, description)
+}
+
 pub fn help_and_usage_colors_follow_destination_levels_test() {
   use #(args, help) <- list.each([
     #(["--help"], True),
@@ -86,6 +146,8 @@ pub fn help_and_usage_colors_follow_destination_levels_test() {
     #(["check", "-h"], True),
     #(["--unknown"], False),
     #(["check", "--manifest"], False),
+    #(["bogus", "--help"], False),
+    #(["check", "extra", "-h"], False),
   ])
   use #(stdout, stderr) <- list.each([
     #(tty.NoColor, tty.NoColor),
@@ -115,7 +177,14 @@ pub fn help_and_usage_colors_follow_destination_levels_test() {
     string.contains(text, "\u{1b}"),
     color.resolve_with_color_level(mode, level).enabled,
   )
-  assert string.contains(text, "USAGE:")
+  case help {
+    True -> {
+      assert string.contains(text, "USAGE:")
+    }
+    False -> {
+      assert string.contains(text, "Error:")
+    }
+  }
 }
 
 pub fn help_color_scan_does_not_read_option_values_as_flags_test() {
@@ -147,10 +216,10 @@ pub fn help_color_preserves_invalid_actions_and_separator_behavior_test() {
     ["--color=never", "--", "--colour=always"],
     ["--quiet", "--verbose"],
   ])
-  should.equal(
-    cli.execute(args, tty.NoColor, tty.NoColor),
-    glint.execute(cli.app(), cli.normalize_args(args)),
-  )
+  let message = usage_error(args)
+  assert string.starts_with(message, "Error:")
+  assert string.contains(message, " --help' for usage.")
+  assert !string.contains(message, "USAGE:")
 }
 
 pub fn color_before_separator_still_controls_usage_help_test() {
@@ -160,7 +229,7 @@ pub fn color_before_separator_still_controls_usage_help_test() {
       tty.NoColor,
       tty.NoColor,
     )
-  assert string.contains(message, "flag provided but not defined")
+  assert string.contains(message, "the '--' separator is not supported")
   assert string.contains(message, "\u{1b}")
 }
 
@@ -241,11 +310,14 @@ pub fn optional_string_flags_still_require_values_when_supplied_test() {
   let message = usage_error(list.append(command, ["--" <> name]))
 
   assert string.contains(message, name)
-  assert string.contains(message, "has no assigned value")
+  assert string.contains(message, "requires a value")
 }
 
 pub fn path_values_that_look_like_aliases_are_preserved_test() {
-  use value <- list.each(["-v", "-q", "-h", "--colour", "--colour=never"])
+  use value <- list.each([
+    "-v", "-q", "-h", "--help", "--colour", "--colour=never", "check", "--allow",
+    "--prod-only",
+  ])
   use command <- list.each(optional_path_flags)
   let #(command, names) = command
   use name <- list.each(names)
@@ -348,7 +420,7 @@ pub fn separated_colour_alias_accepts_a_value_test() {
 pub fn missing_colour_alias_value_returns_usage_error_test() {
   let message = usage_error(["--colour"])
   assert string.contains(message, "color")
-  assert string.contains(message, "has no assigned value")
+  assert string.contains(message, "requires a value")
 }
 
 pub fn separators_remain_unsupported_and_do_not_rewrite_aliases_test() {
@@ -358,12 +430,12 @@ pub fn separators_remain_unsupported_and_do_not_rewrite_aliases_test() {
     "--colour",
   ])
   let message = usage_error(["--", "-h"])
-  assert string.contains(message, "flag provided but not defined")
+  assert string.contains(message, "the '--' separator is not supported")
   let args = ["sbom", "--output", "--", "-v"]
   should.equal(cli.normalize_args(args), args)
   let message = usage_error(args)
   assert string.contains(message, "output")
-  assert string.contains(message, "has no assigned value")
+  assert string.contains(message, "requires a value")
 }
 
 pub fn check_vuln_block_unknown_option_enables_unknown_gate_test() {
@@ -390,7 +462,7 @@ pub fn removed_policy_flags_reject_all_forms_test() -> Nil {
     ["--" <> name, ""],
   ])
   let message = usage_error(list.append(command, flags))
-  assert string.contains(message, "invalid flag")
+  assert string.contains(message, "unknown flag")
   assert string.contains(message, name)
 }
 
@@ -466,7 +538,7 @@ pub fn unknown_option_returns_glint_usage_error_test() {
   let message = usage_error(["--wat"])
 
   assert string.contains(message, "wat")
-  assert string.contains(message, "USAGE:")
+  assert string.contains(message, "Run 'licence_audit --help' for usage.")
 }
 
 pub fn missing_allow_value_returns_usage_error_test() {
@@ -502,7 +574,7 @@ pub fn missing_manifest_value_returns_usage_error_test() {
 pub fn positional_argument_returns_usage_error_test() {
   let message = usage_error(["unexpected"])
 
-  assert string.contains(message, "invalid number of arguments")
+  assert string.contains(message, "unknown command 'unexpected'")
 }
 
 pub fn help_text_includes_usage_and_supported_options_test() {
@@ -585,7 +657,7 @@ pub fn invalid_check_vuln_severity_returns_usage_error_test() {
   let message = usage_error(["check", "--vuln-severity=" <> value])
 
   assert string.contains(message, "vuln-severity")
-  assert string.contains(message, "must be one of")
+  assert string.contains(message, "expected low or medium or high or critical")
 }
 
 pub fn check_vuln_severity_preserves_supported_values_test() {
@@ -927,7 +999,7 @@ pub fn sbom_licence_text_spellings_reject_malformed_booleans_test() {
   use value <- list.each(["", "yes", "1", "true=false"])
   let message = usage_error(["sbom", spelling <> "=" <> value])
   assert string.contains(message, "licence-text")
-  assert string.contains(message, "cannot parse")
+  assert string.contains(message, "invalid value")
 }
 
 pub fn sbom_licence_text_mixed_spellings_follow_repeated_flag_behavior_test() {
@@ -1078,6 +1150,74 @@ pub fn all_commands_reject_conflicting_aliases_and_invalid_colors_test() {
     glint.execute(cli.app(), cli.normalize_args(list.append(command, flags)))
 }
 
+pub fn shared_flag_readers_preserve_validation_precedence_test() -> Nil {
+  list.each([[], ..commands], fn(command) {
+    let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+      glint.execute(
+        cli.app(),
+        list.append(command, ["--quiet", "--verbose", "--color=rainbow"]),
+      )
+    should.equal(message, "--quiet and --verbose cannot be used together")
+  })
+
+  use #(flags, expected) <- list.each([
+    #(
+      [
+        "--config=policy.toml",
+        "--ignore-config",
+        "--cache-dir=cache",
+        "--no-cache",
+      ],
+      "--config and --ignore-config cannot be used together",
+    ),
+    #(
+      ["--cache-dir=cache", "--no-cache"],
+      "--no-cache and --cache-dir cannot be used together",
+    ),
+  ])
+  use command <- list.each([[], ["report"], ["check"], ["notices"]])
+  let args =
+    list.append(list.append(command, flags), [
+      "--quiet",
+      "--verbose",
+      "--color=rainbow",
+    ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), args)
+  should.equal(message, expected)
+}
+
+pub fn shared_flag_readers_preserve_version_and_sbom_error_order_test() -> Nil {
+  let assert Ok(glint.Out(cli.ShowVersion)) =
+    glint.execute(cli.app(), [
+      "--version",
+      "--quiet",
+      "--verbose",
+      "--color=rainbow",
+    ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), [
+      "--version",
+      "--cache-dir=cache",
+      "--no-cache",
+    ])
+  should.equal(message, "--no-cache and --cache-dir cannot be used together")
+
+  use #(flags, expected) <- list.each([
+    #(
+      ["--offline", "--reproducible"],
+      "--vulns requires network access and cannot be combined with --offline",
+    ),
+    #(
+      ["--reproducible"],
+      "--vulns uses mutable advisory data and cannot be combined with --reproducible",
+    ),
+  ])
+  let assert Ok(glint.Out(cli.InvalidUsage(message))) =
+    glint.execute(cli.app(), ["sbom", "--vulns", "--color=rainbow", ..flags])
+  should.equal(message, expected)
+}
+
 pub fn command_specific_flag_matrix_test() {
   use entry <- list.each([
     #("--config=custom.toml", [True, True, True, False, True, True]),
@@ -1195,7 +1335,10 @@ pub fn check_selection_accepts_only_supported_values_test() {
   use flags <- list.each([["--checks=" <> value], ["--checks", value]])
   let message = usage_error(["check", ..flags])
   assert string.contains(message, "checks")
-  assert string.contains(message, "must be one of")
+  assert string.contains(
+    message,
+    "expected licences or licenses or vulns or all",
+  )
 }
 
 pub fn check_licenses_alias_matches_canonical_action_test() -> Nil {
@@ -1279,11 +1422,146 @@ pub fn root_scan_options_match_named_report_test() {
 pub fn version_flag_is_root_only_test() {
   use command <- list.each(commands)
   let message = usage_error(list.append(command, ["--version"]))
-  assert string.contains(message, "invalid flag")
+  assert string.contains(message, "unknown flag")
   assert string.contains(message, "version")
 }
 
 pub fn audit_alias_remains_unsupported_test() {
   let message = usage_error(["audit"])
-  assert string.contains(message, "invalid number of arguments")
+  assert string.contains(message, "unknown command 'audit'")
+}
+
+pub fn usage_diagnostic_classes_have_short_contextual_messages_test() {
+  use #(command, _) <- list.each(optional_path_flags)
+  let help =
+    "\nRun '"
+    <> string.join(["licence_audit", ..command], " ")
+    <> " --help' for usage."
+  use #(flags, cause) <- list.each([
+    #(["--bogus"], "unknown flag --bogus"),
+    #(["--=bogus"], "unknown flag --=bogus"),
+    #(["--manifest"], "--manifest requires a value"),
+    #(
+      ["--quiet=bogus"],
+      "invalid value 'bogus' for --quiet (expected true or false)",
+    ),
+    #(["--color=bogus"], "invalid --color value: bogus"),
+    #(["--"], "the '--' separator is not supported"),
+    #(["--quiet", "--verbose"], "--quiet and --verbose cannot be used together"),
+  ])
+  should.equal(
+    usage_error(list.append(command, flags)),
+    "Error: " <> cause <> help,
+  )
+}
+
+pub fn constrained_value_diagnostics_do_not_show_parser_internals_test() {
+  use #(flag, expected) <- list.each([
+    #("scope", "prod or all"),
+    #("checks", "licences or licenses or vulns or all"),
+    #("vuln-severity", "low or medium or high or critical"),
+  ])
+  use value <- list.each(["bogus", "", "-h", "--help", "path=with=equals"])
+  use flags <- list.each([
+    ["--" <> flag <> "=" <> value],
+    ["--" <> flag, value],
+  ])
+  should.equal(
+    usage_error(["check", ..flags]),
+    "Error: invalid value '"
+      <> value
+      <> "' for --"
+      <> flag
+      <> " (expected "
+      <> expected
+      <> ")\nRun 'licence_audit check --help' for usage.",
+  )
+}
+
+pub fn unknown_commands_and_pseudo_commands_remain_errors_with_help_test() {
+  use #(word, suggestion) <- list.each([
+    #("chekc", ""),
+    #("audit", ""),
+    #("bogus", ""),
+    #("help", "; use --help"),
+    #("version", "; use --version"),
+  ])
+  use suffix <- list.each([[], ["--help"], ["-h"]])
+  should.equal(
+    usage_error([word, ..suffix]),
+    "Error: unknown command '"
+      <> word
+      <> "'"
+      <> suggestion
+      <> "\nCommands: check, notices, report, sbom, update, vulns"
+      <> "\nRun 'licence_audit --help' for usage.",
+  )
+  use command <- list.each(commands)
+  use suffix <- list.each([[], ["--help"]])
+  should.equal(
+    usage_error(list.append(command, ["extra", ..suffix])),
+    "Error: unexpected argument 'extra'\nRun 'licence_audit "
+      <> string.join(command, " ")
+      <> " --help' for usage.",
+  )
+}
+
+pub fn every_removed_flag_form_has_its_exact_migration_hint_test() {
+  use command <- list.each([[], ..commands])
+  use #(name, hint) <- list.each([
+    #(
+      "allow",
+      "Put the lists in [tools.licence_audit] and select the file with --config.",
+    ),
+    #(
+      "deny",
+      "Put the lists in [tools.licence_audit] and select the file with --config.",
+    ),
+    #("prod-only", "Use --scope=prod."),
+    #("include-dev", "Use --scope=all."),
+    #("cache-path", "Use --cache-dir with the application cache root."),
+  ])
+  use suffix <- list.each([
+    "",
+    "=",
+    "=true",
+    "=false",
+    "=MIT",
+    "=path=with=equals",
+  ])
+  should.equal(
+    usage_error(list.append(command, ["--" <> name <> suffix])),
+    "Error: unknown flag --"
+      <> name
+      <> "\n"
+      <> hint
+      <> "\nRun '"
+      <> string.join(["licence_audit", ..command], " ")
+      <> " --help' for usage.",
+  )
+}
+
+pub fn invalid_arguments_escape_control_text_without_extra_lines_test() {
+  let value = "bad\nvalue\r\t\u{1b}\u{85}\u{2028}\u{2029}'\\"
+  use args <- list.each([
+    [value],
+    ["check", value],
+    ["--" <> value],
+    ["--scope=" <> value],
+    ["--color=" <> value],
+  ])
+  let message = usage_error(args)
+  should.equal(list.length(string.split(message, "\n")) <= 3, True)
+  use control <- list.each([
+    "\r",
+    "\t",
+    "\u{1b}",
+    "\u{85}",
+    "\u{2028}",
+    "\u{2029}",
+  ])
+  assert !string.contains(message, control)
+  assert string.contains(message, "\\n")
+  assert string.contains(message, "\\'")
+  assert string.contains(message, "\\\\")
 }

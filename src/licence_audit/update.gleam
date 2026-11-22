@@ -11,10 +11,12 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import licence_audit/cache
+import licence_audit/cli
 import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/manifest
+import licence_audit/network
 import licence_audit/notice
 import licence_audit/path
 import licence_audit/picker
@@ -32,18 +34,14 @@ pub type UpdateResult {
 pub fn run(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   run_with_terminal_check(
     manifest_path,
     project_root,
-    config_path,
-    no_cache,
-    cache_root,
+    options,
     source_clients,
     reporter,
     stdin_is_tty: fn() { tty.is_tty(tty.Stdin) },
@@ -55,9 +53,7 @@ pub fn run(
 pub fn run_with_terminal_check(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   reporter: progress.Reporter,
   stdin_is_tty stdin_is_tty: fn() -> Bool,
@@ -68,9 +64,7 @@ pub fn run_with_terminal_check(
       run_with_picker(
         manifest_path,
         project_root,
-        config_path,
-        no_cache,
-        cache_root,
+        options,
         source_clients,
         picker.pick,
         reporter,
@@ -91,9 +85,7 @@ fn not_interactive() -> UpdateResult {
 pub fn run_with_picker(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   pick: fn(String, List(String), List(String), List(String)) ->
     Result(picker.Selection, picker.PickerError),
@@ -103,7 +95,7 @@ pub fn run_with_picker(
 
   let outcome = {
     use existing <- result.try(
-      load_existing_policy(config_path, project_root)
+      load_existing_policy(options.config_path, project_root)
       |> result.map_error(fn(config_error) {
         #(
           UpdateDiagnostic(
@@ -134,10 +126,7 @@ pub fn run_with_picker(
     let reporter =
       progress.package_count(reporter, list.length(locked.packages))
 
-    let cache_mode = case no_cache {
-      True -> cache.Disabled
-      False -> cache.Enabled(path: cache_root)
-    }
+    let cache_mode = cache.mode_for(options.no_cache, options.cache_dir)
     let cache_handle = cache.open(cache_mode)
     let cached_fetcher =
       cache.wrap_locked(cache_handle, fn(name, version, checksum) {
@@ -170,7 +159,7 @@ pub fn run_with_picker(
         handle_selection(
           existing,
           discovered,
-          config_path,
+          options.config_path,
           project_root,
           cache_warning,
           pick,
@@ -311,36 +300,47 @@ fn discover_licences(
   collected: List(String),
   failed: Bool,
 ) -> #(List(String), Bool, progress.Reporter) {
-  case packages {
-    [] -> #(list.unique(collected), failed, reporter)
-    [pkg, ..rest] -> {
-      let #(result, reporter) = fetcher(pkg, reporter)
-      case result {
-        Error(fetch_error) -> {
-          let reporter =
-            progress.fail(
-              reporter,
-              "Failed to fetch package metadata for "
-                <> pkg.name
-                <> "@"
-                <> pkg.version
-                <> ": "
-                <> notice.describe_error(fetch_error),
-            )
-          discover_licences(rest, fetcher, reporter, collected, True)
-        }
-        Ok(metadata) -> {
-          discover_licences(
-            rest,
-            fetcher,
-            reporter,
-            list.append(collected, metadata.licences),
-            failed,
+  let outcomes =
+    network.fetch(
+      packages,
+      fn(package) { package.name <> "@" <> package.version },
+      fn(package) { fetcher(package, progress.fork(reporter)) },
+    )
+  let #(collected, failed, reporter) =
+    list.fold(
+      list.zip(packages, outcomes),
+      #(collected, failed, reporter),
+      fn(acc, pair) {
+        let #(collected, failed, reporter) = acc
+        let #(pkg, outcome) = pair
+        let #(fetched, reporter) = case outcome {
+          Ok(#(fetched, captured)) -> #(
+            result.map_error(fetched, notice.describe_error),
+            progress.merge(reporter, captured),
           )
+          Error(reason) -> #(Error(reason), reporter)
         }
-      }
-    }
-  }
+        case fetched {
+          Error(reason) -> {
+            let reporter =
+              progress.fail(
+                reporter,
+                "Failed to fetch package metadata for "
+                  <> pkg.name
+                  <> "@"
+                  <> pkg.version
+                  <> ": "
+                  <> reason,
+              )
+            #(collected, True, reporter)
+          }
+          Ok(metadata) -> {
+            #(list.append(collected, metadata.licences), failed, reporter)
+          }
+        }
+      },
+    )
+  #(list.unique(collected), failed, reporter)
 }
 
 fn load_existing_policy(

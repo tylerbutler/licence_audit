@@ -243,6 +243,8 @@ pub fn dev_only_project_preserves_command_defaults_and_all_scope_test() {
     )
   should.equal(combined.exit_code, 1)
   assert string.contains(combined.output, "CVE-SCOPE")
+  assert string.contains(combined.output, "Licence check passed.")
+  assert string.contains(combined.output, "Vulnerability check failed:")
   let vulns = run(manifest_path, ["vulns", "--ignore-config"], clients)
   should.equal(vulns.exit_code, 0)
   assert string.contains(vulns.output, "dev_dep 1.0.0  [dev]")
@@ -370,8 +372,10 @@ pub fn production_reports_keep_full_chain_when_development_path_is_shorter_test(
       let result =
         run(manifest_path, list.append(command.0, ["--scope=prod"]), clients)
       should.equal(result.exit_code, command.1)
+      let assert [tree, ..] =
+        string.split(result.output, "Packages with findings:\n")
       let rows =
-        result.output
+        tree
         |> string.split("\n")
         |> list.filter(fn(line) {
           string.contains(line, "1.0.0") && string.contains(line, "Apache-2.0")

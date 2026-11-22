@@ -127,10 +127,10 @@ licence_audit update [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |

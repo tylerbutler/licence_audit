@@ -64,3 +64,96 @@ pub fn optional_group_getters_preserve_defaults_and_values_test() -> Nil {
   |> glint.execute(["export", "--output="])
   |> should.equal(Ok(glint.Out(Ok(Some("")))))
 }
+
+pub fn detailed_execution_preserves_input_and_command_context_test() {
+  let app =
+    glint.new()
+    |> glint.add(at: ["group", "run"], do: {
+      use <- glint.unnamed_args(glint.EqArgs(0))
+      use _ <- glint.optional_flag(glint.int_flag("count"))
+      use _, _, _ <- glint.command()
+      Nil
+    })
+  let assert Error(unknown) =
+    glint.execute_detailed(app, ["group", "run", "--unknown=literal"])
+  should.equal(unknown.command_path, ["group", "run"])
+  should.equal(unknown.cause, glint.UnknownFlag("unknown", "--unknown=literal"))
+  let assert Error(missing) =
+    glint.execute_detailed(app, ["group", "run", "--count"])
+  should.equal(missing.cause, glint.MissingFlagValue("count", "--count"))
+  let assert Error(invalid) =
+    glint.execute_detailed(app, ["group", "run", "--count=--help"])
+  should.equal(
+    invalid.cause,
+    glint.InvalidFlagValue("count", "--help", "--count=--help"),
+  )
+  let assert Error(extra) =
+    glint.execute_detailed(app, ["group", "run", "extra", "--help"])
+  should.equal(extra.command_path, ["group", "run"])
+  should.equal(
+    extra.cause,
+    glint.InvalidArgumentCount(glint.EqArgs(0), ["extra"]),
+  )
+  let assert Ok(glint.Help(_)) =
+    glint.execute(app, ["group", "run", "extra", "--help"])
+  let assert Ok(glint.Help(_)) =
+    glint.execute_detailed(app, ["group", "run", "--unknown", "--help"])
+  let assert Error(legacy) = glint.execute(app, ["group", "run", "--count"])
+  assert string.contains(legacy, "has no assigned value")
+  assert string.contains(legacy, "USAGE:")
+}
+
+pub fn detailed_execution_retains_custom_constraint_and_runner_results_test() {
+  let app =
+    glint.new()
+    |> glint.add(at: [], do: {
+      use _ <- glint.optional_flag(
+        glint.string_flag("value")
+        |> glint.flag_constraint(fn(_) {
+          snag.error("custom constraint failure")
+        }),
+      )
+      use _, _, _ <- glint.command()
+      Error("runner failure")
+    })
+  let assert Error(error) = glint.execute_detailed(app, ["--value=raw"])
+  should.equal(
+    error.cause,
+    glint.InvalidFlagValue("value", "raw", "--value=raw"),
+  )
+  assert string.contains(
+    snag.pretty_print(error.diagnostic),
+    "custom constraint failure",
+  )
+  should.equal(
+    glint.execute_detailed(app, []),
+    Ok(glint.Out(Error("runner failure"))),
+  )
+}
+
+pub fn help_value_names_do_not_change_parsing_test() -> Nil {
+  let app =
+    glint.new()
+    |> glint.add(at: [], do: {
+      use path <- glint.optional_flag(
+        glint.string_flag("path")
+        |> glint.flag_value_name("PATH"),
+      )
+      use enabled <- glint.flag(
+        glint.bool_flag("enabled")
+        |> glint.flag_default(False),
+      )
+      use _, _, flags <- glint.command()
+      #(path(flags), enabled(flags))
+    })
+  let assert Ok(glint.Help(help)) = glint.execute(app, ["--help"])
+  assert string.contains(help, "--path=<PATH>")
+  assert string.contains(help, "--enabled")
+  assert !string.contains(help, "--enabled=")
+  glint.execute(app, ["--path=--enabled=false", "--enabled=true"])
+  |> should.equal(Ok(glint.Out(#(Ok(Some("--enabled=false")), Ok(True)))))
+  glint.execute(app, ["--path=", "--enabled=false"])
+  |> should.equal(Ok(glint.Out(#(Ok(Some("")), Ok(False)))))
+  glint.execute(app, ["--enabled"])
+  |> should.equal(Ok(glint.Out(#(Ok(None), Ok(True)))))
+}

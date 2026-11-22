@@ -136,6 +136,11 @@ For example, `licence_audit sbom --output -v` writes to a file named `-v`;
 it does not enable verbose output. Values can contain `=`, and you can use
 `--output=--colour` for a file named `--colour`.
 
+Help shows value names such as `--output=<PATH>` and permitted values such
+as `--scope=<prod|all>`. Replace the placeholder with your value; do not type
+the angle brackets. Boolean flags need no value, but you can use
+`--quiet=true` or `--quiet=false` to set a Boolean value.
+
 Use `-h`, `-q`, and `-v` as options for help, quiet output, and verbose output.
 Use `--colour` as an alias for `--color`. These aliases keep their literal
 text when you supply them as flag values. Do not use a `--` separator or
@@ -338,6 +343,9 @@ options available in your installed version.
 use `licence_audit --version`, not `licence_audit sbom --version`.
 
 <!-- cli-reference -->
+Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.
+
+
 Report Hex package licences without enforcing policy findings. Operational failures exit 2. Use `check` to enforce a licence policy.
 
 **Usage:**
@@ -350,14 +358,14 @@ licence_audit (check | notices | report | sbom | update | vulns) [--flags]
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
-| `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--config` | `STRING` |  | Read configuration from PATH |
+| `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
+| `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
+| `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
-| `--manifest` | `STRING` |  | Read manifest from PATH |
+| `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--quiet` | `BOOL` | `false` | Suppress progress output (alias: -q) |
-| `--scope` | `STRING` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
+| `--scope=<prod\|all>` | `prod\|all` | `all` | Dependency scope: prod\|all (production only or all dependencies) |
 | `--verbose` | `BOOL` | `false` | Show detailed progress output (alias: -v) |
 | `--version` | `BOOL` | `false` | Print the installed version |
 <!-- cli-referencestop -->
