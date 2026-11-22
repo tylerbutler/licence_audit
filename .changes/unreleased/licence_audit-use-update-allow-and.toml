@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Added"
+body = "Use `update --allow=...` and `--deny=...` to replace policy lists without a terminal, or `--dry-run` to preview without changing the policy file. Omitted lists are preserved, empty values clear lists, and uncovered licences are reported without failing the update."

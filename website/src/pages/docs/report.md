@@ -12,7 +12,7 @@ licence_audit report
 licence_audit report --manifest=apps/server/manifest.toml
 ```
 
-Text is the default and current report format. The report shows the dependency
+Text is the default report format. The report shows the dependency
 tree, licence declarations, policy findings, scoped exceptions, and skipped
 non-Hex sources. A completed report returns `0`, including when it finds policy
 violations. Use [`check`](/docs/check) to enforce a policy.
@@ -40,6 +40,16 @@ Use `--no-cache` to bypass the on-disk caches. Use `--quiet` (`-q`) or
 to select `auto`, `always`, or `never`. Reports use stdout; input and
 configuration diagnostics use stderr. Missing or invalid manifest/config
 files and incomplete required metadata return `2`.
+
+## JSON output
+
+Use `licence_audit report --format=json` for one
+[schema-1 JSON document](/docs/json-reports) on stdout. Both `--format=json`
+and `--format json` are accepted. The document includes full in-scope rows,
+counts, exception decisions, and dependency paths.
+Input, configuration, and metadata failures retain available results and
+structured errors in the document; progress and logs remain on stderr.
+Bare invocation remains text and does not accept `--format`.
 
 ## Totals
 
@@ -100,6 +110,7 @@ licence_audit report [--flags]
 | `--cache-dir=<DIR>` | `DIR` |  | Use DIR as the application cache root for all cache families |
 | `--color=<auto\|always\|never>` | `auto\|always\|never` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
 | `--config=<PATH>` | `PATH` |  | Read configuration from PATH |
+| `--format=<text\|json>` | `text\|json` | `text` | Output format: text\|json (default text) |
 | `--ignore-config` | `BOOL` | `false` | Ignore configuration files |
 | `--manifest=<PATH>` | `PATH` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |

@@ -1,5 +1,8 @@
+import gleam/dynamic/decode
 import gleam/int
+import gleam/json
 import gleam/list
+import gleam/option.{None}
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -784,6 +787,52 @@ pub fn ambiguous_locked_identity_is_rejected_before_osv_query_test() {
       "purl matches multiple locked packages",
     )
   })
+  let result =
+    run(
+      root,
+      ["check", "--checks=all", "--format=json"],
+      clean_licences,
+      fn(_) { panic as "must not query ambiguous identity" },
+      fn(_) { panic as "must not fetch details for ambiguous identity" },
+    )
+  should.equal(result.exit_code, 2)
+  let decoder = {
+    use complete <- decode.field("complete", decode.bool)
+    use errors <- decode.field(
+      "errors",
+      decode.list(decode.at(["code"], decode.string)),
+    )
+    use checks <- decode.subfield(
+      ["summary", "checks_run"],
+      decode.list(decode.string),
+    )
+    use licences <- decode.subfield(
+      ["licences", "rows"],
+      decode.list({
+        use package <- decode.field("package", decode.string)
+        use licences <- decode.field("licences", decode.list(decode.string))
+        use status <- decode.field("status", decode.string)
+        decode.success(#(package, licences, status))
+      }),
+    )
+    use vulnerabilities <- decode.field(
+      "vulnerabilities",
+      decode.optional(decode.at(
+        ["rows"],
+        decode.list(decode.at(["package"], decode.string)),
+      )),
+    )
+    decode.success(#(complete, errors, checks, licences, vulnerabilities))
+  }
+  let assert Ok(#(complete, errors, checks, licences, vulnerabilities)) =
+    json.parse(result.output, decoder)
+  should.equal(complete, False)
+  should.equal(errors, ["config"])
+  should.equal(checks, ["licences"])
+  should.equal(vulnerabilities, None)
+  should.equal(list.length(licences), 5)
+  assert list.contains(licences, #("first", ["MIT"], "allowed"))
+  assert list.contains(licences, #("second", ["MIT"], "allowed"))
 }
 
 pub fn accepted_advisory_cannot_hide_another_advisory_or_licence_test() {

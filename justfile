@@ -92,6 +92,11 @@ test: test-ffi
 test-picker-lifecycle: test-ffi
     {{toolchain}} {{python}} -B test/picker_lifecycle.py
 
+# Run only the SPDX/policy examples and fixed-seed properties.
+test-spdx-policy: test-ffi
+    {{toolchain}} gleam build
+    {{toolchain}} erl -noshell -pa build/dev/erlang/*/ebin -eval 'case eunit:test([licence_audit@spdx_expression_test, licence_audit@policy_test, licence_audit@spdx_policy_property_test], [verbose, {print_depth, 1000}]) of ok -> halt(0); error -> halt(1) end.'
+
 # Check notices filtering with real CLI cache settings in fresh Erlang VMs.
 test-notices-filter:
     mise exec -- gleam build
@@ -262,6 +267,10 @@ sbom-score: sbom-generate
 # Validate the SBOM schema and report its quality score
 sbom-check: sbom-validate sbom-score
 
+# Validate SPDX fixtures and actual CLI output (requires network for the schema).
+sbom-spdx-validate: build test
+    mise exec -- uv run --no-project test/sbom_spdx_validation.py
+
 # === ORT (cross-check) ===
 # Generate a reference SBOM with the OSS Review Toolkit (the tool the Gleam guide
 # recommends) to cross-check ours. Requires Docker. Output lands in ./ort-result
@@ -356,6 +365,6 @@ pr-title-check title:
     printf '%s\n' "$1" | {{toolchain}} npx commitlint
 
 # Full validation workflow (matches what CI runs)
-ci: doctor vendor-check vendor-test format-check glint test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate
+ci: doctor vendor-check vendor-test format-check glint test test-notices-filter test-runtime-startup test-env-cache-paths build-strict test-vendor-production docs-check test-docs website-deps website-check website-build sbom-drift-check sbom-validate sbom-spdx-validate
 
 alias pr := ci

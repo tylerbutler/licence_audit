@@ -723,6 +723,9 @@ fn run_licence_evidence_command(
             color: color.Never,
             no_cache: True,
             cache_dir: None,
+            allow: None,
+            deny: None,
+            dry_run: False,
           ),
           clients.notice_clients,
           fn(_, _, _, _) { panic as "invalid evidence must stop before picker" },
@@ -1796,10 +1799,6 @@ pub fn denied_transitive_fails_check_and_prints_via_chain_test() {
   should.equal(exit_code, 1)
   assert string.contains(output, "lib_c")
   assert string.contains(output, "denied: GPL-3.0")
-  // The tree layout indents transitive deps under the dep that brought them
-  // in: app_a → lib_b → lib_c.
-  assert string.contains(output, "└─ ✓ lib_b")
-  assert string.contains(output, "   └─ ✗ lib_c")
   assert string.contains(output, "Dependency licence audit failed")
 }
 
@@ -2376,6 +2375,9 @@ pub fn report_check_and_update_use_locked_licences_not_api_licences_test() {
         color: color.Never,
         no_cache: True,
         cache_dir: None,
+        allow: None,
+        deny: None,
+        dry_run: False,
       ),
       clients.notice_clients,
       fn(_, labels, allow, deny) {

@@ -35,6 +35,7 @@ birdie = ">= 2.0.0 and < 3.0.0"
 gleeunit = ">= 1.0.0 and < 2.0.0"
 glinter = ">= 2.19.0 and < 3.0.0"
 glugify = ">= 3.0.0 and < 4.0.0"
+qcheck = "1.0.5"
 
 [tools]
 

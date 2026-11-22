@@ -58,7 +58,8 @@ with tempfile.TemporaryDirectory(prefix="update-acl-", dir=root) as directory:
         Picker = fun(_, _, _, _) -> {ok, {selection, [<<"MIT">>], []}} end,
         {{update_diagnostic, 2, Message}, _} = licence_audit@update:run_with_picker(
             Manifest, <<".">>,
-            {update_options, none, {some, Path}, verbose, never, true, none},
+            {update_options, none, {some, Path}, verbose, never, true, none,
+                none, none, false},
             licence_audit@notice:default_clients(), Picker,
             licence_audit@progress:capturing(verbose, <<"update">>)
         ),

@@ -432,7 +432,7 @@ fn optional_string_list(
   }
 }
 
-fn validate(policy: Policy) -> Result(Policy, Error) {
+pub fn validate(policy: Policy) -> Result(Policy, Error) {
   use _ <- result.try(
     exception.validate_unique(policy.exceptions)
     |> result.map_error(exception.describe_error)
@@ -441,14 +441,24 @@ fn validate(policy: Policy) -> Result(Policy, Error) {
   use _ <- result.try(
     list.try_each([#("allow", policy.allow), #("deny", policy.deny)], fn(entry) {
       let #(field, licences) = entry
-      list.try_each(licences, fn(licence) {
-        spdx_expression.parse(licence)
-        |> result.replace_error(InvalidLicenceIdentifier(field, licence))
-        |> result.map(fn(_) { Nil })
-      })
+      validate_licence_list(field, licences) |> result.map(fn(_) { Nil })
     }),
   )
   validate_vuln_severity(policy)
+}
+
+pub fn validate_licence_list(
+  field: String,
+  licences: List(String),
+) -> Result(List(String), Error) {
+  use _ <- result.try(
+    list.try_each(licences, fn(licence) {
+      spdx_expression.parse(licence)
+      |> result.replace_error(InvalidLicenceIdentifier(field, licence))
+      |> result.map(fn(_) { Nil })
+    }),
+  )
+  Ok(licences)
 }
 
 fn validate_vuln_severity(policy: Policy) -> Result(Policy, Error) {
