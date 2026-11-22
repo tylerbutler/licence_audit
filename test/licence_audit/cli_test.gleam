@@ -6,6 +6,7 @@ import licence_audit/cli
 import licence_audit/color
 import licence_audit/internal/vendor/glint
 import licence_audit/progress
+import tty
 
 const optional_path_flags = [
   #([], ["manifest", "config", "cache-dir"]),
@@ -76,6 +77,91 @@ pub fn short_help_option_returns_glint_help_test() {
 
   assert string.contains(help, "licence_audit")
   assert string.contains(help, "USAGE:")
+}
+
+pub fn help_and_usage_colors_follow_destination_levels_test() {
+  use #(args, help) <- list.each([
+    #(["--help"], True),
+    #(["-h"], True),
+    #(["check", "-h"], True),
+    #(["--unknown"], False),
+    #(["check", "--manifest"], False),
+  ])
+  use #(stdout, stderr) <- list.each([
+    #(tty.NoColor, tty.NoColor),
+    #(tty.NoColor, tty.TrueColor),
+    #(tty.TrueColor, tty.NoColor),
+    #(tty.TrueColor, tty.TrueColor),
+  ])
+  use #(flags, mode) <- list.each([
+    #([], color.Auto),
+    #(["--color=auto"], color.Auto),
+    #(["--colour", "ALWAYS"], color.Always),
+    #(["--colour=never"], color.Never),
+    #(["--color", "always", "--colour=never"], color.Never),
+    #(["--colour=never", "--color", "always"], color.Always),
+  ])
+  let result = cli.execute(list.append(flags, args), stdout, stderr)
+  let text = case result {
+    Ok(glint.Help(text)) if help -> text
+    Error(text) if !help -> text
+    _ -> panic as "expected help on the original destination"
+  }
+  let level = case help {
+    True -> stdout
+    False -> stderr
+  }
+  should.equal(
+    string.contains(text, "\u{1b}"),
+    color.resolve_with_color_level(mode, level).enabled,
+  )
+  assert string.contains(text, "USAGE:")
+}
+
+pub fn help_color_scan_does_not_read_option_values_as_flags_test() {
+  use #(command, names) <- list.each(optional_path_flags)
+  use name <- list.each(names)
+  use value <- list.each(["--color=always", "--colour=always", "--colour"])
+  use flags <- list.each([
+    ["--" <> name, value],
+    ["--" <> name <> "=" <> value],
+  ])
+  let args = list.append(command, flags)
+  let assert Ok(glint.Help(help)) =
+    cli.execute(list.append(args, ["-h"]), tty.NoColor, tty.TrueColor)
+  assert !string.contains(help, "\u{1b}")
+  should.equal(
+    cli.execute(args, tty.TrueColor, tty.TrueColor),
+    glint.execute(cli.app(), cli.normalize_args(args)),
+  )
+  let assert Error(message) =
+    cli.execute(list.append(args, ["--unknown"]), tty.TrueColor, tty.NoColor)
+  assert !string.contains(message, "\u{1b}")
+}
+
+pub fn help_color_preserves_invalid_actions_and_separator_behavior_test() {
+  use args <- list.each([
+    ["report", "--color=rainbow"],
+    ["--colour"],
+    ["--", "--colour=always"],
+    ["--color=never", "--", "--colour=always"],
+    ["--quiet", "--verbose"],
+  ])
+  should.equal(
+    cli.execute(args, tty.NoColor, tty.NoColor),
+    glint.execute(cli.app(), cli.normalize_args(args)),
+  )
+}
+
+pub fn color_before_separator_still_controls_usage_help_test() {
+  let assert Error(message) =
+    cli.execute(
+      ["--color=always", "--", "--colour=never"],
+      tty.NoColor,
+      tty.NoColor,
+    )
+  assert string.contains(message, "flag provided but not defined")
+  assert string.contains(message, "\u{1b}")
 }
 
 pub fn version_option_returns_version_action_test() {

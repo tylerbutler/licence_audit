@@ -39,6 +39,7 @@ import licence_audit/toml
 import licence_audit/update as update_cmd
 import licence_audit/version
 import simplifile
+import tty
 
 pub type RunResult {
   RunResult(exit_code: Int, output: String)
@@ -104,7 +105,13 @@ pub fn main() -> Nil {
 }
 
 fn main_action() -> Nil {
-  case glint.execute(cli.app(), cli.normalize_args(arguments())) {
+  case
+    cli.execute(
+      arguments(),
+      tty.detect_color_level(tty.Stdout),
+      tty.detect_color_level(tty.Stderr),
+    )
+  {
     Error(message) -> {
       io.println_error(message)
       halt(2)

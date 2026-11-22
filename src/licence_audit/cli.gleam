@@ -5,6 +5,7 @@ import licence_audit/color
 import licence_audit/internal/vendor/glint
 import licence_audit/internal/vendor/glint/constraint
 import licence_audit/progress
+import tty
 
 pub type DependencyScope {
   Prod
@@ -115,7 +116,6 @@ pub fn app() -> glint.Glint(CliAction) {
   |> glint.global_help(
     "Report locked dependency licences by default, or select a command. Use --help (alias: -h) for help.",
   )
-  |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: [], do: root_command())
   |> glint.add(at: ["report"], do: report_command(fn(_) { False }))
   |> glint.add(at: ["check"], do: check_command())
@@ -123,6 +123,41 @@ pub fn app() -> glint.Glint(CliAction) {
   |> glint.add(at: ["sbom"], do: sbom_command())
   |> glint.add(at: ["vulns"], do: vulns_command())
   |> glint.add(at: ["notices"], do: notices_command())
+}
+
+pub fn execute(
+  args: List(String),
+  stdout_color_level: tty.ColorLevel,
+  stderr_color_level: tty.ColorLevel,
+) -> Result(glint.Out(CliAction), String) {
+  let args = normalize_args(args)
+  // Glint returns help before validating flags whenever --help is present.
+  let level = case list.contains(args, "--help") {
+    True -> stdout_color_level
+    False -> stderr_color_level
+  }
+  let palette =
+    color.resolve_with_color_level(help_color_mode(args, color.Auto), level)
+  let app = case palette.enabled {
+    True -> app() |> glint.pretty_help(glint.default_pretty_help())
+    False -> app()
+  }
+  glint.execute(app, args)
+}
+
+fn help_color_mode(args: List(String), mode: color.Mode) -> color.Mode {
+  case args {
+    [] | ["--", ..] -> mode
+    ["--color=" <> value, ..rest] -> {
+      // Rendering must not change Glint's help-first or invalid-value behavior.
+      let mode = case color.mode_from_string(value) {
+        Ok(mode) -> mode
+        Error(_) -> color.Auto
+      }
+      help_color_mode(rest, mode)
+    }
+    [_, ..rest] -> help_color_mode(rest, mode)
+  }
 }
 
 pub fn normalize_args(args: List(String)) -> List(String) {
