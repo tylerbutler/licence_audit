@@ -18,16 +18,17 @@ licence_audit update
 See [configuration discovery](/docs/configuration#discovery) for policy
 selection and the [write target](/docs/configuration#update-write-target).
 
-1. `update` validates the target's TOML, policy, and exceptions.
-2. It resolves the dependency tree and reads licence declarations from
+1. `update` checks that stdin and stdout are interactive terminals.
+2. It validates the target's TOML, policy, and exceptions.
+3. It resolves the dependency tree and reads licence declarations from
    checksum-verified locked Hex archives.
-3. It shows an interactive list of the licences. Existing allow and deny
+4. It shows an interactive list of the licences. Existing allow and deny
    entries are preselected. Deny takes precedence if both lists match an entry.
    Equivalent SPDX spellings share one choice; custom reference case stays distinct.
-4. It reads and validates the target again. If the allow or deny list changed
+5. It reads and validates the target again. If the allow or deny list changed
    during selection, it exits `2` with a conflict message. The newer file stays
    intact. Rerun `update` to review those rules.
-5. It writes the result to the selected target. Existing comments, formatting,
+6. It writes the result to the selected target. Existing comments, formatting,
    and edits to unrelated settings stay intact.
 
 Use `--config=PATH` to select an alternate target:
@@ -90,6 +91,8 @@ The command does not use OTP's non-atomic Windows rename.
 `update` is interactive and requires a TTY:
 
 - It exits `2` if stdin or stdout is non-interactive (for example, in CI).
+  It prints one diagnostic to stderr before reading configuration or the
+  manifest, opening the cache, or making network requests.
 - It exits `130` if you cancel.
 
 > **Note:** If you use the escript, Erlang/OTP **28 or later** is required

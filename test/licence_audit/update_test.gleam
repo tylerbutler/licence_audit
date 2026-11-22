@@ -1,3 +1,4 @@
+import gleam/erlang/process
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -101,7 +102,7 @@ pub fn user_cancel_exits_130_without_writing_file_test() {
 pub fn not_interactive_exits_2_test() {
   let path = fresh_path("not_interactive")
 
-  let #(result, _) =
+  let #(result, updated_reporter) =
     update.run_with_picker(
       manifest_path,
       ".",
@@ -117,6 +118,59 @@ pub fn not_interactive_exits_2_test() {
   let assert True =
     string.contains(result.output, "requires an interactive terminal")
   let assert Error(_) = simplifile.read(path)
+  assert !list.any(progress.events(updated_reporter), fn(event) {
+    string.contains(event.message, "requires an interactive terminal")
+  })
+}
+
+pub fn terminal_preflight_skips_discovery_and_cache_test() -> Nil {
+  list.each([#(False, False), #(False, True), #(True, False)], fn(terminals) {
+    let calls = process.new_subject()
+    let clients =
+      notice.Clients(..successful_fetcher(), fetch_hex_tarball: fn(_, _) {
+        process.send(calls, Nil)
+        Error(notice.FetchNetworkFailure)
+      })
+    let cache_path = fresh_path("unused_cache")
+    let path = fresh_path("preflight_policy")
+    list.each(
+      ["[tools.licence_audit]\nallow = [\"MIT\"]\n", "name = [\n"],
+      fn(original) {
+        let assert Ok(_) = simplifile.write(path, original)
+        list.each([Some(path), None], fn(config_path) {
+          list.each([manifest_path, "missing-manifest.toml"], fn(manifest) {
+            let #(result, updated_reporter) =
+              update.run_with_terminal_check(
+                manifest,
+                tmp_dir,
+                config_path,
+                False,
+                Some(cache_path),
+                clients,
+                reporter(),
+                stdin_is_tty: fn() { terminals.0 },
+                stdout_is_tty: fn() { terminals.1 },
+              )
+            should.equal(
+              result,
+              update.UpdateDiagnostic(
+                2,
+                "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+              ),
+            )
+            should.equal(progress.events(updated_reporter), [])
+            should.equal(process.receive(calls, 0), Error(Nil))
+            should.equal(
+              simplifile.file_info(cache_path),
+              Error(simplifile.Enoent),
+            )
+            should.equal(simplifile.read(path), Ok(original))
+          })
+        })
+      },
+    )
+    simplifile.delete(path) |> should.be_ok
+  })
 }
 
 pub fn fetch_failure_during_discovery_exits_2_without_picker_test() {

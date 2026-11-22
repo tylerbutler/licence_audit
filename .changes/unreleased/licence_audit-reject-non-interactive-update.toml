@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Reject non-interactive `update` before reading policy or manifest files, opening caches, or fetching metadata, and print one diagnostic."

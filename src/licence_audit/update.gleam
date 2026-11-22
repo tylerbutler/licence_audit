@@ -21,6 +21,7 @@ import licence_audit/progress
 import licence_audit/spdx_expression
 import licence_audit/toml
 import simplifile
+import tty
 
 pub type UpdateResult {
   UpdateResult(exit_code: Int, output: String)
@@ -36,15 +37,51 @@ pub fn run(
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
-  run_with_picker(
+  run_with_terminal_check(
     manifest_path,
     project_root,
     config_path,
     no_cache,
     cache_root,
     source_clients,
-    picker.pick,
     reporter,
+    stdin_is_tty: fn() { tty.is_tty(tty.Stdin) },
+    stdout_is_tty: fn() { tty.is_tty(tty.Stdout) },
+  )
+}
+
+/// Check the real picker path before policy, manifest, or metadata discovery.
+pub fn run_with_terminal_check(
+  manifest_path: String,
+  project_root: String,
+  config_path: Option(String),
+  no_cache: Bool,
+  cache_root: Option(String),
+  source_clients: notice.Clients,
+  reporter: progress.Reporter,
+  stdin_is_tty stdin_is_tty: fn() -> Bool,
+  stdout_is_tty stdout_is_tty: fn() -> Bool,
+) -> #(UpdateResult, progress.Reporter) {
+  case stdin_is_tty(), stdout_is_tty() {
+    True, True ->
+      run_with_picker(
+        manifest_path,
+        project_root,
+        config_path,
+        no_cache,
+        cache_root,
+        source_clients,
+        picker.pick,
+        reporter,
+      )
+    _, _ -> #(not_interactive(), reporter)
+  }
+}
+
+fn not_interactive() -> UpdateResult {
+  UpdateDiagnostic(
+    exit_code: 2,
+    output: "Error: The update picker requires an interactive terminal on stdin and stdout\n",
   )
 }
 
@@ -175,14 +212,8 @@ fn handle_selection(
       )
     }
     Error(picker.NotInteractive) -> {
-      let message =
-        "The update picker requires an interactive terminal on stdin and stdout"
-      let reporter = progress.fail(reporter, message)
       let reporter = warn_cache(reporter, cache_warning)
-      #(
-        UpdateDiagnostic(exit_code: 2, output: "Error: " <> message <> "\n"),
-        reporter,
-      )
+      #(not_interactive(), reporter)
     }
     Ok(selection) -> {
       let initial =

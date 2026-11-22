@@ -199,7 +199,7 @@ class CliStreamTest(unittest.TestCase):
                 self.assertIn("invalid flag 'ignore-config'", result.stderr)
                 self.assertNotIn("Could not read", result.stderr)
 
-    def test_update_validates_explicit_target_before_manifest_or_picker(self):
+    def test_update_terminal_preflight_precedes_invalid_target(self):
         target = self.project / "policy.toml"
         for original in (
             "name = [",
@@ -213,8 +213,53 @@ class CliStreamTest(unittest.TestCase):
                 )
                 self.assert_diagnostic(result)
                 self.assertNotIn("manifest", result.stderr)
-                self.assertNotIn("interactive terminal", result.stderr)
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
                 self.assertEqual(target.read_text(), original)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires named pipes")
+    def test_update_terminal_preflight_does_not_read_config_or_manifest(self):
+        for filename, flag in (
+            ("blocked-policy.toml", "--config"),
+            ("blocked-manifest.toml", "--manifest"),
+        ):
+            with self.subTest(filename=filename):
+                os.mkfifo(self.project / filename)
+                result = self.run_cli(
+                    "update", f"{flag}={filename}", "--cache-dir=unused-cache"
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                self.assertFalse((self.project / "unused-cache").exists())
+
+    def test_update_terminal_preflight_prints_one_diagnostic_without_cache(self):
+        (self.project / "manifest.toml").write_text(
+            (ROOT / "test/fixtures/update_manifest.toml").read_text()
+        )
+        for verbosity in ([], ["--quiet"], ["--verbose"]):
+            with self.subTest(verbosity=verbosity):
+                result = self.run_cli(
+                    "update", "--cache-dir=unused-cache", *verbosity,
+                    environment={
+                        "NO_COLOR": "1",
+                        "HOME": str(self.project / "unused-home"),
+                        "XDG_CACHE_HOME": str(self.project / "unused-xdg-cache"),
+                    },
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(
+                    result.stderr,
+                    "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                )
+                for name in ("unused-cache", "unused-home", "unused-xdg-cache"):
+                    self.assertFalse((self.project / name).exists())
 
     def test_update_missing_policy_reaches_terminal_requirement_without_writing(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
@@ -325,9 +370,16 @@ class CliStreamTest(unittest.TestCase):
                     self.assert_diagnostic(result)
                     lines = result.stderr.splitlines()
                     progress = [line for line in lines if " | " in line]
-                    self.assertTrue(progress, result.stderr)
-                    for line in progress:
-                        self.assertEqual("\x1b[" in line, colored, line)
+                    if command == "update":
+                        self.assertEqual(
+                            result.stderr,
+                            "Error: The update picker requires an interactive terminal on stdin and stdout\n",
+                        )
+                        self.assertEqual(progress, [])
+                    else:
+                        self.assertTrue(progress, result.stderr)
+                        for line in progress:
+                            self.assertEqual("\x1b[" in line, colored, line)
 
     def test_deferred_diagnostics_respect_color_mode(self):
         (self.project / "manifest.toml").write_text("packages = []\n")
