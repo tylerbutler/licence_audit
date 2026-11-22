@@ -1035,7 +1035,8 @@ pub fn fetch_tarball(
   |> result.map_error(fn(error) {
     case error {
       archive_download.Timeout -> FetchTimeout
-      archive_download.NetworkFailure(_) -> FetchNetworkFailure
+      archive_download.NetworkFailure(_) | archive_download.NoIpv6Address ->
+        FetchNetworkFailure
       archive_download.UnexpectedResponse(status) ->
         FetchUnexpectedResponse(status)
       archive_download.DownloadTooLarge(limit) -> FetchDownloadTooLarge(limit)

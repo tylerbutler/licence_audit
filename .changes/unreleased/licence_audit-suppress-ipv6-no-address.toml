@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Suppress IPv6 no-address warnings when source archive downloads succeed over IPv4."
