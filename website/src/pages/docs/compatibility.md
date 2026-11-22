@@ -158,6 +158,19 @@ root, remove `--no-cache`; to bypass storage, remove `--cache-dir`.
 Explicit `--ignore-config=false` and `--no-cache=false` do not conflict with
 their path flags.
 
+Usage errors start with `Error:` and write at most three lines to stderr.
+They name the cause and point to the relevant command's `--help`; they do not
+print the full help text. stdout stays empty and the exit code stays `2`.
+Unknown commands list `check`, `notices`, `report`, `sbom`, `update`, and
+`vulns`. `help` and `version` are not commands; use `--help` and `--version`.
+An unknown command remains an error when followed by `--help`.
+
+Removed `--allow` and `--deny` flags point to `[tools.licence_audit]` and
+`--config`. Removed `--prod-only` and `--include-dev` flags point to
+`--scope=prod` and `--scope=all`. Removed `--cache-path` points to
+`--cache-dir` with the application cache root. These hints also apply to
+`=value` forms; the removed flags remain rejected.
+
 ### Completion and output
 
 Optional enrichment has separate completion rules:
