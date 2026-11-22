@@ -25,6 +25,12 @@ It includes package URLs, locked Hex SHA-256 checksums, a root package, and
 `DESCRIBES` and `DEPENDS_ON` relationships. It does not add file analysis,
 copyright evidence, or source-level licence conclusions.
 
+Local packages use the same metadata and publication verification as
+CycloneDX. Their normalized paths appear in `comment`; `downloadLocation`
+stays `NOASSERTION`. A verified publication adds a purl, but does not add a
+source hash or prove that local files match the release. An unpublished
+local package has no purl. Missing required evidence fails before output.
+
 A single recognised SPDX licence ID becomes `licenseDeclared`. Missing
 declarations use `NOASSERTION`. Custom names, expressions, and multiple
 declarations use `NOASSERTION` and preserve the original declarations in
@@ -293,7 +299,7 @@ Both stdout and `--output=PATH` use pretty-printed JSON. When writing a file,
 stdout stays empty.
 
 <!-- cli-reference -->
-Generate a CycloneDX 1.6 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies with their CycloneDX scope. JSON output stays plain in every color mode.
+Generate a CycloneDX 1.6 or SPDX 2.3 JSON SBOM from manifest.toml. Does not evaluate licence policy. Includes all dependencies; CycloneDX records their scope. JSON output stays plain in every color mode.
 
 **Usage:**
 
@@ -307,7 +313,8 @@ licence_audit sbom [--flags]
 |------|------|---------|-------------|
 | `--cache-dir` | `STRING` |  | Use DIR as the application cache root for all cache families |
 | `--color` | `STRING` | `auto` | Colorize output: auto\|always\|never (default auto; alias: --colour) |
-| `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text for recognised licence IDs (offline requires usable pinned text in the cache; alias: --license-text) |
+| `--format` | `STRING` | `cyclonedx-json` | Output format: cyclonedx-json or spdx-json |
+| `--licence-text` | `BOOL` | `false` | Embed canonical SPDX text (alias: --license-text); CycloneDX only, offline requires usable pinned text in the cache |
 | `--manifest` | `STRING` |  | Read manifest from PATH |
 | `--no-cache` | `BOOL` | `false` | Bypass the on-disk caches |
 | `--offline` | `BOOL` | `false` | Prohibit network access; use local files and usable cached evidence. Required metadata, publication verification, and requested SPDX text must remain available |

@@ -120,7 +120,9 @@ fn local_error(package: String, reason: String) -> error.Error {
   error.Input("Invalid local SBOM package `" <> package <> "`: " <> reason)
 }
 
-fn validate_graph(locked: manifest.SbomManifest) -> Result(Nil, error.Error) {
+pub fn validate_graph(
+  locked: manifest.SbomManifest,
+) -> Result(Nil, error.Error) {
   let names =
     dict.from_list(list.map(locked.entries, fn(entry) { #(entry.name, Nil) }))
   use _ <- result.try(validate_requirements(

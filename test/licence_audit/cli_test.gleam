@@ -1024,25 +1024,54 @@ pub fn sbom_licence_text_spellings_allow_reproducible_and_offline_test() {
 
 pub fn sbom_license_text_format_interactions_test() {
   let assert Ok(glint.Out(cli.RunSbom(options))) =
-    glint.execute(cli.app(), cli.normalize_args([
-      "sbom",
-      "--format=cyclonedx-json",
-      "--license-text",
-      "--reproducible",
-    ]))
+    glint.execute(
+      cli.app(),
+      cli.normalize_args([
+        "sbom",
+        "--format=cyclonedx-json",
+        "--license-text",
+        "--reproducible",
+      ]),
+    )
   should.equal(options.format, cli.CyclonedxJson)
   should.equal(options.license_text, True)
   list.each([[], ["--reproducible"]], fn(extra_args) {
     let assert Ok(glint.Out(cli.InvalidUsage(message))) =
-      glint.execute(cli.app(), cli.normalize_args([
-        "sbom",
-        "--format=spdx-json",
-        "--license-text",
-        ..extra_args
-      ]))
+      glint.execute(
+        cli.app(),
+        cli.normalize_args([
+          "sbom",
+          "--format=spdx-json",
+          "--license-text",
+          ..extra_args
+        ]),
+      )
     assert string.contains(message, "--license-text is supported only")
     assert string.contains(message, "cyclonedx-json")
   })
+}
+
+pub fn spdx_format_keeps_disabled_boolean_aliases_and_cache_options_test() {
+  use spelling <- list.each(["--licence-text", "--license-text"])
+  let assert Ok(glint.Out(cli.RunSbom(options))) =
+    cli.execute(
+      [
+        "sbom",
+        "--format",
+        "spdx-json",
+        spelling <> "=false",
+        "--vulns=false",
+        "--offline",
+        "--reproducible",
+        "--cache-dir=spdx-cache",
+      ],
+      tty.NoColor,
+      tty.NoColor,
+    )
+  should.equal(options.format, cli.SpdxJson)
+  should.equal(options.license_text, False)
+  should.equal(options.with_vulns, False)
+  should.equal(options.cache_dir, Some("spdx-cache"))
 }
 
 pub fn sbom_subcommand_parses_reproducible_flag_test() {

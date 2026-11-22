@@ -2,6 +2,7 @@ import gleam/bit_array
 import gleam/dict
 import gleam/json
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/string
 import licence_audit/error
@@ -14,17 +15,25 @@ const root_id = "SPDXRef-Root"
 /// Render the locked package graph without asserting file analysis or inferred
 /// licence choices. Source validation is shared with the CycloneDX renderer.
 pub fn try_render(input: sbom.SbomInput) -> Result(String, error.Error) {
+  use _ <- result.try(sbom.validate_graph(input.manifest))
   let entries =
     list.sort(input.manifest.entries, fn(a, b) {
       string.compare(a.name, b.name)
     })
+  use identifiers <- result.try(
+    list.try_fold(entries, dict.new(), fn(identifiers, entry) {
+      case dict.has_key(identifiers, entry.name) {
+        True ->
+          Error(error.Input(
+            "Duplicate locked SPDX package name: " <> entry.name,
+          ))
+        False -> Ok(dict.insert(identifiers, entry.name, package_id(entry)))
+      }
+    }),
+  )
   use packages <- result.try(
     list.try_map(entries, fn(entry) { package_json(entry, input) }),
   )
-  let identifiers =
-    dict.from_list(
-      list.map(entries, fn(entry) { #(entry.name, package_id(entry)) }),
-    )
   let relationships = [
     relationship("SPDXRef-DOCUMENT", "DESCRIBES", root_id),
     ..list.append(
@@ -103,7 +112,7 @@ fn package_json(
   entry: manifest.SbomEntry,
   input: sbom.SbomInput,
 ) -> Result(json.Json, error.Error) {
-  use purl <- result.try(sbom.purl_for(entry))
+  use purl <- result.try(sbom.verified_purl(entry, input.publications))
   use source_fields <- result.try(case entry.provenance {
     manifest.HexProvenance(checksum, _) -> {
       let checksum = string.lowercase(checksum)
@@ -145,7 +154,19 @@ fn package_json(
       Ok([
         #("downloadLocation", json.string("git+" <> repo <> "@" <> commit)),
       ])
-    manifest.PathProvenance(_) | manifest.UnknownProvenance(_) ->
+    manifest.PathProvenance(directory) ->
+      Ok([
+        #("downloadLocation", json.string("NOASSERTION")),
+        #(
+          "comment",
+          json.string(
+            "Local source path relative to the manifest: "
+            <> directory
+            <> ". Publication evidence does not verify local source contents.",
+          ),
+        ),
+      ])
+    manifest.UnknownProvenance(_) ->
       Ok([#("downloadLocation", json.string("NOASSERTION"))])
   })
   let licences = case dict.get(input.package_metadata, entry.name) {
@@ -160,27 +181,40 @@ fn package_json(
       #("filesAnalyzed", json.bool(False)),
       #("licenseConcluded", json.string("NOASSERTION")),
       #("copyrightText", json.string("NOASSERTION")),
-      #(
-        "externalRefs",
-        json.preprocessed_array([
-          json.object([
-            #("referenceCategory", json.string("PACKAGE-MANAGER")),
-            #("referenceType", json.string("purl")),
-            #("referenceLocator", json.string(purl)),
-          ]),
-        ]),
-      ),
       ..list.append(source_fields, licence_fields(licences))
     ]
+    |> append_purl(purl)
     |> json.object,
   )
 }
 
+fn append_purl(
+  fields: List(#(String, json.Json)),
+  purl: option.Option(String),
+) -> List(#(String, json.Json)) {
+  case purl {
+    option.None -> fields
+    option.Some(value) ->
+      list.append(fields, [
+        #(
+          "externalRefs",
+          json.preprocessed_array([
+            json.object([
+              #("referenceCategory", json.string("PACKAGE-MANAGER")),
+              #("referenceType", json.string("purl")),
+              #("referenceLocator", json.string(value)),
+            ]),
+          ]),
+        ),
+      ])
+  }
+}
+
 fn licence_fields(licences: List(String)) -> List(#(String, json.Json)) {
-  case list.unique(list.map(licences, sbom.spdx_license_id)) {
-    [Ok(id)] -> [#("licenseDeclared", json.string(id))]
-    [] -> [#("licenseDeclared", json.string("NOASSERTION"))]
-    _ -> [
+  case licences, list.map(licences, sbom.spdx_license_id) {
+    [_], [Ok(id)] -> [#("licenseDeclared", json.string(id))]
+    [], [] -> [#("licenseDeclared", json.string("NOASSERTION"))]
+    _, _ -> [
       #("licenseDeclared", json.string("NOASSERTION")),
       // Hex supplies no AND/OR operator and custom names supply no licence
       // text. Preserve the declaration without inventing an expression or text.
@@ -189,7 +223,7 @@ fn licence_fields(licences: List(String)) -> List(#(String, json.Json)) {
         json.string(
           "Unresolved declared licences (no inferred AND/OR or licence text): "
           <> json.to_string(json.array(
-            list.sort(list.unique(licences), string.compare),
+            list.sort(licences, string.compare),
             json.string,
           )),
         ),

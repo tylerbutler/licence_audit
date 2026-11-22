@@ -65,8 +65,27 @@ def main():
     assert 'LicenseRef-Private \\"custom\\"' in root["licenseComments"]
     assert "hasExtractedLicensingInfos" not in fixture
     validate(Path("build/spdx-empty-test.json"), schema)
+    local_document = validate(Path("build/spdx-local-test.json"), schema)
+    local = next(p for p in local_document["packages"] if p["name"] == "local_dep")
+    assert local["licenseDeclared"] == "MIT"
+    assert local["downloadLocation"] == "NOASSERTION"
+    assert local["filesAnalyzed"] is False
+    assert "checksums" not in local
+    assert local["externalRefs"][0]["referenceLocator"] == "pkg:hex/local_dep@1.0.0"
+    assert "local_dep" in local["comment"]
 
-    args = ("--format=spdx-json", "--offline", "--reproducible")
+    project = Path("build/spdx-cli-project")
+    project.mkdir(exist_ok=True)
+    (project / "gleam.toml").write_text(
+        'name = "cli_fixture"\nversion = "1.0.0"\nlicences = ["MIT"]\n'
+    )
+    manifest = project / "manifest.toml"
+    manifest.write_text("packages = []\n")
+
+    args = (
+        "--format=spdx-json", "--offline", "--reproducible",
+        f"--manifest={manifest}",
+    )
     path = Path("build/spdx-cli.json")
     assert cli(*args, f"--output={path}") == ""
     first_bytes = path.read_bytes()
@@ -76,7 +95,7 @@ def main():
     assert path.read_bytes() == first_bytes, "Reproducible CLI output changed"
     assert json.loads(cli(*args)) == first, "stdout and file output disagree"
 
-    random_args = ("--format=spdx-json", "--offline")
+    random_args = ("--format=spdx-json", "--offline", f"--manifest={manifest}")
     cli(*random_args, "--output=build/spdx-random.json")
     random = validate(Path("build/spdx-random.json"), schema)
     assert random["documentNamespace"] != first["documentNamespace"]
@@ -85,23 +104,35 @@ def main():
         != random["documentNamespace"]
     )
 
-    default = cli("--offline", "--reproducible")
-    explicit = cli("--offline", "--reproducible", "--format=cyclonedx-json")
+    default = cli("--offline", "--reproducible", f"--manifest={manifest}")
+    explicit = cli(
+        "--offline", "--reproducible", "--format=cyclonedx-json",
+        f"--manifest={manifest}",
+    )
     assert default == explicit
     assert json.loads(default)["bomFormat"] == "CycloneDX"
     rejected_output = Path("build/spdx-rejected-output.json")
     for flags in (
         ("--vulns",),
         ("--license-text",),
+        ("--licence-text",),
+        ("--license-text", "--offline"),
         ("--license-text", "--reproducible"),
     ):
         rejected_output.write_text("previous output")
         cli(
             "--format=spdx-json", *flags, f"--output={rejected_output}",
-            expected=1,
+            expected=2,
         )
         assert rejected_output.read_text() == "previous output"
-    cli("--format=invalid", expected=1)
+    cli("--format=invalid", expected=2)
+
+    cli(
+        "--format=spdx-json", "--offline", "--reproducible",
+        "--manifest=manifest.toml", f"--output={rejected_output}",
+        expected=2,
+    )
+    assert rejected_output.read_text() == "previous output"
 
     invalid_project = Path("build/spdx-invalid-project")
     invalid_project.mkdir(exist_ok=True)

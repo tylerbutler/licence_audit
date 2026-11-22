@@ -77,6 +77,7 @@ fn fixture() -> sbom.SbomInput {
         ),
       ),
     ]),
+    publications: dict.new(),
     scopes: dict.new(),
     vulnerabilities: [],
     license_texts: dict.new(),
@@ -180,6 +181,7 @@ pub fn rejects_invalid_checksum_and_unsupported_source_test() {
     let invalid =
       manifest.SbomEntry(
         ..entry,
+        requirements: [],
         provenance: manifest.HexProvenance(checksum, None),
       )
     let changed =
@@ -195,18 +197,197 @@ pub fn rejects_invalid_checksum_and_unsupported_source_test() {
       Error(error.Input("Invalid locked SHA-256 checksum for a_b")),
     )
   })
+  list.each(
+    [
+      manifest.UnknownProvenance("unsupported"),
+      manifest.GitProvenance("https://gitlab.com/example/repo", "abcdef", None),
+    ],
+    fn(provenance) {
+      let changed =
+        sbom.SbomInput(
+          ..input,
+          manifest: manifest.SbomManifest(
+            entries: [
+              manifest.SbomEntry(
+                ..entry,
+                requirements: [],
+                provenance: provenance,
+              ),
+            ],
+            root_requirements: [],
+          ),
+        )
+      let assert Error(error.UnsupportedSourceForSbom(..)) =
+        sbom_spdx.try_render(changed)
+    },
+  )
+}
+
+pub fn rejects_duplicate_locked_names_test() {
+  let input = fixture()
+  let assert [entry, ..] = input.manifest.entries
   let changed =
     sbom.SbomInput(
       ..input,
       manifest: manifest.SbomManifest(
         entries: [
-          manifest.SbomEntry(..entry, provenance: manifest.PathProvenance(".")),
+          manifest.SbomEntry(..entry, requirements: []),
+          manifest.SbomEntry(..entry, requirements: [], version: "2.0.0"),
         ],
         root_requirements: [],
       ),
     )
-  let assert Error(error.UnsupportedSourceForSbom(..)) =
-    sbom_spdx.try_render(changed)
+  let assert Error(error.Input(_)) = sbom_spdx.try_render(changed)
+}
+
+pub fn git_package_subpaths_use_the_shared_purl_rules_test() {
+  let input = fixture()
+  let entry =
+    manifest.SbomEntry(
+      "nested",
+      "1.0.0",
+      [],
+      manifest.GitProvenance(
+        "https://github.com/Example/Repo.git",
+        "abcdef",
+        Some("packages/nested dir"),
+      ),
+    )
+  let assert Ok(document) =
+    sbom_spdx.try_render(
+      sbom.SbomInput(
+        ..input,
+        manifest: manifest.SbomManifest([entry], ["nested"]),
+      ),
+    )
+  let assert Ok([_, refs]) =
+    json.parse(
+      document,
+      decode.at(
+        ["packages"],
+        decode.list({
+          use refs <- decode.optional_field(
+            "externalRefs",
+            [],
+            decode.list(decode.at(["referenceLocator"], decode.string)),
+          )
+          decode.success(refs)
+        }),
+      ),
+    )
+  should.equal(refs, ["pkg:github/example/repo@abcdef#packages/nested%20dir"])
+}
+
+pub fn rejects_missing_dependency_targets_test() {
+  let input = fixture()
+  let assert [entry, ..] = input.manifest.entries
+  use requirements <- list.each([[], ["missing"]])
+  let changed =
+    sbom.SbomInput(
+      ..input,
+      manifest: manifest.SbomManifest(
+        entries: [manifest.SbomEntry(..entry, requirements: requirements)],
+        root_requirements: case requirements {
+          [] -> ["missing"]
+          _ -> []
+        },
+      ),
+    )
+  let assert Error(error.Input(_)) = sbom_spdx.try_render(changed)
+}
+
+pub fn local_publication_does_not_invent_source_evidence_test() {
+  let input = fixture()
+  let entry =
+    manifest.SbomEntry(
+      "local_dep",
+      "1.0.0",
+      [],
+      manifest.PathProvenance("../dep"),
+    )
+  let input =
+    sbom.SbomInput(
+      ..input,
+      manifest: manifest.SbomManifest([entry], ["local_dep"]),
+    )
+  let assert Error(error.SbomPublicationFailed(..)) =
+    sbom_spdx.try_render(input)
+  use publication <- list.each([hex.Published, hex.Unpublished])
+  let assert Ok(document) =
+    sbom_spdx.try_render(
+      sbom.SbomInput(
+        ..input,
+        publications: dict.from_list([#("local_dep", publication)]),
+      ),
+    )
+  let decoder =
+    decode.at(
+      ["packages"],
+      decode.list({
+        use name <- decode.field("name", decode.string)
+        use location <- decode.field("downloadLocation", decode.string)
+        use hashes <- decode.optional_field(
+          "checksums",
+          [],
+          decode.list(decode.string),
+        )
+        use refs <- decode.optional_field(
+          "externalRefs",
+          [],
+          decode.list(decode.at(["referenceLocator"], decode.string)),
+        )
+        use comment <- decode.optional_field("comment", "", decode.string)
+        decode.success(#(name, location, hashes, refs, comment))
+      }),
+    )
+  let assert Ok([_, local]) = json.parse(document, decoder)
+  should.equal(local.1, "NOASSERTION")
+  should.equal(local.2, [])
+  should.equal(local.3, case publication {
+    hex.Published -> ["pkg:hex/local_dep@1.0.0"]
+    hex.Unpublished -> []
+  })
+  assert string.contains(local.4, "../dep")
+  assert string.contains(local.4, "does not verify local source")
+}
+
+pub fn repeated_and_raw_declarations_remain_unresolved_test() {
+  let input = fixture()
+  use licences <- list.each([
+    ["MIT", "mit"],
+    ["MIT", "MIT"],
+    [" MIT "],
+    ["MIT OR Apache-2.0"],
+    ["LicenseRef-Private"],
+  ])
+  let assert Ok(document) =
+    sbom_spdx.try_render(
+      sbom.SbomInput(
+        ..input,
+        root: sbom.RootComponent(..input.root, licences: licences),
+      ),
+    )
+  let assert Ok([root, ..]) =
+    json.parse(
+      document,
+      decode.at(
+        ["packages"],
+        decode.list({
+          use declared <- decode.field("licenseDeclared", decode.string)
+          use comment <- decode.optional_field(
+            "licenseComments",
+            "",
+            decode.string,
+          )
+          decode.success(#(declared, comment))
+        }),
+      ),
+    )
+  should.equal(root.0, "NOASSERTION")
+  assert string.contains(
+    root.1,
+    json.to_string(json.array(list.sort(licences, string.compare), json.string)),
+  )
 }
 
 pub fn empty_manifest_is_a_valid_root_document_test() {
@@ -243,6 +424,23 @@ fn forbid_network() -> a {
   panic as "Offline SBOM generation must not call a network client"
 }
 
+fn no_network_clients() -> licence_audit.Clients {
+  licence_audit.Clients(
+    fetcher: fn(_) { forbid_network() },
+    publication_fetcher: fn(_, _) { forbid_network() },
+    osv_batch_fetcher: fn(_) { forbid_network() },
+    osv_detail_fetcher: fn(_) { forbid_network() },
+    notice_clients: notice.Clients(
+      fetch_hex_tarball: fn(_, _) { forbid_network() },
+      fetch_git_archive: fn(_, _) { forbid_network() },
+      resolve_commit: fn(_, _) { forbid_network() },
+      fetch_repo_archive: fn(_, _) { forbid_network() },
+      fetch_spdx_index: fn(_) { forbid_network() },
+      fetch_spdx: fn(_) { forbid_network() },
+    ),
+  )
+}
+
 fn offline_git_result(reproducible: Bool) -> licence_audit.RunResult {
   let root = "build/spdx-offline-project"
   let local_git = root <> "/build/packages/git_dep"
@@ -269,20 +467,6 @@ fn offline_git_result(reproducible: Bool) -> licence_audit.RunResult {
 git_dep = { git = \"https://github.com/example/git_dep\" }
 hex_dep = \"1.0.0\"
 ")
-  let clients =
-    licence_audit.Clients(
-      fetcher: fn(_) { forbid_network() },
-      osv_batch_fetcher: fn(_) { forbid_network() },
-      osv_detail_fetcher: fn(_) { forbid_network() },
-      notice_clients: notice.Clients(
-        fetch_hex_tarball: fn(_, _) { forbid_network() },
-        fetch_git_archive: fn(_, _) { forbid_network() },
-        resolve_commit: fn(_, _) { forbid_network() },
-        fetch_repo_archive: fn(_, _) { forbid_network() },
-        fetch_spdx_index: fn(_) { forbid_network() },
-        fetch_spdx: fn(_) { forbid_network() },
-      ),
-    )
   let extra_args = case reproducible {
     True -> ["--reproducible"]
     False -> []
@@ -295,7 +479,7 @@ hex_dep = \"1.0.0\"
       "--offline",
       ..extra_args
     ],
-    clients,
+    no_network_clients(),
     progress.disabled(),
   ).0
 }
@@ -316,18 +500,103 @@ pub fn offline_uses_local_git_licences_without_network_test() {
   ])
 }
 
-pub fn offline_reproducible_skips_local_git_licences_without_network_test() {
+pub fn offline_reproducible_requires_locked_metadata_without_network_test() {
   let result = offline_git_result(True)
-  result.exit_code |> should.equal(0)
-  let assert Ok(packages) =
-    json.parse(
-      result.output,
-      decode.at(["packages"], decode.list(package_decoder())),
+  result.exit_code |> should.equal(2)
+  assert string.contains(result.output, "required locked metadata")
+}
+
+pub fn local_offline_reproducible_reuses_publication_and_reads_current_metadata_test() {
+  let root = "build/spdx-local-project"
+  let assert Ok(_) = simplifile.create_directory_all(root <> "/local_dep")
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/gleam.toml",
+      "name = \"local_fixture\"\nversion = \"1.0.0\"\n[dependencies]\nlocal_dep = { path = \"local_dep\" }\n",
     )
-  list.map(packages, fn(package) { #(package.0, package.2) })
-  |> should.equal([
-    #("offline_fixture", "Apache-2.0"),
-    #("git_dep", "NOASSERTION"),
-    #("hex_dep", "NOASSERTION"),
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/local_dep/gleam.toml",
+      "name = \"local_dep\"\nversion = \"1.0.0\"\nlicences = [\"MIT\"]\n",
+    )
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/manifest.toml",
+      "packages = [{ name = \"local_dep\", version = \"1.0.0\", source = \"local\", path = \"local_dep\", requirements = [] }]\n[requirements]\nlocal_dep = { path = \"local_dep\" }\n",
+    )
+  let args = [
+    "sbom",
+    "--format=spdx-json",
+    "--manifest=" <> root <> "/manifest.toml",
+    "--cache-dir=" <> root <> "/cache",
+    "--reproducible",
+  ]
+  let clients = no_network_clients()
+  let online =
+    licence_audit.run_cli_configured(
+      args,
+      licence_audit.Clients(..clients, publication_fetcher: fn(name, version) {
+        should.equal(#(name, version), #("local_dep", "1.0.0"))
+        Ok(hex.Published)
+      }),
+      progress.disabled(),
+    ).0
+  should.equal(online.exit_code, 0)
+  let offline =
+    licence_audit.run_cli_configured(
+      ["--offline", ..args],
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(offline, online)
+  simplifile.write("build/spdx-local-test.json", offline.output) |> should.be_ok
+  let assert Ok(_) =
+    simplifile.write(
+      root <> "/local_dep/gleam.toml",
+      "name = \"local_dep\"\nversion = \"1.0.0\"\nlicences = [\"Apache-2.0\"]\n",
+    )
+  let changed =
+    licence_audit.run_cli_configured(
+      ["--offline", ..args],
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(changed.exit_code, 0)
+  should.not_equal(changed.output, offline.output)
+  let no_cache =
+    licence_audit.run_configured(
+      list.filter(["--offline", ..args], fn(arg) {
+        !string.starts_with(arg, "--cache-dir=")
+      }),
+      clients,
+      progress.disabled(),
+    ).0
+  should.equal(no_cache.exit_code, 2)
+  assert string.contains(no_cache.output, "cached verification")
+}
+
+pub fn incompatible_spdx_flags_fail_before_clients_or_output_test() {
+  let output = "build/spdx-usage-output.json"
+  use flags <- list.each([
+    ["--vulns"],
+    ["--license-text"],
+    ["--licence-text", "--offline"],
+    ["--license-text", "--reproducible"],
   ])
+  let assert Ok(_) = simplifile.write(output, "previous output")
+  let result =
+    licence_audit.run_configured(
+      [
+        "sbom",
+        "--format=spdx-json",
+        "--manifest=build/nonexistent-spdx-manifest.toml",
+        "--output=" <> output,
+        ..flags
+      ],
+      no_network_clients(),
+      progress.disabled(),
+    ).0
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "cyclonedx-json")
+  should.equal(simplifile.read(output), Ok("previous output"))
 }

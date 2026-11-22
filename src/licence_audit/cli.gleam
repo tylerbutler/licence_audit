@@ -600,7 +600,7 @@ fn sbom_command() -> glint.Command(CliAction) {
     glint.bool_flag("licence-text")
     |> glint.flag_default(False)
     |> glint.flag_help(
-      "Embed canonical SPDX text for recognised licence IDs in CycloneDX (offline requires usable pinned text in the cache; conflicts with --format=spdx-json; alias: --license-text)",
+      "Embed canonical SPDX text (alias: --license-text); CycloneDX only, offline requires usable pinned text in the cache",
     ),
   )
   use _, _, flags <- glint.command()
