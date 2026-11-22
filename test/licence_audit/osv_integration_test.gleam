@@ -2,8 +2,10 @@ import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request
 import gleam/http/response
+import gleam/int
 import gleam/json
 import gleam/list
+import gleam/result
 import gleam/string
 import gleeunit/should
 import licence_audit
@@ -11,6 +13,7 @@ import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
 import licence_audit/httpc_adaptive
+import licence_audit/network_retry_test
 import licence_audit/osv
 import licence_audit/progress
 import licence_audit/source_archive_test
@@ -76,6 +79,132 @@ fn hex_package(name: String, version: String) -> String {
   <> "\", version = \""
   <> version
   <> "\", source = \"hex\", outer_checksum = \"4C4C81A8F753EE1917FCC9C611745DBB1F8730F2A8B7A1BBDBC9A6B1C69F7A66\" },"
+}
+
+pub fn rate_limit_then_success_completes_both_gates_with_exit_zero_test() {
+  let root = prepare_project("retry-success", hex_package("first", "1.0.0"))
+  network_retry_test.with_script(
+    [
+      Ok(response.Response(429, [#("retry-after", "1")], "")),
+      Ok(response.Response(200, [], "{\"meta\":{\"licenses\":[\"MIT\"]}}")),
+      Ok(response.Response(429, [#("x-ratelimit-reset", "1700000002")], "")),
+      Ok(response.Response(200, [], "{\"results\":[{}]}")),
+    ],
+    fn() {
+      let result =
+        run(
+          root,
+          ["check", "--checks=all"],
+          licence_audit.Clients(
+            ..clients(),
+            notice_clients: source_archive_test.metadata_clients(fn(name) {
+              hex.fetch_package_metadata(name, fn(req) {
+                network_retry_test.send(req, 1)
+                |> result.map_error(hex.from_http_error(req, _))
+              })
+            }),
+            osv_batch_fetcher: fn(purls) {
+              osv.query_batch(purls, fn(req) {
+                network_retry_test.send(req, 2)
+                |> result.map_error(osv.from_http_error(req, _))
+              })
+            },
+          ),
+        )
+      should.equal(result.exit_code, 0)
+      should.equal(list.length(network_retry_test.requests()), 4)
+    },
+  )
+}
+
+pub fn later_chunk_pagination_failure_is_incomplete_with_exit_two_test() {
+  let packages =
+    list.repeat(Nil, 1001)
+    |> list.index_map(fn(_, index) {
+      hex_package("package" <> int.to_string(index + 1), "1.0.0")
+    })
+    |> string.join("\n")
+  let root = prepare_project("retry-chunks", packages)
+  network_retry_test.with_script([], fn() {
+    let #(result, events) =
+      licence_audit.run_configured(
+        ["check", "--checks=vulns", "--manifest=" <> root <> "/manifest.toml"],
+        licence_audit.Clients(..clients(), osv_batch_fetcher: fn(purls) {
+          osv.query_batch(purls, fn(req) {
+            network_retry_test.record_request(req)
+            case string.contains(req.body, "page_token") {
+              True -> Error(osv.NetworkFailure("late pagination failed"))
+              False -> {
+                let decoder = {
+                  use queries <- decode.field(
+                    "queries",
+                    decode.list(decode.dynamic),
+                  )
+                  decode.success(list.length(queries))
+                }
+                let assert Ok(count) = json.parse(req.body, decoder)
+                let entries = case count {
+                  1 -> [
+                    json.object([#("next_page_token", json.string("late"))]),
+                  ]
+                  _ -> list.repeat(json.object([]), count)
+                }
+                Ok(response.Response(
+                  200,
+                  [],
+                  json.to_string(
+                    json.object([
+                      #("results", json.preprocessed_array(entries)),
+                    ]),
+                  ),
+                ))
+              }
+            }
+          })
+        }),
+        progress.capturing(progress.Normal, "test"),
+      )
+    should.equal(result.exit_code, 2)
+    assert list.any(events, fn(event) {
+      string.contains(event.message, "late pagination failed")
+    })
+    assert !string.contains(result.output, "No known vulnerabilities")
+    should.equal(list.length(network_retry_test.requests()), 3)
+  })
+}
+
+pub fn exhausted_host_operations_fail_incomplete_and_reset_for_next_command_test() {
+  let packages =
+    list.repeat(Nil, 4)
+    |> list.index_map(fn(_, index) {
+      hex_package("package" <> int.to_string(index + 1), "1.0.0")
+    })
+    |> string.join("\n")
+  let root = prepare_project("retry-cutoff", packages)
+  let timeouts = list.repeat(Error(httpc_adaptive.ResponseTimeout), 6)
+  let successes =
+    list.repeat(
+      Ok(response.Response(200, [], "{\"meta\":{\"licenses\":[\"MIT\"]}}")),
+      4,
+    )
+  network_retry_test.with_script(list.append(timeouts, successes), fn() {
+    let clients =
+      licence_audit.Clients(
+        ..clients(),
+        notice_clients: source_archive_test.metadata_clients(fn(name) {
+          hex.fetch_package_metadata(name, fn(req) {
+            network_retry_test.send(req, 1)
+            |> result.map_error(hex.from_http_error(req, _))
+          })
+        }),
+      )
+    let failed = run(root, ["report"], clients)
+    should.equal(failed.exit_code, 2)
+    assert string.contains(failed.output, "network failure")
+    should.equal(list.length(network_retry_test.requests()), 6)
+    should.equal(run(root, ["report"], clients).exit_code, 0)
+    should.equal(list.length(network_retry_test.requests()), 10)
+  })
 }
 
 fn affected(name: String, versions: String, vector: String) -> json.Json {

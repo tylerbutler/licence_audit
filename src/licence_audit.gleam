@@ -257,6 +257,7 @@ fn execute_action(
   reporter: progress.Reporter,
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
+  httpc_adaptive.reset_retry_state()
   case action {
     cli.RunReport(options) ->
       run_options_with_clients(
