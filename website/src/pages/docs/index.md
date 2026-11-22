@@ -124,6 +124,7 @@ jobs:
 |---|---|
 | [`check`](/docs/check) | Report metadata and enforce the licence policy. Returns a nonzero exit code for violations. |
 | [`notices`](/docs/notices) | Create a third-party licence notices file for a release. Does not evaluate policy. |
+| [`report`](/docs/report) | Report licences and policy findings without enforcing them. Explicit form of the default report. |
 | [`sbom`](/docs/sbom) | Create a CycloneDX 1.6 JSON SBOM. Does not evaluate policy. |
 | [`update`](/docs/update) | Select licences and write a policy to `gleam.toml`. |
 | [`vulns`](/docs/vulns) | Report known vulnerabilities from OSV.dev. Does not evaluate policy. |
