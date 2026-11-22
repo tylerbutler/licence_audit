@@ -20,6 +20,7 @@ pub const max_download_bytes = 67_108_864
 pub type Error {
   NetworkFailure(reason: error.GluegunError)
   Timeout
+  NoIpv6Address
   UnexpectedResponse(status: Int)
   DownloadTooLarge(limit: Int)
 }
@@ -30,6 +31,13 @@ type TimeUnit {
 
 @external(erlang, "erlang", "monotonic_time")
 fn monotonic_time(unit: TimeUnit) -> Int
+
+@external(erlang, "archive_download_ffi", "await_up")
+fn await_up(
+  socket: connection.Connection,
+  timeout: connection.Timeout,
+  family: httpc_adaptive.IpFamily,
+) -> Result(connection.Protocol, Error)
 
 pub fn fetch(
   request: http_request.Request(BitArray),
@@ -44,10 +52,22 @@ pub fn fetch_with_limit(
   timeout_ms: Int,
   limit: Int,
 ) -> Result(BitArray, Error) {
+  fetch_with(request, timeout_ms, limit, send)
+}
+
+/// Inject the archive transport to test its probe diagnostics without DNS.
+@internal
+pub fn fetch_with(
+  request: http_request.Request(BitArray),
+  timeout_ms: Int,
+  limit: Int,
+  client: fn(http_request.Request(BitArray), Int, httpc_adaptive.IpFamily, Int) ->
+    Result(Response(BitArray), Error),
+) -> Result(BitArray, Error) {
   let deadline = monotonic_time(Millisecond) + timeout_ms
   let family =
     httpc_adaptive.select_family(request, fn(probe, probe_timeout, family) {
-      send(
+      client(
         probe,
         int.min(deadline, monotonic_time(Millisecond) + probe_timeout),
         family,
@@ -56,6 +76,7 @@ pub fn fetch_with_limit(
       |> result.map_error(fn(error) {
         case error {
           Timeout -> httpc_adaptive.ResponseTimeout
+          NoIpv6Address -> httpc_adaptive.NoIpv6Address
           NetworkFailure(reason) -> probe_error(reason)
           UnexpectedResponse(status) ->
             httpc_adaptive.RequestFailed(
@@ -68,7 +89,7 @@ pub fn fetch_with_limit(
         }
       })
     })
-  send(request, deadline, family, limit)
+  client(request, deadline, family, limit)
   |> result.map(fn(response) { response.body })
 }
 
@@ -107,7 +128,7 @@ fn send(
     http.Http -> connection.Tcp
     http.Https -> connection.Tls
   }
-  let family = case family {
+  let address_family = case family {
     httpc_adaptive.Ipv4 -> connection.Ipv4
     httpc_adaptive.Ipv6 -> connection.Ipv6
   }
@@ -120,7 +141,7 @@ fn send(
     connection.options()
     |> connection.with_transport(transport)
     |> connection.with_protocols([connection.Http1])
-    |> connection.with_address_family(family)
+    |> connection.with_address_family(address_family)
     |> connection.with_retry(retries)
     |> connection.with_domain_lookup_timeout(timeout)
     |> connection.with_connect_timeout(timeout)
@@ -128,7 +149,7 @@ fn send(
     |> connection.open(host: request.host, port: port)
     |> result.map_error(NetworkFailure),
   )
-  let outcome = receive_response(socket, request, deadline, limit)
+  let outcome = receive_response(socket, request, deadline, family, limit)
   let closed = case outcome {
     Ok(_) -> connection.close(socket)
     Error(_) -> Ok(Nil)
@@ -145,12 +166,11 @@ fn receive_response(
   socket: connection.Connection,
   request: http_request.Request(BitArray),
   deadline: Int,
+  family: httpc_adaptive.IpFamily,
   limit: Int,
 ) -> Result(Response(BitArray), Error) {
   use timeout <- result.try(remaining_timeout(deadline))
-  use _protocol <- result.try(
-    connection.await_up(socket, timeout) |> result.map_error(transport_error),
-  )
+  use _protocol <- result.try(await_up(socket, timeout, family))
   use options <- result.try(
     request.options()
     |> request.with_initial_flow(1)

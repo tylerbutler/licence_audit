@@ -1,5 +1,13 @@
 -module(archive_download_test_ffi).
--export([with_response/4, with_untrusted_tls/1]).
+-export([with_response/4, with_untrusted_tls/1, probe_failure/2]).
+
+probe_failure(Reason, Family) ->
+    Result = case Reason of
+        timeout -> {error, timeout};
+        _ -> {error, {down, {shutdown, Reason}}}
+    end,
+    {error, Error} = archive_download_ffi:normalise_await_up(Result, Family),
+    Error.
 
 %% Loopback transfers observe early socket closure as well as the returned
 %% error. Wait for the server, then check resources and late mailbox data.
