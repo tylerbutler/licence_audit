@@ -11,6 +11,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import licence_audit/cache
+import licence_audit/cli
 import licence_audit/config
 import licence_audit/error
 import licence_audit/hex
@@ -33,18 +34,14 @@ pub type UpdateResult {
 pub fn run(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   reporter: progress.Reporter,
 ) -> #(UpdateResult, progress.Reporter) {
   run_with_terminal_check(
     manifest_path,
     project_root,
-    config_path,
-    no_cache,
-    cache_root,
+    options,
     source_clients,
     reporter,
     stdin_is_tty: fn() { tty.is_tty(tty.Stdin) },
@@ -56,9 +53,7 @@ pub fn run(
 pub fn run_with_terminal_check(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   reporter: progress.Reporter,
   stdin_is_tty stdin_is_tty: fn() -> Bool,
@@ -69,9 +64,7 @@ pub fn run_with_terminal_check(
       run_with_picker(
         manifest_path,
         project_root,
-        config_path,
-        no_cache,
-        cache_root,
+        options,
         source_clients,
         picker.pick,
         reporter,
@@ -92,9 +85,7 @@ fn not_interactive() -> UpdateResult {
 pub fn run_with_picker(
   manifest_path: String,
   project_root: String,
-  config_path: Option(String),
-  no_cache: Bool,
-  cache_root: Option(String),
+  options: cli.UpdateOptions,
   source_clients: notice.Clients,
   pick: fn(String, List(String), List(String), List(String)) ->
     Result(picker.Selection, picker.PickerError),
@@ -104,7 +95,7 @@ pub fn run_with_picker(
 
   let outcome = {
     use existing <- result.try(
-      load_existing_policy(config_path, project_root)
+      load_existing_policy(options.config_path, project_root)
       |> result.map_error(fn(config_error) {
         #(
           UpdateDiagnostic(
@@ -135,10 +126,7 @@ pub fn run_with_picker(
     let reporter =
       progress.package_count(reporter, list.length(locked.packages))
 
-    let cache_mode = case no_cache {
-      True -> cache.Disabled
-      False -> cache.Enabled(path: cache_root)
-    }
+    let cache_mode = cache.mode_for(options.no_cache, options.cache_dir)
     let cache_handle = cache.open(cache_mode)
     let cached_fetcher =
       cache.wrap_locked(cache_handle, fn(name, version, checksum) {
@@ -171,7 +159,7 @@ pub fn run_with_picker(
         handle_selection(
           existing,
           discovered,
-          config_path,
+          options.config_path,
           project_root,
           cache_warning,
           pick,

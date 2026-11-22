@@ -1,0 +1,3 @@
+package = "licence_audit"
+kind = "Fixed"
+body = "Keep available advisory findings and reviewed exception coverage in `check --checks=vulns` and `check --checks=all` when other advisory details cannot be fetched; incomplete checks still exit 2."
