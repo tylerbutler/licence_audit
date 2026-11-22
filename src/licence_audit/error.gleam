@@ -145,6 +145,13 @@ pub fn from_manifest_error(error: manifest.Error) -> Error {
         <> expected,
       )
     manifest.FileReadError(path) -> Input("Could not read " <> path)
+    manifest.ManifestNotFound(directory, filename) ->
+      Input(
+        filename
+        <> " not found in "
+        <> directory
+        <> "\nRun 'gleam deps download', or use --manifest=PATH.",
+      )
   }
 }
 

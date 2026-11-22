@@ -319,6 +319,7 @@ fn run_sbom_options(
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path = manifest.resolve_path(manifest_path)
   let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Generating SBOM")
   let reporter = progress.detail(reporter, "Loading package manifest")
@@ -366,6 +367,7 @@ fn run_notices_options(
   reporter: progress.Reporter,
 ) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path = manifest.resolve_path(manifest_path)
   let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Generating licence notices")
   let reporter = progress.detail(reporter, "Loading package manifest")
@@ -1565,6 +1567,7 @@ fn run_options_with_clients(
     },
   )
   let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path = manifest.resolve_path(manifest_path)
   let project_root = path.dirname(manifest_path)
   let reporter = progress.phase(reporter, "Starting licence audit")
   let reporter = progress.detail(reporter, "Loading licence policy")
@@ -2229,6 +2232,7 @@ fn run_update_options(
   reporter: progress.Reporter,
 ) -> #(update_cmd.UpdateResult, progress.Reporter) {
   let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path = manifest.resolve_path(manifest_path)
   let project_root = path.dirname(manifest_path)
   update_cmd.run(
     manifest_path,
@@ -2248,6 +2252,7 @@ fn run_vulnerability_check(
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path = manifest.resolve_path(manifest_path)
   let project_root = path.dirname(manifest_path)
   let today = exception.utc_date(timestamp.system_time())
   let reporter = progress.phase(reporter, "Checking for vulnerabilities")
@@ -2341,6 +2346,7 @@ fn run_vulns_options(
   palette: color.Palette,
 ) -> #(ActionResult, progress.Reporter) {
   let manifest_path = option.unwrap(options.manifest_path, "manifest.toml")
+  let manifest_path = manifest.resolve_path(manifest_path)
   let project_root = path.dirname(manifest_path)
   let today = exception.utc_date(timestamp.system_time())
   let outcome = {
