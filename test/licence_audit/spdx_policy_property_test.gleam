@@ -84,8 +84,7 @@ fn render(expression: Expression, whitespace: String) -> String {
 
 pub fn supported_tree_roundtrip_and_whitespace_test() -> Nil {
   use tree <- qcheck.run(config(2720), expression())
-  // CRLF is excluded: the current tokenizer does not split that grapheme.
-  list.each([" ", "\t", "\r", "\n", " \t\n "], fn(whitespace) {
+  list.each([" ", "\t", "\r", "\n", "\r\n", " \t\n "], fn(whitespace) {
     should.equal(spdx_expression.parse(render(tree, whitespace)), Ok(tree))
   })
 }

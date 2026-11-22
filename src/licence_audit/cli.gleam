@@ -314,6 +314,11 @@ fn check_command() -> glint.Command(CliAction) {
   let assert Ok(checks_value) = checks(flags)
   let assert Ok(vuln_severity_value) = vuln_severity(flags)
   let assert Ok(vuln_block_unknown_value) = vuln_block_unknown(flags)
+  let checks_value = case checks_value {
+    "vulns" -> Vulnerabilities
+    "all" -> AllChecks
+    _ -> Licences
+  }
 
   use <- validate_conflicts(
     config_path,
@@ -324,7 +329,7 @@ fn check_command() -> glint.Command(CliAction) {
   case
     verbosity(quiet, verbose),
     color.mode_from_string(color_value),
-    checks_value == "licences"
+    checks_value == Licences
     && {
       option.is_some(vuln_severity_value)
       || option.is_some(vuln_block_unknown_value)
@@ -348,11 +353,7 @@ fn check_command() -> glint.Command(CliAction) {
         color: color_mode,
         no_cache: no_cache,
         cache_dir: cache_dir_value,
-        checks: case checks_value {
-          "vulns" -> Vulnerabilities
-          "all" -> AllChecks
-          _ -> Licences
-        },
+        checks: checks_value,
         vuln_severity: vuln_severity_value,
         vuln_block_unknown: vuln_block_unknown_value,
         scope: scope_from_string(scope_value),
@@ -434,7 +435,9 @@ fn cache_dir_flag() -> glint.Flag(String) {
 fn checks_flag() -> glint.Flag(String) {
   glint.string_flag("checks")
   |> glint.flag_default("licences")
-  |> glint.flag_constraint(constraint.one_of(["licences", "vulns", "all"]))
+  |> glint.flag_constraint(
+    constraint.one_of(["licences", "licenses", "vulns", "all"]),
+  )
   |> glint.flag_help(
     "Select checks: licences|vulns|all (default licences); licences and all require a licence policy",
   )

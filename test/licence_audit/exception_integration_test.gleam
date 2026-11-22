@@ -162,7 +162,9 @@ fn run(
       "--quiet",
     ]),
     licence_audit.Clients(
-      fetcher: fetch,
+      fetcher: fn(_) {
+        panic as "licence commands must use locked source metadata"
+      },
       publication_fetcher: fn(_, _) {
         panic as "non-SBOM commands must not verify local publication"
       },
@@ -233,6 +235,160 @@ pub fn whole_expression_exception_ignores_token_whitespace_test() {
     "denied: MIT\tOR\nApache-2.0 [excepted #1",
   )
   assert !string.contains(result.output, "unused #1")
+}
+
+pub fn invalid_label_exception_matches_only_exact_locked_evidence_test() {
+  use #(name, purl, label, expected) <- list.each([
+    #("exact", "pkg:hex/first@1.0.0", "Apache 2.0", 0),
+    #("package", "pkg:hex/second@1.0.0", "Apache 2.0", 1),
+    #("version", "pkg:hex/first@1.0.1", "Apache 2.0", 1),
+    #("case", "pkg:hex/first@1.0.0", "apache 2.0", 1),
+    #("whitespace", "pkg:hex/first@1.0.0", " Apache 2.0 ", 1),
+    #("spdx", "pkg:hex/first@1.0.0", "Apache-2.0", 1),
+  ])
+  let root =
+    project(
+      "invalid_label_" <> name,
+      licence_rules
+        <> waiver(
+        purl,
+        "invalid-licence-expression",
+        "licence = \"" <> label <> "\"",
+      ),
+    )
+  let fetch = fn(name) {
+    Ok(
+      hex.licences_only(case name {
+        "first" -> ["Apache 2.0"]
+        _ -> ["MIT"]
+      }),
+    )
+  }
+  let result = run(root, ["check"], fetch, batch, detail)
+  should.equal(result.exit_code, expected)
+  assert string.contains(result.output, "invalid SPDX expression: Apache 2.0")
+  case expected {
+    0 -> {
+      assert string.contains(
+        result.output,
+        "invalid SPDX expression: Apache 2.0 [excepted #1",
+      )
+      assert string.contains(result.output, "Reviewed scope")
+      let preview = run(root, ["report"], fetch, batch, detail)
+      should.equal(preview.exit_code, 0)
+      assert string.contains(preview.output, "excepted #1")
+    }
+    _ -> {
+      assert string.contains(result.output, "unused #1")
+      assert !string.contains(result.output, "excepted #1")
+    }
+  }
+}
+
+pub fn invalid_label_exception_cannot_accept_other_required_declarations_test() {
+  let root =
+    project(
+      "mixed_invalid_labels",
+      licence_rules
+        <> waiver(
+        "pkg:hex/first@1.0.0",
+        "invalid-licence-expression",
+        "licence = \"Apache 2.0\"",
+      ),
+    )
+  use #(labels, finding) <- list.each([
+    #(["Apache 2.0", "GPL-3.0-only"], "denied: GPL-3.0-only"),
+    #(["Apache 2.0", "Apache-2.0"], "unknown: Apache-2.0"),
+    #(["Apache 2.0", "BSD 3 Clause"], "invalid SPDX expression: BSD 3 Clause"),
+  ])
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(name) {
+        Ok(
+          hex.licences_only(case name {
+            "first" -> labels
+            _ -> ["MIT"]
+          }),
+        )
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 1)
+  assert string.contains(
+    result.output,
+    "invalid SPDX expression: Apache 2.0 [excepted #1",
+  )
+  assert string.contains(result.output, finding)
+}
+
+pub fn invalid_label_exception_does_not_relax_allow_or_deny_validation_test() {
+  use field <- list.each(["allow", "deny"])
+  let root =
+    project(
+      "invalid_rule_" <> field,
+      "[tools.licence_audit]\n"
+        <> field
+        <> " = [\"Apache 2.0\"]\n"
+        <> waiver(
+        "pkg:hex/first@1.0.0",
+        "invalid-licence-expression",
+        "licence = \"Apache 2.0\"",
+      ),
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(_) {
+        panic as "invalid rules must fail before locked metadata is fetched"
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 2)
+  assert string.contains(result.output, "Apache 2.0")
+}
+
+pub fn crlf_expression_is_not_an_invalid_label_finding_test() {
+  let root =
+    project(
+      "crlf_classification",
+      licence_rules
+        <> waiver(
+        "pkg:hex/first@1.0.0",
+        "invalid-licence-expression",
+        "licence = \"DocumentRef-Project:LicenseRef-a\\r\\nWITH\\r\\nException-Z\"",
+      ),
+    )
+  let result =
+    run(
+      root,
+      ["check"],
+      fn(name) {
+        Ok(
+          hex.licences_only(case name {
+            "first" -> [
+              "DocumentRef-Project:LicenseRef-a\r\nWITH\r\nException-Z",
+            ]
+            _ -> ["MIT"]
+          }),
+        )
+      },
+      batch,
+      detail,
+    )
+  should.equal(result.exit_code, 1)
+  assert string.contains(
+    result.output,
+    "unknown: DocumentRef-Project:LicenseRef-a WITH Exception-Z",
+  )
+  let assert [report, _summary] =
+    string.split(result.output, "Policy exceptions:")
+  assert !string.contains(report, "invalid SPDX expression:")
+  assert string.contains(result.output, "unused #1")
 }
 
 pub fn normalized_duplicate_licence_exceptions_fail_before_fetching_test() {

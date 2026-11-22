@@ -44,6 +44,7 @@ fn tokenize(input: String) -> List(String) {
   |> string.replace("(", " ( ")
   |> string.replace(")", " ) ")
   |> string.replace("\t", " ")
+  |> string.replace("\r\n", " ")
   |> string.replace("\r", " ")
   |> string.replace("\n", " ")
   |> string.split(" ")
