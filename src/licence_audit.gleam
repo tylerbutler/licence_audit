@@ -274,6 +274,7 @@ fn execute_action(
           vuln_severity: None,
           vuln_block_unknown: None,
           scope: options.scope,
+          format: options.format,
         ),
         clients.osv_batch_fetcher,
         clients.osv_detail_fetcher,
