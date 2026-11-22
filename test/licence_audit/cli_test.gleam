@@ -1714,3 +1714,26 @@ pub fn json_recognition_does_not_read_unsupported_separator_suffix_test() -> Nil
     Some("report"),
   )
 }
+
+pub fn json_usage_recognition_preserves_valid_selected_checks_test() -> Nil {
+  use entry <- list.each([
+    #(["report", "--format=json", "--unknown"], Some(cli.Licences)),
+    #(["vulns", "--format=json", "--unknown"], Some(cli.Vulnerabilities)),
+    #(["check", "--format=json", "--unknown"], Some(cli.Licences)),
+    #(
+      ["check", "--checks", "all", "--format=json", "--unknown"],
+      Some(cli.AllChecks),
+    ),
+    #(
+      ["check", "--checks=vulns", "--format=json", "--unknown"],
+      Some(cli.Vulnerabilities),
+    ),
+    #(["check", "--checks=bogus", "--format=json"], None),
+    #(["check", "--format=json", "--checks"], None),
+    #(
+      ["check", "--config", "--checks=all", "--format=json"],
+      Some(cli.Licences),
+    ),
+  ])
+  should.equal(cli.recognized_checks(entry.0), entry.1)
+}

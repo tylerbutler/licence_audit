@@ -509,11 +509,59 @@ pub fn present_results_keep_full_counts_even_with_no_display_rows_test() -> Nil 
     use errors <- decode.field("errors", decode.list(decode.string))
     decode.success(#(exit, complete, rows, total, skipped, errors))
   }
+
   should.equal(
     read(
       json_report.Document(..document(), licences: Some(result), complete: True),
       decoder,
     ),
     #(0, True, [], 4, [#("local", "path")], []),
+  )
+}
+
+pub fn fetched_but_unreviewed_details_do_not_count_as_unavailable_test() -> Nil {
+  let result =
+    json_report.VulnerabilityResult(
+      rows: [
+        vulnerability_row(json_report.Unreviewed(
+          advisory(osv.High),
+          error.Config("ambiguous advisory exceptions"),
+        )),
+      ],
+      queried_packages: 1,
+      skipped_sources: [],
+      coverage: exception.NotEvaluated("ambiguous advisory exceptions"),
+      complete: False,
+    )
+  let document =
+    json_report.Document(
+      ..document(),
+      vulnerabilities: Some(result),
+      outcome: error.Config("ambiguous advisory exceptions"),
+    )
+  let decoder = {
+    use unavailable <- decode.subfield(
+      ["summary", "counts", "vulnerabilities", "unavailable"],
+      decode.int,
+    )
+    use rows <- decode.subfield(
+      ["vulnerabilities", "rows"],
+      decode.list({
+        use aliases <- decode.field("aliases", decode.list(decode.string))
+        use severity <- decode.field("severity", decode.string)
+        use decision <- decode.field(
+          "exception_decision",
+          decode.optional(decode.string),
+        )
+        use blocking <- decode.field("blocking", decode.optional(decode.bool))
+        use failure <- decode.subfield(["error", "code"], decode.string)
+        decode.success(#(aliases, severity, decision, blocking, failure))
+      }),
+    )
+    decode.success(#(unavailable, rows))
+  }
+  should.equal(
+    read(document, decoder),
+    #(0, [#(["CVE-2026-1234"], "high", None, None, "config")]),
   )
 }

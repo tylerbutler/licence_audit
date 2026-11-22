@@ -355,6 +355,35 @@ pub fn recognized_json_command(args: List(String)) -> Option(String) {
   }
 }
 
+/// Preserve valid check selection when JSON usage fails before action parsing.
+pub fn recognized_checks(args: List(String)) -> Option(Checks) {
+  let args = args |> normalize_args |> before_separator
+  case command_path(args) {
+    ["report"] -> option.Some(Licences)
+    ["vulns"] -> option.Some(Vulnerabilities)
+    ["check"] -> selected_checks(args, option.Some(Licences))
+    _ -> option.None
+  }
+}
+
+fn selected_checks(
+  args: List(String),
+  selected: Option(Checks),
+) -> Option(Checks) {
+  case args {
+    [] -> selected
+    ["--checks=" <> value, ..rest] ->
+      selected_checks(rest, case value {
+        "licences" | "licenses" -> option.Some(Licences)
+        "vulns" -> option.Some(Vulnerabilities)
+        "all" -> option.Some(AllChecks)
+        _ -> option.None
+      })
+    ["--checks", ..rest] -> selected_checks(rest, option.None)
+    [_, ..rest] -> selected_checks(rest, selected)
+  }
+}
+
 fn before_separator(args: List(String)) -> List(String) {
   case args {
     [] | ["--", ..] -> []

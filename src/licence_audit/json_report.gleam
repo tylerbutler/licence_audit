@@ -50,6 +50,7 @@ pub type AdvisoryResult {
     decision: exception.Decision,
     blocking: Option(Bool),
   )
+  Unreviewed(advisory: osv.Vulnerability, failure: error.Error)
   Unavailable(advisory_id: String, failure: error.Error)
 }
 
@@ -361,7 +362,7 @@ fn vulnerability_counts_to_json(result: VulnerabilityResult) -> json.Json {
     list.filter_map(result.rows, fn(row) {
       case row.result {
         Available(_, decision, blocking) -> Ok(#(decision, blocking))
-        Unavailable(_, _) -> Error(Nil)
+        Unreviewed(_, _) | Unavailable(_, _) -> Error(Nil)
       }
     })
   json.object([
@@ -385,7 +386,16 @@ fn vulnerability_counts_to_json(result: VulnerabilityResult) -> json.Json {
     ),
     #(
       "unavailable",
-      json.int(list.length(result.rows) - list.length(available)),
+      json.int(
+        result.rows
+        |> list.filter(fn(row) {
+          case row.result {
+            Unavailable(_, _) -> True
+            Available(..) | Unreviewed(..) -> False
+          }
+        })
+        |> list.length,
+      ),
     ),
   ])
 }
@@ -399,6 +409,14 @@ fn vulnerability_row_to_json(row: VulnerabilityRow) -> json.Json {
       optional(blocking, json.bool),
       decision_to_json(decision),
       json.null(),
+    )
+    Unreviewed(advisory, failure) -> #(
+      advisory.id,
+      json.array(advisory.aliases, json.string),
+      json.string(osv.severity_to_string(advisory.severity)),
+      json.null(),
+      json.null(),
+      failure_to_json(failure),
     )
     Unavailable(id, failure) -> #(
       id,
