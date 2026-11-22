@@ -126,6 +126,30 @@ pub fn manifest_errors_map_to_app_errors_test() {
   )
 }
 
+pub fn missing_manifest_diagnostic_has_directory_remedies_and_exit_two_test() -> Nil {
+  let failure =
+    error.from_manifest_error(manifest.ManifestNotFound(
+      "/project/src",
+      "manifest.toml",
+    ))
+  should.equal(error.exit_code(failure), 2)
+  should.equal(
+    error.message(failure),
+    "manifest.toml not found in /project/src\nRun 'gleam deps download', or use --manifest=PATH.",
+  )
+}
+
+pub fn missing_custom_manifest_diagnostic_names_attempted_file_test() -> Nil {
+  let assert Error(manifest_error) =
+    manifest.load("test/fixtures/absent-manifest-directory/custom.lock")
+  let failure = error.from_manifest_error(manifest_error)
+  should.equal(error.exit_code(failure), 2)
+  should.equal(
+    error.message(failure),
+    "custom.lock not found in test/fixtures/absent-manifest-directory\nRun 'gleam deps download', or use --manifest=PATH.",
+  )
+}
+
 pub fn hex_errors_map_to_app_errors_test() {
   should.equal(
     error.from_hex_error(hex.InvalidJson("invalid json")),
