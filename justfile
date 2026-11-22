@@ -87,6 +87,11 @@ test-ffi:
 test: test-ffi
     {{toolchain}} gleam test
 
+# Run only the SPDX/policy examples and fixed-seed properties.
+test-spdx-policy: test-ffi
+    {{toolchain}} gleam build
+    {{toolchain}} erl -noshell -pa build/dev/erlang/*/ebin -eval 'case eunit:test([licence_audit@spdx_expression_test, licence_audit@policy_test, licence_audit@spdx_policy_property_test], [verbose, {print_depth, 1000}]) of ok -> halt(0); error -> halt(1) end.'
+
 # Check notices filtering with real CLI cache settings in fresh Erlang VMs.
 test-notices-filter:
     mise exec -- gleam build
