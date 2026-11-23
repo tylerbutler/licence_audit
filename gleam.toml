@@ -27,7 +27,7 @@ gleam_crypto = ">= 1.6.0 and < 2.0.0"
 gleam_time = ">= 1.8.0 and < 2.0.0"
 cvss = ">= 0.1.1 and < 1.0.0"
 filepath = ">= 1.1.2 and < 2.0.0"
-gluegun = ">= 1.0.0 and < 2.0.0"
+gluegun = ">= 1.1.0 and < 2.0.0"
 weft = "== 0.4.6"
 
 [dev_dependencies]
@@ -43,6 +43,7 @@ qcheck = "1.0.5"
 exclude = { "@members" = ["test/fixtures", "test/fixtures/native_http", "test/fixtures/config_discovery", "test/fixtures/config_discovery/project", "vendor/**"] }
 
 [tools.trellis.changelog]
+change_format = "{{ body | trim }}\n\n"
 # The root package owns the whole repository, including internal-only changes.
 strictness = "warn"
 
