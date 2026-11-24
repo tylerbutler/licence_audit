@@ -1,8 +1,11 @@
 package = "licence_audit"
 kind = "Fixed"
 body = '''
-#### Non-interactive updates fail before loading project data.
+#### Picker-driven updates require an interactive terminal.
 
-The CLI rejects non-interactive `update` before reading policy or manifest
-files, opening caches, or fetching metadata. It prints one diagnostic.
+When none of `--allow`, `--deny`, or `--dry-run` is supplied, `update` uses
+the interactive picker and requires a terminal on both stdin and stdout.
+If either stream lacks a terminal, the CLI prints one diagnostic and exits
+`2` before reading policy or manifest files, opening caches, or fetching
+metadata.
 '''
