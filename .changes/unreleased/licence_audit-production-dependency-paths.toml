@@ -1,3 +1,8 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Keep the full production dependency chain in `report --scope=prod` and `check --scope=prod` when a shorter development path reaches the same package."
+body = '''
+#### Production reports retain the full dependency chain.
+
+Both `report --scope=prod` and `check --scope=prod` keep the full production
+dependency chain when a shorter development path reaches the same package.
+'''

@@ -1,3 +1,9 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Emit `vcs` references for local SBOM components with declared GitLab, Bitbucket, or SourceHut repositories without changing publication identities."
+body = '''
+#### Local SBOM components include repository references.
+
+Local SBOM components with declared GitLab, Bitbucket, or SourceHut
+repositories include `vcs` references. Publication identities remain
+unchanged.
+'''

@@ -1,3 +1,8 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Stop the `update` picker keyboard reader before restoring the terminal or writing policy."
+body = '''
+#### The update picker stops reading before cleanup.
+
+The `update` picker stops its keyboard reader before restoring the terminal
+or writing policy.
+'''

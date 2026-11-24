@@ -1,3 +1,9 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Expire `notices` tag lookups after 24 hours and revalidate repository fallback before reusing final materials, so moved tags cannot retain stale licence text."
+body = '''
+#### Notice lookups refresh licence text after tag changes.
+
+The `notices` command expires tag lookups after 24 hours and revalidates
+repository fallback before reusing final materials. Moved tags cannot
+retain stale licence text.
+'''

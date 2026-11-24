@@ -1,3 +1,9 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Keep available advisory findings and reviewed exception coverage in `check --checks=vulns` and `check --checks=all` when other advisory details cannot be fetched; incomplete checks still exit 2."
+body = '''
+#### Incomplete vulnerability checks retain available findings.
+
+Both `check --checks=vulns` and `check --checks=all` keep available advisory
+findings and reviewed exception coverage when other advisory details cannot
+be fetched. Incomplete checks still exit `2`.
+'''

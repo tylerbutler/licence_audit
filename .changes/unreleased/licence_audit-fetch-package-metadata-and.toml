@@ -1,3 +1,10 @@
 package = "licence_audit"
 kind = "Changed"
-body = "Fetch package metadata and OSV advisory details with four workers while preserving report and warning order. Share connection fallback, host cutoffs, and rate-limit deadlines across each command; report interrupted or unconfirmed HTTP work as incomplete with exit code `2`."
+body = '''
+#### Metadata and advisory requests use four workers.
+
+The CLI fetches package metadata and OSV advisory details with four workers
+while preserving report and warning order. Each command shares connection
+fallback, host cutoffs, and rate-limit deadlines. Interrupted or unconfirmed
+HTTP work is reported as incomplete with exit code `2`.
+'''
