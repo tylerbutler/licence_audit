@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### Licence-only checks accept the American spelling.
-
-Use `check --checks=licenses` as an alias of `--checks=licences`. Both
-spellings use the same licence-only validation.
-'''

@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Added"
-body = '''
-#### Output and version options have short aliases.
-
-Use `-o PATH` as an alias for `--output` on `sbom` and `notices`, and root
-`-V` as an alias for `--version`. Lowercase `-v` remains verbose output.
-'''

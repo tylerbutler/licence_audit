@@ -1,0 +1,369 @@
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Licence-only checks accept the American spelling.
+
+Use `check --checks=licenses` as an alias of `--checks=licences`. Both
+spellings use the same licence-only validation."""
+
+[fragments.source]
+commit = "a0507539ed81f61fb6942c95e50de681963b4251"
+
+[[fragments.source.issues]]
+number = 363
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### The manifest option accepts directories.
+
+You can pass a directory to `--manifest` with the same project-root and
+configuration discovery as a manifest file. Missing manifest errors name
+the attempted file and directory and suggest `gleam deps download` or
+`--manifest=PATH`."""
+
+[fragments.source]
+commit = "036be195f2e4cf7ca47905929252cc0cecbb20d5"
+
+[[fragments.source.issues]]
+number = 369
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### Exceptions can cover invalid licence expressions.
+
+Use `invalid-licence-expression` exceptions for an exact locked Hex
+package/version and raw licence label. SPDX allow/deny rules remain strict.
+The CLI explains invalid labels without offering them in `update` and
+accepts legal CRLF token whitespace."""
+
+[fragments.source]
+commit = "288d24cdda2c367e48e30087b4ab5c75c172ddf3"
+
+[[fragments.source.issues]]
+number = 364
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### Output and version options have short aliases.
+
+Use `-o PATH` as an alias for `--output` on `sbom` and `notices`, and root
+`-V` as an alias for `--version`. Lowercase `-v` remains verbose output."""
+
+[fragments.source]
+commit = "18077936c81c968ebb0211ab53dfe2579e6d6960"
+
+[[fragments.source.issues]]
+number = 370
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### SBOM output supports SPDX 2.3 JSON.
+
+Use `sbom --format=spdx-json` to generate SPDX 2.3 JSON output. CycloneDX
+remains the default format."""
+
+[fragments.source]
+commit = "bc09c5e740ee78c5ffb8ed8d0d8f7f11a452dd3d"
+issues = []
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### Report and check commands support schema-versioned JSON.
+
+Use `--format=json` with named `report`, `check`, and `vulns` commands for
+structured errors, retained partial findings, gate verdicts, and exception
+coverage. Text defaults and exit codes remain unchanged."""
+
+[fragments.source]
+commit = "a3161a692b94a181f144446cf24693bf5f022a4b"
+issues = []
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Cache refresh failures produce a warning.
+
+The CLI warns when it cannot replace a stale cache entry. The current
+command still uses the fresh fetched result."""
+
+[fragments.source]
+commit = "f91059668d4e5ede5a2927bd81eb2cd56fd78e2c"
+
+[[fragments.source.issues]]
+number = 349
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Local SBOM components include repository references.
+
+Local SBOM components with declared GitLab, Bitbucket, or SourceHut
+repositories include `vcs` references. Publication identities remain
+unchanged."""
+
+[fragments.source]
+commit = "267b3443e1960db96b0ab0ffc28a6fe803aae0bf"
+
+[[fragments.source.issues]]
+number = 362
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### The shipped executable excludes test helpers.
+
+Test-only Erlang helpers are no longer included in the shipped executable."""
+
+[fragments.source]
+commit = "8c4017b0d2dc9809d8c750612383f92d0e9bcd8b"
+
+[[fragments.source.issues]]
+number = 343
+
+[[fragments]]
+package = "licence_audit"
+kind = "Changed"
+body = """
+#### Metadata and advisory requests use four workers.
+
+The CLI fetches package metadata and OSV advisory details with four workers
+while preserving report and warning order. Each command shares connection
+fallback, host cutoffs, and rate-limit deadlines. Interrupted or unconfirmed
+HTTP work is reported as incomplete with exit code `2`."""
+
+[fragments.source]
+commit = "c0e24bf5b1e307aade998ec3de9c1ef19e80eed1"
+issues = []
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Incomplete vulnerability checks retain available findings.
+
+Both `check --checks=vulns` and `check --checks=all` keep available advisory
+findings and reviewed exception coverage when other advisory details cannot
+be fetched. Incomplete checks still exit `2`."""
+
+[fragments.source]
+commit = "9ac92d620909b8b3a42da3fa6956c3f1f0198540"
+issues = []
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### CLI usage errors stay within three lines.
+
+Usage errors use at most three stderr lines and include a command-specific
+help pointer. The CLI names unknown commands even with `--help`, reports
+clear parser causes, and shows migration hints for removed flags."""
+
+[fragments.source]
+commit = "8c31c6ed653447799384c3a99c6ed3225955f055"
+
+[[fragments.source.issues]]
+number = 366
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Help output respects the destination color policy.
+
+Help output honors `--color`/`--colour` and the color policy of its stdout
+or stderr destination."""
+
+[fragments.source]
+commit = "55f9b2f3ab1bf3c47cc5bb1a07170eff36270305"
+
+[[fragments.source.issues]]
+number = 358
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Notice lookups refresh licence text after tag changes.
+
+The `notices` command expires tag lookups after 24 hours and revalidates
+repository fallback before reusing final materials. Moved tags cannot
+retain stale licence text."""
+
+[fragments.source]
+commit = "6da26e30ed32b61ae6036565f138024f355663ac"
+
+[[fragments.source.issues]]
+number = 347
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Policy updates preserve temporary paths reused by other writers.
+
+After a successful policy replacement, `licence_audit update` no longer
+deletes a temporary pathname that another writer has reused."""
+
+[fragments.source]
+commit = "44358c8d2d8442c04e23914b7073212b8cf77e4b"
+
+[[fragments.source.issues]]
+number = 346
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Production reports retain the full dependency chain.
+
+Both `report --scope=prod` and `check --scope=prod` keep the full production
+dependency chain when a shorter development path reaches the same package."""
+
+[fragments.source]
+commit = "13e609761479385e94f99369f97106afd43051d5"
+
+[[fragments.source.issues]]
+number = 351
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Picker-driven updates require an interactive terminal.
+
+When none of `--allow`, `--deny`, or `--dry-run` is supplied, `update` uses
+the interactive picker and requires a terminal on both stdin and stdout.
+If either stream lacks a terminal, the CLI prints one diagnostic and exits
+`2` before reading policy or manifest files, opening caches, or fetching
+metadata."""
+
+[fragments.source]
+commit = "eb0abd60d4ed426beb494bd54e0c0c39cd15990a"
+
+[[fragments.source.issues]]
+number = 357
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Hex and OSV requests retry transient failures within limits.
+
+The CLI retries transient Hex API and OSV failures within service attempt
+limits and a 30-second retry-wait budget. It stops unavailable hosts after
+three exhausted timeout/connect operations and splits OSV batches into at
+most 1,000 queries without partial coverage."""
+
+[fragments.source]
+commit = "a1b78e74c2b0b97da5717fbd1835793899c57a76"
+
+[[fragments.source.issues]]
+number = 361
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### CLI help shows meaningful flag values and command summaries.
+
+Help output shows meaningful flag values and one-line command summaries.
+Command descriptions and Boolean value parsing remain unchanged."""
+
+[fragments.source]
+commit = "4877fea0f769f15daa45b27d2ed143ddea7cb2a6"
+issues = []
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### Licence reports show package totals and check verdicts.
+
+Both `report` and `check` show package totals. Licence checks show a passing
+verdict or, after failure, a unique package finding list."""
+
+[fragments.source]
+commit = "37381a3ab5c89e349d8775b93f7124a20a7d2d61"
+
+[[fragments.source.issues]]
+number = 367
+
+[[fragments]]
+package = "licence_audit"
+kind = "Dependencies"
+body = """
+#### Source archive downloads use Gluegun 1.1.0 connection cleanup.
+
+Upgrade Gluegun from 1.0.0 to 1.1.0 so failed or timed-out source archive
+downloads attempt bounded supervisor shutdown before forced termination.
+Existing download limits, deadlines, flow control, and connection ownership
+remain unchanged."""
+
+[fragments.source]
+commit = "b20736670e0989826343adcf52b24be2e6c51721"
+
+[[fragments.source.issues]]
+number = 380
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### The update picker stops reading before cleanup.
+
+The `update` picker stops its keyboard reader before restoring the terminal
+or writing policy."""
+
+[fragments.source]
+commit = "b54744066b729a4fd278aa84fed366e46e7d9a83"
+
+[[fragments.source.issues]]
+number = 354
+
+[[fragments]]
+package = "licence_audit"
+kind = "Fixed"
+body = """
+#### Successful IPv4 archive downloads omit IPv6 no-address warnings.
+
+The CLI suppresses IPv6 no-address warnings when source archive downloads
+succeed over IPv4."""
+
+[fragments.source]
+commit = "94364f998f0ba69c0c40f51967cc32923d866581"
+
+[[fragments.source.issues]]
+number = 356
+
+[[fragments]]
+package = "licence_audit"
+kind = "Added"
+body = """
+#### Explicit policy edits and dry runs do not require a terminal.
+
+Use `update --allow=...`, `update --deny=...`, or both flags to replace
+policy lists without a terminal. Use `update --dry-run` to preview without
+changing the policy file. These flags skip the interactive picker; `update`
+without any of them requires an interactive terminal.
+
+Omitted lists are preserved, empty values clear lists, and uncovered
+licences are reported without failing the update."""
+
+[fragments.source]
+commit = "8bbac0fdc578b6224b9493904d2c9b3042a45b7f"
+issues = []

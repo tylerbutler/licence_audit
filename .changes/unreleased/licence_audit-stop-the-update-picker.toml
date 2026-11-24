@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### The update picker stops reading before cleanup.
-
-The `update` picker stops its keyboard reader before restoring the terminal
-or writing policy.
-'''

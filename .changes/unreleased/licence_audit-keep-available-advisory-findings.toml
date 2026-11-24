@@ -1,9 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### Incomplete vulnerability checks retain available findings.
-
-Both `check --checks=vulns` and `check --checks=all` keep available advisory
-findings and reviewed exception coverage when other advisory details cannot
-be fetched. Incomplete checks still exit `2`.
-'''

@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### Successful IPv4 archive downloads omit IPv6 no-address warnings.
-
-The CLI suppresses IPv6 no-address warnings when source archive downloads
-succeed over IPv4.
-'''

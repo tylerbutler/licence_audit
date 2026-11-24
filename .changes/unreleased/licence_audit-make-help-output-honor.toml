@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### Help output respects the destination color policy.
-
-Help output honors `--color`/`--colour` and the color policy of its stdout
-or stderr destination.
-'''
