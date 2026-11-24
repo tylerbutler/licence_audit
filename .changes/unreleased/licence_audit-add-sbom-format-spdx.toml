@@ -1,3 +1,8 @@
 package = "licence_audit"
 kind = "Added"
-body = "Add `sbom --format=spdx-json` for SPDX 2.3 JSON output while retaining the CycloneDX default."
+body = '''
+#### SBOM output supports SPDX 2.3 JSON.
+
+Use `sbom --format=spdx-json` to generate SPDX 2.3 JSON output. CycloneDX
+remains the default format.
+'''

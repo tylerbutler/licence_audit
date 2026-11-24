@@ -1,3 +1,8 @@
 package = "licence_audit"
 kind = "Added"
-body = "Show package totals in `report` and `check`, a passing licence verdict, and a unique package finding list after failed licence checks."
+body = '''
+#### Licence reports show package totals and check verdicts.
+
+Both `report` and `check` show package totals. Licence checks show a passing
+verdict or, after failure, a unique package finding list.
+'''

@@ -1,3 +1,9 @@
 package = "licence_audit"
 kind = "Added"
-body = "Add schema-versioned `--format=json` output for named `report`, `check`, and `vulns`, including structured errors, retained partial findings, gate verdicts, and exception coverage. Text defaults and exit codes remain unchanged."
+body = '''
+#### Report and check commands support schema-versioned JSON.
+
+Use `--format=json` with named `report`, `check`, and `vulns` commands for
+structured errors, retained partial findings, gate verdicts, and exception
+coverage. Text defaults and exit codes remain unchanged.
+'''

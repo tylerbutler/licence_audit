@@ -1,3 +1,10 @@
 package = "licence_audit"
 kind = "Added"
-body = "Add `invalid-licence-expression` exceptions for an exact locked Hex package/version and raw licence label. Keep SPDX allow/deny rules strict, explain invalid labels without offering them in `update`, and accept legal CRLF token whitespace."
+body = '''
+#### Exceptions can cover invalid licence expressions.
+
+Use `invalid-licence-expression` exceptions for an exact locked Hex
+package/version and raw licence label. SPDX allow/deny rules remain strict.
+The CLI explains invalid labels without offering them in `update` and
+accepts legal CRLF token whitespace.
+'''

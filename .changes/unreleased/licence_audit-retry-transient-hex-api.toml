@@ -1,3 +1,10 @@
 package = "licence_audit"
 kind = "Fixed"
-body = "Retry transient Hex API and OSV failures within service attempt limits and a 30-second retry-wait budget; stop unavailable hosts after three exhausted timeout/connect operations, and split OSV batches into at most 1,000 queries without partial coverage."
+body = '''
+#### Hex and OSV requests retry transient failures within limits.
+
+The CLI retries transient Hex API and OSV failures within service attempt
+limits and a 30-second retry-wait budget. It stops unavailable hosts after
+three exhausted timeout/connect operations and splits OSV batches into at
+most 1,000 queries without partial coverage.
+'''
