@@ -1,9 +1,0 @@
-package = "licence_audit"
-kind = "Added"
-body = '''
-#### Report and check commands support schema-versioned JSON.
-
-Use `--format=json` with named `report`, `check`, and `vulns` commands for
-structured errors, retained partial findings, gate verdicts, and exception
-coverage. Text defaults and exit codes remain unchanged.
-'''

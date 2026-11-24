@@ -1,7 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### The shipped executable excludes test helpers.
-
-Test-only Erlang helpers are no longer included in the shipped executable.
-'''

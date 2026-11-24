@@ -1,9 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### CLI usage errors stay within three lines.
-
-Usage errors use at most three stderr lines and include a command-specific
-help pointer. The CLI names unknown commands even with `--help`, reports
-clear parser causes, and shows migration hints for removed flags.
-'''

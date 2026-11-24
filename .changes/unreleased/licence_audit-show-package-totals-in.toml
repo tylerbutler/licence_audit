@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Added"
-body = '''
-#### Licence reports show package totals and check verdicts.
-
-Both `report` and `check` show package totals. Licence checks show a passing
-verdict or, after failure, a unique package finding list.
-'''

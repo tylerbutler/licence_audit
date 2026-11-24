@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### Cache refresh failures produce a warning.
-
-The CLI warns when it cannot replace a stale cache entry. The current
-command still uses the fresh fetched result.
-'''

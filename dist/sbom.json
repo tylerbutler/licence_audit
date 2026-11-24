@@ -2,7 +2,7 @@
   "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:72eb1fc8-1f1c-8584-a9a9-5442bfb2883d",
+  "serialNumber": "urn:uuid:e34d4f91-1a66-83e9-8c51-9dee8873ba29",
   "version": 1,
   "metadata": {
     "timestamp": "1970-01-01T00:00:00Z",
@@ -13,14 +13,14 @@
       {
         "vendor": "tylerbutler",
         "name": "licence_audit",
-        "version": "1.0.0-rc.3"
+        "version": "1.0.0-rc.4"
       }
     ],
     "component": {
       "bom-ref": "root",
       "type": "application",
       "name": "licence_audit",
-      "version": "1.0.0-rc.3",
+      "version": "1.0.0-rc.4",
       "purl": "pkg:github/tylerbutler/licence_audit",
       "description": "Audit licences of locked Hex dependencies in Gleam projects.",
       "licenses": [

@@ -1,8 +1,0 @@
-package = "licence_audit"
-kind = "Fixed"
-body = '''
-#### CLI help shows meaningful flag values and command summaries.
-
-Help output shows meaningful flag values and one-line command summaries.
-Command descriptions and Boolean value parsing remain unchanged.
-'''
